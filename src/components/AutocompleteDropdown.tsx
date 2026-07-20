@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { theme } from '../theme/theme';
+import { useTheme } from '../theme/ThemeContext';
 
 interface CommandHint {
   command: string;
@@ -10,18 +10,17 @@ interface CommandHint {
 const mockCommands: CommandHint[] = [
   { command: '/add-dir', description: 'Add a new working directory' },
   { command: '/agents', description: 'Manage agent configurations' },
-  { command: '/bashes', description: 'List and manage background tasks' },
   { command: '/clear (reset, new)', description: 'Clear conversation history and free up context' },
   { command: '/compact', description: 'Clear conversation history but keep a summary in context' },
-  { command: '/help', description: 'Show available commands' },
-  { command: '/build', description: 'Run the mock production build sequence' },
   { command: '/context', description: 'View the current file context window' },
+  { command: '/help', description: 'Show available commands' },
   { command: '/persona', description: 'Switch the active agent persona' },
   { command: '/plugin', description: 'Manage Zenith plugins and extensions' },
   { command: '/settings', description: 'Configure Zenith options and theme' },
 ];
 
 export const AutocompleteDropdown: React.FC<{ input: string; onSelect: (cmd: string) => void }> = ({ input, onSelect }) => {
+  const { theme } = useTheme();
   const [activeIndex, setActiveIndex] = useState(0);
 
   const filtered = mockCommands.filter(c => c.command.startsWith(input));

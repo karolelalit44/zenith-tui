@@ -31,7 +31,11 @@ export function useMockEngine() {
     if (input.trim().startsWith('/add-dir')) {
        setLoadingText('Scanning file system...');
        await delay(800);
-       setHistory(prev => [...prev, { type: 'text', text: 'Directory context synchronized successfully.' }]);
+       
+       const parts = input.trim().split(' ');
+       const path = parts.length > 1 ? parts[1] : '~/BCApps/new-module';
+       
+       setHistory(prev => [...prev, { type: 'add-dir', path }]);
        setIsExecuting(false);
        return;
     }

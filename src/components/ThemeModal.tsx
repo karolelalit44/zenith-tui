@@ -3,23 +3,20 @@ import { Box, Text, useInput } from 'ink';
 import { RoundedBox } from './RoundedBox';
 import { useTheme } from '../theme/ThemeContext';
 
-export type Persona = 'architect' | 'debugger' | 'creative';
-
-const PERSONAS: { id: Persona; label: string; icon: string; desc: string }[] = [
-  { id: 'architect', label: 'The Architect', icon: '◩', desc: 'Default logic and balanced code generation.' },
-  { id: 'debugger', label: 'The Debugger', icon: '⯈', desc: 'Hyper-focused on stack traces and bug hunting.' },
-  { id: 'creative', label: 'The Creative', icon: '✧', desc: 'Optimized for UI/UX design and aesthetic styling.' },
+const THEMES = [
+  { id: 'deep_forest', label: 'Deep Forest', icon: '🌲', desc: 'Default dark green and ethereal hues.' },
+  { id: 'synthwave', label: 'Synthwave', icon: '🌆', desc: 'Neon pinks, purples, and retrowave styling.' },
+  { id: 'monokai', label: 'Monokai Pro', icon: '🎨', desc: 'Vibrant, high-contrast editor colors.' },
+  { id: 'dracula', label: 'Dracula', icon: '🧛', desc: 'A dark theme for vampires.' }
 ];
 
-export const PersonaModal: React.FC<{ 
-  currentPersona: Persona; 
-  onSelect: (persona: Persona) => void;
+export const ThemeModal: React.FC<{ 
   onClose: () => void;
-}> = ({ currentPersona, onSelect, onClose }) => {
-  const { theme } = useTheme();
-  const [selectedIndex, setSelectedIndex] = useState(
-    Math.max(0, PERSONAS.findIndex(p => p.id === currentPersona))
-  );
+  onSelect?: (themeId: string) => void;
+}> = ({ onClose, onSelect }) => {
+  const { theme, activeThemeId, setTheme } = useTheme();
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [activeTheme, setActiveTheme] = useState(activeThemeId);
 
   useInput((char, key) => {
     if (key.escape) {
@@ -32,32 +29,35 @@ export const PersonaModal: React.FC<{
     }
     
     if (key.downArrow) {
-      setSelectedIndex(prev => Math.min(PERSONAS.length - 1, prev + 1));
+      setSelectedIndex(prev => Math.min(THEMES.length - 1, prev + 1));
     }
     
     if (key.return) {
-      onSelect(PERSONAS[selectedIndex].id);
+      const selected = THEMES[selectedIndex].id;
+      setActiveTheme(selected);
+      setTheme(selected);
+      if (onSelect) onSelect(selected);
       onClose();
     }
   });
 
   return (
-    <RoundedBox title="Select Persona" borderColor={theme.colors.border.muted} hasShadow={true}>
+    <RoundedBox title="Theme Engine" borderColor={theme.colors.border.muted} hasShadow={true}>
       <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
         
         {/* Header / Vibe */}
         <Box marginBottom={1} paddingBottom={1} borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
            <Text color={theme.colors.text.emerald}>❯ </Text>
-           <Text color={theme.colors.text.ethereal} bold>CONFIGURE SYSTEM PERSONA</Text>
+           <Text color={theme.colors.text.ethereal} bold>SELECT UI THEME</Text>
         </Box>
         
-        {/* Persona List */}
-        {PERSONAS.map((persona, idx) => {
+        {/* Theme List */}
+        {THEMES.map((t, idx) => {
           const isSelected = idx === selectedIndex;
-          const isActive = persona.id === currentPersona;
+          const isActive = t.id === activeTheme;
           
           return (
-            <Box key={persona.id} flexDirection="row" marginY={1} width="100%">
+            <Box key={t.id} flexDirection="row" marginY={1} width="100%">
               {/* Active Indicator Bar (Left Edge) */}
               <Box width={3}>
                  <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.muted}>
@@ -69,9 +69,9 @@ export const PersonaModal: React.FC<{
               <Box flexDirection="column" flexGrow={1}>
                 <Box flexDirection="row" justifyContent="space-between" width="100%">
                    <Box flexDirection="row">
-                     <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.muted}>{persona.icon} </Text>
+                     <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.muted}>{t.icon} </Text>
                      <Text color={isSelected ? theme.colors.text.ethereal : theme.colors.text.muted} bold={isSelected}>
-                        {persona.label}
+                        {t.label}
                      </Text>
                    </Box>
                    {isActive && (
@@ -80,9 +80,9 @@ export const PersonaModal: React.FC<{
                       </Text>
                    )}
                 </Box>
-                <Box marginTop={0} paddingLeft={3}>
+                <Box marginTop={0} paddingLeft={4}>
                    <Text color={theme.colors.text.muted} dimColor={!isSelected} italic={isSelected}>
-                     {persona.desc}
+                     {t.desc}
                    </Text>
                 </Box>
               </Box>
@@ -93,7 +93,7 @@ export const PersonaModal: React.FC<{
         {/* Hotkey Footer */}
         <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderLeft={false} borderRight={false} borderBottom={false} borderColor={theme.colors.border.muted} justifyContent="center">
            <Text color={theme.colors.text.muted}>
-             <Text color={theme.colors.text.emerald}>[↑↓]</Text> Navigate   <Text color={theme.colors.text.emerald}>[↵]</Text> Select   <Text color={theme.colors.text.emerald}>[Esc]</Text> Close
+             <Text color={theme.colors.text.emerald}>[↑↓]</Text> Navigate   <Text color={theme.colors.text.emerald}>[↵]</Text> Apply Theme   <Text color={theme.colors.text.emerald}>[Esc]</Text> Close
            </Text>
         </Box>
         

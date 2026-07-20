@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { RoundedBox } from './RoundedBox';
-import { theme } from '../theme/theme';
+import { useTheme } from '../theme/ThemeContext';
 
-export const PluginModal: React.FC<{ onClose: () => void; onTriggerMock: () => void }> = ({ onClose, onTriggerMock }) => {
+export const PluginModal: React.FC<{ onClose: () => void; onTriggerMock: (cmd: string) => void }> = ({ onClose, onTriggerMock }) => {
+  const { theme } = useTheme();
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeTab, setActiveTab] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   

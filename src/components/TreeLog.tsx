@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { theme } from '../theme/theme';
+import { useTheme } from '../theme/ThemeContext';
 
 interface TreeLogProps {
   toolName: string;
@@ -10,6 +10,8 @@ interface TreeLogProps {
 }
 
 export const TreeLog: React.FC<TreeLogProps> = ({ toolName, args, resultTitle, children }) => {
+  const { theme } = useTheme();
+  
   return (
     <Box flexDirection="column" marginBottom={1}>
       {/* Primary Tool Call Line */}

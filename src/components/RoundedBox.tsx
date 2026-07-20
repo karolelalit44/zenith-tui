@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { theme } from '../theme/theme';
+import { useTheme } from '../theme/ThemeContext';
 
 interface RoundedBoxProps {
   title?: string;
@@ -19,13 +19,15 @@ export const RoundedBox: React.FC<RoundedBoxProps> = ({
   paddingY = 0,
   hasShadow = false,
 }) => {
+  const { theme } = useTheme();
+  
   return (
     <Box flexDirection="column" width="100%">
-      <Box flexDirection="row" width="100%">
-      {/* Modern HUD Box with Heavy Block Borders */}
+      <Box flexDirection="row" width="100%" position="relative">
+      {/* Modern HUD Box with Rounded Borders */}
       <Box
         borderStyle={{
-          topLeft: '▛', topRight: '▜', top: '▀', bottom: '▄', bottomLeft: '▙', bottomRight: '▟', left: '▌', right: '▐'
+          topLeft: '╭', topRight: '╮', top: '═', bottom: '═', bottomLeft: '╰', bottomRight: '╯', left: '║', right: '║'
         }}
         borderColor={borderColor}
         paddingX={paddingX}
@@ -33,16 +35,22 @@ export const RoundedBox: React.FC<RoundedBoxProps> = ({
         flexDirection="column"
         flexGrow={1}
       >
-        {/* Inline HUD Title */}
-        {title && (
-          <Box marginBottom={1} paddingX={1} alignSelf="flex-start">
-            <Text color={theme.colors.bg.app} backgroundColor={borderColor} bold> {title} </Text>
-          </Box>
-        )}
-        <Box flexDirection="column" width="100%">
+        {/* Children wrapper */}
+        <Box flexDirection="column" width="100%" flexGrow={1} justifyContent="center">
           {children}
         </Box>
       </Box>
+
+      {/* Embedded Border Title on Right Hand Side */}
+      {title && (
+        <Box position="absolute" top={0} left={0} width="100%" justifyContent="flex-end" paddingRight={4}>
+          <Box flexDirection="row">
+            <Text color={borderColor}>╣ </Text>
+            <Text color={theme.colors.bg.app} backgroundColor={borderColor} bold> {title} </Text>
+            <Text color={borderColor}> ╠</Text>
+          </Box>
+        </Box>
+      )}
 
 
         {hasShadow && (

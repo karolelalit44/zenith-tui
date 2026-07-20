@@ -3,18 +3,27 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { TreeLog } from './components/TreeLog';
+import { AddDirLog } from './components/AddDirLog';
 import { WordDiffViewer } from './components/WordDiffViewer';
 import { PluginModal } from './components/PluginModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ContextModal } from './components/ContextModal';
+import { ThemeModal } from './components/ThemeModal';
 import { PersonaModal, Persona } from './components/PersonaModal';
 import { AutocompleteDropdown } from './components/AutocompleteDropdown';
-import { theme } from './theme/theme';
-import { useMockEngine, LogItem } from './hooks/useMockEngine';
+import { useTheme } from './theme/ThemeContext';
+import { useMockEngine } from './hooks/useMockEngine';
 
-type OverlayState = 'none' | 'autocomplete' | 'plugin' | 'settings' | 'context' | 'persona';
+type HistoryItem = 
+  | { type: 'user'; text: string }
+  | { type: 'text'; text: string }
+  | { type: 'add-dir'; path: string }
+  | { type: 'tool'; name: string; args?: string; resultTitle?: string; diff?: any[] };
+
+type OverlayState = 'none' | 'autocomplete' | 'plugin' | 'settings' | 'theme' | 'context' | 'persona';
 
 export const App: React.FC = () => {
+  const { theme } = useTheme();
   const [input, setInput] = useState('');
   const [overlay, setOverlay] = useState<OverlayState>('none');
   const [persona, setPersona] = useState<Persona>('architect');
@@ -124,6 +133,9 @@ export const App: React.FC = () => {
                </TreeLog>
              );
           }
+          if (item.type === 'add-dir') {
+             return <AddDirLog key={idx} path={item.path} />;
+          }
           return null;
         })}
       </Box>
@@ -146,7 +158,7 @@ export const App: React.FC = () => {
         <Box flexDirection="column" marginTop={1}>
           <Box flexDirection="row">
             <Text color={theme.colors.text.muted}>{'> '}</Text>
-            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} focus={overlay !== 'plugin'} />
+            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} focus={overlay === 'none' || overlay === 'autocomplete'} />
           </Box>
           
           {/* Overlays attach right under the input */}
@@ -157,7 +169,10 @@ export const App: React.FC = () => {
              <Box marginTop={1}><PluginModal onClose={() => setOverlay('none')} onTriggerMock={triggerPluginMock} /></Box>
           )}
           {overlay === 'settings' && (
-             <Box marginTop={1}><SettingsModal onClose={() => setOverlay('none')} /></Box>
+             <Box marginTop={1}><SettingsModal onClose={() => setOverlay('none')} onOpenTheme={() => setOverlay('theme')} /></Box>
+          )}
+          {overlay === 'theme' && (
+             <Box marginTop={1}><ThemeModal onClose={() => setOverlay('none')} /></Box>
           )}
           {overlay === 'context' && (
              <Box marginTop={1}><ContextModal onClose={() => setOverlay('none')} /></Box>

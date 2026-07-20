@@ -1,9 +1,10 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { RoundedBox } from './RoundedBox';
-import { theme } from '../theme/theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export const ContextModal: React.FC<{ onClose: () => void }> = () => {
+  const { theme } = useTheme();
   return (
     <RoundedBox title="Workspace Context" borderColor={theme.colors.border.muted} hasShadow={true}>
       <Box flexDirection="column" paddingX={2} paddingY={1}>
