@@ -1,20 +1,30 @@
 import React from 'react';
-import { Text, Box } from 'ink';
+import { Text } from 'ink';
 
-interface MascotProps {
-  color?: string;
-}
-
-const MASCOT_ART = `
+export const Mascot: React.FC<{ color?: string; persona?: 'architect' | 'debugger' | 'creative' }> = ({ 
+  color = '#8FBC8F', 
+  persona = 'architect' 
+}) => {
+  let ascii = '';
+  if (persona === 'architect') {
+    ascii = `
    ✧   
  ⟐ ✦ ⟐ 
    ✧   
-`.trim();
+    `;
+  } else if (persona === 'debugger') {
+    ascii = `
+  [■]  
+  >_<  
+  [■]  
+    `;
+  } else if (persona === 'creative') {
+    ascii = `
+  ~o~  
+ ( ✿ ) 
+  ~o~  
+    `;
+  }
 
-export const Mascot: React.FC<MascotProps> = ({ color = '#D97757' }) => {
-  return (
-    <Box>
-      <Text color={color}>{MASCOT_ART}</Text>
-    </Box>
-  );
+  return <Text color={color}>{ascii}</Text>;
 };

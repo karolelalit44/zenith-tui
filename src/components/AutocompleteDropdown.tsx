@@ -13,7 +13,12 @@ const mockCommands: CommandHint[] = [
   { command: '/bashes', description: 'List and manage background tasks' },
   { command: '/clear (reset, new)', description: 'Clear conversation history and free up context' },
   { command: '/compact', description: 'Clear conversation history but keep a summary in context' },
+  { command: '/help', description: 'Show available commands' },
+  { command: '/build', description: 'Run the mock production build sequence' },
+  { command: '/context', description: 'View the current file context window' },
+  { command: '/persona', description: 'Switch the active agent persona' },
   { command: '/plugin', description: 'Manage Zenith plugins and extensions' },
+  { command: '/settings', description: 'Configure Zenith options and theme' },
 ];
 
 export const AutocompleteDropdown: React.FC<{ input: string; onSelect: (cmd: string) => void }> = ({ input, onSelect }) => {
@@ -48,12 +53,12 @@ export const AutocompleteDropdown: React.FC<{ input: string; onSelect: (cmd: str
       {filtered.map((cmd, i) => (
         <Box key={i} flexDirection="row">
           <Box width={25}>
-            <Text color={i === activeIndex ? theme.colors.text.primary : theme.colors.text.muted} bold={i === activeIndex}>
+            <Text color={i === activeIndex ? theme.colors.text.ethereal : theme.colors.text.muted} bold={i === activeIndex}>
               {cmd.command}
             </Text>
           </Box>
           <Box>
-            <Text color={i === activeIndex ? theme.colors.text.accentBlue : theme.colors.text.muted}>
+            <Text color={i === activeIndex ? theme.colors.text.emerald : theme.colors.text.muted}>
               {cmd.description}
             </Text>
           </Box>

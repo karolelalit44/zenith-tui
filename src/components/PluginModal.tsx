@@ -29,12 +29,12 @@ export const PluginModal: React.FC<{ onClose: () => void; onTriggerMock: () => v
   });
 
   return (
-    <RoundedBox title="Zenith Plugins" borderColor={theme.colors.border.muted}>
+    <RoundedBox title="Zenith Plugins" borderColor={theme.colors.border.muted} hasShadow={true}>
       {/* Tabs Row */}
       <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
         <Box flexDirection="row" gap={2}>
           {tabs.map((t, i) => (
-             <Text key={t} backgroundColor={i === activeTab ? theme.colors.text.accentBlue : undefined} color={i === activeTab ? '#000' : theme.colors.text.primary}>
+             <Text key={t} backgroundColor={i === activeTab ? theme.colors.text.emerald : undefined} color={i === activeTab ? '#000' : theme.colors.text.ethereal}>
                {i === activeTab ? ` ${t} ` : t}
              </Text>
           ))}
@@ -44,7 +44,7 @@ export const PluginModal: React.FC<{ onClose: () => void; onTriggerMock: () => v
 
       {/* Subtitle */}
       <Box marginBottom={1}>
-        <Text color={theme.colors.text.primary}>{tabs[activeTab]} plugins </Text>
+        <Text color={theme.colors.text.ethereal}>{tabs[activeTab]} plugins </Text>
         <Text color={theme.colors.text.muted}>(1/44)</Text>
       </Box>
 
@@ -59,8 +59,8 @@ export const PluginModal: React.FC<{ onClose: () => void; onTriggerMock: () => v
         {/* Active Item */}
         <Box flexDirection="column">
           <Box flexDirection="row">
-            <Text color={theme.colors.text.primary} bold>{'> o '}</Text>
-            <Text color={theme.colors.text.primary}>context7 </Text>
+            <Text color={theme.colors.text.ethereal} bold>{'> o '}</Text>
+            <Text color={theme.colors.text.ethereal}>context7 </Text>
             <Text color={theme.colors.text.muted}>· zenith-plugins-official [Community Managed] · 36.2K installs</Text>
           </Box>
           <Box paddingLeft={4}>

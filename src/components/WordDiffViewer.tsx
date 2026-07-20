@@ -42,7 +42,7 @@ export const WordDiffViewer: React.FC<WordDiffViewerProps> = ({ lines }) => {
             <Box flexGrow={1} flexShrink={0} flexDirection="row">
               <Box backgroundColor={bgColor} width="100%" flexDirection="row">
                 <Box width={2}>
-                  <Text color={line.type === 'remove' ? theme.colors.text.accentOrange : (line.type === 'add' ? '#fff' : theme.colors.text.primary)}>
+                  <Text color={line.type === 'remove' ? theme.colors.text.emerald : (line.type === 'add' ? '#fff' : theme.colors.text.ethereal)}>
                     {prefix}
                   </Text>
                 </Box>

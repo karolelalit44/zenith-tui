@@ -8,7 +8,7 @@ test('App Happy Flow End-to-End', async () => {
   
   // 1. Boot State
   expect(lastFrame()).toContain('Zenith v1.0.0');
-  expect(lastFrame()).toContain('Welcome back, Architect.');
+  expect(lastFrame()).toContain('SYSTEM STATUS');
   
   // 2. Open Autocomplete
   stdin.write('/');
@@ -31,7 +31,7 @@ test('App Happy Flow End-to-End', async () => {
   await new Promise((resolve) => setTimeout(resolve, 100));
   
   // Now we should be in 'thinking' state for plugins
-  expect(lastFrame()).toContain('Loading plugins...');
+  expect(lastFrame()).toContain('Fetching registry...');
 });
 
 test('App MockEngine Branching: /add-dir and /clear', async () => {
@@ -43,11 +43,11 @@ test('App MockEngine Branching: /add-dir and /clear', async () => {
   stdin.write('\r'); // trigger enter
   await new Promise((resolve) => setTimeout(resolve, 100));
   
-  expect(lastFrame()).toContain('Adding directory...');
+  expect(lastFrame()).toContain('Scanning file system...');
   
   // Wait for command to finish
   await new Promise((resolve) => setTimeout(resolve, 1500));
-  expect(lastFrame()).toContain('Directory added to workspace context.');
+  expect(lastFrame()).toContain('Directory context synchronized successfully.');
 
   // Test /clear
   stdin.write('/clear');

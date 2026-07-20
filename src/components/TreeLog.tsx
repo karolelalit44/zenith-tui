@@ -14,8 +14,8 @@ export const TreeLog: React.FC<TreeLogProps> = ({ toolName, args, resultTitle, c
     <Box flexDirection="column" marginBottom={1}>
       {/* Primary Tool Call Line */}
       <Box>
-        <Text color={theme.colors.text.accentOrange}>● </Text>
-        <Text color={theme.colors.text.primary} bold>{toolName}</Text>
+        <Text color={theme.colors.text.emerald}>● </Text>
+        <Text color={theme.colors.text.ethereal} bold>{toolName}</Text>
         {args && <Text color={theme.colors.text.muted}>({args})</Text>}
       </Box>
       
