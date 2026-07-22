@@ -13,6 +13,7 @@ import { useOverlayManager } from './hooks/useOverlayManager';
 import { usePersona } from './hooks/usePersona';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
+import { ProviderScreen } from './modules/providers/ProviderScreen';
 import { AddDirModal } from './screens/AddDir/AddDirModal';
 import { AgentsModal } from './screens/Agents/AgentsModal';
 import { ContextModal } from './screens/Context/ContextModal';
@@ -23,10 +24,15 @@ import { PluginsModal } from './screens/Plugins/PluginsModal';
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { WelcomeScreen } from './screens/Welcome';
 import { SessionRepository } from './services/data/SessionRepository';
+import { startupService } from './services/data/StartupService';
 import { useTheme } from './theme/ThemeContext';
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
+
+  useEffect(() => {
+    startupService.initialize();
+  }, []);
   const { persona, setPersona } = usePersona('architect');
   const [workspace, setWorkspace] = useState(DEFAULT_WORKSPACE);
   const {
@@ -106,6 +112,10 @@ export const App: React.FC = () => {
         case '/plugin':
         case '/plugins':
           openOverlay('plugin');
+          break;
+        case '/provider':
+        case '/providers':
+          openOverlay('provider');
           break;
         case '/clear':
           clearTurns();
@@ -260,6 +270,12 @@ export const App: React.FC = () => {
       {overlay === 'plugin' && (
         <Box flexDirection="column" marginTop={1}>
           <PluginsModal onClose={closeOverlay} />
+        </Box>
+      )}
+
+      {overlay === 'provider' && (
+        <Box flexDirection="column" marginTop={1}>
+          <ProviderScreen onClose={closeOverlay} />
         </Box>
       )}
     </Box>

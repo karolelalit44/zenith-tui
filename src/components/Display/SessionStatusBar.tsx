@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { useProvider } from '../../hooks/useProvider';
 import { StaticContentRepository } from '../../services/data/StaticContentRepository';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
@@ -20,13 +21,18 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   totalTokens,
   maxTokens = 200000,
   isRunning = false,
-  modelName = 'Zenith 3.7 Sonnet',
+  modelName,
   workspaceName = 'zenith-frontend-tui',
   gitBranch,
 }) => {
   const { theme } = useTheme();
+  const { activeProvider } = useProvider();
   const activeBranch = gitBranch || getActiveGitBranch();
   const statusLabels = StaticContentRepository.getStatusBarLabels();
+
+  const displayModel =
+    modelName ||
+    `Provider: ${activeProvider.meta.name} | Model: ${activeProvider.config.model || activeProvider.meta.defaultModel}`;
 
   const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
 
@@ -62,7 +68,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
           <Text color={theme.colors.text.muted}> </Text>
 
           <Text color={theme.colors.text.ethereal} bold>
-            {modelName}
+            {displayModel}
           </Text>
           <Text color={theme.colors.text.muted}> · </Text>
 

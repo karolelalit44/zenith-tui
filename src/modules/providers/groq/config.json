@@ -1,0 +1,7 @@
+{
+  "provider": "groq",
+  "name": "Groq",
+  "defaultModel": "llama-3.3-70b-versatile",
+  "baseUrl": "https://api.groq.com/openai/v1",
+  "timeout": 15000
+}

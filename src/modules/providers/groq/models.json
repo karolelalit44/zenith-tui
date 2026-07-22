@@ -1,0 +1,24 @@
+{
+  "provider": "groq",
+  "totalModelsLabel": "3 LPU models",
+  "models": [
+    {
+      "id": "llama-3.3-70b-versatile",
+      "name": "Llama 3.3 70B Versatile",
+      "contextWindow": 128000,
+      "description": "Ultra-low latency LPU execution"
+    },
+    {
+      "id": "mixtral-8x7b-32768",
+      "name": "Mixtral 8x7B",
+      "contextWindow": 32768,
+      "description": "High-speed Mixture of Experts"
+    },
+    {
+      "id": "deepseek-r1-distill-llama-70b",
+      "name": "DeepSeek R1 Llama 70B",
+      "contextWindow": 128000,
+      "description": "Distilled reasoning engine on Groq LPUs"
+    }
+  ]
+}

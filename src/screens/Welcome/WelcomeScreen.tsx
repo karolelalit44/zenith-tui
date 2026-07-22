@@ -1,7 +1,8 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
-import { APP_VERSION, DEFAULT_WORKSPACE, ENGINE_MODEL } from '../../constants';
+import { APP_VERSION, DEFAULT_WORKSPACE } from '../../constants';
+import { useProvider } from '../../hooks/useProvider';
 import { SessionRepository } from '../../services/data/SessionRepository';
 import { useTheme } from '../../theme/ThemeContext';
 import type { Persona } from '../../types';
@@ -16,8 +17,10 @@ interface WelcomeScreenProps {
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona, mode, workspace }) => {
   const { theme } = useTheme();
+  const { activeProvider } = useProvider();
   const activeWorkspace = workspace || DEFAULT_WORKSPACE;
   const recentSessions = SessionRepository.getRecentSessions();
+  const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
 
   return (
     <RoundedBox title={APP_VERSION} borderColor={theme.colors.border.active}>
@@ -57,22 +60,31 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
               {WELCOME_DATA.systemStatus.label}
             </Text>
 
-            <Box flexDirection="row" marginTop={1}>
-              <Box flexDirection="row" marginRight={4}>
-                <Text color={theme.colors.text.muted}>{WELCOME_DATA.systemStatus.engineLabel}</Text>
-                <Text color={theme.colors.text.emerald}>Online ({ENGINE_MODEL})</Text>
-              </Box>
-              <Box flexDirection="row">
-                <Text color={theme.colors.text.muted}>Mode: </Text>
+            <Box flexDirection="column" marginTop={1}>
+              <Box flexDirection="row" marginBottom={0}>
+                <Text color={theme.colors.text.muted}>Connected Provider: </Text>
+                <Text color={theme.colors.status.success} bold>
+                  ✓ {activeProvider.meta.name}
+                </Text>
+                <Text color={theme.colors.text.muted}> | Model: </Text>
                 <Text color={theme.colors.text.emerald} bold>
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  {activeModelDisplay}
                 </Text>
               </Box>
-            </Box>
 
-            <Box flexDirection="row" marginTop={1}>
-              <Text color={theme.colors.text.muted}>{WELCOME_DATA.systemStatus.workspaceLabel}</Text>
-              <Text color={theme.colors.text.emerald}>{activeWorkspace}</Text>
+              <Box flexDirection="row" marginTop={1}>
+                <Box flexDirection="row" marginRight={4}>
+                  <Text color={theme.colors.text.muted}>Mode: </Text>
+                  <Text color={theme.colors.text.emerald} bold>
+                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  </Text>
+                </Box>
+
+                <Box flexDirection="row">
+                  <Text color={theme.colors.text.muted}>{WELCOME_DATA.systemStatus.workspaceLabel}</Text>
+                  <Text color={theme.colors.text.emerald}>{activeWorkspace}</Text>
+                </Box>
+              </Box>
             </Box>
           </Box>
         </Box>

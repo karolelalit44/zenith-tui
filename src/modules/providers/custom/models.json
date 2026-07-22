@@ -1,0 +1,24 @@
+{
+  "provider": "custom",
+  "totalModelsLabel": "Local Ollama models",
+  "models": [
+    {
+      "id": "llama3.2:latest",
+      "name": "Llama 3.2 Local",
+      "contextWindow": 128000,
+      "description": "Default local Ollama model"
+    },
+    {
+      "id": "qwen2.5-coder:7b",
+      "name": "Qwen 2.5 Coder 7B",
+      "contextWindow": 32768,
+      "description": "Specialized local code generation model"
+    },
+    {
+      "id": "deepseek-r1:14b",
+      "name": "DeepSeek R1 14B Local",
+      "contextWindow": 64000,
+      "description": "Local reasoning LLM"
+    }
+  ]
+}

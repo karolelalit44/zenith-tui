@@ -10,5 +10,6 @@ export const COMMAND_LIST: CommandHint[] = [
   { command: '/mode', description: 'Switch between Build and Plan mode' },
   { command: '/persona', description: 'Switch the active agent persona' },
   { command: '/plugin', description: 'Manage Zenith plugins and extensions' },
+  { command: '/provider', description: 'Manage AI provider configurations and active model' },
   { command: '/settings', description: 'Configure Zenith options and theme' },
 ];

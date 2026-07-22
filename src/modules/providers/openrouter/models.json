@@ -1,0 +1,36 @@
+{
+  "provider": "openrouter",
+  "totalModelsLabel": "1200+ models",
+  "models": [
+    {
+      "id": "openrouter/auto",
+      "name": "OpenRouter Auto Router",
+      "contextWindow": 200000,
+      "description": "Optimal smart router selecting best available model"
+    },
+    {
+      "id": "anthropic/claude-3.5-sonnet",
+      "name": "Claude 3.5 Sonnet",
+      "contextWindow": 200000,
+      "description": "Premier coding & analytical intelligence"
+    },
+    {
+      "id": "openai/gpt-4o",
+      "name": "OpenAI GPT-4o",
+      "contextWindow": 128000,
+      "description": "Flagship multimodal intelligence model"
+    },
+    {
+      "id": "google/gemini-pro-1.5",
+      "name": "Gemini 1.5 Pro",
+      "contextWindow": 2000000,
+      "description": "Massive 2M token context window"
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct",
+      "name": "Llama 3.3 70B Instruct",
+      "contextWindow": 128000,
+      "description": "Top-tier open weights foundation LLM"
+    }
+  ]
+}

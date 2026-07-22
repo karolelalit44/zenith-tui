@@ -1,0 +1,7 @@
+{
+  "provider": "custom",
+  "name": "Custom Provider",
+  "defaultModel": "llama3.2:latest",
+  "baseUrl": "http://localhost:11434/v1",
+  "timeout": 60000
+}

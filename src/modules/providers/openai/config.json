@@ -1,0 +1,7 @@
+{
+  "provider": "openai",
+  "name": "OpenAI",
+  "defaultModel": "gpt-4o",
+  "baseUrl": "https://api.openai.com/v1",
+  "timeout": 30000
+}

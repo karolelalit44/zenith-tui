@@ -1,0 +1,7 @@
+{
+  "provider": "gemini",
+  "name": "Gemini",
+  "defaultModel": "gemini-1.5-pro",
+  "baseUrl": "https://generativelanguage.googleapis.com",
+  "timeout": 30000
+}

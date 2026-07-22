@@ -10,7 +10,8 @@ export type OverlayType =
   | 'context'
   | 'add-dir'
   | 'agents'
-  | 'plugin';
+  | 'plugin'
+  | 'provider';
 
 export interface UseOverlayManagerReturn {
   selectedMode: ScenarioMode;
