@@ -7,7 +7,7 @@ test('App Happy Flow End-to-End', async () => {
   const { lastFrame, stdin } = render(<App />);
   
   // 1. Boot State
-  expect(lastFrame()).toContain('v1.0.0');
+  expect(lastFrame()).toContain('1.0.0');
   expect(lastFrame()).toContain('SYSTEM STATUS');
   
   // 2. Open Autocomplete
@@ -56,5 +56,5 @@ test('App MockEngine Branching: /add-dir and /clear', async () => {
   await new Promise((resolve) => setTimeout(resolve, 100));
   
   // History should be wiped, so the WelcomeHeader should be visible again
-  expect(lastFrame()).toContain('v1.0.0');
+  expect(lastFrame()).toContain('1.0.0');
 });

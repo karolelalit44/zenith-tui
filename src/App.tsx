@@ -1,20 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
-import TextInput from 'ink-text-input';
-import { DashboardScreen } from './screens/DashboardScreen';
-import { TreeLog } from './components/TreeLog';
-import { AddDirLog } from './components/AddDirLog';
-import { WordDiffViewer } from './components/WordDiffViewer';
-import { PluginModal } from './components/PluginModal';
-import { SettingsModal } from './components/SettingsModal';
-import { ContextModal } from './components/ContextModal';
-import { ThemeModal } from './components/ThemeModal';
-import { PersonaModal, Persona } from './components/PersonaModal';
-import { AutocompleteDropdown } from './components/AutocompleteDropdown';
+import { Box, Text } from 'ink';
+import { WelcomeScreen } from './screens/Welcome';
+import { TreeLog } from './components/Display/TreeLog';
+import { AddDirLog } from './components/Display/AddDirLog';
+import { WordDiffViewer } from './components/Display/WordDiffViewer';
+import { InputBox, OverlayState } from './components/Input/InputBox';
 import { useTheme } from './theme/ThemeContext';
-import { useMockEngine, LogItem } from './hooks/useMockEngine';
-
-type OverlayState = 'none' | 'autocomplete' | 'plugin' | 'settings' | 'theme' | 'context' | 'persona';
+import { useMockEngine } from './hooks/useMockEngine';
+import { LogItem, Persona } from './types';
+import { SPINNER_FRAMES } from './constants';
+import { CHAT_DATA } from './screens/Chat/data/chatData';
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
@@ -23,10 +18,9 @@ export const App: React.FC = () => {
   const [persona, setPersona] = useState<Persona>('architect');
   const [autoApprove, setAutoApprove] = useState(true);
   const [spinnerTick, setSpinnerTick] = useState(0);
-  
+
   const { history, isExecuting, loadingText, executeCommand } = useMockEngine();
 
-  // Spinner animation
   useEffect(() => {
     if (isExecuting) {
       const interval = setInterval(() => setSpinnerTick((s) => s + 1), 100);
@@ -34,159 +28,73 @@ export const App: React.FC = () => {
     }
   }, [isExecuting]);
 
-  useInput((char, key) => {
-    if (isExecuting) return;
-    
-    // Don't intercept chars if modal is open
-    if (overlay !== 'none' && overlay !== 'autocomplete') return;
-
-    if (char === '/') {
-      setOverlay('autocomplete');
-    }
-    
-    if (key.escape && overlay === 'autocomplete') {
-      setOverlay('none');
-    }
-  });
-
-  const handleSubmit = (val: string) => {
-    if (overlay === 'autocomplete') return;
-    
-    if (val.trim() === '/settings') {
-      setOverlay('settings');
-      setInput('');
-      return;
-    }
-    if (val.trim() === '/context') {
-      setOverlay('context');
-      setInput('');
-      return;
-    }
-    if (val.trim() === '/persona') {
-      setOverlay('persona');
-      setInput('');
-      return;
-    }
-    
-    setOverlay('none');
-    setInput('');
-    executeCommand(val);
-  };
-
-  const handleAutocompleteSelect = (cmd: string) => {
-    if (cmd.startsWith('/plugin')) {
-      setOverlay('plugin');
-      setInput('');
-    } else if (cmd.startsWith('/settings')) {
-      setOverlay('settings');
-      setInput('');
-    } else if (cmd.startsWith('/context')) {
-      setOverlay('context');
-      setInput('');
-    } else if (cmd.startsWith('/persona')) {
-      setOverlay('persona');
-      setInput('');
-    } else {
-      setInput(cmd);
-      setOverlay('none');
-    }
-  };
-
-  const triggerPluginMock = (cmd: string) => {
-    setOverlay('none');
-    setInput('');
-    executeCommand(cmd);
-  };
-
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-      {/* 1. Scrolling History Stream */}
-      {history.length === 0 && <DashboardScreen persona={persona} />}
+      {history.length === 0 && <WelcomeScreen persona={persona} />}
 
       <Box flexDirection="column" marginTop={1} width="100%">
         {history.map((item: LogItem, idx: number) => {
           if (item.type === 'user') {
-             return (
-               <Box key={idx} flexDirection="row" marginBottom={1}>
-                 <Text color={theme.colors.text.muted}>{'> '}</Text>
-                 <Text color={theme.colors.text.ethereal}>{item.text}</Text>
-               </Box>
-             );
+            return (
+              <Box key={idx} flexDirection="row" marginBottom={1}>
+                <Text color={theme.colors.text.muted}>{CHAT_DATA.userPrefix}</Text>
+                <Text color={theme.colors.text.ethereal}>{item.text}</Text>
+              </Box>
+            );
           }
           if (item.type === 'text') {
-             return (
-               <Box key={idx} marginBottom={1}>
-                 <Text color={theme.colors.text.muted}>● </Text>
-                 <Text color={theme.colors.text.ethereal}>{item.text}</Text>
-               </Box>
-             );
+            return (
+              <Box key={idx} marginBottom={1}>
+                <Text color={theme.colors.text.muted}>{CHAT_DATA.toolPrefix}</Text>
+                <Text color={theme.colors.text.ethereal}>{item.text}</Text>
+              </Box>
+            );
           }
           if (item.type === 'tool') {
-             return (
-               <TreeLog key={idx} toolName={item.name} args={item.args} resultTitle={item.resultTitle}>
-                 {item.diff && <WordDiffViewer lines={item.diff} />}
-               </TreeLog>
-             );
+            return (
+              <TreeLog key={idx} toolName={item.name} args={item.args} resultTitle={item.resultTitle}>
+                {item.diff && <WordDiffViewer lines={item.diff} />}
+              </TreeLog>
+            );
           }
           if (item.type === 'add-dir') {
-             return <AddDirLog key={idx} path={item.path} />;
+            return <AddDirLog key={idx} path={item.path} />;
           }
           return null;
         })}
       </Box>
 
-      {/* 2. Loading Footer */}
       {isExecuting && (
         <Box marginBottom={1} flexDirection="row">
           <Box width={2}>
             <Text color={theme.colors.text.emerald}>
-              {['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][spinnerTick % 10]}
+              {SPINNER_FRAMES[spinnerTick % 10]}
             </Text>
           </Box>
           <Text color={theme.colors.text.ethereal} bold>{loadingText}</Text>
-          <Text color={theme.colors.text.muted}> (esc to interrupt)</Text>
+          <Text color={theme.colors.text.muted}>{CHAT_DATA.loadingFooter.interruptHint}</Text>
         </Box>
       )}
 
-      {/* 3. The Input Layer */}
       {!isExecuting ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Box flexDirection="row">
-            <Text color={theme.colors.text.muted}>{'> '}</Text>
-            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} focus={overlay === 'none' || overlay === 'autocomplete'} />
-          </Box>
-          
-          {/* Overlays attach right under the input */}
-          {overlay === 'autocomplete' && (
-             <Box marginTop={1}><AutocompleteDropdown input={input} onSelect={handleAutocompleteSelect} /></Box>
-          )}
-          {overlay === 'plugin' && (
-             <Box marginTop={1}><PluginModal onClose={() => setOverlay('none')} onTriggerMock={triggerPluginMock} /></Box>
-          )}
-          {overlay === 'settings' && (
-             <Box marginTop={1}><SettingsModal          onClose={() => setOverlay('none')} 
-          onOpenTheme={() => setOverlay('theme')}
+        <InputBox
+          input={input}
+          setInput={setInput}
+          overlay={overlay}
+          setOverlay={setOverlay}
+          isExecuting={isExecuting}
+          executeCommand={executeCommand}
+          persona={persona}
+          setPersona={setPersona}
           autoApprove={autoApprove}
           setAutoApprove={setAutoApprove}
-        /></Box>
-          )}
-          {overlay === 'theme' && (
-             <Box marginTop={1}><ThemeModal onClose={() => setOverlay('none')} /></Box>
-          )}
-          {overlay === 'context' && (
-             <Box marginTop={1}><ContextModal onClose={() => setOverlay('none')} /></Box>
-          )}
-          {overlay === 'persona' && (
-             <Box marginTop={1}><PersonaModal currentPersona={persona} onSelect={(p: Persona) => setPersona(p)} onClose={() => setOverlay('none')} /></Box>
-          )}
-        </Box>
+        />
       ) : null}
 
-      {/* 4. Bottom Mode Footer */}
       {!isExecuting && (
         <Box marginTop={1}>
-          <Text color={theme.colors.text.warning} bold>▸▸ auto-accept edits on</Text>
-          <Text color={theme.colors.text.muted}> (shift+tab to cycle)</Text>
+          <Text color={theme.colors.text.warning} bold>{CHAT_DATA.modeFooter.autoAcceptText}</Text>
+          <Text color={theme.colors.text.muted}>{CHAT_DATA.modeFooter.cycleHint}</Text>
         </Box>
       )}
     </Box>

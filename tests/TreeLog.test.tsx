@@ -1,7 +1,7 @@
 import React from 'react';
 import { expect, test } from 'vitest';
 import { render } from 'ink-testing-library';
-import { TreeLog } from '../src/components/TreeLog';
+import { TreeLog } from '../src/components/Display/TreeLog';
 
 test('TreeLog renders tool call and nested result', () => {
   const { lastFrame } = render(
