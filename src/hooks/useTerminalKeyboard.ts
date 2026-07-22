@@ -26,15 +26,7 @@ export function useTerminalKeyboard({
   markTurnSaved,
 }: UseTerminalKeyboardOptions): void {
   useEffect(() => {
-    try {
-      process.stdout.write('\x1B[?1000h\x1B[?1002h\x1B[?1006h\x1B[?1015h');
-    } catch (_e) {}
-
-    return () => {
-      try {
-        process.stdout.write('\x1B[?1000l\x1B[?1002l\x1B[?1006l\x1B[?1015l');
-      } catch (_e) {}
-    };
+    // Native terminal scrolling enabled for touchpad & mouse wheel
   }, []);
 
   useInput(

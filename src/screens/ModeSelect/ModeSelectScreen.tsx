@@ -59,21 +59,23 @@ export const ModeSelectScreen: React.FC<ModeSelectScreenProps> = ({ currentMode,
           return (
             <Box key={mode.id} flexDirection="row" marginY={1} width="100%">
               <Box width={3}>
-                <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.muted}>
+                <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.dim}>
                   {isSelected ? '▸ ' : '  '}
                 </Text>
               </Box>
 
               <Box flexDirection="column" flexGrow={1}>
                 <Box flexDirection="row" alignItems="center">
-                  <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.muted}>{mode.icon} </Text>
-                  <Text color={isSelected ? theme.colors.text.ethereal : theme.colors.text.muted} bold={isSelected}>
+                  <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.dim}>{mode.icon} </Text>
+                  <Text color={isSelected ? theme.colors.text.ethereal : theme.colors.text.dim} bold={isSelected}>
                     {mode.label}
                   </Text>
-                  {isCurrent && <Text color={theme.colors.text.muted}> (current)</Text>}
+                  {isCurrent && (
+                    <Text color={isSelected ? theme.colors.text.muted : theme.colors.text.dim}> (current)</Text>
+                  )}
                 </Box>
                 <Box marginTop={0} paddingLeft={3}>
-                  <Text color={theme.colors.text.muted} dimColor={!isSelected} italic={isSelected}>
+                  <Text color={isSelected ? theme.colors.text.muted : theme.colors.text.dim} italic={isSelected}>
                     {mode.desc}
                   </Text>
                 </Box>
