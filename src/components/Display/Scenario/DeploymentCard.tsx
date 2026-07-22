@@ -37,9 +37,10 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({ event }) => {
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+      {/* Deployment Header */}
       <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
         <Text color={theme.colors.status.success} bold>
-          [DEPLOY]
+          [DEPLOYMENT]
         </Text>
         <Text color={theme.colors.text.muted}> → </Text>
         <Text color={theme.colors.text.bright} bold>
@@ -47,32 +48,44 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({ event }) => {
         </Text>
       </Box>
 
-      <Box flexDirection="row" alignItems="center" paddingLeft={2}>
-        <Box width={2}>
-          <Text color={color}>{icon}</Text>
-        </Box>
-        <Text color={color} bold>
-          {event.status === 'deploying' ? 'Deploying...' : event.status === 'success' ? 'Deployed' : 'Failed'}
-        </Text>
-        {event.url && (
-          <>
-            <Text color={theme.colors.text.muted}> → </Text>
-            <Text color={theme.colors.status.success} underline>
-              {event.url}
+      {/* Deployment Status Container */}
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={color} paddingX={2} paddingY={1}>
+        <Box flexDirection="row" alignItems="center">
+          <Box width={2}>
+            <Text color={color} bold>
+              {icon}
             </Text>
-          </>
+          </Box>
+          <Text color={color} bold>
+            {event.status === 'deploying'
+              ? 'Deploying Build Artifact...'
+              : event.status === 'success'
+                ? 'Deployed Successfully'
+                : 'Deployment Failed'}
+          </Text>
+          {event.url && (
+            <>
+              <Text color={theme.colors.text.muted}> → </Text>
+              <Text color={theme.colors.status.success} bold underline>
+                {event.url}
+              </Text>
+            </>
+          )}
+        </Box>
+
+        {event.output && event.output.length > 0 && (
+          <Box flexDirection="column" marginTop={1}>
+            {event.output.map((line, idx) => (
+              <Box key={idx} flexDirection="row">
+                <Text color={theme.colors.text.dim}>│ </Text>
+                <Text color={theme.colors.text.muted} wrap="wrap">
+                  {line}
+                </Text>
+              </Box>
+            ))}
+          </Box>
         )}
       </Box>
-
-      {event.output && event.output.length > 0 && (
-        <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          {event.output.map((line, idx) => (
-            <Text key={idx} color={theme.colors.text.muted}>
-              {line}
-            </Text>
-          ))}
-        </Box>
-      )}
     </Box>
   );
 };

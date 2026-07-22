@@ -1,84 +1,84 @@
 import type { Scenario } from '../../../types/scenario';
 import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-const buildTemplate = (prompt: string): ScenarioTemplate => ({
+const template: ScenarioTemplate = {
   mode: 'plan',
   events: [
     {
       kind: 'thinking',
       thoughts: [
-        { text: `Analyzing API & Backend prompt: "${prompt}"`, delay: 250 },
-        { text: 'Evaluating FastAPI REST endpoints & Pydantic v2 domain schemas', delay: 300 },
-        { text: 'Planning PostgreSQL database migration strategy & auth middleware', delay: 300 },
+        {
+          text: 'Analyzing backend API prompt intent: evaluating REST / gRPC endpoint requirements and database tier',
+          delay: 250,
+        },
+        {
+          text: 'Inspecting backend workspace configuration: checking Python / Node.js runtime and ORM schemas',
+          delay: 300,
+        },
+        {
+          text: 'Architecting RESTful resource routes (v1 API), Pydantic v2 domain models, and JWT authentication flow',
+          delay: 350,
+        },
+        {
+          text: 'Designing PostgreSQL database migrations (Alembic), Redis query caching layer, and OpenAPI 3.1 spec generation',
+          delay: 300,
+        },
+        {
+          text: 'Formulating end-to-end execution roadmap, test suite plan (Pytest asyncio), and risk matrix',
+          delay: 250,
+        },
       ],
-      duration: 1200,
+      duration: 1600,
     },
     {
       kind: 'terminal',
-      command: 'git status',
-      output: [
-        'On branch main',
-        'Your branch is up to date with "origin/main".',
-        'nothing to commit, working tree clean',
-      ],
+      command: 'git status --porcelain',
+      output: ['On branch main', 'nothing to commit, working tree clean'],
       duration: 400,
     },
     {
       kind: 'terminal',
-      command: 'python -c "import fastapi, pydantic; print(fastapi.__version__, pydantic.__version__)"',
-      output: ['0.109.0 2.6.0'],
+      command: 'find backend/ -maxdepth 3 -not -path "*/.*"',
+      output: ['backend/', 'backend/app/', 'backend/app/main.py', 'backend/requirements.txt'],
       duration: 500,
     },
     {
-      kind: 'thinking',
-      thoughts: [
-        { text: 'FastAPI 0.109 and Pydantic 2.6 verified in local environment', delay: 300 },
-        { text: 'Designing RESTful endpoint routing structure & database schemas', delay: 300 },
-      ],
-      duration: 1000,
-    },
-    {
       kind: 'analysis',
-      title: 'REST API Architecture & Endpoint Specification',
+      title: 'Enterprise REST API Architecture & Data Tier Strategy',
       sections: [
         {
-          title: 'Endpoints Specification',
+          title: '1. API Endpoint Specification (v1 OpenAPI 3.1)',
           items: [
-            'GET /api/users — List paginated users (query params: skip, limit, search)',
-            'GET /api/users/{id} — Retrieve user profile by ID',
-            'POST /api/users — Register new user with Pydantic schema validation',
-            'PUT /api/users/{id} — Update user profile details',
-            'DELETE /api/users/{id} — Soft-delete user account',
+            'POST /api/v1/auth/login -> Authenticate user credentials & issue JWT access + refresh tokens',
+            'POST /api/v1/users -> Register user account with Pydantic v2 payload validation & password hashing',
+            'GET  /api/v1/users/me -> Retrieve authenticated user profile with JWT Bearer Token dependency',
+            'GET  /api/v1/analytics/realtime -> SSE (Server-Sent Events) streaming analytics endpoint',
           ],
         },
         {
-          title: 'Data & Schema Layer',
+          title: '2. Database & Caching Tier',
           items: [
-            'Domain Models: UserBase, UserCreate, UserResponse, UserUpdate',
-            'Database ORM: SQLAlchemy async engine with Alembic migrations',
-            'Authentication: OAuth2 Bearer password flow with JWT tokens',
-          ],
-        },
-      ],
-    },
-    {
-      kind: 'analysis',
-      title: 'Target Files, Risk Assessment & Optimization',
-      sections: [
-        {
-          title: 'Estimated File Tree',
-          items: [
-            'backend/app/main.py (FastAPI app entrypoint & middleware)',
-            'backend/app/models.py (Pydantic domain schemas)',
-            'backend/app/api/users.py (User CRUD route handlers)',
-            'backend/app/api/__init__.py (Router exports)',
+            'Relational Storage: PostgreSQL 16 with SQLAlchemy 2.0 async session pool (min_size=5, max_size=20)',
+            'Migration Control: Alembic version tracking for zero-downtime schema evolution',
+            'Caching Tier: Redis 7.2 cluster for JWT blacklist revocation and rate-limiting counters (100 req/min)',
           ],
         },
         {
-          title: 'Risks & Mitigation Strategies',
+          title: '3. Estimated Target File Tree',
           items: [
-            'Risk: Database connection pool starvation -> Mitigation: SQLAlchemy AsyncSession with pool size 20',
-            'Risk: Unhandled Pydantic validation errors -> Mitigation: Global RequestValidationError handler',
+            'backend/app/schemas/user.py (Pydantic v2 domain schemas)',
+            'backend/app/models/user.py (SQLAlchemy 2.0 ORM entity definitions)',
+            'backend/app/services/auth_service.py (Bcrypt hashing & JWT token operations)',
+            'backend/app/api/v1/endpoints/users.py (FastAPI router handlers)',
+            'backend/tests/test_api_v1.py (Pytest asyncio HTTP integration tests)',
+          ],
+        },
+        {
+          title: '4. Security & Performance Guardrails',
+          items: [
+            'Authentication: OAuth2 Password Bearer flow with HS256 JWT signature verification',
+            'Rate Limiting: SlowAPI sliding window algorithm protecting POST endpoints against brute-force attacks',
+            'Static Type Compliance: Mypy strict mode validation enforced in CI pipeline',
           ],
         },
       ],
@@ -87,21 +87,22 @@ const buildTemplate = (prompt: string): ScenarioTemplate => ({
       kind: 'summary',
       title: 'REST API Architecture Plan Ready',
       description:
-        'The FastAPI endpoint design, Pydantic schemas, and SQLAlchemy data architecture plan have been generated.',
+        'The API endpoint specification, database tier strategy, authentication security guardrails, and file tree breakdown have been generated.',
       filesCreated: [],
-      commandsExecuted: ['git status', 'python -c "import fastapi, pydantic"'],
+      commandsExecuted: ['git status', 'find backend/'],
       verified: [
-        'FastAPI 0.109 & Pydantic 2.6 environment',
-        'RESTful endpoint specification',
-        'OAuth2 & JWT authentication model',
-        'File structure breakdown',
+        'OpenAPI 3.1 Endpoint Specifications',
+        'PostgreSQL SQLAlchemy 2.0 & Redis Caching Strategy',
+        'OAuth2 JWT Security Guardrails',
+        'Estimated File Breakdown & Pytest Testing Plan',
       ],
     },
     {
       kind: 'planner_action_panel',
-      defaultFilename: 'implementation-plan.md',
+      defaultFilename: 'zenith_plans/implementation-plan.md',
+      saved: false,
     },
   ],
-});
+};
 
-export const apiPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));
+export const apiPlanScenario = (prompt: string): Scenario => createScenario(prompt, template);

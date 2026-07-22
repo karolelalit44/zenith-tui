@@ -1,27 +1,32 @@
-import { Scenario } from '../../../../types/scenario';
+import type { Scenario } from '../../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../../templateLoader';
 
-let idCounter = 0;
-const uid = () => `plan_${Date.now()}_${++idCounter}`;
-
-export const planScenario = (prompt: string): Scenario => ({
-  id: `plan_${Date.now()}`,
+const template: ScenarioTemplate = {
   mode: 'plan',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
-        { text: `Analyzing user prompt: "${prompt}"`, delay: 250 },
-        { text: 'Evaluating system architecture requirements & domain boundaries', delay: 300 },
-        { text: 'Formulating step-by-step implementation plan & risk matrix', delay: 300 },
+        { text: 'Analyzing architectural request intent & evaluating workspace file tree AST...', delay: 250 },
+        {
+          text: 'Inspecting project config files: checking tsconfig.json, package.json, and git working directory status',
+          delay: 300,
+        },
+        {
+          text: 'Evaluating system architecture options, module boundaries, data layer contracts, and component modularity',
+          delay: 350,
+        },
+        {
+          text: 'Formulating step-by-step implementation roadmap, target file tree, security guardrails, and risk matrix',
+          delay: 300,
+        },
+        { text: 'Preparing markdown plan export payload configuration for zenith_plans/ folder', delay: 250 },
       ],
-      duration: 1200,
+      duration: 1600,
     },
     {
       kind: 'terminal',
-      id: uid(),
-      command: 'git status',
+      command: 'git status --porcelain',
       output: [
         'On branch main',
         'Your branch is up to date with "origin/main".',
@@ -30,63 +35,62 @@ export const planScenario = (prompt: string): Scenario => ({
       duration: 400,
     },
     {
-      kind: 'analysis',
-      id: uid(),
-      title: 'Architectural Analysis & System Topology',
-      sections: [
-        {
-          title: 'Proposed Solution Architecture',
-          items: [
-            'Frontend Layer: React 19 / TypeScript TUI components',
-            'Service Layer: ScenarioEngine & StaticContentRepository abstraction',
-            'Data Layer: Structured domain events & state management',
-          ],
-        },
-        {
-          title: 'Core Requirements & Boundaries',
-          items: [
-            'Zero-emoji CLI design system with SGR text badges',
-            '100% data-driven scenario execution',
-            'Touchpad two-finger viewport scrolling support',
-          ],
-        },
-      ],
+      kind: 'terminal',
+      command: 'cat package.json | grep -E "name|version|dependencies"',
+      output: ['  "name": "zenith-app",', '  "version": "1.0.0",', '  "dependencies": {'],
+      duration: 500,
     },
     {
       kind: 'analysis',
-      id: uid(),
-      title: 'Target Deliverables, Risk Matrix & Verification',
+      title: 'System Architecture & Implementation Strategy',
       sections: [
         {
-          title: 'Target Files to Create/Modify',
+          title: '1. Executive Architectural Blueprint',
           items: [
-            'src/constants/uiContent.ts (Centralized UI strings)',
-            'src/services/data/StaticContentRepository.ts (Static data service)',
-            'src/services/data/ScenarioRepository.ts (Scenario repository)',
+            'System Domain Boundary: Decoupled 4-tier data architecture (UI Layer -> Presenter -> Domain Services -> Repositories)',
+            'State & Mutation Strategy: Single source of truth with immutable state updates & reactive event streams',
+            'Modular Interface Contracts: Strictly-typed TypeScript interfaces preventing implicit `any` leaks',
           ],
         },
         {
-          title: 'Risks & Mitigation Strategies',
+          title: '2. Target Implementation File Tree',
           items: [
-            'Risk: Tight coupling between UI and scenarios -> Mitigation: View Model presenter layer',
-            'Risk: Hardcoded text strings -> Mitigation: Centralized UI content repository',
+            'src/types/domain.ts (Core domain entity contracts & payload types)',
+            'src/services/data/DomainRepository.ts (Encapsulated storage & data access layer)',
+            'src/components/Display/DomainCard.tsx (UI presentation component with theme token bindings)',
+            'tests/domain.test.ts (Vitest unit and integration test assertions)',
+          ],
+        },
+        {
+          title: '3. Security, Performance & Risk Matrix',
+          items: [
+            'Risk: State synchronization overhead -> Mitigation: Memoized selectors & React.memo memoization',
+            'Risk: Loose type safety on API boundary -> Mitigation: Zod / Pydantic runtime schema validation',
+            'Quality Control: Automated Biome linting, TypeScript compiler checks, and 100% Vitest coverage',
           ],
         },
       ],
     },
     {
       kind: 'summary',
-      id: uid(),
-      title: 'Implementation Plan Ready',
-      description: 'The architectural evaluation and implementation plan have been generated.',
+      title: 'Architectural Implementation Plan Ready',
+      description:
+        'The architectural blueprint, target file tree breakdown, module boundaries, and risk mitigation plan have been generated.',
       filesCreated: [],
-      commandsExecuted: ['git status'],
-      verified: ['System Architecture Analysis', 'File Structure Plan', 'Risk Mitigation Strategy'],
+      commandsExecuted: ['git status', 'cat package.json'],
+      verified: [
+        'Decoupled 4-Tier Data Architecture Blueprint',
+        'Target File Tree & Module Boundaries',
+        'TypeScript Strict Mode Type Guardrails',
+        'Vitest Automated Test Strategy & Plan Export',
+      ],
     },
     {
       kind: 'planner_action_panel',
-      id: uid(),
       defaultFilename: 'zenith_plans/implementation-plan.md',
+      saved: false,
     },
   ],
-});
+};
+
+export const planScenario = (prompt: string): Scenario => createScenario(prompt, template);

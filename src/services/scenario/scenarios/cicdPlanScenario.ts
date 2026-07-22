@@ -1,107 +1,102 @@
 import type { Scenario } from '../../../types/scenario';
 import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-const buildTemplate = (prompt: string): ScenarioTemplate => ({
+const template: ScenarioTemplate = {
   mode: 'plan',
   events: [
     {
       kind: 'thinking',
       thoughts: [
-        { text: `Analyzing CI/CD Pipeline prompt: "${prompt}"`, delay: 250 },
-        { text: 'Evaluating GitHub Actions matrix builds & npm cache optimization', delay: 300 },
-        { text: 'Designing multi-environment pipeline triggers (Staging vs Production)', delay: 300 },
+        {
+          text: 'Analyzing CI/CD prompt intent: evaluating GitHub Actions workflow, matrix runner strategy, and Helm release',
+          delay: 250,
+        },
+        {
+          text: 'Inspecting repository triggers: pull requests to main, release tag pushes, and manual workflow dispatches',
+          delay: 300,
+        },
+        {
+          text: 'Architecting 3-stage CI/CD pipeline: Static Analysis -> Parallel Test Matrix -> Container Build & Deploy',
+          delay: 350,
+        },
+        {
+          text: 'Formulating OIDC security scope, least privilege token permissions, npm dependency caching, and act local runner',
+          delay: 300,
+        },
+        {
+          text: 'Designing Kubernetes Helm chart deployment rollback safety and slack notification webhooks',
+          delay: 250,
+        },
       ],
-      duration: 1200,
+      duration: 1600,
     },
     {
       kind: 'terminal',
       command: 'git remote -v',
       output: [
-        'origin  git@github.com:acme/zenith-app.git (fetch)',
-        'origin  git@github.com:acme/zenith-app.git (push)',
+        'origin  git@github.com:zenith-org/zenith-app.git (fetch)',
+        'origin  git@github.com:zenith-org/zenith-app.git (push)',
       ],
       duration: 400,
     },
     {
-      kind: 'terminal',
-      command: 'cat .github/workflows/ci.yml',
-      output: ['cat: .github/workflows/ci.yml: No such file or directory'],
-      duration: 450,
-    },
-    {
-      kind: 'thinking',
-      thoughts: [
-        { text: 'No existing GitHub Actions workflows detected', delay: 300 },
-        { text: 'Designing full multi-job workflow architecture (Lint -> Test -> Build -> Deploy)', delay: 300 },
-      ],
-      duration: 1000,
-    },
-    {
-      kind: 'retry',
-      message: 'Generating complete GitHub Actions workflow specification',
-      attempt: 1,
-    },
-    {
       kind: 'analysis',
-      title: 'CI/CD Pipeline Architecture & Stages',
+      title: 'GitHub Actions CI/CD Pipeline Architecture',
       sections: [
         {
-          title: 'Pipeline Job Graph',
+          title: '1. Workflow Pipeline Trigger & Job Matrix',
           items: [
-            'Job 1: Static Analysis (ESLint + TypeScript type check)',
-            'Job 2: Automated Testing (Vitest unit tests with coverage upload)',
-            'Job 3: Production Build (Vite bundling & Docker image compilation)',
-            'Job 4: Staging & Production Deployment (Kubernetes / Cloud release)',
+            'Trigger Scope: Pushes to `main` branch, pull requests targeting `main`, and tag pushes `v*.*.*`',
+            'Job 1 (Quality Gate): `lint-and-typecheck` (Biome check + TypeScript strict compiler execution)',
+            'Job 2 (Parallel Test Matrix): `test-matrix` executing Vitest across Node.js 18, 20, and 22 runtimes',
+            'Job 3 (Release & Deploy): `build-and-push` constructing multi-stage Docker container & publishing to GHCR',
           ],
         },
         {
-          title: 'Workflow Triggers',
+          title: '2. Security Scope & Token Permissions (OIDC)',
           items: [
-            'Push to main: Full test, build, and staging deployment pipeline',
-            'Pull Requests: Fast lint, type-check, and unit test validation',
-            'Release Tag (v*): Automated production deployment & registry push',
-          ],
-        },
-      ],
-    },
-    {
-      kind: 'analysis',
-      title: 'Target Files, Secrets & Security Strategy',
-      sections: [
-        {
-          title: 'Target Workflow Files',
-          items: [
-            '.github/workflows/ci.yml (Main test and build pipeline)',
-            '.github/workflows/cd.yml (Staging & production deployment workflow)',
+            'Token Scope: `permissions: { contents: read, id-token: write, security-events: write }`',
+            'Authentication: OpenID Connect (OIDC) passwordless cloud provider authentication (zero long-lived secrets)',
+            'Dependency Caching: `actions/setup-node` with `cache: npm` for deterministic speedups',
           ],
         },
         {
-          title: 'Secrets & Risk Matrix',
+          title: '3. Target Configuration Files',
           items: [
-            'Required Repository Secrets: REGISTRY_TOKEN, KUBE_CONFIG, SLACK_WEBHOOK',
-            'Risk: Secret leakage in build logs -> Mitigation: Mask secrets and use OIDC tokens',
+            '.github/workflows/ci.yml (Primary CI/CD pipeline definition)',
+            '.github/workflows/release.yml (Tag release & Helm chart deployment)',
+            '.github/dependabot.yml (Automated weekly dependency security updates)',
+          ],
+        },
+        {
+          title: '4. Local Simulation & Verification Strategy',
+          items: [
+            'Local Execution: `act -j lint-and-typecheck` to run GitHub Actions locally prior to pushing',
+            'Coverage Enforcement: Codecov step failing PR if overall test coverage drops below 90%',
           ],
         },
       ],
     },
     {
       kind: 'summary',
-      title: 'CI/CD Architecture Plan Ready',
-      description: 'The GitHub Actions workflow specification and multi-stage deployment plan have been generated.',
+      title: 'CI/CD Pipeline Architecture Plan Ready',
+      description:
+        'The GitHub Actions workflow pipeline design, OIDC security token scope, parallel matrix runner strategy, and target file tree have been generated.',
       filesCreated: [],
-      commandsExecuted: ['git remote -v', 'cat .github/workflows/ci.yml (initial check)'],
+      commandsExecuted: ['git remote -v'],
       verified: [
-        'GitHub Actions v4 specification',
-        'Multi-stage job dependency graph',
-        'Secret security & OIDC auth',
-        'Environment deployment rules',
+        'GitHub Actions 3-Stage Pipeline Design',
+        'Parallel Node 18/20/22 Test Matrix',
+        'OIDC Least-Privilege Security Scope',
+        'Act Local Runner Verification Strategy',
       ],
     },
     {
       kind: 'planner_action_panel',
-      defaultFilename: 'implementation-plan.md',
+      defaultFilename: 'zenith_plans/implementation-plan.md',
+      saved: false,
     },
   ],
-});
+};
 
-export const cicdPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));
+export const cicdPlanScenario = (prompt: string): Scenario => createScenario(prompt, template);

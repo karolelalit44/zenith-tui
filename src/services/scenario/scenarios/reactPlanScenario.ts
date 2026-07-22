@@ -1,21 +1,38 @@
 import type { Scenario } from '../../../types/scenario';
 import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-const buildTemplate = (prompt: string): ScenarioTemplate => ({
+const template: ScenarioTemplate = {
   mode: 'plan',
   events: [
     {
       kind: 'thinking',
       thoughts: [
-        { text: `Analyzing React/Frontend prompt: "${prompt}"`, delay: 250 },
-        { text: 'Evaluating React 19 component hierarchy & state management model', delay: 300 },
-        { text: 'Planning responsive layout approach & routing structure', delay: 300 },
+        {
+          text: 'Analyzing frontend prompt intent: evaluating React 19 architecture, component modularization, and state layer',
+          delay: 250,
+        },
+        {
+          text: 'Inspecting workspace repository files, dependencies in package.json, and tsconfig compiler options',
+          delay: 300,
+        },
+        {
+          text: 'Evaluating React 19 server components vs client components, Zustand v5 state store, and TanStack Query caching strategy',
+          delay: 350,
+        },
+        {
+          text: 'Architecting zero-re-render component hierarchy, route-based code splitting, ARIA accessibility, and security guardrails',
+          delay: 300,
+        },
+        {
+          text: 'Formulating comprehensive execution roadmap, file tree breakdown, risk matrix, and plan export configuration',
+          delay: 250,
+        },
       ],
-      duration: 1200,
+      duration: 1600,
     },
     {
       kind: 'terminal',
-      command: 'git status',
+      command: 'git status --porcelain',
       output: [
         'On branch main',
         'Your branch is up to date with "origin/main".',
@@ -25,97 +42,76 @@ const buildTemplate = (prompt: string): ScenarioTemplate => ({
     },
     {
       kind: 'terminal',
-      command: 'npx check-workspace --template react',
-      output: ['Error: Could not locate workspace configuration manifest.', 'MISSING_MANIFEST: ./react-workspace.json'],
-      duration: 500,
-    },
-    {
-      kind: 'thinking',
-      thoughts: [
-        { text: 'Detected missing workspace configuration manifest', delay: 300 },
-        { text: 'Switching to fallback inspection: parsing package.json for React & Vite', delay: 300 },
-      ],
-      duration: 1000,
-    },
-    {
-      kind: 'retry',
-      message: 'Retrying workspace discovery using fallback package inspection',
-      attempt: 2,
-    },
-    {
-      kind: 'terminal',
-      command: 'cat package.json | grep -E "react|vite|recharts|zustand"',
+      command: 'cat package.json | grep -E "react|vite|zustand|tailwind"',
       output: [
         '  "react": "^19.0.0",',
         '  "react-dom": "^19.0.0",',
-        '  "recharts": "^2.12.0",',
-        '  "zustand": "^4.5.0"',
+        '  "react-router-dom": "^7.0.0",',
+        '  "zustand": "^5.0.0"',
       ],
-      duration: 450,
+      duration: 500,
     },
     {
       kind: 'analysis',
-      title: 'Frontend Component Architecture & State Strategy',
+      title: 'Enterprise React 19 Architecture & State Strategy',
       sections: [
         {
-          title: 'Component Hierarchy',
+          title: '1. Component Hierarchy & Layout Boundary System',
           items: [
-            'App → BrowserRouter → DashboardLayout → (OverviewPage | AnalyticsPage)',
-            'Reusable UI Layer: MetricCard, DataChart, NavigationSidebar',
-            'Layout Layer: Header (User Profile, Theme Toggle), Sidebar Navigation',
-            'Page Layer: OverviewPage (Key Metrics), AnalyticsPage (Recharts Visualizations)',
+            'Root Application Boundary (App.tsx -> QueryClientProvider -> BrowserRouter -> ThemeProvider)',
+            'Layout Layer: DashboardLayout (SidebarNav with active route highlighting, TopHeader with User Menu & Theme Picker)',
+            'Reusable UI Token Layer: MetricCard, DataChart (lazy loaded Recharts container), ActionButton, ModalDialog',
+            'Page Views: OverviewPage (Key performance metrics & KPI tiles), AnalyticsPage (Interactive charting & timeframe filters)',
           ],
         },
         {
-          title: 'State & Data Layer Strategy',
+          title: '2. State Management & Data Layer Strategy',
           items: [
-            'Global Application State: Zustand store (user session, theme, workspace settings)',
-            'Server Data Fetching: React Query / TanStack Query with optimistic updates',
-            'Local Form & UI State: React 19 useState / useActionState',
-          ],
-        },
-      ],
-    },
-    {
-      kind: 'analysis',
-      title: 'Target Files, Risk Assessment & Optimization',
-      sections: [
-        {
-          title: 'Estimated File Tree',
-          items: [
-            'dashboard/src/App.tsx (Routing & global providers)',
-            'dashboard/src/layouts/DashboardLayout.tsx (Sidebar & Topbar)',
-            'dashboard/src/components/MetricCard.tsx (Reusable metric tile)',
-            'dashboard/src/pages/OverviewPage.tsx (Recharts dashboard page)',
+            'Global Client State: Zustand v5 store with devtools middleware for user session, active theme, and sidebar collapsed state',
+            'Server State & Caching: TanStack Query v5 for API data fetching, background polling, and optimistic UI mutations',
+            'Form & Action State: React 19 useActionState and useTransition for non-blocking UI state updates',
           ],
         },
         {
-          title: 'Risks & Mitigation Strategies',
+          title: '3. Estimated Target File Tree',
           items: [
-            'Risk: Recharts bundle size bloat -> Mitigation: Dynamic import / code splitting',
-            'Risk: Excessive re-renders on layout updates -> Mitigation: Zustand memoized selectors',
+            'src/store/useAppStore.ts (Zustand global store)',
+            'src/layouts/DashboardLayout.tsx (Root layout container)',
+            'src/components/MetricCard.tsx (Reusable metric card component)',
+            'src/components/AnalyticsChart.tsx (Lazy-loaded Recharts wrapper)',
+            'src/pages/OverviewPage.tsx (Primary dashboard view)',
+          ],
+        },
+        {
+          title: '4. Performance, Security & Risk Matrix',
+          items: [
+            'Risk: Recharts bundle bloat (approx. 320 KB) -> Mitigation: React.lazy dynamic import & Route-level code splitting',
+            'Risk: Unnecessary parent-to-child re-renders -> Mitigation: React.memo with shallow Zustand state selectors',
+            'Security Guardrail: Enforce Strict Content Security Policy (CSP), sanitize external user inputs with DOMPurify',
           ],
         },
       ],
     },
     {
       kind: 'summary',
-      title: 'React Architecture Plan Ready',
-      description: 'The component hierarchy, state management design, and file tree plan have been generated.',
+      title: 'React 19 Architecture Plan Ready',
+      description:
+        'The architectural evaluation, state management strategy, file tree breakdown, and risk mitigation plan have been generated.',
       filesCreated: [],
-      commandsExecuted: ['git status', 'npx check-workspace (fallback recovered)', 'cat package.json'],
+      commandsExecuted: ['git status', 'cat package.json'],
       verified: [
-        'React 19 Component Architecture',
-        'Zustand State Strategy',
-        'File Structure Breakdown',
-        'Risk Mitigation Strategy',
+        'React 19 Component Hierarchy & Routing Plan',
+        'Zustand v5 Global State & TanStack Query Strategy',
+        'Estimated File Structure & Module Boundaries',
+        'Performance & Security Risk Mitigation Matrix',
       ],
     },
     {
       kind: 'planner_action_panel',
-      defaultFilename: 'implementation-plan.md',
+      defaultFilename: 'zenith_plans/implementation-plan.md',
+      saved: false,
     },
   ],
-});
+};
 
-export const reactPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));
+export const reactPlanScenario = (prompt: string): Scenario => createScenario(prompt, template);

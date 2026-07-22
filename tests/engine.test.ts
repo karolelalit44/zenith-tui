@@ -116,7 +116,7 @@ describe('getScenarioForPrompt', () => {
 
   test('ci/cd keywords match pipeline scenario', () => {
     const s = getScenarioForPrompt('set up github actions pipeline', 'build');
-    expect(s.events.some((e) => e.kind === 'terminal')).toBe(true);
+    expect(s.events.some((e) => e.kind === 'file_create' || e.kind === 'build_step')).toBe(true);
   });
 
   test('api keywords match api scenario', () => {

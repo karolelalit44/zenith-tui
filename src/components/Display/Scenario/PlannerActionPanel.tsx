@@ -9,15 +9,15 @@ interface PlannerActionPanelProps {
 
 export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
+  const exportPath = event.defaultFilename?.includes('/')
+    ? event.defaultFilename
+    : `zenith_plans/${event.defaultFilename || 'implementation-plan.md'}`;
 
   return (
     <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1} paddingX={1}>
-      <Box width="100%">
-        <Text color={theme.colors.border.active}>─────────────────────────────────────────────────────────────</Text>
-      </Box>
-
       <Box
         flexDirection="column"
+        width="100%"
         paddingX={2}
         paddingY={1}
         borderStyle="round"
@@ -25,7 +25,7 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
       >
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
           <Text color={theme.colors.status.success} bold>
-            ✔ Plan Ready
+            [PLAN EXPORT READY]
           </Text>
         </Box>
 
@@ -38,16 +38,14 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
           </Text>
           <Text color={theme.colors.text.bright} bold>
             {' '}
-            to save this plan.
+            to export implementation plan to file system.
           </Text>
         </Box>
 
         <Box flexDirection="row" alignItems="center">
-          <Text color={theme.colors.text.muted}>The plan will be exported as: </Text>
+          <Text color={theme.colors.text.muted}>Target path: </Text>
           <Text color={theme.colors.status.info} bold>
-            {event.defaultFilename?.includes('/')
-              ? event.defaultFilename
-              : `zenith_plans/${event.defaultFilename || 'implementation-plan.md'}`}
+            {exportPath}
           </Text>
         </Box>
 
@@ -56,18 +54,9 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
             <Text color={theme.colors.status.success} bold>
               [SAVED SUCCESS]{' '}
             </Text>
-            <Text color={theme.colors.text.bright}>
-              File written to{' '}
-              {event.defaultFilename?.includes('/')
-                ? event.defaultFilename
-                : `zenith_plans/${event.defaultFilename || 'implementation-plan.md'}`}
-            </Text>
+            <Text color={theme.colors.text.bright}>Plan file written to {exportPath}</Text>
           </Box>
         )}
-      </Box>
-
-      <Box width="100%">
-        <Text color={theme.colors.border.active}>─────────────────────────────────────────────────────────────</Text>
       </Box>
     </Box>
   );

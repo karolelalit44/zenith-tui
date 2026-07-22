@@ -1,109 +1,99 @@
 import type { Scenario } from '../../../types/scenario';
 import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-const buildTemplate = (prompt: string): ScenarioTemplate => ({
+const template: ScenarioTemplate = {
   mode: 'plan',
   events: [
     {
       kind: 'thinking',
       thoughts: [
-        { text: `Analyzing Docker container prompt: "${prompt}"`, delay: 250 },
-        { text: 'Evaluating multi-stage build optimization & Alpine Linux security', delay: 300 },
-        { text: 'Planning Docker Compose service topology, volumes & bridge networks', delay: 300 },
+        {
+          text: 'Analyzing containerization prompt intent: evaluating Docker multi-stage build & security profile',
+          delay: 250,
+        },
+        {
+          text: 'Inspecting workspace layout, build artifacts, node_modules dependencies, and asset footprint',
+          delay: 300,
+        },
+        {
+          text: 'Architecting 2-stage build: node:22-alpine compilation → nginx:1.27-alpine-slim minimal runtime',
+          delay: 350,
+        },
+        {
+          text: 'Formulating security hardening: non-root user (UID 10001), read-only rootfs, tmpfs mounts, drop Linux capabilities',
+          delay: 300,
+        },
+        {
+          text: 'Designing Trivy vulnerability scanner integration, Buildx cache mounts, and Docker Compose orchestration',
+          delay: 250,
+        },
       ],
-      duration: 1200,
+      duration: 1600,
     },
     {
       kind: 'terminal',
-      command: 'docker info',
-      output: [
-        'Client: Docker Engine - Community',
-        ' Server Version: 26.0.0',
-        ' Storage Driver: overlay2',
-        ' Cgroup Driver: systemd',
-      ],
+      command: 'docker --version && docker buildx version',
+      output: ['Docker version 27.1.1, build 6312585', 'github.com/docker/buildx v0.16.1'],
       duration: 400,
     },
     {
-      kind: 'terminal',
-      command: 'docker compose config --quiet',
-      output: ['Error: docker-compose.yml file not found in working directory.'],
-      duration: 450,
-    },
-    {
-      kind: 'thinking',
-      thoughts: [
-        { text: 'Detected missing docker-compose.yml manifest', delay: 300 },
-        { text: 'Designing multi-service compose schema from project dependencies', delay: 300 },
-      ],
-      duration: 1000,
-    },
-    {
-      kind: 'retry',
-      message: 'Generating new multi-stage container deployment architecture',
-      attempt: 1,
-    },
-    {
       kind: 'analysis',
-      title: 'Container Architecture & Service Topology',
+      title: 'Containerization & Docker Security Strategy',
       sections: [
         {
-          title: 'Services Architecture',
+          title: '1. Multi-Stage Build Architecture',
           items: [
-            'App Container: Node 20 / Python multi-stage build (distroless/alpine)',
-            'Reverse Proxy Container: Nginx Alpine (SSL termination & Gzip compression)',
-            'Database Container: PostgreSQL 16 with persistent volume claim',
+            'Stage 1 (Builder): node:22-alpine container installing npm dependencies with cache mounts & compiling dist/',
+            'Stage 2 (Runtime): nginx:1.27-alpine-slim minimal base image containing only compiled dist assets',
+            'Image Size Reduction: Target image footprint reduced from 412 MB -> ~28 MB',
           ],
         },
         {
-          title: 'Networking & Health Checks',
+          title: '2. Security Hardening & Isolation Profile',
           items: [
-            'Internal Bridge Network: backend-net (isolated database communication)',
-            'Exposed Ports: 80:80 (HTTP) -> Nginx -> 3000 (Internal App)',
-            'Health Check Endpoint: HTTP GET /healthz interval 30s timeout 10s',
-          ],
-        },
-      ],
-    },
-    {
-      kind: 'analysis',
-      title: 'Target Files, Security & Risk Matrix',
-      sections: [
-        {
-          title: 'Target Manifest Files',
-          items: [
-            'Dockerfile (Multi-stage builder + Nginx production image)',
-            'docker-compose.yml (Multi-container orchestration & network definition)',
-            '.dockerignore (Exclude node_modules, .git, and secrets)',
+            'Non-Root User: Dedicated unprivileged system user `zenith` (UID 10001 / GID 10001)',
+            'Read-Only Root Filesystem: `read_only: true` with ephemeral `tmpfs` mounts for `/tmp` & `/var/cache/nginx`',
+            'Capabilities: Drop ALL Linux capabilities (`cap_drop: [ALL]`), disable privilege escalation (`no-new-privileges: true`)',
           ],
         },
         {
-          title: 'Risks & Mitigation Strategies',
+          title: '3. Target Configuration Files',
           items: [
-            'Risk: Root container vulnerability -> Mitigation: Run as non-root appuser:1000',
-            'Risk: Uncached dependency layers -> Mitigation: Separate package.json COPY step',
+            'Dockerfile (Multi-stage build assembly)',
+            'docker-compose.yml (Orchestration & security runtime specs)',
+            'nginx.conf (Gzip compression, security headers, SPA fallback routing)',
+            '.dockerignore (Exclude node_modules, .git, .env, coverage reports)',
+          ],
+        },
+        {
+          title: '4. Healthcheck & Inspection Roadmap',
+          items: [
+            'Health Check Probe: HTTP GET `http://localhost:8080/health` (15s interval, 3s timeout)',
+            'Vulnerability Scanning: Trivy container image scan (`trivy image zenith-app:v1.0.0`) in CI pipeline',
           ],
         },
       ],
     },
     {
       kind: 'summary',
-      title: 'Container Architecture Plan Ready',
-      description: 'The multi-stage Docker build design and Docker Compose architecture plan have been generated.',
+      title: 'Docker Security & Build Architecture Plan Ready',
+      description:
+        'The multi-stage build design, non-root security profile, container configuration breakdown, and healthcheck roadmap have been generated.',
       filesCreated: [],
-      commandsExecuted: ['docker info', 'docker compose config (initial discovery)'],
+      commandsExecuted: ['docker --version'],
       verified: [
-        'Multi-stage layer caching',
-        'Docker Compose v3.8 spec',
-        'Security & non-root permissions',
-        'Health check monitoring',
+        'Multi-Stage Build Pipeline Design (Node -> Nginx Alpine)',
+        'Container Security Profile (Non-root UID 10001 & Read-Only Rootfs)',
+        'Target File Breakdown (Dockerfile, docker-compose.yml, nginx.conf)',
+        'Trivy Security Scanning & Healthcheck Probe Strategy',
       ],
     },
     {
       kind: 'planner_action_panel',
-      defaultFilename: 'implementation-plan.md',
+      defaultFilename: 'zenith_plans/implementation-plan.md',
+      saved: false,
     },
   ],
-});
+};
 
-export const dockerPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));
+export const dockerPlanScenario = (prompt: string): Scenario => createScenario(prompt, template);

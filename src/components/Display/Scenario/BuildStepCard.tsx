@@ -37,12 +37,16 @@ export const BuildStepCard: React.FC<BuildStepCardProps> = React.memo(({ event }
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      <Box flexDirection="row" alignItems="center" flexWrap="wrap">
-        <Box width={2} flexShrink={0}>
-          <Text color={color} bold>
-            {icon}
-          </Text>
-        </Box>
+      {/* Header */}
+      <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
+        <Text color={theme.colors.status.info} bold>
+          [BUILD STEP]
+        </Text>
+        <Text color={theme.colors.text.muted}> </Text>
+        <Text color={color} bold>
+          {icon}
+        </Text>
+        <Text color={theme.colors.text.muted}> </Text>
         <Text color={theme.colors.text.bright} bold>
           {event.step}
         </Text>
@@ -51,12 +55,23 @@ export const BuildStepCard: React.FC<BuildStepCardProps> = React.memo(({ event }
         )}
       </Box>
 
+      {/* Output log */}
       {event.output && event.output.length > 0 && (
-        <Box flexDirection="column" paddingLeft={2} marginTop={0} width="100%">
+        <Box
+          flexDirection="column"
+          width="100%"
+          borderStyle="round"
+          borderColor={theme.colors.code.border}
+          paddingX={2}
+          paddingY={1}
+        >
           {event.output.map((line, idx) => (
-            <Text key={idx} color={theme.colors.code.output} wrap="wrap">
-              │ {line}
-            </Text>
+            <Box key={idx} flexDirection="row">
+              <Text color={theme.colors.text.dim}>│ </Text>
+              <Text color={theme.colors.code.output} wrap="wrap">
+                {line}
+              </Text>
+            </Box>
           ))}
         </Box>
       )}
