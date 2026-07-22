@@ -5,5 +5,6 @@ export { WordDiffViewer } from './Display/WordDiffViewer';
 export { AddDirLog } from './Display/AddDirLog';
 export { ContextModal } from './Display/ContextModal';
 export { OutputCard } from './Display/OutputCard';
+export { ScenarioRenderer } from './Display/Scenario';
 export { InputBox, AutocompleteDropdown } from './Input';
 export { ThinkingIndicator } from './Thinking';

@@ -1,83 +1,205 @@
-import React, { useState } from 'react';
-import { Box, Text } from 'ink';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Box, Text, useInput } from 'ink';
+import TextInput from 'ink-text-input';
 import { WelcomeScreen } from './screens/Welcome';
-import { OutputCard } from './components/Display/OutputCard';
-import { InputBox, OverlayState } from './components/Input/InputBox';
-import { ThinkingIndicator } from './components/Thinking';
+import { ModeSelectScreen } from './screens/ModeSelect';
+import { ScenarioRenderer } from './components/Display/Scenario';
+import { SessionStatusBar } from './components/Display/SessionStatusBar';
+import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { useTheme } from './theme/ThemeContext';
-import { useMockEngine } from './hooks/useMockEngine';
-import { LogItem, Persona } from './types';
-import { CHAT_DATA } from './screens/Chat/data/chatData';
+import { useScenario } from './hooks/useScenario';
+import { Persona, ScenarioMode, ScenarioEvent } from './types';
+
+type OverlayState = 'none' | 'mode';
+
+interface ConversationTurn {
+  id: string;
+  prompt: string;
+  mode: ScenarioMode;
+  events: ScenarioEvent[];
+  isComplete: boolean;
+}
+
+const MOCK_TOKENS_PER_TURN = 1247;
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
+  const [persona] = useState<Persona>('architect');
+  const [selectedMode, setSelectedMode] = useState<ScenarioMode>('build');
   const [input, setInput] = useState('');
   const [overlay, setOverlay] = useState<OverlayState>('none');
-  const [persona, setPersona] = useState<Persona>('architect');
-  const [autoApprove, setAutoApprove] = useState(true);
+  const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
 
-  const { history, isExecuting, thinking, executeCommand } = useMockEngine();
+  const { events, isRunning, startScenario, abort } = useScenario();
+
+  const activeTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+  const isIdle = !isRunning && overlay === 'none';
+
+  const totalTokens = useMemo(() => {
+    return turns.filter(t => t.isComplete).length * MOCK_TOKENS_PER_TURN;
+  }, [turns]);
+
+  useEffect(() => {
+    setShowAutocomplete(input.startsWith('/') && input.length > 0);
+  }, [input]);
+
+  useInput((char, key) => {
+    if (overlay === 'mode') {
+      if (key.escape) {
+        setOverlay('none');
+      }
+      return;
+    }
+
+    if (isRunning && key.escape) {
+      abort();
+      setTurns(prev => {
+        const last = prev[prev.length - 1];
+        if (last && !last.isComplete) {
+          return prev.map((t, i) => i === prev.length - 1 ? { ...t, isComplete: true } : t);
+        }
+        return prev;
+      });
+    }
+  }, { isActive: true });
+
+  useEffect(() => {
+    if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
+      setTurns(prev => {
+        const lastIdx = prev.length - 1;
+        return prev.map((t, i) => i === lastIdx ? { ...t, events: [...events], isComplete: true } : t);
+      });
+    }
+  }, [isRunning, events, activeTurn]);
+
+  const handleSubmit = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+
+    if (trimmed === '/mode') {
+      setOverlay('mode');
+      setInput('');
+      setShowAutocomplete(false);
+      return;
+    }
+
+    if (trimmed.startsWith('/')) {
+      setInput('');
+      setShowAutocomplete(false);
+      return;
+    }
+
+    const turnId = `turn_${Date.now()}`;
+    setTurns(prev => [...prev, {
+      id: turnId,
+      prompt: trimmed,
+      mode: selectedMode,
+      events: [],
+      isComplete: false,
+    }]);
+
+    setInput('');
+    setShowAutocomplete(false);
+    startScenario(trimmed, selectedMode);
+  }, [selectedMode, startScenario]);
+
+  const handleAutocompleteSelect = useCallback((cmd: string) => {
+    if (cmd === '/mode') {
+      setOverlay('mode');
+      setInput('');
+      setShowAutocomplete(false);
+    } else {
+      setInput(cmd);
+      setShowAutocomplete(false);
+    }
+  }, []);
+
+  const handleModeSelect = useCallback((mode: ScenarioMode) => {
+    setSelectedMode(mode);
+    setOverlay('none');
+  }, []);
+
+  const renderPromptHeader = (prompt: string, mode: ScenarioMode) => (
+    <Box flexDirection="row" marginBottom={1}>
+      <Text color={theme.colors.text.muted}>{'> '}</Text>
+      <Text color={theme.colors.text.ethereal} bold>{prompt}</Text>
+      <Text color={theme.colors.text.muted}> </Text>
+      <Text color={theme.colors.text.muted}>[{mode}]</Text>
+    </Box>
+  );
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-      {history.length === 0 && <WelcomeScreen persona={persona} />}
+      {/* Welcome Screen - always visible */}
+      <WelcomeScreen persona={persona} mode={selectedMode} />
 
-      <Box flexDirection="column" marginTop={1} width="100%">
-        {history.map((item: LogItem, idx: number) => {
-          if (item.type === 'user') {
-            return (
-              <Box key={idx} flexDirection="row" marginBottom={1}>
-                <Text color={theme.colors.text.muted}>{CHAT_DATA.userPrefix}</Text>
-                <Text color={theme.colors.text.ethereal}>{item.text}</Text>
-              </Box>
-            );
-          }
-          if (item.type === 'output') {
-            return <OutputCard key={idx} meta={item.meta} />;
-          }
-          return null;
-        })}
-      </Box>
+      {/* Conversation turns */}
+      {turns.map((turn) => (
+        <Box key={turn.id} flexDirection="column" marginTop={1}>
+          {renderPromptHeader(turn.prompt, turn.mode)}
+          {turn.events.length > 0 && (
+            <ScenarioRenderer
+              events={turn.events}
+              isRunning={false}
+              isHistorical={true}
+            />
+          )}
+        </Box>
+      ))}
 
-      {isExecuting && thinking.isActive && (
-        <ThinkingIndicator
-          phase={thinking.phase}
-          message={thinking.message}
-          steps={thinking.steps}
-          currentStepIndex={thinking.currentStepIndex}
-          showElapsed={true}
-        />
-      )}
-
-      {isExecuting && !thinking.isActive && (
-        <Box marginBottom={1} flexDirection="row">
-          <Box width={2}>
-            <Text color={theme.colors.text.emerald}>◈</Text>
-          </Box>
-          <Text color={theme.colors.text.ethereal} bold>Processing...</Text>
-          <Text color={theme.colors.text.muted}>{CHAT_DATA.loadingFooter.interruptHint}</Text>
+      {/* Currently running scenario */}
+      {isRunning && (
+        <Box flexDirection="column" marginTop={1}>
+          {activeTurn && renderPromptHeader(activeTurn.prompt, activeTurn.mode)}
+          <ScenarioRenderer
+            events={events}
+            isRunning={isRunning}
+            isHistorical={false}
+          />
         </Box>
       )}
 
-      {!isExecuting ? (
-        <InputBox
-          input={input}
-          setInput={setInput}
-          overlay={overlay}
-          setOverlay={setOverlay}
-          isExecuting={isExecuting}
-          executeCommand={executeCommand}
-          persona={persona}
-          setPersona={setPersona}
-          autoApprove={autoApprove}
-          setAutoApprove={setAutoApprove}
-        />
-      ) : null}
+      {/* Input box & Session Status Bar - visible when idle */}
+      {isIdle && (
+        <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="row">
+            <Text color={theme.colors.text.muted}>{'> '}</Text>
+            <TextInput
+              value={input}
+              onChange={setInput}
+              onSubmit={handleSubmit}
+              placeholder="Ask anything..."
+              focus={true}
+            />
+          </Box>
 
-      {!isExecuting && (
-        <Box marginTop={1}>
-          <Text color={theme.colors.text.warning} bold>{CHAT_DATA.modeFooter.autoAcceptText}</Text>
-          <Text color={theme.colors.text.muted}>{CHAT_DATA.modeFooter.cycleHint}</Text>
+          {/* Autocomplete dropdown */}
+          {showAutocomplete && (
+            <Box marginTop={1}>
+              <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelect} />
+            </Box>
+          )}
+
+          {/* Claude Code CLI Session Status Bar */}
+          {!showAutocomplete && (
+            <SessionStatusBar
+              mode={selectedMode}
+              totalTokens={totalTokens}
+              isRunning={isRunning}
+            />
+          )}
+        </Box>
+      )}
+
+      {/* Mode select overlay */}
+      {overlay === 'mode' && (
+        <Box flexDirection="column" marginTop={1}>
+          <ModeSelectScreen
+            currentMode={selectedMode}
+            onSelect={handleModeSelect}
+            onClose={() => setOverlay('none')}
+          />
         </Box>
       )}
     </Box>

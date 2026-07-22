@@ -7,6 +7,7 @@ export const COMMAND_LIST: CommandHint[] = [
   { command: '/compact', description: 'Clear conversation history but keep a summary in context' },
   { command: '/context', description: 'View the current file context window' },
   { command: '/help', description: 'Show available commands' },
+  { command: '/mode', description: 'Switch between Build and Plan mode' },
   { command: '/persona', description: 'Switch the active agent persona' },
   { command: '/plugin', description: 'Manage Zenith plugins and extensions' },
   { command: '/settings', description: 'Configure Zenith options and theme' },

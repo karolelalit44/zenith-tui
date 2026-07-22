@@ -3,10 +3,16 @@ import { Box, Text } from 'ink';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { useTheme } from '../../theme/ThemeContext';
 import { Persona } from '../../types';
+import { ScenarioMode } from '../../types/scenario';
 import { WELCOME_DATA, getGreeting } from './data/welcomeData';
 import { DEFAULT_WORKSPACE, ENGINE_MODEL, APP_VERSION } from '../../constants';
 
-export const WelcomeScreen: React.FC<{ persona: Persona }> = React.memo(({ persona }) => {
+interface WelcomeScreenProps {
+  persona: Persona;
+  mode: ScenarioMode;
+}
+
+export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona, mode }) => {
   const { theme } = useTheme();
 
   return (
@@ -31,8 +37,8 @@ export const WelcomeScreen: React.FC<{ persona: Persona }> = React.memo(({ perso
                 <Text color={theme.colors.text.emerald}>Online ({ENGINE_MODEL})</Text>
               </Box>
               <Box flexDirection="row">
-                <Text color={theme.colors.text.muted}>{WELCOME_DATA.systemStatus.personaLabel}</Text>
-                <Text color={theme.colors.text.warning}>{persona.charAt(0).toUpperCase() + persona.slice(1)} Mode</Text>
+                <Text color={theme.colors.text.muted}>Mode: </Text>
+                <Text color={theme.colors.text.emerald} bold>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
               </Box>
             </Box>
 
@@ -47,20 +53,20 @@ export const WelcomeScreen: React.FC<{ persona: Persona }> = React.memo(({ perso
           <Text color={theme.colors.border.muted}>║{"\n"}║{"\n"}║{"\n"}║{"\n"}║{"\n"}║{"\n"}║{"\n"}║{"\n"}║{"\n"}║{"\n"}║</Text>
         </Box>
 
-        <Box flexDirection="column" width={56} justifyContent="center">
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} justifyContent="center" paddingLeft={2}>
           <Box marginBottom={2} flexDirection="row" flexWrap="wrap">
             <Text color={theme.colors.text.emerald} bold>
               {getGreeting(persona)}
             </Text>
           </Box>
 
-          <Text color={theme.colors.text.warning} bold>● Recent Sessions</Text>
-          <Box marginTop={1} flexDirection="column">
+          <Text color={theme.colors.text.warning} bold>Recent Sessions</Text>
+          <Box marginTop={1} flexDirection="column" width="100%">
             {WELCOME_DATA.recentSessions.map((session, idx) => (
-              <Box key={idx} flexDirection="row" marginBottom={1}>
-                <Box width={21}><Text color={theme.colors.text.muted}>{session.time} </Text></Box>
-                <Box flexGrow={1} paddingRight={2}><Text color={theme.colors.text.ethereal} wrap="truncate-end">{session.title}</Text></Box>
-                <Box width={12} flexDirection="row" justifyContent="flex-end">
+              <Box key={idx} flexDirection="row" marginBottom={1} width="100%">
+                <Box width={18} flexShrink={0}><Text color={theme.colors.text.muted}>{session.time} </Text></Box>
+                <Box flexGrow={1} flexShrink={1} paddingRight={1}><Text color={theme.colors.text.ethereal} wrap="truncate-end">{session.title}</Text></Box>
+                <Box width={12} flexShrink={0} flexDirection="row" justifyContent="flex-end">
                   <Text color={theme.colors.text.muted}>│ </Text>
                   <Text color={theme.colors.text.warning}>{session.persona}</Text>
                 </Box>
