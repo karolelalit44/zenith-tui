@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ProgressEvent } from '../../../types/scenario';
@@ -8,11 +9,10 @@ interface ProgressBarProps {
   event: ProgressEvent;
 }
 
-export const ProgressBar: React.FC<ProgressBarProps> = ({ event }) => {
+export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const tick = useTickAnimation(200);
 
-  const spinners = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   const activeIdx = event.steps.findIndex((s) => s.status === 'active');
   const doneCount = event.steps.filter((s) => s.status === 'done').length;
   const progress = event.steps.length > 0 ? doneCount / event.steps.length : 0;
@@ -44,7 +44,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({ event }) => {
               color = theme.colors.text.emerald;
               break;
             case 'active':
-              icon = spinners[tick % spinners.length];
+              icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
               color = theme.colors.text.ethereal;
               break;
             case 'error':
@@ -68,4 +68,4 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({ event }) => {
       </Box>
     </Box>
   );
-};
+});

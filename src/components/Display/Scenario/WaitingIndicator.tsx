@@ -8,7 +8,7 @@ interface WaitingIndicatorProps {
   event: WaitingEvent;
 }
 
-export const WaitingIndicator: React.FC<WaitingIndicatorProps> = ({ event }) => {
+export const WaitingIndicator: React.FC<WaitingIndicatorProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const tick = useTickAnimation(250);
 
@@ -25,4 +25,4 @@ export const WaitingIndicator: React.FC<WaitingIndicatorProps> = ({ event }) => 
       </Text>
     </Box>
   );
-};
+});

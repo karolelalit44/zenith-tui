@@ -56,7 +56,7 @@ export const FileList: React.FC<FileListProps> = React.memo(({ items, activeInde
             </Box>
 
             <Box width={14} flexShrink={0}>
-              <Text color={theme.colors.text.muted}>{item.modifiedDate || 'Jul 22, 2026'}</Text>
+              <Text color={theme.colors.text.muted}>{item.modifiedDate || '—'}</Text>
             </Box>
 
             <Box flexShrink={1}>

@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { DeploymentEvent } from '../../../types/scenario';
@@ -8,9 +9,7 @@ interface DeploymentCardProps {
   event: DeploymentEvent;
 }
 
-const SPINNERS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-export const DeploymentCard: React.FC<DeploymentCardProps> = ({ event }) => {
+export const DeploymentCard: React.FC<DeploymentCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const tick = useTickAnimation(200, event.status === 'deploying');
 
@@ -22,7 +21,7 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({ event }) => {
       color = theme.colors.status.success;
       break;
     case 'deploying':
-      icon = SPINNERS[tick % SPINNERS.length];
+      icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
       color = theme.colors.status.info;
       break;
     case 'failed':
@@ -88,4 +87,4 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({ event }) => {
       </Box>
     </Box>
   );
-};
+});

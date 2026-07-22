@@ -37,11 +37,9 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     thoughts.forEach((thought, idx) => {
       cumulativeDelay += Math.min(150, getThoughtDelay(thought, idx));
 
-      const revealTimer = setTimeout(() => {
+      const _revealTimer = setTimeout(() => {
         if (!cancelled) setVisibleCount(idx + 1);
       }, cumulativeDelay);
-
-      void revealTimer;
     });
 
     return () => {

@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import React, { useState } from 'react';
+import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { useTheme } from '../../theme/ThemeContext';
 
@@ -50,8 +51,12 @@ export const AddDirModal: React.FC<AddDirModalProps> = ({ currentWorkspace, onSe
 
         <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
           <Text color={theme.colors.text.muted}>
-            Press <Text color={theme.colors.text.emerald}>[Enter]</Text> to set directory ·{' '}
-            <Text color={theme.colors.text.emerald}>[Esc]</Text> Cancel
+            <ModalFooter
+              shortcuts={[
+                { key: '[Enter]', label: 'to set directory' },
+                { key: '[Esc]', label: 'Cancel' },
+              ]}
+            />
           </Text>
         </Box>
       </Box>

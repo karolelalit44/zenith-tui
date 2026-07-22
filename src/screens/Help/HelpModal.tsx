@@ -1,6 +1,8 @@
 import { Box, Text, useInput } from 'ink';
 import React from 'react';
+import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
+import { APP_VERSION } from '../../constants/app';
 import { useTheme } from '../../theme/ThemeContext';
 
 interface HelpModalProps {
@@ -120,7 +122,9 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
               <Text color={theme.colors.status.accent} bold>
                 [PLAN MODE]
               </Text>
-              <Text color={theme.colors.text.muted}>Generates architectural roadmaps and saves to zenith_plans/.</Text>
+              <Text color={theme.colors.text.muted}>
+                Generates architectural roadmaps and saves to zenith_plans/ (created on first save).
+              </Text>
 
               <Box marginTop={1}>
                 <Text color={theme.colors.status.success} bold>
@@ -141,7 +145,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
           justifyContent="center"
         >
           <Text color={theme.colors.text.muted}>
-            Zenith TUI v1.0.0 · Press <Text color={theme.colors.status.info}>[Esc]</Text> to return to prompt
+            Zenith TUI v{APP_VERSION} · <ModalFooter shortcuts={[{ key: '[Esc]', label: 'to return to prompt' }]} />
           </Text>
         </Box>
       </Box>

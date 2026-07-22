@@ -6,16 +6,14 @@ import { useProvider } from '../../hooks/useProvider';
 import { getRecentSessions } from '../../services/data/SessionRepository';
 import { useTheme } from '../../theme/ThemeContext';
 import type { Persona } from '../../types';
-import type { ScenarioMode } from '../../types/scenario';
 import { getGreeting, WELCOME_DATA } from './data/welcomeData';
 
 interface WelcomeScreenProps {
   persona: Persona;
-  mode: ScenarioMode;
   workspace?: string;
 }
 
-export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona, mode, workspace }) => {
+export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona, workspace }) => {
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
   const activeWorkspace = workspace || DEFAULT_WORKSPACE;
@@ -62,7 +60,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
 
             <Box flexDirection="column" marginTop={1}>
               <Box flexDirection="row" marginBottom={0}>
-                <Text color={theme.colors.text.muted}>Connected Provider: </Text>
+                <Text color={theme.colors.text.muted}>Provider: </Text>
                 <Text color={theme.colors.status.success} bold>
                   ✓ {activeProvider.meta.name}
                 </Text>
@@ -73,13 +71,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
               </Box>
 
               <Box flexDirection="row" marginTop={1}>
-                <Box flexDirection="row" marginRight={4}>
-                  <Text color={theme.colors.text.muted}>Mode: </Text>
-                  <Text color={theme.colors.text.emerald} bold>
-                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                  </Text>
-                </Box>
-
                 <Box flexDirection="row">
                   <Text color={theme.colors.text.muted}>{WELCOME_DATA.systemStatus.workspaceLabel}</Text>
                   <Text color={theme.colors.text.emerald}>{activeWorkspace}</Text>

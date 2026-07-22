@@ -50,13 +50,12 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
 
   const totalBlocks = 10;
   const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
-  const emptyBlocks = totalBlocks - filledBlocks;
-  const contextGauge = '█'.repeat(filledBlocks) + '░'.repeat(emptyBlocks);
+  const contextGauge = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
 
   return (
     <Box flexDirection="column" width="100%" marginTop={1}>
       <Box width="100%">
-        <Text color={theme.colors.border.muted}>─────────────────────────────────────────────────────────────</Text>
+        <Text color={theme.colors.border.muted}>{'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}</Text>
       </Box>
 
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap">

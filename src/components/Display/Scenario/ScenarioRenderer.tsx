@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
+import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { parseJsonEvent } from '../../../services/data/jsonEventNormalizer';
 import { useTheme } from '../../../theme/ThemeContext';
@@ -12,8 +13,6 @@ interface ScenarioRendererProps {
   isHistorical?: boolean;
 }
 
-const SPINNER_FRAMES = ['|', '/', '-', '\\'];
-
 const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
   const spinnerTick = useTickAnimation(100);
   const { theme } = useTheme();
@@ -25,7 +24,7 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
           [IN PROGRESS]{' '}
         </Text>
         <Text color={theme.colors.status.success} bold>
-          {SPINNER_FRAMES[spinnerTick % 4]}{' '}
+          {ASCII_SPINNER_FRAMES[spinnerTick % 4]}{' '}
         </Text>
         <Text color={theme.colors.text.bright} bold>
           {label}

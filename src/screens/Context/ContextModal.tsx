@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React from 'react';
+import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { WORKSPACE_FILES } from '../../services/fileExplorerService';
 import { useTheme } from '../../theme/ThemeContext';
@@ -85,7 +86,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({ totalTokens, maxToke
 
         <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
           <Text color={theme.colors.text.muted}>
-            Press <Text color={theme.colors.text.emerald}>[Esc]</Text> to exit Context Window
+            <ModalFooter shortcuts={[{ key: '[Esc]', label: 'to exit Context Window' }]} />
           </Text>
         </Box>
       </Box>
