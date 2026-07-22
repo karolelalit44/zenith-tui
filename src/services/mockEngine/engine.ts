@@ -1,4 +1,4 @@
-import { LogItem } from '../../types';
+import { LogItem, ThinkingState } from '../../types';
 import {
   executeClearCommand,
   executeAddDirCommand,
@@ -9,9 +9,9 @@ import {
 
 export const executeCommand = async (
   input: string,
-  onLoading: (text: string) => void,
   onAddHistory: (item: LogItem) => void,
-  onResetHistory: () => void
+  onResetHistory: () => void,
+  onThinking?: (state: Partial<ThinkingState>) => void
 ): Promise<void> => {
   if (input.trim() === '/clear') {
     executeClearCommand();
@@ -20,12 +20,12 @@ export const executeCommand = async (
   }
 
   if (input.trim().startsWith('/add-dir')) {
-    await executeAddDirCommand(input, onLoading, onAddHistory);
+    await executeAddDirCommand(input, onAddHistory, onThinking);
     return;
   }
 
   if (input.trim() === '/plugin') {
-    await executePluginCommand(onLoading, onAddHistory);
+    await executePluginCommand(onAddHistory, onThinking);
     return;
   }
 
@@ -34,9 +34,9 @@ export const executeCommand = async (
   }
 
   if (input.trim() === '/build') {
-    await executeBuildCommand(onLoading, onAddHistory);
+    await executeBuildCommand(onAddHistory, onThinking);
     return;
   }
 
-  await executeDefaultCommand(onLoading, onAddHistory);
+  await executeDefaultCommand(onAddHistory, onThinking);
 };

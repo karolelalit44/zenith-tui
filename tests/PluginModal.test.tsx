@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import { render } from 'ink-testing-library';
 import { PluginsScreen } from '../src/screens/Settings/Plugins/PluginsScreen';
 
-test('PluginModal renders tabs and search bar', () => {
+test('PluginsScreen renders tabs and search bar', () => {
   const { lastFrame } = render(<PluginsScreen onClose={() => {}} onTriggerMock={() => {}} />);
   
   const frame = lastFrame();

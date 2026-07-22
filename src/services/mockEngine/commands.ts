@@ -1,74 +1,108 @@
-import { LogItem, DiffLine } from '../../types';
-import { MOCK_DIFF, BUILD_MESSAGES, MOCK_MESSAGES } from './data/mockResponses';
+import { LogItem, ThinkingState, OutputMeta } from '../../types';
+import { MOCK_DIFF, BUILD_STEPS, MOCK_MESSAGES, FILE_EDIT_OUTPUT, PLUGIN_OUTPUT, BUILD_OUTPUT, THINKING_OUTPUT } from './data/mockResponses';
 
 const delay = (ms: number, variance = 0.3): Promise<void> => {
   const varied = ms * (1 - variance + Math.random() * variance * 2);
   return new Promise(r => setTimeout(r, varied));
 };
 
-export const executeClearCommand = (): LogItem[] => {
+export const executeClearCommand = (): void => {
   console.clear();
-  return [];
 };
 
 export const executeAddDirCommand = async (
   input: string,
-  onLoading: (text: string) => void,
-  onAddHistory: (item: LogItem) => void
+  onAddHistory: (item: LogItem) => void,
+  onThinking?: (state: Partial<ThinkingState>) => void
 ): Promise<void> => {
-  onLoading('Scanning file system...');
-  await delay(800);
+  onThinking?.({ isActive: true, phase: 'scanning', message: 'Mapping directory structure...', steps: [
+    { label: 'Scanning file system' },
+    { label: 'Indexing files' },
+    { label: 'Building context map' },
+  ], currentStepIndex: 0 });
+  await delay(600);
+
+  onThinking?.({ currentStepIndex: 1, message: 'Indexing files...' });
+  await delay(400);
+
+  onThinking?.({ currentStepIndex: 2, message: 'Building context map...' });
+  await delay(300);
 
   const parts = input.trim().split(' ');
   const path = parts.length > 1 ? parts[1] : '~/BCApps/new-module';
 
-  onAddHistory({ type: 'add-dir', path });
+  onThinking?.({ isActive: false });
+  onAddHistory({
+    type: 'output',
+    meta: {
+      kind: 'file_created',
+      icon: '✦',
+      title: 'Workspace Synced',
+      status: 'success',
+      filePath: path,
+      message: 'Directory mapped and vectorized. Zenith engine is now tracking this path.',
+      elapsed: '1.3s',
+    },
+  });
 };
 
 export const executePluginCommand = async (
-  onLoading: (text: string) => void,
-  onAddHistory: (item: LogItem) => void
+  onAddHistory: (item: LogItem) => void,
+  onThinking?: (state: Partial<ThinkingState>) => void
 ): Promise<void> => {
-  onLoading('Fetching registry...');
-  await delay(1200);
-  onAddHistory({ type: 'text', text: 'Plugin integration verified.' });
+  onThinking?.({ isActive: true, phase: 'fetching', message: 'Connecting to plugin registry...', steps: [
+    { label: 'Connecting to registry' },
+    { label: 'Verifying plugin status' },
+  ], currentStepIndex: 0 });
+  await delay(800);
+
+  onThinking?.({ currentStepIndex: 1, message: 'Verifying plugin compatibility...' });
+  await delay(500);
+
+  onThinking?.({ isActive: false });
+  onAddHistory({ type: 'output', meta: PLUGIN_OUTPUT });
 };
 
 export const executeBuildCommand = async (
-  onLoading: (text: string) => void,
-  onAddHistory: (item: LogItem) => void
+  onAddHistory: (item: LogItem) => void,
+  onThinking?: (state: Partial<ThinkingState>) => void
 ): Promise<void> => {
-  onLoading('Initializing build system...');
+  onThinking?.({ isActive: true, phase: 'building', message: 'Initializing build pipeline...', steps: [
+    { label: 'Resolving dependencies' },
+    { label: 'Compiling TypeScript' },
+    { label: 'Minifying assets' },
+  ], currentStepIndex: 0 });
   await delay(800);
-  onAddHistory({ type: 'text', text: `  ✔ ${BUILD_MESSAGES.resolving} (142ms)` });
 
-  onLoading('Compiling TypeScript...');
+  onThinking?.({ currentStepIndex: 1, message: 'Compiling TypeScript sources...' });
   await delay(1200);
-  onAddHistory({ type: 'text', text: `  ✔ ${BUILD_MESSAGES.compiling} (1.1s)` });
 
-  onLoading('Minifying assets...');
+  onThinking?.({ currentStepIndex: 2, message: 'Minifying production assets...' });
   await delay(900);
-  onAddHistory({ type: 'text', text: `  ✔ ${BUILD_MESSAGES.minifying} (405ms)` });
 
-  onAddHistory({ type: 'text', text: BUILD_MESSAGES.success });
+  onThinking?.({ isActive: false });
+  onAddHistory({ type: 'output', meta: BUILD_OUTPUT });
 };
 
 export const executeDefaultCommand = async (
-  onLoading: (text: string) => void,
-  onAddHistory: (item: LogItem) => void
+  onAddHistory: (item: LogItem) => void,
+  onThinking?: (state: Partial<ThinkingState>) => void
 ): Promise<void> => {
-  onLoading('Thinking...');
-  await delay(600, 0.5);
-  onAddHistory({ type: 'text', text: MOCK_MESSAGES.thinking });
+  const steps = [
+    { label: 'Analyzing request' },
+    { label: 'Determining tool trajectory' },
+    { label: 'Executing update' },
+  ];
 
-  onLoading('Using tool...');
+  onThinking?.({ isActive: true, phase: 'thinking', message: 'Evaluating architectural constraints...', steps, currentStepIndex: 0 });
+  await delay(600, 0.5);
+
+  onThinking?.({ currentStepIndex: 1, phase: 'analyzing', message: 'Mapping code dependencies...' });
   await delay(1400, 0.4);
 
-  onAddHistory({
-    type: 'tool',
-    name: 'Update',
-    args: 'src/engine.ts',
-    resultTitle: MOCK_MESSAGES.toolResult,
-    diff: MOCK_DIFF,
-  });
+  onThinking?.({ currentStepIndex: 2, phase: 'tool_use', message: 'Patching source file...' });
+  await delay(300);
+
+  onThinking?.({ isActive: false });
+  onAddHistory({ type: 'output', meta: FILE_EDIT_OUTPUT });
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { useTheme } from '../../../theme/ThemeContext';
@@ -23,6 +23,12 @@ export const InputBox: React.FC<InputBoxProps> = ({
   setAutoApprove,
 }) => {
   const { theme } = useTheme();
+
+  useEffect(() => {
+    if (overlay === 'autocomplete' && !input.startsWith('/')) {
+      setOverlay('none');
+    }
+  }, [input, overlay, setOverlay]);
 
   useInput((char, key) => {
     if (isExecuting) return;

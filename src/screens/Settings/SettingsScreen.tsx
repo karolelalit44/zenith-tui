@@ -64,7 +64,7 @@ export const SettingsScreen: React.FC<{
             <Box key={setting.id} flexDirection="row" marginY={1} width="100%">
               <Box width={3}>
                 <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.muted}>
-                  {isSelected ? '▎ ' : '  '}
+                  {isSelected ? '▸ ' : '  '}
                 </Text>
               </Box>
 

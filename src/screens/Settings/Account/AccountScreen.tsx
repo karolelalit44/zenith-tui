@@ -51,7 +51,7 @@ export const AccountScreen: React.FC<{
             <Box key={persona.id} flexDirection="row" marginY={1} width="100%">
               <Box width={3}>
                 <Text color={isSelected ? theme.colors.text.emerald : theme.colors.text.muted}>
-                  {isSelected ? '▎ ' : '  '}
+                  {isSelected ? '▸ ' : '  '}
                 </Text>
               </Box>
 

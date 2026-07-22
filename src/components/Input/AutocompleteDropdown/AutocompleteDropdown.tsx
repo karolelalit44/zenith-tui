@@ -37,6 +37,11 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ inpu
       </Box>
       {filtered.map((cmd, i) => (
         <Box key={i} flexDirection="row">
+          <Box width={2}>
+            <Text color={i === activeIndex ? theme.colors.text.emerald : theme.colors.text.muted}>
+              {i === activeIndex ? '▸' : ' '}
+            </Text>
+          </Box>
           <Box width={UI_CONSTANTS.AUTOCOMPLETE_COMMAND_WIDTH}>
             <Text color={i === activeIndex ? theme.colors.text.ethereal : theme.colors.text.muted} bold={i === activeIndex}>
               {cmd.command}

@@ -1,14 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import { WelcomeScreen } from './screens/Welcome';
-import { TreeLog } from './components/Display/TreeLog';
-import { AddDirLog } from './components/Display/AddDirLog';
-import { WordDiffViewer } from './components/Display/WordDiffViewer';
+import { OutputCard } from './components/Display/OutputCard';
 import { InputBox, OverlayState } from './components/Input/InputBox';
+import { ThinkingIndicator } from './components/Thinking';
 import { useTheme } from './theme/ThemeContext';
 import { useMockEngine } from './hooks/useMockEngine';
 import { LogItem, Persona } from './types';
-import { SPINNER_FRAMES } from './constants';
 import { CHAT_DATA } from './screens/Chat/data/chatData';
 
 export const App: React.FC = () => {
@@ -17,16 +15,8 @@ export const App: React.FC = () => {
   const [overlay, setOverlay] = useState<OverlayState>('none');
   const [persona, setPersona] = useState<Persona>('architect');
   const [autoApprove, setAutoApprove] = useState(true);
-  const [spinnerTick, setSpinnerTick] = useState(0);
 
-  const { history, isExecuting, loadingText, executeCommand } = useMockEngine();
-
-  useEffect(() => {
-    if (isExecuting) {
-      const interval = setInterval(() => setSpinnerTick((s) => s + 1), 100);
-      return () => clearInterval(interval);
-    }
-  }, [isExecuting]);
+  const { history, isExecuting, thinking, executeCommand } = useMockEngine();
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
@@ -42,36 +32,29 @@ export const App: React.FC = () => {
               </Box>
             );
           }
-          if (item.type === 'text') {
-            return (
-              <Box key={idx} marginBottom={1}>
-                <Text color={theme.colors.text.muted}>{CHAT_DATA.toolPrefix}</Text>
-                <Text color={theme.colors.text.ethereal}>{item.text}</Text>
-              </Box>
-            );
-          }
-          if (item.type === 'tool') {
-            return (
-              <TreeLog key={idx} toolName={item.name} args={item.args} resultTitle={item.resultTitle}>
-                {item.diff && <WordDiffViewer lines={item.diff} />}
-              </TreeLog>
-            );
-          }
-          if (item.type === 'add-dir') {
-            return <AddDirLog key={idx} path={item.path} />;
+          if (item.type === 'output') {
+            return <OutputCard key={idx} meta={item.meta} />;
           }
           return null;
         })}
       </Box>
 
-      {isExecuting && (
+      {isExecuting && thinking.isActive && (
+        <ThinkingIndicator
+          phase={thinking.phase}
+          message={thinking.message}
+          steps={thinking.steps}
+          currentStepIndex={thinking.currentStepIndex}
+          showElapsed={true}
+        />
+      )}
+
+      {isExecuting && !thinking.isActive && (
         <Box marginBottom={1} flexDirection="row">
           <Box width={2}>
-            <Text color={theme.colors.text.emerald}>
-              {SPINNER_FRAMES[spinnerTick % 10]}
-            </Text>
+            <Text color={theme.colors.text.emerald}>◈</Text>
           </Box>
-          <Text color={theme.colors.text.ethereal} bold>{loadingText}</Text>
+          <Text color={theme.colors.text.ethereal} bold>Processing...</Text>
           <Text color={theme.colors.text.muted}>{CHAT_DATA.loadingFooter.interruptHint}</Text>
         </Box>
       )}
