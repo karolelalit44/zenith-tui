@@ -1,12 +1,11 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { FileCreateEvent } from '../../../types/scenario';
+import type { FileCreateEvent } from '../../../types/scenario';
 import { highlightCode } from '../../../utils/syntaxHighlight';
 
 interface FileDiffCardProps {
   event: FileCreateEvent;
-  isHistorical?: boolean;
 }
 
 const MAX_VISIBLE_LINES = 25;
@@ -20,40 +19,40 @@ export const FileDiffCard: React.FC<FileDiffCardProps> = React.memo(({ event }) 
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      {/* File Header Line - No emojis */}
       <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
-        <Text color="#3FB950" bold>[CREATE] New File</Text>
+        <Text color={theme.colors.status.success} bold>
+          [CREATE] New File
+        </Text>
         <Text color={theme.colors.text.muted}> </Text>
-        <Text color="#E6EDF3" bold>{event.filePath}</Text>
-        <Text color="#8B949E"> ({event.lines.length} lines)</Text>
+        <Text color={theme.colors.text.bright} bold>
+          {event.filePath}
+        </Text>
+        <Text color={theme.colors.text.muted}> ({event.lines.length} lines)</Text>
       </Box>
 
-      {/* Code Container */}
-      <Box flexDirection="column" width="100%" borderStyle="round" borderColor="#30363D" paddingX={1}>
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.code.border} paddingX={1}>
         <Box flexDirection="row" marginBottom={1}>
-          <Text color="#8B949E">@@ 0, {event.lines.length} @@ </Text>
-          <Text color="#58A6FF">+{ext}</Text>
+          <Text color={theme.colors.text.muted}>@@ 0, {event.lines.length} @@ </Text>
+          <Text color={theme.colors.status.info}>+{ext}</Text>
         </Box>
 
         {displayLines.map((line, idx) => (
           <Box key={idx} flexDirection="row" width="100%">
             <Box width={4} flexShrink={0}>
-              <Text color="#6E7681">{idx + 1}</Text>
+              <Text color={theme.colors.code.lineNum}>{idx + 1}</Text>
             </Box>
             <Box width={2} flexShrink={0}>
-              <Text color="#3FB950">+</Text>
+              <Text color={theme.colors.diff.addFg}>+</Text>
             </Box>
             <Box flexShrink={1}>
-              <Text wrap="wrap">
-                {highlightCode(line.text, ext)}
-              </Text>
+              <Text wrap="wrap">{highlightCode(line.text, ext)}</Text>
             </Box>
           </Box>
         ))}
 
         {truncated && (
           <Box flexDirection="row" marginTop={1}>
-            <Text color="#8B949E">  ... {event.lines.length - MAX_VISIBLE_LINES} more lines</Text>
+            <Text color={theme.colors.text.muted}> ... {event.lines.length - MAX_VISIBLE_LINES} more lines</Text>
           </Box>
         )}
       </Box>

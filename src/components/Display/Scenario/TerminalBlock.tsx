@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { TerminalEvent } from '../../../types/scenario';
+import type { TerminalEvent } from '../../../types/scenario';
 
 interface TerminalBlockProps {
   event: TerminalEvent;
-  isHistorical?: boolean;
 }
 
 export const TerminalBlock: React.FC<TerminalBlockProps> = React.memo(({ event }) => {
@@ -13,29 +12,35 @@ export const TerminalBlock: React.FC<TerminalBlockProps> = React.memo(({ event }
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      {/* Command Line Header */}
       <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
-        <Text color="#58A6FF" bold>[COMMAND PROMPT]</Text>
+        <Text color={theme.colors.status.info} bold>
+          [COMMAND PROMPT]
+        </Text>
         <Text color={theme.colors.text.muted}> </Text>
-        <Text color="#58A6FF" bold>$ </Text>
-        <Text color="#E6EDF3" bold>{event.command}</Text>
-        <Text color="#8B949E"> ({(event.duration / 1000).toFixed(1)}s)</Text>
+        <Text color={theme.colors.status.info} bold>
+          ${' '}
+        </Text>
+        <Text color={theme.colors.text.bright} bold>
+          {event.command}
+        </Text>
+        <Text color={theme.colors.text.muted}> ({(event.duration / 1000).toFixed(1)}s)</Text>
       </Box>
 
-      {/* Terminal Output Box */}
-      <Box flexDirection="column" width="100%" borderStyle="round" borderColor="#30363D" paddingX={1}>
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.code.border} paddingX={1}>
         {event.output.length > 0 ? (
           event.output.map((line, idx) => (
-            <Text key={idx} color="#C9D1D9" wrap="wrap">
+            <Text key={idx} color={theme.colors.code.output} wrap="wrap">
               {line}
             </Text>
           ))
         ) : (
-          <Text color="#8B949E">(command executed silently)</Text>
+          <Text color={theme.colors.text.muted}>(command executed silently)</Text>
         )}
 
         <Box marginTop={1} flexDirection="row" justifyContent="flex-end">
-          <Text color="#3FB950" bold>[EXIT CODE 0]</Text>
+          <Text color={theme.colors.status.success} bold>
+            [EXIT CODE 0]
+          </Text>
         </Box>
       </Box>
     </Box>

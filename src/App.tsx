@@ -1,219 +1,92 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
-import { WelcomeScreen } from './screens/Welcome';
-import { ModeSelectScreen } from './screens/ModeSelect';
+import React, { useCallback, useEffect } from 'react';
+import { PromptHeader } from './components/Display/PromptHeader';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
-import { useTheme } from './theme/ThemeContext';
-import { useScenario } from './hooks/useScenario';
-import { Persona, ScenarioMode, ScenarioEvent } from './types';
-import { savePlanToFile } from './services/export/markdownExport';
-
-type OverlayState = 'none' | 'mode';
-
-interface ConversationTurn {
-  id: string;
-  prompt: string;
-  mode: ScenarioMode;
-  events: ScenarioEvent[];
-  isComplete: boolean;
-  timestamp: string;
-}
-
-const MOCK_TOKENS_PER_TURN = 1247;
-
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
+import { useAutocomplete } from './hooks/useAutocomplete';
+import { useConversation } from './hooks/useConversation';
+import { useModeSelector } from './hooks/useModeSelector';
+import { useScenario } from './hooks/useScenario';
+import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
+import { ModeSelectScreen } from './screens/ModeSelect';
+import { WelcomeScreen } from './screens/Welcome';
+import { useTheme } from './theme/ThemeContext';
+import type { Persona } from './types';
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
-  const [persona] = useState<Persona>('architect');
-  const [selectedMode, setSelectedMode] = useState<ScenarioMode>('build');
-  const [input, setInput] = useState('');
-  const [overlay, setOverlay] = useState<OverlayState>('none');
-  const [turns, setTurns] = useState<ConversationTurn[]>([]);
-  const [showAutocomplete, setShowAutocomplete] = useState(false);
-  const [showFilePicker, setShowFilePicker] = useState(false);
-
+  const persona: Persona = 'architect';
+  const { turns, activeTurn, totalTokens, addTurn, completeActiveTurn, abortActiveTurn, markTurnSaved } =
+    useConversation();
+  const { selectedMode, overlay, isOverlayOpen, openModeSelector, closeOverlay, handleModeSelect } = useModeSelector();
+  const {
+    input,
+    showAutocomplete,
+    showFilePicker,
+    handleInputChange,
+    handleAutocompleteSelect,
+    clearInput,
+    insertFilePath,
+    closeFilePicker,
+  } = useAutocomplete();
   const { events, isRunning, startScenario, abort } = useScenario();
 
-  const activeTurn = turns.length > 0 ? turns[turns.length - 1] : null;
-  const isIdle = !isRunning && overlay === 'none';
+  const isIdle = !isRunning && !isOverlayOpen;
 
-  const totalTokens = useMemo(() => {
-    return turns.filter(t => t.isComplete).length * MOCK_TOKENS_PER_TURN;
-  }, [turns]);
-
-  const handleInputChange = useCallback((val: string) => {
-    setInput(val);
-    if (val.startsWith('/')) {
-      setShowAutocomplete(true);
-      setShowFilePicker(false);
-    } else if (val.startsWith('@')) {
-      setShowFilePicker(true);
-      setShowAutocomplete(false);
-    } else {
-      setShowAutocomplete(false);
-      setShowFilePicker(false);
-    }
-  }, []);
-
-  const [scrollOffset, setScrollOffset] = useState(0);
-
-  useEffect(() => {
-    // Enable extended VT/SGR/Urxvt mouse wheel and touchpad tracking in terminal
-    try {
-      process.stdout.write('\x1B[?1000h\x1B[?1002h\x1B[?1006h\x1B[?1015h');
-    } catch (_e) {}
-
-    return () => {
-      try {
-        process.stdout.write('\x1B[?1000l\x1B[?1002l\x1B[?1006l\x1B[?1015l');
-      } catch (_e) {}
-    };
-  }, []);
-
-  useInput((char, key) => {
-    const isTouchpadOrWheelUp =
-      key.upArrow ||
-      key.pageUp ||
-      char.includes('\x1b[<64') ||
-      char.includes('\x1b[<0') ||
-      char.includes('\x1b[M`') ||
-      char.includes('\x1b[64');
-
-    const isTouchpadOrWheelDown =
-      key.downArrow ||
-      key.pageDown ||
-      char.includes('\x1b[<65') ||
-      char.includes('\x1b[<1') ||
-      char.includes('\x1b[Ma') ||
-      char.includes('\x1b[65');
-
-    if (isTouchpadOrWheelUp) {
-      setScrollOffset(prev => Math.min(turns.length, prev + 1));
-      return;
-    }
-
-    if (isTouchpadOrWheelDown) {
-      setScrollOffset(prev => Math.max(0, prev - 1));
-      return;
-    }
-
-    // Ctrl + S to save plan
-    if ((key.ctrl || key.meta) && (char === 's' || char === 'S')) {
-      const targetTurn = turns[turns.length - 1];
-      const targetEvents = isRunning ? events : (targetTurn?.events || []);
-
-      if (targetEvents.length > 0) {
-        savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
-
-        setTurns(prev => {
-          if (prev.length === 0) return prev;
-          const lastIdx = prev.length - 1;
-          const updatedEvents = prev[lastIdx].events.map(ev =>
-            ev.kind === 'planner_action_panel' ? { ...ev, saved: true } : ev
-          );
-          return prev.map((t, i) => i === lastIdx ? { ...t, events: updatedEvents } : t);
-        });
-      }
-      return;
-    }
-
-    if (overlay === 'mode') {
-      if (key.escape) {
-        setOverlay('none');
-      }
-      return;
-    }
-
-    if (isRunning && key.escape) {
-      abort();
-      setTurns(prev => {
-        const last = prev[prev.length - 1];
-        if (last && !last.isComplete) {
-          return prev.map((t, i) => i === prev.length - 1 ? { ...t, isComplete: true } : t);
-        }
-        return prev;
-      });
-    }
-  }, { isActive: true });
+  useTerminalKeyboard({
+    turns,
+    isRunning,
+    events,
+    overlay,
+    closeOverlay,
+    abort,
+    abortActiveTurn,
+    markTurnSaved,
+  });
 
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
-      setTurns(prev => {
-        const lastIdx = prev.length - 1;
-        return prev.map((t, i) => i === lastIdx ? { ...t, events: [...events], isComplete: true } : t);
-      });
+      completeActiveTurn(events);
     }
-  }, [isRunning, events, activeTurn]);
+  }, [isRunning, events, activeTurn, completeActiveTurn]);
 
-  const handleSubmit = useCallback((value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
+  const handleSubmit = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
 
-    if (trimmed === '/mode') {
-      setOverlay('mode');
-      setInput('');
-      setShowAutocomplete(false);
-      return;
-    }
+      if (trimmed === '/mode') {
+        openModeSelector();
+        clearInput();
+        return;
+      }
 
-    if (trimmed.startsWith('/')) {
-      setInput('');
-      setShowAutocomplete(false);
-      return;
-    }
+      if (trimmed.startsWith('/')) {
+        clearInput();
+        return;
+      }
 
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    const turnId = `turn_${Date.now()}`;
+      addTurn(trimmed, selectedMode);
+      clearInput();
+      startScenario(trimmed, selectedMode);
+    },
+    [selectedMode, startScenario, addTurn, clearInput, openModeSelector],
+  );
 
-    setTurns(prev => [...prev, {
-      id: turnId,
-      prompt: trimmed,
-      mode: selectedMode,
-      events: [],
-      isComplete: false,
-      timestamp: timeStr,
-    }]);
-
-    setInput('');
-    setShowAutocomplete(false);
-    startScenario(trimmed, selectedMode);
-  }, [selectedMode, startScenario]);
-
-  const handleAutocompleteSelect = useCallback((cmd: string) => {
-    if (cmd === '/mode') {
-      setOverlay('mode');
-      setInput('');
-      setShowAutocomplete(false);
-    } else {
-      setInput(cmd);
-      setShowAutocomplete(false);
-    }
-  }, []);
-
-  const handleModeSelect = useCallback((mode: ScenarioMode) => {
-    setSelectedMode(mode);
-    setOverlay('none');
-  }, []);
-
-  const renderPromptHeader = (prompt: string, mode: ScenarioMode, timestamp?: string) => {
-    const timeStr = timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    return (
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center" width="100%" marginBottom={1}>
-        <Box flexDirection="row" alignItems="center">
-          <Text color={theme.colors.text.muted}>{'> '}</Text>
-          <Text color={theme.colors.text.ethereal} bold>{prompt}</Text>
-          <Text color={theme.colors.text.muted}> </Text>
-          <Text color={theme.colors.text.muted}>[{mode}]</Text>
-        </Box>
-        <Text color={theme.colors.text.muted}>[ {timeStr} ]</Text>
-      </Box>
-    );
-  };
+  const handleAutocompleteSelectWithMode = useCallback(
+    (cmd: string) => {
+      if (cmd === '/mode') {
+        openModeSelector();
+        clearInput();
+      } else {
+        handleAutocompleteSelect(cmd);
+      }
+    },
+    [openModeSelector, clearInput, handleAutocompleteSelect],
+  );
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
@@ -223,26 +96,18 @@ export const App: React.FC = () => {
       {/* Conversation turns */}
       {turns.map((turn) => (
         <Box key={turn.id} flexDirection="column" marginTop={1}>
-          {renderPromptHeader(turn.prompt, turn.mode, turn.timestamp)}
-          {turn.events.length > 0 && (
-            <ScenarioRenderer
-              events={turn.events}
-              isRunning={false}
-              isHistorical={true}
-            />
-          )}
+          <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
+          {turn.events.length > 0 && <ScenarioRenderer events={turn.events} isRunning={false} isHistorical={true} />}
         </Box>
       ))}
 
       {/* Currently running scenario */}
       {isRunning && (
         <Box flexDirection="column" marginTop={1}>
-          {activeTurn && renderPromptHeader(activeTurn.prompt, activeTurn.mode, activeTurn.timestamp)}
-          <ScenarioRenderer
-            events={events}
-            isRunning={isRunning}
-            isHistorical={false}
-          />
+          {activeTurn && (
+            <PromptHeader prompt={activeTurn.prompt} mode={activeTurn.mode} timestamp={activeTurn.timestamp} />
+          )}
+          <ScenarioRenderer events={events} isRunning={isRunning} isHistorical={false} />
         </Box>
       )}
 
@@ -263,33 +128,20 @@ export const App: React.FC = () => {
           {/* Slash Command Palette */}
           {showAutocomplete && (
             <Box marginTop={1}>
-              <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelect} />
+              <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithMode} />
             </Box>
           )}
 
           {/* File Picker Modal */}
           {showFilePicker && (
             <Box marginTop={1}>
-              <FilePickerModal
-                onSelectFile={(relPath) => {
-                  setInput(prev => {
-                    const cleaned = prev.replace(/^@/, '');
-                    return cleaned ? `${cleaned} ${relPath}` : relPath;
-                  });
-                  setShowFilePicker(false);
-                }}
-                onClose={() => setShowFilePicker(false)}
-              />
+              <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
             </Box>
           )}
 
           {/* Claude Code CLI Session Status Bar */}
           {!showAutocomplete && !showFilePicker && (
-            <SessionStatusBar
-              mode={selectedMode}
-              totalTokens={totalTokens}
-              isRunning={isRunning}
-            />
+            <SessionStatusBar mode={selectedMode} totalTokens={totalTokens} isRunning={isRunning} />
           )}
         </Box>
       )}
@@ -297,11 +149,7 @@ export const App: React.FC = () => {
       {/* Mode select overlay */}
       {overlay === 'mode' && (
         <Box flexDirection="column" marginTop={1}>
-          <ModeSelectScreen
-            currentMode={selectedMode}
-            onSelect={handleModeSelect}
-            onClose={() => setOverlay('none')}
-          />
+          <ModeSelectScreen currentMode={selectedMode} onSelect={handleModeSelect} onClose={closeOverlay} />
         </Box>
       )}
     </Box>

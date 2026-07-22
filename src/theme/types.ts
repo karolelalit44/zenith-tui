@@ -16,15 +16,32 @@ export interface Theme {
       emerald: string;
       warning: string;
       error: string;
+      bright: string;
+      dim: string;
     };
-    shadow: {
-      ascii: string;
+    status: {
+      success: string;
+      info: string;
+      error: string;
+      warning: string;
+      accent: string;
     };
     diff: {
       addBg: string;
       addWordBg: string;
+      addFg: string;
       removeBg: string;
       removeWordBg: string;
+      removeFg: string;
+    };
+    code: {
+      border: string;
+      background: string;
+      lineNum: string;
+      output: string;
+    };
+    shadow: {
+      ascii: string;
     };
     logo: string[];
   };

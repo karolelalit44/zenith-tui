@@ -3,7 +3,7 @@
     "target": "es2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["es2022", "DOM"],
+    "lib": ["es2022"],
     "jsx": "react",
     "outDir": "./dist",
     "rootDir": "./src",

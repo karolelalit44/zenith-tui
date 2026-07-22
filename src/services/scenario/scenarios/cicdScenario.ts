@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `ci_${Date.now()}_${++idCounter}`;
-
-export const cicdScenario = (prompt: string): Scenario => ({
-  id: `cicd_${Date.now()}`,
+const template: ScenarioTemplate = {
   mode: 'build',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Analyzing repository structure for CI/CD automation', delay: 300 },
         { text: 'Determining test matrix, linting, and Docker container build stages', delay: 350 },
@@ -21,7 +16,6 @@ export const cicdScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: '.github/workflows/ci.yml',
       directory: '.github/workflows/',
       language: 'yaml',
@@ -60,7 +54,6 @@ export const cicdScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: '.github/workflows/cd.yml',
       directory: '.github/workflows/',
       language: 'yaml',
@@ -84,7 +77,6 @@ export const cicdScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Validating YAML syntax & schema constraints', delay: 300 },
         { text: 'Checking workflow event triggers', delay: 350 },
@@ -94,7 +86,6 @@ export const cicdScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'act -l',
       output: [
         'Stage  Name                          Workflow file  Trigger event',
@@ -105,7 +96,6 @@ export const cicdScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'test_execution',
-      id: uid(),
       command: 'act -j test',
       framework: 'GitHub Actions Local Runner',
       results: [
@@ -118,23 +108,16 @@ export const cicdScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'warning',
-      id: uid(),
       message: 'GitHub Actions secrets not configured for this repository',
       details: 'Set DEPLOY_TOKEN, REGISTRY_URL, and KUBE_CONFIG in repository settings before first deployment.',
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'CI/CD Pipeline Configured',
-      description: 'GitHub Actions workflows with test, build, and deploy stages. Includes Docker image building and Kubernetes deployment.',
-      filesCreated: [
-        '.github/workflows/ci.yml',
-        '.github/workflows/cd.yml',
-      ],
-      commandsExecuted: [
-        'act -l',
-        'act -j test',
-      ],
+      description:
+        'GitHub Actions workflows with test, build, and deploy stages. Includes Docker image building and Kubernetes deployment.',
+      filesCreated: ['.github/workflows/ci.yml', '.github/workflows/cd.yml'],
+      commandsExecuted: ['act -l', 'act -j test'],
       verified: [
         'YAML syntax validation',
         'Workflow event triggers',
@@ -143,4 +126,6 @@ export const cicdScenario = (prompt: string): Scenario => ({
       ],
     },
   ],
-});
+};
+
+export const cicdScenario = (prompt: string): Scenario => createScenario(prompt, template);

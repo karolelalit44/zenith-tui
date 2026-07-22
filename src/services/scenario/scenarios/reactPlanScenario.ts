@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `plan_react_${Date.now()}_${++idCounter}`;
-
-export const reactPlanScenario = (prompt: string): Scenario => ({
-  id: `plan_react_${Date.now()}`,
+const buildTemplate = (prompt: string): ScenarioTemplate => ({
   mode: 'plan',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: `Analyzing React/Frontend prompt: "${prompt}"`, delay: 250 },
         { text: 'Evaluating React 19 component hierarchy & state management model', delay: 300 },
@@ -20,7 +15,6 @@ export const reactPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'git status',
       output: [
         'On branch main',
@@ -31,17 +25,12 @@ export const reactPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'npx check-workspace --template react',
-      output: [
-        'Error: Could not locate workspace configuration manifest.',
-        'MISSING_MANIFEST: ./react-workspace.json',
-      ],
+      output: ['Error: Could not locate workspace configuration manifest.', 'MISSING_MANIFEST: ./react-workspace.json'],
       duration: 500,
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Detected missing workspace configuration manifest', delay: 300 },
         { text: 'Switching to fallback inspection: parsing package.json for React & Vite', delay: 300 },
@@ -50,13 +39,11 @@ export const reactPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'retry',
-      id: uid(),
       message: 'Retrying workspace discovery using fallback package inspection',
       attempt: 2,
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'cat package.json | grep -E "react|vite|recharts|zustand"',
       output: [
         '  "react": "^19.0.0",',
@@ -68,7 +55,6 @@ export const reactPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Frontend Component Architecture & State Strategy',
       sections: [
         {
@@ -92,7 +78,6 @@ export const reactPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Target Files, Risk Assessment & Optimization',
       sections: [
         {
@@ -115,15 +100,10 @@ export const reactPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'React Architecture Plan Ready',
       description: 'The component hierarchy, state management design, and file tree plan have been generated.',
       filesCreated: [],
-      commandsExecuted: [
-        'git status',
-        'npx check-workspace (fallback recovered)',
-        'cat package.json',
-      ],
+      commandsExecuted: ['git status', 'npx check-workspace (fallback recovered)', 'cat package.json'],
       verified: [
         'React 19 Component Architecture',
         'Zustand State Strategy',
@@ -133,8 +113,9 @@ export const reactPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'planner_action_panel',
-      id: uid(),
       defaultFilename: 'implementation-plan.md',
     },
   ],
 });
+
+export const reactPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));

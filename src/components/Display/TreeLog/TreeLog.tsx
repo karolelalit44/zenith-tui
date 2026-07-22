@@ -1,7 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { TreeLogProps } from './types';
+import type { TreeLogProps } from './types';
 
 export const TreeLog: React.FC<TreeLogProps> = ({ toolName, args, resultTitle, children }) => {
   const { theme } = useTheme();
@@ -10,7 +10,9 @@ export const TreeLog: React.FC<TreeLogProps> = ({ toolName, args, resultTitle, c
     <Box flexDirection="column" marginBottom={1}>
       <Box>
         <Text color={theme.colors.text.emerald}>● </Text>
-        <Text color={theme.colors.text.ethereal} bold>{toolName}</Text>
+        <Text color={theme.colors.text.ethereal} bold>
+          {toolName}
+        </Text>
         {args && <Text color={theme.colors.text.muted}>({args})</Text>}
       </Box>
 

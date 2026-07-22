@@ -1,7 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
+import type { FileNode } from '../../../services/fileExplorerService';
 import { useTheme } from '../../../theme/ThemeContext';
-import { FileNode } from '../../../services/fileExplorerService';
 
 interface FileListProps {
   items: FileNode[];
@@ -15,7 +15,7 @@ export const FileList: React.FC<FileListProps> = React.memo(({ items, activeInde
   if (items.length === 0) {
     return (
       <Box paddingY={1}>
-        <Text color="#8B949E">No files or folders found in {currentPath || 'workspace'}.</Text>
+        <Text color={theme.colors.text.muted}>No files or folders found in {currentPath || 'workspace'}.</Text>
       </Box>
     );
   }
@@ -27,24 +27,23 @@ export const FileList: React.FC<FileListProps> = React.memo(({ items, activeInde
 
         return (
           <Box key={item.relativePath} flexDirection="row" alignItems="center" width="100%">
-            {/* Active Pointer */}
             <Box width={2} flexShrink={0}>
-              <Text color={isActive ? "#3FB950" : theme.colors.text.muted}>
+              <Text color={isActive ? theme.colors.status.success : theme.colors.text.muted}>
                 {isActive ? '▸' : ' '}
               </Text>
             </Box>
 
-            {/* Type Indicator Badge */}
             <Box width={7} flexShrink={0}>
-              <Text color={item.isDir ? "#58A6FF" : "#3FB950"} bold={item.isDir}>
+              <Text color={item.isDir ? theme.colors.status.info : theme.colors.status.success} bold={item.isDir}>
                 {item.isDir ? '[DIR]' : '[FILE]'}
               </Text>
             </Box>
 
-            {/* Name */}
             <Box width={24} flexShrink={0}>
               <Text
-                color={isActive ? "#E6EDF3" : item.isDir ? "#58A6FF" : "#C9D1D9"}
+                color={
+                  isActive ? theme.colors.text.bright : item.isDir ? theme.colors.status.info : theme.colors.code.output
+                }
                 bold={isActive || item.isDir}
                 wrap="truncate-end"
               >
@@ -52,25 +51,16 @@ export const FileList: React.FC<FileListProps> = React.memo(({ items, activeInde
               </Text>
             </Box>
 
-            {/* Size */}
             <Box width={10} flexShrink={0}>
-              <Text color="#8B949E">
-                {item.isDir ? '—' : (item.sizeFormatted || '0 KB')}
-              </Text>
+              <Text color={theme.colors.text.muted}>{item.isDir ? '—' : item.sizeFormatted || '0 KB'}</Text>
             </Box>
 
-            {/* Modified Date */}
             <Box width={14} flexShrink={0}>
-              <Text color="#8B949E">
-                {item.modifiedDate || 'Jul 22, 2026'}
-              </Text>
+              <Text color={theme.colors.text.muted}>{item.modifiedDate || 'Jul 22, 2026'}</Text>
             </Box>
 
-            {/* File Type */}
             <Box flexShrink={1}>
-              <Text color="#8B949E">
-                {item.fileType || (item.isDir ? 'Folder' : 'File')}
-              </Text>
+              <Text color={theme.colors.text.muted}>{item.fileType || (item.isDir ? 'Folder' : 'File')}</Text>
             </Box>
           </Box>
         );

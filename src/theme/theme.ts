@@ -1,94 +1,168 @@
-export interface Theme {
-  colors: {
-    bg: {
-      app: string;
-      sidebar: string;
-      modal: string;
-    };
-    border: {
-      default: string;
-      active: string;
-      muted: string;
-    };
-    text: {
-      ethereal: string;
-      muted: string;
-      emerald: string;
-      warning: string;
-      error: string;
-    };
-    shadow: {
-      ascii: string;
-    };
-    diff: {
-      addBg: string;
-      addWordBg: string;
-      removeBg: string;
-      removeWordBg: string;
-    };
-    logo: string[];
-  };
-}
+import type { Theme } from './types';
+
+export type { Theme };
 
 export const themes: Record<string, Theme> = {
   deep_forest: {
     colors: {
       bg: { app: '#0D1A15', sidebar: '#142921', modal: '#1A3329' },
       border: { default: '#244738', active: '#50C878', muted: '#1A3329' },
-      text: { ethereal: '#F5FFFA', muted: '#8FBC8F', emerald: '#50C878', warning: '#DAA520', error: '#FF6B6B' },
+      text: {
+        ethereal: '#F5FFFA',
+        muted: '#8FBC8F',
+        emerald: '#50C878',
+        warning: '#DAA520',
+        error: '#FF6B6B',
+        bright: '#FFFFFF',
+        dim: '#5A7A5A',
+      },
+      status: { success: '#50C878', info: '#5DADE2', error: '#FF6B6B', warning: '#DAA520', accent: '#7CA87C' },
+      diff: {
+        addBg: '#112B1C',
+        addWordBg: '#1B4D31',
+        addFg: '#50C878',
+        removeBg: '#2B1111',
+        removeWordBg: '#4D1B1B',
+        removeFg: '#FF6B6B',
+      },
+      code: { border: '#244738', background: '#0D1A15', lineNum: '#5A7A5A', output: '#C5D8C5' },
       shadow: { ascii: '#08120E' },
-      diff: { addBg: '#112B1C', addWordBg: '#1B4D31', removeBg: '#2B1111', removeWordBg: '#4D1B1B' },
-      logo: ['#F5FFFA', '#D1E8D1', '#A3CBA3', '#7CA87C', '#558055', '#2E522E']
-    }
+      logo: ['#F5FFFA', '#D1E8D1', '#A3CBA3', '#7CA87C', '#558055', '#2E522E'],
+    },
   },
   synthwave: {
     colors: {
       bg: { app: '#1A0E2A', sidebar: '#25153A', modal: '#2E1949' },
       border: { default: '#45266D', active: '#F92A82', muted: '#2E1949' },
-      text: { ethereal: '#FDF1F5', muted: '#A385C2', emerald: '#00F2FE', warning: '#F39C12', error: '#FF2A2A' },
+      text: {
+        ethereal: '#FDF1F5',
+        muted: '#A385C2',
+        emerald: '#00F2FE',
+        warning: '#F39C12',
+        error: '#FF2A2A',
+        bright: '#FFFFFF',
+        dim: '#6B4D8A',
+      },
+      status: { success: '#00F2FE', info: '#F92A82', error: '#FF2A2A', warning: '#F39C12', accent: '#BC7FD4' },
+      diff: {
+        addBg: '#1B264A',
+        addWordBg: '#154A66',
+        addFg: '#00F2FE',
+        removeBg: '#4A1B26',
+        removeWordBg: '#661530',
+        removeFg: '#FF2A2A',
+      },
+      code: { border: '#45266D', background: '#1A0E2A', lineNum: '#6B4D8A', output: '#C9B3E0' },
       shadow: { ascii: '#10081C' },
-      diff: { addBg: '#1B264A', addWordBg: '#154A66', removeBg: '#4A1B26', removeWordBg: '#661530' },
-      logo: ['#FF66CC', '#E04DBF', '#C233B2', '#A31AA5', '#850099', '#66008C']
-    }
+      logo: ['#FF66CC', '#E04DBF', '#C233B2', '#A31AA5', '#850099', '#66008C'],
+    },
   },
   monokai: {
     colors: {
       bg: { app: '#272822', sidebar: '#2E2F29', modal: '#34352F' },
       border: { default: '#49483E', active: '#A6E22E', muted: '#34352F' },
-      text: { ethereal: '#F8F8F2', muted: '#75715E', emerald: '#A6E22E', warning: '#FD971F', error: '#F92672' },
+      text: {
+        ethereal: '#F8F8F2',
+        muted: '#75715E',
+        emerald: '#A6E22E',
+        warning: '#FD971F',
+        error: '#F92672',
+        bright: '#FFFFFF',
+        dim: '#5C5A4E',
+      },
+      status: { success: '#A6E22E', info: '#66D9EF', error: '#F92672', warning: '#FD971F', accent: '#AE81FF' },
+      diff: {
+        addBg: '#3E4924',
+        addWordBg: '#596934',
+        addFg: '#A6E22E',
+        removeBg: '#49243E',
+        removeWordBg: '#693459',
+        removeFg: '#F92672',
+      },
+      code: { border: '#49483E', background: '#272822', lineNum: '#5C5A4E', output: '#D0D0C8' },
       shadow: { ascii: '#151613' },
-      diff: { addBg: '#3E4924', addWordBg: '#596934', removeBg: '#49243E', removeWordBg: '#693459' },
-      logo: ['#A6E22E', '#BCE22E', '#D2E22E', '#E8E22E', '#FDE22E', '#FD971F']
-    }
+      logo: ['#A6E22E', '#BCE22E', '#D2E22E', '#E8E22E', '#FDE22E', '#FD971F'],
+    },
   },
   dracula: {
     colors: {
       bg: { app: '#282A36', sidebar: '#303240', modal: '#383A4A' },
       border: { default: '#44475A', active: '#50FA7B', muted: '#383A4A' },
-      text: { ethereal: '#F8F8F2', muted: '#6272A4', emerald: '#8BE9FD', warning: '#FFB86C', error: '#FF5555' },
+      text: {
+        ethereal: '#F8F8F2',
+        muted: '#6272A4',
+        emerald: '#8BE9FD',
+        warning: '#FFB86C',
+        error: '#FF5555',
+        bright: '#FFFFFF',
+        dim: '#44475A',
+      },
+      status: { success: '#50FA7B', info: '#8BE9FD', error: '#FF5555', warning: '#FFB86C', accent: '#BD93F9' },
+      diff: {
+        addBg: '#233F39',
+        addWordBg: '#2A5A51',
+        addFg: '#50FA7B',
+        removeBg: '#422735',
+        removeWordBg: '#5A2A47',
+        removeFg: '#FF5555',
+      },
+      code: { border: '#44475A', background: '#282A36', lineNum: '#6272A4', output: '#F8F8F2' },
       shadow: { ascii: '#1E1F28' },
-      diff: { addBg: '#233F39', addWordBg: '#2A5A51', removeBg: '#422735', removeWordBg: '#5A2A47' },
-      logo: ['#BD93F9', '#B084F5', '#A375F1', '#9666ED', '#8957E9', '#FF79C6']
-    }
+      logo: ['#BD93F9', '#B084F5', '#A375F1', '#9666ED', '#8957E9', '#FF79C6'],
+    },
   },
   aura: {
     colors: {
       bg: { app: '#15141B', sidebar: '#1B1A22', modal: '#21202A' },
       border: { default: '#3D3B4F', active: '#61FFCA', muted: '#21202A' },
-      text: { ethereal: '#EDECEE', muted: '#6D6A86', emerald: '#82E2FF', warning: '#F694FF', error: '#FF6767' },
+      text: {
+        ethereal: '#EDECEE',
+        muted: '#6D6A86',
+        emerald: '#82E2FF',
+        warning: '#F694FF',
+        error: '#FF6767',
+        bright: '#FFFFFF',
+        dim: '#3D3B4F',
+      },
+      status: { success: '#61FFCA', info: '#82E2FF', error: '#FF6767', warning: '#F694FF', accent: '#A277FF' },
+      diff: {
+        addBg: '#1C3138',
+        addWordBg: '#254E5A',
+        addFg: '#61FFCA',
+        removeBg: '#381C26',
+        removeWordBg: '#5A2538',
+        removeFg: '#FF6767',
+      },
+      code: { border: '#3D3B4F', background: '#15141B', lineNum: '#6D6A86', output: '#EDECEE' },
       shadow: { ascii: '#0E0D11' },
-      diff: { addBg: '#1C3138', addWordBg: '#254E5A', removeBg: '#381C26', removeWordBg: '#5A2538' },
-      logo: ['#61FFCA', '#6BEEF6', '#75DDFF', '#93AEFF', '#A392FF', '#A277FF']
-    }
+      logo: ['#61FFCA', '#6BEEF6', '#75DDFF', '#93AEFF', '#A392FF', '#A277FF'],
+    },
   },
   graphite: {
     colors: {
       bg: { app: '#121212', sidebar: '#1A1A1A', modal: '#222222' },
       border: { default: '#333333', active: '#A0A0A0', muted: '#222222' },
-      text: { ethereal: '#E0E0E0', muted: '#707070', emerald: '#B0B0B0', warning: '#D0D0D0', error: '#888888' },
+      text: {
+        ethereal: '#E0E0E0',
+        muted: '#707070',
+        emerald: '#B0B0B0',
+        warning: '#D0D0D0',
+        error: '#888888',
+        bright: '#FFFFFF',
+        dim: '#444444',
+      },
+      status: { success: '#A0A0A0', info: '#909090', error: '#888888', warning: '#D0D0D0', accent: '#C0C0C0' },
+      diff: {
+        addBg: '#1E2320',
+        addWordBg: '#2C3530',
+        addFg: '#A0A0A0',
+        removeBg: '#261F1F',
+        removeWordBg: '#382B2B',
+        removeFg: '#888888',
+      },
+      code: { border: '#333333', background: '#121212', lineNum: '#707070', output: '#E0E0E0' },
       shadow: { ascii: '#000000' },
-      diff: { addBg: '#1E2320', addWordBg: '#2C3530', removeBg: '#261F1F', removeWordBg: '#382B2B' },
-      logo: ['#EEEEEE', '#CCCCCC', '#AAAAAA', '#888888', '#666666', '#444444']
-    }
-  }
+      logo: ['#EEEEEE', '#CCCCCC', '#AAAAAA', '#888888', '#666666', '#444444'],
+    },
+  },
 };

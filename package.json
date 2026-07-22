@@ -5,7 +5,15 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.tsx",
-    "test": "vitest run"
+    "build": "tsc",
+    "preview": "node dist/index.js",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +27,7 @@
     "react": "^19.2.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.5",
     "@types/ink-testing-library": "^1.0.4",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",

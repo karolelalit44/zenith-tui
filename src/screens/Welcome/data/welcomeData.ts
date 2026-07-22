@@ -1,4 +1,4 @@
-import { Persona } from '../../../types';
+import type { Persona } from '../../../types';
 
 export const WELCOME_DATA = {
   title: 'ZENITH',
@@ -18,7 +18,7 @@ export const WELCOME_DATA = {
   ],
 } as const;
 
-export const getGreeting = (persona: Persona): string => {
+export const getGreeting = (_persona: Persona): string => {
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) return 'Compiling coffee...';
   if (hour >= 12 && hour < 17) return 'Midday grind.';

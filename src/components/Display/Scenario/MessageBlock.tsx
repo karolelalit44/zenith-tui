@@ -1,7 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { MessageEvent } from '../../../types/scenario';
+import type { MessageEvent } from '../../../types/scenario';
 
 interface MessageBlockProps {
   event: MessageEvent;

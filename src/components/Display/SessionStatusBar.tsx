@@ -1,7 +1,8 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
+import { StaticContentRepository } from '../../services/data/StaticContentRepository';
 import { useTheme } from '../../theme/ThemeContext';
-import { ScenarioMode } from '../../types';
+import type { ScenarioMode } from '../../types';
 
 interface SessionStatusBarProps {
   mode: ScenarioMode;
@@ -23,23 +24,21 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   gitBranch = 'main',
 }) => {
   const { theme } = useTheme();
+  const statusLabels = StaticContentRepository.getStatusBarLabels();
 
   const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
 
-  // Mode styling
   const getModeBadge = (m: ScenarioMode) => {
     switch (m) {
       case 'plan':
-        return { label: '[PLAN]', color: '#BD93F9' };
-      case 'build':
+        return { label: '[PLAN]', color: theme.colors.status.accent };
       default:
-        return { label: '[BUILD]', color: theme.colors.text.emerald };
+        return { label: '[BUILD]', color: theme.colors.status.success };
     }
   };
 
   const modeBadge = getModeBadge(mode);
 
-  // Render context bar: 10 chars wide
   const totalBlocks = 10;
   const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
   const emptyBlocks = totalBlocks - filledBlocks;
@@ -47,71 +46,57 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
 
   return (
     <Box flexDirection="column" width="100%" marginTop={1}>
-      {/* Top subtle divider */}
       <Box width="100%">
         <Text color={theme.colors.border.muted}>─────────────────────────────────────────────────────────────</Text>
       </Box>
 
-      {/* Main Status Bar Line 1: Primary session indicators */}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap">
         <Box flexDirection="row" alignItems="center">
-          {/* Mode Pill */}
           <Box paddingX={1} backgroundColor={modeBadge.color}>
-            <Text color="#000000" bold>
+            <Text color={theme.colors.bg.app} bold>
               {modeBadge.label}
             </Text>
           </Box>
           <Text color={theme.colors.text.muted}> </Text>
 
-          {/* Model Name */}
           <Text color={theme.colors.text.ethereal} bold>
             {modelName}
           </Text>
           <Text color={theme.colors.text.muted}> · </Text>
 
-          {/* Tokens Used */}
-          <Text color={theme.colors.text.muted}>
-            {totalTokens.toLocaleString()} tokens
-          </Text>
+          <Text color={theme.colors.text.muted}>{totalTokens.toLocaleString()} tokens</Text>
           <Text color={theme.colors.text.muted}> · </Text>
 
-          {/* Context Meter */}
-          <Text color={contextPercent > 80 ? theme.colors.text.warning : theme.colors.text.emerald}>
+          <Text color={contextPercent > 80 ? theme.colors.text.warning : theme.colors.status.success}>
             [{contextGauge}] {contextPercent}%
           </Text>
         </Box>
 
-        {/* Status Indicator */}
         <Box flexDirection="row" alignItems="center">
           {isRunning ? (
-            <Text color={theme.colors.text.emerald} bold>
-              Processing...
+            <Text color={theme.colors.status.success} bold>
+              {statusLabels.processingText}
             </Text>
           ) : (
-            <Text color={theme.colors.text.muted}>
-              Idle
-            </Text>
+            <Text color={theme.colors.text.muted}>{statusLabels.idleText}</Text>
           )}
         </Box>
       </Box>
 
-      {/* Line 2: Environment & Shortcuts Info */}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" marginTop={0} flexWrap="wrap">
         <Box flexDirection="row" alignItems="center">
-          {/* Workspace */}
-          <Text color={theme.colors.text.muted}>dir: </Text>
+          <Text color={theme.colors.text.muted}>{statusLabels.dirPrefix} </Text>
           <Text color={theme.colors.text.ethereal}>{workspaceName}</Text>
           <Text color={theme.colors.text.muted}> </Text>
 
-          {/* Git branch */}
           <Text color={theme.colors.text.muted}>git:(</Text>
-          <Text color={theme.colors.text.emerald}>{gitBranch}</Text>
+          <Text color={theme.colors.status.success}>{gitBranch}</Text>
           <Text color={theme.colors.text.muted}>)</Text>
         </Box>
 
         <Box flexDirection="row" alignItems="center">
           <Text color={theme.colors.text.muted} dimColor>
-            esc cancel · / commands · shift+m mode
+            {statusLabels.cancelHint} · {statusLabels.commandsHint} · {statusLabels.modeHint}
           </Text>
         </Box>
       </Box>

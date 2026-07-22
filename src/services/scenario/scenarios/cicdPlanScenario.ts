@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `plan_ci_${Date.now()}_${++idCounter}`;
-
-export const cicdPlanScenario = (prompt: string): Scenario => ({
-  id: `plan_ci_${Date.now()}`,
+const buildTemplate = (prompt: string): ScenarioTemplate => ({
   mode: 'plan',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: `Analyzing CI/CD Pipeline prompt: "${prompt}"`, delay: 250 },
         { text: 'Evaluating GitHub Actions matrix builds & npm cache optimization', delay: 300 },
@@ -20,7 +15,6 @@ export const cicdPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'git remote -v',
       output: [
         'origin  git@github.com:acme/zenith-app.git (fetch)',
@@ -30,16 +24,12 @@ export const cicdPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'cat .github/workflows/ci.yml',
-      output: [
-        'cat: .github/workflows/ci.yml: No such file or directory',
-      ],
+      output: ['cat: .github/workflows/ci.yml: No such file or directory'],
       duration: 450,
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'No existing GitHub Actions workflows detected', delay: 300 },
         { text: 'Designing full multi-job workflow architecture (Lint -> Test -> Build -> Deploy)', delay: 300 },
@@ -48,13 +38,11 @@ export const cicdPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'retry',
-      id: uid(),
       message: 'Generating complete GitHub Actions workflow specification',
       attempt: 1,
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'CI/CD Pipeline Architecture & Stages',
       sections: [
         {
@@ -78,7 +66,6 @@ export const cicdPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Target Files, Secrets & Security Strategy',
       sections: [
         {
@@ -99,14 +86,10 @@ export const cicdPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'CI/CD Architecture Plan Ready',
       description: 'The GitHub Actions workflow specification and multi-stage deployment plan have been generated.',
       filesCreated: [],
-      commandsExecuted: [
-        'git remote -v',
-        'cat .github/workflows/ci.yml (initial check)',
-      ],
+      commandsExecuted: ['git remote -v', 'cat .github/workflows/ci.yml (initial check)'],
       verified: [
         'GitHub Actions v4 specification',
         'Multi-stage job dependency graph',
@@ -116,8 +99,9 @@ export const cicdPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'planner_action_panel',
-      id: uid(),
       defaultFilename: 'implementation-plan.md',
     },
   ],
 });
+
+export const cicdPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));

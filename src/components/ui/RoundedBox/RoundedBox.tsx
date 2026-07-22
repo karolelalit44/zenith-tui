@@ -1,7 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { RoundedBoxProps } from './types';
+import type { RoundedBoxProps } from './types';
 export const RoundedBox: React.FC<RoundedBoxProps> = ({
   title,
   borderColor,
@@ -18,7 +18,14 @@ export const RoundedBox: React.FC<RoundedBoxProps> = ({
       <Box flexDirection="row" width="100%" position="relative">
         <Box
           borderStyle={{
-            topLeft: '╭', topRight: '╮', top: '═', bottom: '═', bottomLeft: '╰', bottomRight: '╯', left: '║', right: '║'
+            topLeft: '╭',
+            topRight: '╮',
+            top: '═',
+            bottom: '═',
+            bottomLeft: '╰',
+            bottomRight: '╯',
+            left: '║',
+            right: '║',
           }}
           borderColor={currentBorderColor}
           paddingX={paddingX}
@@ -32,11 +39,14 @@ export const RoundedBox: React.FC<RoundedBoxProps> = ({
         </Box>
 
         {title && (
-          // @ts-ignore
+          // @ts-expect-error
           <Box position="absolute" top={0} left={0} width="100%" justifyContent="flex-end" paddingRight={4}>
             <Box flexDirection="row">
               <Text color={currentBorderColor}>╣ </Text>
-              <Text color={theme.colors.bg.app} backgroundColor={currentBorderColor} bold> {title} </Text>
+              <Text color={theme.colors.bg.app} backgroundColor={currentBorderColor} bold>
+                {' '}
+                {title}{' '}
+              </Text>
               <Text color={currentBorderColor}> ╠</Text>
             </Box>
           </Box>

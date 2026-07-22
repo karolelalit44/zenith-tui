@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `docker_${Date.now()}_${++idCounter}`;
-
-export const dockerScenario = (prompt: string): Scenario => ({
-  id: `docker_${Date.now()}`,
+const template: ScenarioTemplate = {
   mode: 'build',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Analyzing project structure for containerization', delay: 300 },
         { text: 'Identifying Node.js runtime dependencies & Nginx static serving requirements', delay: 350 },
@@ -21,7 +16,6 @@ export const dockerScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'Dockerfile',
       directory: './',
       language: 'dockerfile',
@@ -45,7 +39,6 @@ export const dockerScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'docker-compose.yml',
       directory: './',
       language: 'yaml',
@@ -68,7 +61,6 @@ export const dockerScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: '.dockerignore',
       directory: './',
       language: 'text',
@@ -82,7 +74,6 @@ export const dockerScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Building Docker image layer cache', delay: 300 },
         { text: 'Testing container startup & port forwarding', delay: 400 },
@@ -92,7 +83,6 @@ export const dockerScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'build_step',
-      id: uid(),
       step: 'docker build -t app:latest .',
       status: 'success',
       duration: 3800,
@@ -110,7 +100,6 @@ export const dockerScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'docker compose up -d',
       output: [
         '[+] Running 1/1',
@@ -121,30 +110,17 @@ export const dockerScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'deployment',
-      id: uid(),
       target: 'Local Docker Desktop Container',
       status: 'success',
       url: 'http://localhost:3000',
-      output: [
-        'Container ID: 7f89d0e12a4b',
-        'Port Mapping: 0.0.0.0:3000->80/tcp',
-        'Health Status: Healthy',
-      ],
+      output: ['Container ID: 7f89d0e12a4b', 'Port Mapping: 0.0.0.0:3000->80/tcp', 'Health Status: Healthy'],
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'Docker Configuration Complete',
       description: 'Multi-stage Docker build with production-ready Nginx serving and docker-compose orchestration.',
-      filesCreated: [
-        'Dockerfile',
-        'docker-compose.yml',
-        '.dockerignore',
-      ],
-      commandsExecuted: [
-        'docker build -t app:latest .',
-        'docker compose up -d',
-      ],
+      filesCreated: ['Dockerfile', 'docker-compose.yml', '.dockerignore'],
+      commandsExecuted: ['docker build -t app:latest .', 'docker compose up -d'],
       verified: [
         'Multi-stage layer caching',
         'Health check endpoint (http://localhost:3000)',
@@ -153,4 +129,6 @@ export const dockerScenario = (prompt: string): Scenario => ({
       ],
     },
   ],
-});
+};
+
+export const dockerScenario = (prompt: string): Scenario => createScenario(prompt, template);

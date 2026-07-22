@@ -1,6 +1,6 @@
-import fs from 'fs';
-import path from 'path';
-import { ScenarioEvent } from '../../types/scenario';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { ScenarioEvent } from '../../types/scenario';
 
 export interface ExportResult {
   success: boolean;
@@ -42,7 +42,9 @@ export function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string)
         lines.push('');
         if (event.verified && event.verified.length > 0) {
           lines.push('### Verification Items');
-          event.verified.forEach((v) => lines.push(`- ✔ ${v}`));
+          for (const v of event.verified) {
+            lines.push(`- ✔ ${v}`);
+          }
           lines.push('');
         }
         break;
@@ -51,7 +53,9 @@ export function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string)
         lines.push('```bash');
         lines.push(`# ${event.command}`);
         if (event.output && event.output.length > 0) {
-          event.output.forEach((out) => lines.push(out));
+          for (const out of event.output) {
+            lines.push(out);
+          }
         }
         lines.push('```');
         lines.push('');
@@ -72,7 +76,7 @@ export function savePlanToFile(
   events: ScenarioEvent[],
   prompt: string,
   targetDirectory: string = process.cwd(),
-  filename: string = 'implementation-plan.md'
+  filename: string = 'implementation-plan.md',
 ): ExportResult {
   try {
     const plansDir = path.join(targetDirectory, 'zenith_plans');

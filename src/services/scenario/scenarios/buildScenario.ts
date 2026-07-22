@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `evt_${++idCounter}`;
-
-export const buildScenario = (prompt: string): Scenario => ({
-  id: `build_${Date.now()}`,
+const template: ScenarioTemplate = {
   mode: 'build',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Understanding the request', delay: 300 },
         { text: 'Choosing FastAPI project structure', delay: 400 },
@@ -23,7 +18,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'backend/app/__init__.py',
       directory: 'backend/app/',
       language: 'python',
@@ -36,7 +30,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'backend/app/models.py',
       directory: 'backend/app/',
       language: 'python',
@@ -52,7 +45,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'backend/app/api/users.py',
       directory: 'backend/app/api/',
       language: 'python',
@@ -76,17 +68,13 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'backend/app/api/__init__.py',
       directory: 'backend/app/api/',
       language: 'python',
-      lines: [
-        { text: 'from .users import router as users_router', type: 'add' },
-      ],
+      lines: [{ text: 'from .users import router as users_router', type: 'add' }],
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'backend/main.py',
       directory: 'backend/',
       language: 'python',
@@ -99,7 +87,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'backend/requirements.txt',
       directory: 'backend/',
       language: 'text',
@@ -110,7 +97,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Project files are ready', delay: 300 },
         { text: 'Validating imports', delay: 400 },
@@ -123,7 +109,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'pip install -r requirements.txt',
       output: [
         'Collecting fastapi',
@@ -137,14 +122,13 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'error',
-      id: uid(),
       message: "ModuleNotFoundError: No module named 'app.api.users'",
       command: 'uvicorn backend.main:app --reload',
-      stack: '  File "backend/main.py", line 2, in <module>\n    from app.api.users import router\nModuleNotFoundError: No module named \'app.api.users\'',
+      stack:
+        '  File "backend/main.py", line 2, in <module>\n    from app.api.users import router\nModuleNotFoundError: No module named \'app.api.users\'',
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'The router was not exported correctly', delay: 300 },
         { text: 'Updating __init__.py exports', delay: 350 },
@@ -155,7 +139,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_edit',
-      id: uid(),
       filePath: 'backend/main.py',
       directory: 'backend/',
       language: 'python',
@@ -172,13 +155,11 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'retry',
-      id: uid(),
       message: 'Retrying server startup',
       attempt: 2,
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'uvicorn backend.main:app --reload',
       output: [
         'INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)',
@@ -191,7 +172,6 @@ export const buildScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'success',
-      id: uid(),
       message: 'Application started successfully on http://127.0.0.1:8000',
       filesCreated: [
         'backend/app/__init__.py',
@@ -201,16 +181,13 @@ export const buildScenario = (prompt: string): Scenario => ({
         'backend/main.py',
         'backend/requirements.txt',
       ],
-      commandsExecuted: [
-        'pip install -r requirements.txt',
-        'uvicorn backend.main:app --reload',
-      ],
+      commandsExecuted: ['pip install -r requirements.txt', 'uvicorn backend.main:app --reload'],
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'FastAPI Project Created',
-      description: 'Successfully created a FastAPI project with User CRUD endpoints. The application starts correctly and all routes have been registered.',
+      description:
+        'Successfully created a FastAPI project with User CRUD endpoints. The application starts correctly and all routes have been registered.',
       filesCreated: [
         'backend/app/__init__.py',
         'backend/app/models.py',
@@ -219,10 +196,7 @@ export const buildScenario = (prompt: string): Scenario => ({
         'backend/main.py',
         'backend/requirements.txt',
       ],
-      commandsExecuted: [
-        'pip install -r requirements.txt',
-        'uvicorn backend.main:app --reload',
-      ],
+      commandsExecuted: ['pip install -r requirements.txt', 'uvicorn backend.main:app --reload'],
       verified: [
         'FastAPI app initialization',
         'Pydantic models',
@@ -232,4 +206,6 @@ export const buildScenario = (prompt: string): Scenario => ({
       ],
     },
   ],
-});
+};
+
+export const buildScenario = (prompt: string): Scenario => createScenario(prompt, template);

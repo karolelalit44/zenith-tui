@@ -1,17 +1,12 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `plan_${Date.now()}_${++idCounter}`;
-
-export const planScenario = (prompt: string): Scenario => ({
-  id: `plan_${Date.now()}`,
+const buildTemplate = (prompt: string): ScenarioTemplate => ({
   mode: 'plan',
-  prompt,
   events: [
     // Phase 1: Reasoning & Requirements Analysis
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: `Analyzing request: "${prompt}"`, delay: 250 },
         { text: 'Deconstructing core system components & goals', delay: 300 },
@@ -23,7 +18,6 @@ export const planScenario = (prompt: string): Scenario => ({
     // Phase 2: Terminal Inspection & Discovery
     {
       kind: 'terminal',
-      id: uid(),
       command: 'git status',
       output: [
         'On branch main',
@@ -34,7 +28,6 @@ export const planScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'npx check-workspace',
       output: [
         'Error: Could not locate workspace configuration manifest.',
@@ -46,7 +39,6 @@ export const planScenario = (prompt: string): Scenario => ({
     // Phase 3: Failure Analysis & Automated Recovery
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Detected missing workspace configuration manifest', delay: 300 },
         { text: 'Switching to fallback inspection: parsing package.json dependencies', delay: 300 },
@@ -55,13 +47,11 @@ export const planScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'retry',
-      id: uid(),
       message: 'Retrying workspace discovery using fallback package inspection',
       attempt: 2,
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'cat package.json | grep -E "dependencies|devDependencies"',
       output: [
         '  "dependencies": { "fastapi": "^0.109.0", "pydantic": "^2.6.0" },',
@@ -73,7 +63,6 @@ export const planScenario = (prompt: string): Scenario => ({
     // Phase 4: Architectural Roadmap & Task Breakdown
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Architectural Roadmap & System Design',
       sections: [
         {
@@ -98,7 +87,6 @@ export const planScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Evaluating dependencies & potential production risks', delay: 300 },
         { text: 'Finalizing execution roadmap and file tree structure', delay: 300 },
@@ -107,7 +95,6 @@ export const planScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Dependencies, Risk Assessment & File Tree',
       sections: [
         {
@@ -132,26 +119,17 @@ export const planScenario = (prompt: string): Scenario => ({
     // Phase 5: Plan Completion Summary & Save Action Panel
     {
       kind: 'summary',
-      id: uid(),
       title: 'Implementation Plan Ready',
       description: 'The architectural plan and step-by-step roadmap have been generated.',
       filesCreated: [],
-      commandsExecuted: [
-        'git status',
-        'npx check-workspace (fallback recovered)',
-        'cat package.json',
-      ],
-      verified: [
-        'System Architecture',
-        'Milestone Breakdown',
-        'Risk Mitigation Strategy',
-        'Target File Structure',
-      ],
+      commandsExecuted: ['git status', 'npx check-workspace (fallback recovered)', 'cat package.json'],
+      verified: ['System Architecture', 'Milestone Breakdown', 'Risk Mitigation Strategy', 'Target File Structure'],
     },
     {
       kind: 'planner_action_panel',
-      id: uid(),
       defaultFilename: 'zenith_plans/implementation-plan.md',
     },
   ],
 });
+
+export const planScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));

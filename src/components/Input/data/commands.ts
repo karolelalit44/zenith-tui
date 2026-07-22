@@ -1,4 +1,4 @@
-import { CommandHint } from '../../../types';
+import type { CommandHint } from '../../../types';
 
 export const COMMAND_LIST: CommandHint[] = [
   { command: '/add-dir', description: 'Add a new working directory' },

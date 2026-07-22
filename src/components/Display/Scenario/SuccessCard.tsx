@@ -1,7 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { SuccessEvent } from '../../../types/scenario';
+import type { SuccessEvent } from '../../../types/scenario';
 
 interface SuccessCardProps {
   event: SuccessEvent;
@@ -13,7 +13,9 @@ export const SuccessCard: React.FC<SuccessCardProps> = ({ event }) => {
   return (
     <Box flexDirection="column" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
-        <Text color={theme.colors.text.emerald} bold>✔ {event.message}</Text>
+        <Text color={theme.colors.text.emerald} bold>
+          ✔ {event.message}
+        </Text>
       </Box>
 
       {event.filesCreated.length > 0 && (
@@ -21,7 +23,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = ({ event }) => {
           <Text color={theme.colors.text.muted}>Files created:</Text>
           {event.filesCreated.map((file, idx) => (
             <Box key={idx} flexDirection="row">
-              <Text color={theme.colors.text.muted}>  </Text>
+              <Text color={theme.colors.text.muted}> </Text>
               <Text color={theme.colors.text.emerald}>✦</Text>
               <Text color={theme.colors.text.ethereal}> {file}</Text>
             </Box>
@@ -34,7 +36,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = ({ event }) => {
           <Text color={theme.colors.text.muted}>Commands executed:</Text>
           {event.commandsExecuted.map((cmd, idx) => (
             <Box key={idx} flexDirection="row">
-              <Text color={theme.colors.text.muted}>  </Text>
+              <Text color={theme.colors.text.muted}> </Text>
               <Text color={theme.colors.text.emerald}>$</Text>
               <Text color={theme.colors.text.ethereal}> {cmd}</Text>
             </Box>

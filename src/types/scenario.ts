@@ -16,7 +16,8 @@ export type EventKind =
   | 'build_step'
   | 'deployment'
   | 'analysis'
-  | 'planner_action_panel';
+  | 'planner_action_panel'
+  | 'mode_mismatch';
 
 export interface ThinkingThought {
   text: string;

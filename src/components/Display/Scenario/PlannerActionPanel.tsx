@@ -1,7 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { PlannerActionPanelEvent } from '../../../types/scenario';
+import type { PlannerActionPanelEvent } from '../../../types/scenario';
 
 interface PlannerActionPanelProps {
   event: PlannerActionPanelEvent;
@@ -16,26 +16,45 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
         <Text color={theme.colors.border.active}>─────────────────────────────────────────────────────────────</Text>
       </Box>
 
-      <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="round" borderColor="#3FB950">
+      <Box
+        flexDirection="column"
+        paddingX={2}
+        paddingY={1}
+        borderStyle="round"
+        borderColor={theme.colors.status.success}
+      >
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
-          <Text color="#3FB950" bold>✔ Plan Ready</Text>
+          <Text color={theme.colors.status.success} bold>
+            ✔ Plan Ready
+          </Text>
         </Box>
 
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
-          <Text color="#E6EDF3" bold>Press </Text>
-          <Text color="#58A6FF" bold underline>Ctrl + S</Text>
-          <Text color="#E6EDF3" bold> to save this plan.</Text>
+          <Text color={theme.colors.text.bright} bold>
+            Press{' '}
+          </Text>
+          <Text color={theme.colors.status.info} bold underline>
+            Ctrl + S
+          </Text>
+          <Text color={theme.colors.text.bright} bold>
+            {' '}
+            to save this plan.
+          </Text>
         </Box>
 
         <Box flexDirection="row" alignItems="center">
-          <Text color="#8B949E">The plan will be exported as: </Text>
-          <Text color="#58A6FF" bold>{event.defaultFilename || 'zenith_plans/implementation-plan.md'}</Text>
+          <Text color={theme.colors.text.muted}>The plan will be exported as: </Text>
+          <Text color={theme.colors.status.info} bold>
+            {event.defaultFilename || 'zenith_plans/implementation-plan.md'}
+          </Text>
         </Box>
 
         {event.saved && (
           <Box marginTop={1} flexDirection="row" alignItems="center">
-            <Text color="#3FB950" bold>[SAVED SUCCESS] </Text>
-            <Text color="#E6EDF3">File written to {event.defaultFilename}</Text>
+            <Text color={theme.colors.status.success} bold>
+              [SAVED SUCCESS]{' '}
+            </Text>
+            <Text color={theme.colors.text.bright}>File written to {event.defaultFilename}</Text>
           </Box>
         )}
       </Box>

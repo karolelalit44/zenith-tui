@@ -1,39 +1,33 @@
-import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
+import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { useTheme } from '../../../theme/ThemeContext';
-import { DeploymentEvent } from '../../../types/scenario';
+import type { DeploymentEvent } from '../../../types/scenario';
 
 interface DeploymentCardProps {
   event: DeploymentEvent;
 }
 
+const SPINNERS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
 export const DeploymentCard: React.FC<DeploymentCardProps> = ({ event }) => {
   const { theme } = useTheme();
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    if (event.status === 'deploying') {
-      const interval = setInterval(() => setTick(t => t + 1), 200);
-      return () => clearInterval(interval);
-    }
-  }, [event.status]);
-
-  const spinners = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  const tick = useTickAnimation(200, event.status === 'deploying');
 
   let icon: string;
   let color: string;
   switch (event.status) {
     case 'success':
       icon = '✔';
-      color = theme.colors.text.emerald;
+      color = theme.colors.status.success;
       break;
     case 'deploying':
-      icon = spinners[tick % spinners.length];
-      color = theme.colors.text.ethereal;
+      icon = SPINNERS[tick % SPINNERS.length];
+      color = theme.colors.status.info;
       break;
     case 'failed':
       icon = '✗';
-      color = theme.colors.text.error;
+      color = theme.colors.status.error;
       break;
     default:
       icon = '○';
@@ -44,28 +38,38 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({ event }) => {
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
-        <Text color="#3FB950" bold>[DEPLOY]</Text>
+        <Text color={theme.colors.status.success} bold>
+          [DEPLOY]
+        </Text>
         <Text color={theme.colors.text.muted}> → </Text>
-        <Text color="#E6EDF3" bold>{event.target}</Text>
+        <Text color={theme.colors.text.bright} bold>
+          {event.target}
+        </Text>
       </Box>
 
       <Box flexDirection="row" alignItems="center" paddingLeft={2}>
         <Box width={2}>
           <Text color={color}>{icon}</Text>
         </Box>
-        <Text color={color} bold>{event.status === 'deploying' ? 'Deploying...' : event.status === 'success' ? 'Deployed' : 'Failed'}</Text>
+        <Text color={color} bold>
+          {event.status === 'deploying' ? 'Deploying...' : event.status === 'success' ? 'Deployed' : 'Failed'}
+        </Text>
         {event.url && (
-          <Text color={theme.colors.text.muted}> → </Text>
-        )}
-        {event.url && (
-          <Text color={theme.colors.text.emerald} underline>{event.url}</Text>
+          <>
+            <Text color={theme.colors.text.muted}> → </Text>
+            <Text color={theme.colors.status.success} underline>
+              {event.url}
+            </Text>
+          </>
         )}
       </Box>
 
       {event.output && event.output.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           {event.output.map((line, idx) => (
-            <Text key={idx} color={theme.colors.text.muted}>{line}</Text>
+            <Text key={idx} color={theme.colors.text.muted}>
+              {line}
+            </Text>
           ))}
         </Box>
       )}

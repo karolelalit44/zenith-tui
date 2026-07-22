@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `plan_docker_${Date.now()}_${++idCounter}`;
-
-export const dockerPlanScenario = (prompt: string): Scenario => ({
-  id: `plan_docker_${Date.now()}`,
+const buildTemplate = (prompt: string): ScenarioTemplate => ({
   mode: 'plan',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: `Analyzing Docker container prompt: "${prompt}"`, delay: 250 },
         { text: 'Evaluating multi-stage build optimization & Alpine Linux security', delay: 300 },
@@ -20,7 +15,6 @@ export const dockerPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'docker info',
       output: [
         'Client: Docker Engine - Community',
@@ -32,16 +26,12 @@ export const dockerPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'docker compose config --quiet',
-      output: [
-        'Error: docker-compose.yml file not found in working directory.',
-      ],
+      output: ['Error: docker-compose.yml file not found in working directory.'],
       duration: 450,
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Detected missing docker-compose.yml manifest', delay: 300 },
         { text: 'Designing multi-service compose schema from project dependencies', delay: 300 },
@@ -50,13 +40,11 @@ export const dockerPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'retry',
-      id: uid(),
       message: 'Generating new multi-stage container deployment architecture',
       attempt: 1,
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Container Architecture & Service Topology',
       sections: [
         {
@@ -79,7 +67,6 @@ export const dockerPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Target Files, Security & Risk Matrix',
       sections: [
         {
@@ -101,14 +88,10 @@ export const dockerPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'Container Architecture Plan Ready',
       description: 'The multi-stage Docker build design and Docker Compose architecture plan have been generated.',
       filesCreated: [],
-      commandsExecuted: [
-        'docker info',
-        'docker compose config (initial discovery)',
-      ],
+      commandsExecuted: ['docker info', 'docker compose config (initial discovery)'],
       verified: [
         'Multi-stage layer caching',
         'Docker Compose v3.8 spec',
@@ -118,8 +101,9 @@ export const dockerPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'planner_action_panel',
-      id: uid(),
       defaultFilename: 'implementation-plan.md',
     },
   ],
 });
+
+export const dockerPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));

@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
+import React, { useEffect, useState } from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { ThinkingEvent, ThinkingThought } from '../../../types/scenario';
+import type { ThinkingEvent, ThinkingThought } from '../../../types/scenario';
 
 interface ThinkingBlockProps {
   event: ThinkingEvent;
   collapsed: boolean;
-  onToggle: () => void;
   isHistorical?: boolean;
 }
 
@@ -40,15 +39,17 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
       void revealTimer;
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [event.thoughts, collapsed, isHistorical]);
 
-  const displayedThoughts = (collapsed || isHistorical) ? event.thoughts : event.thoughts.slice(0, visibleCount);
+  const displayedThoughts = collapsed || isHistorical ? event.thoughts : event.thoughts.slice(0, visibleCount);
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={collapsed ? 0 : 1} flexWrap="wrap">
-        <Text color={theme.colors.text.emerald} bold>
+        <Text color={theme.colors.status.accent} bold>
           {collapsed ? '▸' : '▾'} Thinking
         </Text>
         <Text color={theme.colors.text.muted}> ({event.thoughts.length} steps)</Text>
@@ -65,12 +66,12 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
             return (
               <Box key={idx} flexDirection="row" alignItems="center" width="100%">
                 <Box width={2} flexShrink={0}>
-                  <Text color={isLatest ? theme.colors.text.emerald : theme.colors.text.muted}>
+                  <Text color={isLatest ? theme.colors.status.accent : theme.colors.text.muted}>
                     {isLatest ? '>' : '*'}
                   </Text>
                 </Box>
                 <Box flexShrink={1}>
-                  <Text color={isLatest ? "#E6EDF3" : theme.colors.text.muted} wrap="wrap">
+                  <Text color={isLatest ? theme.colors.text.bright : theme.colors.text.muted} wrap="wrap">
                     {getThoughtText(thought)}
                   </Text>
                 </Box>

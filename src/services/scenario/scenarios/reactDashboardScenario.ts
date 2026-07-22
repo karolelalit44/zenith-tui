@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `react_${Date.now()}_${++idCounter}`;
-
-export const reactDashboardScenario = (prompt: string): Scenario => ({
-  id: `react_dashboard_${Date.now()}`,
+const template: ScenarioTemplate = {
   mode: 'build',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Setting up React 19 project with Vite', delay: 300 },
         { text: 'Configuring TypeScript and ESLint rules', delay: 350 },
@@ -21,27 +16,18 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'npm create vite@latest dashboard -- --template react-ts',
-      output: [
-        'Scaffolding project in ./dashboard...',
-        '✓ Scaffolding complete.',
-      ],
+      output: ['Scaffolding project in ./dashboard...', '✓ Scaffolding complete.'],
       duration: 1200,
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'npm install recharts@2 react-router-dom@7 zustand@5 lucide-react',
-      output: [
-        'added 42 packages in 2.8s',
-        'found 0 vulnerabilities',
-      ],
+      output: ['added 42 packages in 2.8s', 'found 0 vulnerabilities'],
       duration: 2000,
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'dashboard/src/App.tsx',
       directory: 'dashboard/src/',
       language: 'tsx',
@@ -67,7 +53,6 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'dashboard/src/components/MetricCard.tsx',
       directory: 'dashboard/src/components/',
       language: 'tsx',
@@ -97,7 +82,6 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'file_create',
-      id: uid(),
       filePath: 'dashboard/src/pages/OverviewPage.tsx',
       directory: 'dashboard/src/pages/',
       language: 'tsx',
@@ -129,7 +113,6 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'Running Vitest unit test suite on dashboard components', delay: 300 },
         { text: 'Executing TypeScript compiler dry-run', delay: 350 },
@@ -138,7 +121,6 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'test_execution',
-      id: uid(),
       command: 'npx vitest run',
       framework: 'Vitest 1.6',
       results: [
@@ -150,7 +132,6 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'build_step',
-      id: uid(),
       step: 'npx tsc --noEmit',
       status: 'success',
       duration: 1400,
@@ -158,7 +139,6 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'npm run build',
       output: [
         'vite v6.0.0 building for production...',
@@ -171,9 +151,9 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'React 19 Dashboard Created',
-      description: 'A responsive React 19 dashboard featuring Recharts data visualizations, Zustand state management, and Vitest test coverage.',
+      description:
+        'A responsive React 19 dashboard featuring Recharts data visualizations, Zustand state management, and Vitest test coverage.',
       filesCreated: [
         'dashboard/src/App.tsx',
         'dashboard/src/components/MetricCard.tsx',
@@ -185,11 +165,9 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
         'npx vitest run',
         'npm run build',
       ],
-      verified: [
-        'TypeScript compilation',
-        'Vitest component test suite (3 passed)',
-        'Production bundle optimization',
-      ],
+      verified: ['TypeScript compilation', 'Vitest component test suite (3 passed)', 'Production bundle optimization'],
     },
   ],
-});
+};
+
+export const reactDashboardScenario = (prompt: string): Scenario => createScenario(prompt, template);

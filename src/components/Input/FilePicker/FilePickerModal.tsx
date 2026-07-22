@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
+import React, { useMemo, useState } from 'react';
+import { type FileNode, getDirectoryContents, searchFiles } from '../../../services/fileExplorerService';
 import { useTheme } from '../../../theme/ThemeContext';
 import { FileList } from './FileList';
-import { getDirectoryContents, searchFiles, FileNode } from '../../../services/fileExplorerService';
 
 interface FilePickerModalProps {
   onSelectFile: (relativePath: string) => void;
@@ -29,18 +29,17 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
     }
 
     if (key.upArrow) {
-      setActiveIndex(prev => Math.max(0, prev - 1));
+      setActiveIndex((prev) => Math.max(0, prev - 1));
       return;
     }
 
     if (key.downArrow) {
-      setActiveIndex(prev => Math.min(items.length - 1, prev + 1));
+      setActiveIndex((prev) => Math.min(items.length - 1, prev + 1));
       return;
     }
 
     const selectedItem = items[activeIndex];
 
-    // Right Arrow or Enter on directory -> Enter folder
     if ((key.rightArrow || key.return) && selectedItem?.isDir) {
       setCurrentPath(selectedItem.relativePath);
       setActiveIndex(0);
@@ -48,7 +47,6 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
       return;
     }
 
-    // Left Arrow -> Parent directory
     if (key.leftArrow) {
       if (currentPath) {
         const parts = currentPath.split('/');
@@ -62,56 +60,81 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
       return;
     }
 
-    // Enter on file -> Select & return relative path
     if (key.return && selectedItem && !selectedItem.isDir) {
       onSelectFile(selectedItem.relativePath);
       onClose();
       return;
     }
 
-    // Typing query to filter files
     if (char && !key.ctrl && !key.meta && char.length === 1) {
-      setSearchQuery(prev => prev + char);
+      setSearchQuery((prev) => prev + char);
       setActiveIndex(0);
     } else if (key.backspace || key.delete) {
-      setSearchQuery(prev => prev.slice(0, -1));
+      setSearchQuery((prev) => prev.slice(0, -1));
       setActiveIndex(0);
     }
   });
 
   return (
-    <Box flexDirection="column" width="100%" borderStyle="round" borderColor="#58A6FF" paddingX={1} paddingY={1} marginTop={1}>
-      {/* Header bar */}
+    <Box
+      flexDirection="column"
+      width="100%"
+      borderStyle="round"
+      borderColor={theme.colors.status.info}
+      paddingX={1}
+      paddingY={1}
+      marginTop={1}
+    >
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" marginBottom={1}>
         <Box flexDirection="row" alignItems="center">
-          <Text color="#58A6FF" bold>[FILE EXPLORER] </Text>
-          <Text color="#E6EDF3" bold>
+          <Text color={theme.colors.status.info} bold>
+            [FILE EXPLORER]{' '}
+          </Text>
+          <Text color={theme.colors.text.bright} bold>
             {currentPath ? `./${currentPath}` : './ (workspace root)'}
           </Text>
         </Box>
-        <Text color="#8B949E">
-          ↑/↓ navigate · →/Enter enter · ← back · Esc exit
-        </Text>
+        <Text color={theme.colors.text.muted}>↑/↓ navigate · →/Enter enter · ← back · Esc exit</Text>
       </Box>
 
-      {/* Search Input Bar if searching */}
       {searchQuery && (
         <Box flexDirection="row" marginBottom={1}>
-          <Text color="#8B949E">Search filter: </Text>
-          <Text color="#3FB950" bold>{searchQuery}</Text>
+          <Text color={theme.colors.text.muted}>Search filter: </Text>
+          <Text color={theme.colors.status.success} bold>
+            {searchQuery}
+          </Text>
         </Box>
       )}
 
-      {/* Table Header */}
-      <Box flexDirection="row" marginBottom={1} borderStyle="single" borderColor="#30363D">
-        <Box width={9}><Text color="#8B949E" bold> TYPE</Text></Box>
-        <Box width={24}><Text color="#8B949E" bold>NAME</Text></Box>
-        <Box width={10}><Text color="#8B949E" bold>SIZE</Text></Box>
-        <Box width={14}><Text color="#8B949E" bold>MODIFIED</Text></Box>
-        <Box><Text color="#8B949E" bold>KIND</Text></Box>
+      <Box flexDirection="row" marginBottom={1} borderStyle="single" borderColor={theme.colors.code.border}>
+        <Box width={9}>
+          <Text color={theme.colors.text.muted} bold>
+            {' '}
+            TYPE
+          </Text>
+        </Box>
+        <Box width={24}>
+          <Text color={theme.colors.text.muted} bold>
+            NAME
+          </Text>
+        </Box>
+        <Box width={10}>
+          <Text color={theme.colors.text.muted} bold>
+            SIZE
+          </Text>
+        </Box>
+        <Box width={14}>
+          <Text color={theme.colors.text.muted} bold>
+            MODIFIED
+          </Text>
+        </Box>
+        <Box>
+          <Text color={theme.colors.text.muted} bold>
+            KIND
+          </Text>
+        </Box>
       </Box>
 
-      {/* File List Table */}
       <FileList items={items} activeIndex={activeIndex} currentPath={currentPath} />
     </Box>
   );

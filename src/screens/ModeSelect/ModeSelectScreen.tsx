@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import React, { useState } from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { useTheme } from '../../theme/ThemeContext';
-import { ScenarioMode } from '../../types/scenario';
-import { MODE_OPTIONS, MODE_META } from './data/modeData';
+import type { ScenarioMode } from '../../types/scenario';
+import { MODE_META, MODE_OPTIONS } from './data/modeData';
 
 interface ModeSelectScreenProps {
   currentMode: ScenarioMode;
@@ -13,16 +13,16 @@ interface ModeSelectScreenProps {
 
 export const ModeSelectScreen: React.FC<ModeSelectScreenProps> = ({ currentMode, onSelect, onClose }) => {
   const { theme } = useTheme();
-  const currentIdx = MODE_OPTIONS.findIndex(m => m.id === currentMode);
+  const currentIdx = MODE_OPTIONS.findIndex((m) => m.id === currentMode);
   const [selectedIndex, setSelectedIndex] = useState(currentIdx >= 0 ? currentIdx : 1);
 
-  useInput((char, key) => {
+  useInput((_char, key) => {
     if (key.upArrow) {
-      setSelectedIndex(prev => Math.max(0, prev - 1));
+      setSelectedIndex((prev) => Math.max(0, prev - 1));
     }
 
     if (key.downArrow) {
-      setSelectedIndex(prev => Math.min(MODE_OPTIONS.length - 1, prev + 1));
+      setSelectedIndex((prev) => Math.min(MODE_OPTIONS.length - 1, prev + 1));
     }
 
     if (key.return) {
@@ -37,9 +37,19 @@ export const ModeSelectScreen: React.FC<ModeSelectScreenProps> = ({ currentMode,
   return (
     <RoundedBox title={MODE_META.title} borderColor={theme.colors.border.active} hasShadow={true}>
       <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
-        <Box marginBottom={1} paddingBottom={1} borderStyle="single" borderTop={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
+        <Box
+          marginBottom={1}
+          paddingBottom={1}
+          borderStyle="single"
+          borderTop={false}
+          borderLeft={false}
+          borderRight={false}
+          borderColor={theme.colors.border.muted}
+        >
           <Text color={theme.colors.text.emerald}>❯ </Text>
-          <Text color={theme.colors.text.ethereal} bold>{MODE_META.headerLabel}</Text>
+          <Text color={theme.colors.text.ethereal} bold>
+            {MODE_META.headerLabel}
+          </Text>
         </Box>
 
         {MODE_OPTIONS.map((mode, idx) => {
@@ -60,9 +70,7 @@ export const ModeSelectScreen: React.FC<ModeSelectScreenProps> = ({ currentMode,
                   <Text color={isSelected ? theme.colors.text.ethereal : theme.colors.text.muted} bold={isSelected}>
                     {mode.label}
                   </Text>
-                  {isCurrent && (
-                    <Text color={theme.colors.text.muted}> (current)</Text>
-                  )}
+                  {isCurrent && <Text color={theme.colors.text.muted}> (current)</Text>}
                 </Box>
                 <Box marginTop={0} paddingLeft={3}>
                   <Text color={theme.colors.text.muted} dimColor={!isSelected} italic={isSelected}>
@@ -74,9 +82,21 @@ export const ModeSelectScreen: React.FC<ModeSelectScreenProps> = ({ currentMode,
           );
         })}
 
-        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderLeft={false} borderRight={false} borderBottom={false} borderColor={theme.colors.border.muted} justifyContent="center">
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderTop={true}
+          borderLeft={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={theme.colors.border.muted}
+          justifyContent="center"
+        >
           <Text color={theme.colors.text.muted}>
-            <Text color={theme.colors.text.emerald}>{MODE_META.hotkeys.navigate}</Text>   <Text color={theme.colors.text.emerald}>{MODE_META.hotkeys.select}</Text>   <Text color={theme.colors.text.emerald}>{MODE_META.hotkeys.close}</Text>
+            <Text color={theme.colors.text.emerald}>{MODE_META.hotkeys.navigate}</Text>{' '}
+            <Text color={theme.colors.text.emerald}>{MODE_META.hotkeys.select}</Text>{' '}
+            <Text color={theme.colors.text.emerald}>{MODE_META.hotkeys.close}</Text>
           </Text>
         </Box>
       </Box>

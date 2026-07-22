@@ -6,8 +6,18 @@ export interface ModeOption {
 }
 
 export const MODE_OPTIONS: ModeOption[] = [
-  { id: 'plan', label: 'Plan', icon: '◇', desc: 'Analyze the request and create an execution plan without making changes.' },
-  { id: 'build', label: 'Build', icon: '◆', desc: 'Execute the full build flow: think, create files, run commands, and deliver.' },
+  {
+    id: 'plan',
+    label: 'Plan',
+    icon: '◇',
+    desc: 'Analyze the request and create an execution plan without making changes.',
+  },
+  {
+    id: 'build',
+    label: 'Build',
+    icon: '◆',
+    desc: 'Execute the full build flow: think, create files, run commands, and deliver.',
+  },
 ];
 
 export const MODE_META = {

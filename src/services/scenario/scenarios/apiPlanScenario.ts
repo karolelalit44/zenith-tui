@@ -1,16 +1,11 @@
-import { Scenario } from '../../../types/scenario';
+import type { Scenario } from '../../../types/scenario';
+import { createScenario, type ScenarioTemplate } from '../templateLoader';
 
-let idCounter = 0;
-const uid = () => `plan_api_${Date.now()}_${++idCounter}`;
-
-export const apiPlanScenario = (prompt: string): Scenario => ({
-  id: `plan_api_${Date.now()}`,
+const buildTemplate = (prompt: string): ScenarioTemplate => ({
   mode: 'plan',
-  prompt,
   events: [
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: `Analyzing API & Backend prompt: "${prompt}"`, delay: 250 },
         { text: 'Evaluating FastAPI REST endpoints & Pydantic v2 domain schemas', delay: 300 },
@@ -20,7 +15,6 @@ export const apiPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'git status',
       output: [
         'On branch main',
@@ -31,16 +25,12 @@ export const apiPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'terminal',
-      id: uid(),
       command: 'python -c "import fastapi, pydantic; print(fastapi.__version__, pydantic.__version__)"',
-      output: [
-        '0.109.0 2.6.0',
-      ],
+      output: ['0.109.0 2.6.0'],
       duration: 500,
     },
     {
       kind: 'thinking',
-      id: uid(),
       thoughts: [
         { text: 'FastAPI 0.109 and Pydantic 2.6 verified in local environment', delay: 300 },
         { text: 'Designing RESTful endpoint routing structure & database schemas', delay: 300 },
@@ -49,7 +39,6 @@ export const apiPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'REST API Architecture & Endpoint Specification',
       sections: [
         {
@@ -74,7 +63,6 @@ export const apiPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'analysis',
-      id: uid(),
       title: 'Target Files, Risk Assessment & Optimization',
       sections: [
         {
@@ -97,14 +85,11 @@ export const apiPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'summary',
-      id: uid(),
       title: 'REST API Architecture Plan Ready',
-      description: 'The FastAPI endpoint design, Pydantic schemas, and SQLAlchemy data architecture plan have been generated.',
+      description:
+        'The FastAPI endpoint design, Pydantic schemas, and SQLAlchemy data architecture plan have been generated.',
       filesCreated: [],
-      commandsExecuted: [
-        'git status',
-        'python -c "import fastapi, pydantic"',
-      ],
+      commandsExecuted: ['git status', 'python -c "import fastapi, pydantic"'],
       verified: [
         'FastAPI 0.109 & Pydantic 2.6 environment',
         'RESTful endpoint specification',
@@ -114,8 +99,9 @@ export const apiPlanScenario = (prompt: string): Scenario => ({
     },
     {
       kind: 'planner_action_panel',
-      id: uid(),
       defaultFilename: 'implementation-plan.md',
     },
   ],
 });
+
+export const apiPlanScenario = (prompt: string): Scenario => createScenario(prompt, buildTemplate(prompt));
