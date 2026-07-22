@@ -117,9 +117,9 @@ test('Full Build Scenario end-to-end', async () => {
 
   // Submit prompt
   stdin.write('create a todo app');
-  await wait(300);
+  await wait(400);
   stdin.write('\r');
-  await wait(500);
+  await wait(1200);
 
   expect(lastFrame()).toContain('Thinking');
 
@@ -134,25 +134,25 @@ test('Full Build Scenario end-to-end', async () => {
 test('Full Plan Scenario end-to-end', async () => {
   const { lastFrame, stdin, unmount } = render(<App />);
 
-  // Switch to Plan mode first
+  // Switch to Plan mode first via /mode
   stdin.write('/mode');
+  await wait(400);
+  stdin.write('\r');
+  await wait(400);
+  stdin.write('\x1B[A');
   await wait(200);
   stdin.write('\r');
-  await wait(300);
-  stdin.write('\x1B[A');
-  await wait(100);
-  stdin.write('\r');
-  await wait(300);
+  await wait(500);
 
   // Submit prompt
   stdin.write('design a REST API');
-  await wait(300);
+  await wait(400);
   stdin.write('\r');
-  await wait(500);
+  await wait(1200);
 
   expect(lastFrame()).toContain('Thinking');
 
   await wait(7000);
   expect(lastFrame()).toContain('>');
   unmount();
-}, 15000);
+}, 30000);

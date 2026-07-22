@@ -151,7 +151,7 @@ export const planScenario = (prompt: string): Scenario => ({
     {
       kind: 'planner_action_panel',
       id: uid(),
-      defaultFilename: 'implementation-plan.md',
+      defaultFilename: 'zenith_plans/implementation-plan.md',
     },
   ],
 });

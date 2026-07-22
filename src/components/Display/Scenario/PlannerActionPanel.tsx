@@ -29,7 +29,7 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
 
         <Box flexDirection="row" alignItems="center">
           <Text color="#8B949E">The plan will be exported as: </Text>
-          <Text color="#58A6FF" bold>{event.defaultFilename}</Text>
+          <Text color="#58A6FF" bold>{event.defaultFilename || 'zenith_plans/implementation-plan.md'}</Text>
         </Box>
 
         {event.saved && (

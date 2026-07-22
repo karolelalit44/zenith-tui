@@ -19,6 +19,7 @@ interface ConversationTurn {
   mode: ScenarioMode;
   events: ScenarioEvent[];
   isComplete: boolean;
+  timestamp: string;
 }
 
 const MOCK_TOKENS_PER_TURN = 1247;
@@ -165,13 +166,17 @@ export const App: React.FC = () => {
       return;
     }
 
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const turnId = `turn_${Date.now()}`;
+
     setTurns(prev => [...prev, {
       id: turnId,
       prompt: trimmed,
       mode: selectedMode,
       events: [],
       isComplete: false,
+      timestamp: timeStr,
     }]);
 
     setInput('');
@@ -195,14 +200,20 @@ export const App: React.FC = () => {
     setOverlay('none');
   }, []);
 
-  const renderPromptHeader = (prompt: string, mode: ScenarioMode) => (
-    <Box flexDirection="row" marginBottom={1}>
-      <Text color={theme.colors.text.muted}>{'> '}</Text>
-      <Text color={theme.colors.text.ethereal} bold>{prompt}</Text>
-      <Text color={theme.colors.text.muted}> </Text>
-      <Text color={theme.colors.text.muted}>[{mode}]</Text>
-    </Box>
-  );
+  const renderPromptHeader = (prompt: string, mode: ScenarioMode, timestamp?: string) => {
+    const timeStr = timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return (
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" width="100%" marginBottom={1}>
+        <Box flexDirection="row" alignItems="center">
+          <Text color={theme.colors.text.muted}>{'> '}</Text>
+          <Text color={theme.colors.text.ethereal} bold>{prompt}</Text>
+          <Text color={theme.colors.text.muted}> </Text>
+          <Text color={theme.colors.text.muted}>[{mode}]</Text>
+        </Box>
+        <Text color={theme.colors.text.muted}>[ {timeStr} ]</Text>
+      </Box>
+    );
+  };
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
@@ -212,7 +223,7 @@ export const App: React.FC = () => {
       {/* Conversation turns */}
       {turns.map((turn) => (
         <Box key={turn.id} flexDirection="column" marginTop={1}>
-          {renderPromptHeader(turn.prompt, turn.mode)}
+          {renderPromptHeader(turn.prompt, turn.mode, turn.timestamp)}
           {turn.events.length > 0 && (
             <ScenarioRenderer
               events={turn.events}
@@ -226,7 +237,7 @@ export const App: React.FC = () => {
       {/* Currently running scenario */}
       {isRunning && (
         <Box flexDirection="column" marginTop={1}>
-          {activeTurn && renderPromptHeader(activeTurn.prompt, activeTurn.mode)}
+          {activeTurn && renderPromptHeader(activeTurn.prompt, activeTurn.mode, activeTurn.timestamp)}
           <ScenarioRenderer
             events={events}
             isRunning={isRunning}

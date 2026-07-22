@@ -75,21 +75,28 @@ export function savePlanToFile(
   filename: string = 'implementation-plan.md'
 ): ExportResult {
   try {
-    const markdownContent = convertEventsToMarkdown(events, prompt);
-    const filePath = path.join(targetDirectory, filename);
+    const plansDir = path.join(targetDirectory, 'zenith_plans');
 
-    fs.writeFileSync(filePath, markdownContent, 'utf-8');
+    if (!fs.existsSync(plansDir)) {
+      fs.mkdirSync(plansDir, { recursive: true });
+    }
+
+    const markdownContent = convertEventsToMarkdown(events, prompt);
+    const fullFilePath = path.join(plansDir, filename);
+    const relativeDisplayPath = path.join('zenith_plans', filename);
+
+    fs.writeFileSync(fullFilePath, markdownContent, 'utf-8');
 
     return {
       success: true,
-      filePath,
+      filePath: relativeDisplayPath,
       markdownContent,
     };
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     return {
       success: false,
-      filePath: path.join(targetDirectory, filename),
+      filePath: path.join('zenith_plans', filename),
       markdownContent: '',
       error: errorMessage,
     };
