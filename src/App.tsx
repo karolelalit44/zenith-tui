@@ -9,6 +9,7 @@ import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { useTheme } from './theme/ThemeContext';
 import { useScenario } from './hooks/useScenario';
 import { Persona, ScenarioMode, ScenarioEvent } from './types';
+import { savePlanToFile } from './services/export/markdownExport';
 
 type OverlayState = 'none' | 'mode';
 
@@ -22,6 +23,8 @@ interface ConversationTurn {
 
 const MOCK_TOKENS_PER_TURN = 1247;
 
+import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
+
 export const App: React.FC = () => {
   const { theme } = useTheme();
   const [persona] = useState<Persona>('architect');
@@ -30,6 +33,7 @@ export const App: React.FC = () => {
   const [overlay, setOverlay] = useState<OverlayState>('none');
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [showFilePicker, setShowFilePicker] = useState(false);
 
   const { events, isRunning, startScenario, abort } = useScenario();
 
@@ -40,11 +44,69 @@ export const App: React.FC = () => {
     return turns.filter(t => t.isComplete).length * MOCK_TOKENS_PER_TURN;
   }, [turns]);
 
+  const handleInputChange = useCallback((val: string) => {
+    setInput(val);
+    if (val.startsWith('/')) {
+      setShowAutocomplete(true);
+      setShowFilePicker(false);
+    } else if (val.startsWith('@')) {
+      setShowFilePicker(true);
+      setShowAutocomplete(false);
+    } else {
+      setShowAutocomplete(false);
+      setShowFilePicker(false);
+    }
+  }, []);
+
+  const [scrollOffset, setScrollOffset] = useState(0);
+
   useEffect(() => {
-    setShowAutocomplete(input.startsWith('/') && input.length > 0);
-  }, [input]);
+    // Enable mouse wheel scroll tracking in terminal
+    try {
+      process.stdout.write('\x1B[?1000h\x1B[?1006h');
+    } catch (_e) {}
+
+    return () => {
+      try {
+        process.stdout.write('\x1B[?1000l\x1B[?1006l');
+      } catch (_e) {}
+    };
+  }, []);
 
   useInput((char, key) => {
+    const isMouseWheelUp = char.includes('\x1b[<64') || char.includes('\x1b[M`');
+    const isMouseWheelDown = char.includes('\x1b[<65') || char.includes('\x1b[Ma');
+
+    if (key.pageUp || isMouseWheelUp) {
+      setScrollOffset(prev => Math.min(turns.length, prev + 1));
+      return;
+    }
+
+    if (key.pageDown || isMouseWheelDown) {
+      setScrollOffset(prev => Math.max(0, prev - 1));
+      return;
+    }
+
+    // Ctrl + S to save plan
+    if ((key.ctrl || key.meta) && (char === 's' || char === 'S')) {
+      const targetTurn = turns[turns.length - 1];
+      const targetEvents = isRunning ? events : (targetTurn?.events || []);
+
+      if (targetEvents.length > 0) {
+        savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
+
+        setTurns(prev => {
+          if (prev.length === 0) return prev;
+          const lastIdx = prev.length - 1;
+          const updatedEvents = prev[lastIdx].events.map(ev =>
+            ev.kind === 'planner_action_panel' ? { ...ev, saved: true } : ev
+          );
+          return prev.map((t, i) => i === lastIdx ? { ...t, events: updatedEvents } : t);
+        });
+      }
+      return;
+    }
+
     if (overlay === 'mode') {
       if (key.escape) {
         setOverlay('none');
@@ -167,22 +229,38 @@ export const App: React.FC = () => {
             <Text color={theme.colors.text.muted}>{'> '}</Text>
             <TextInput
               value={input}
-              onChange={setInput}
+              onChange={handleInputChange}
               onSubmit={handleSubmit}
               placeholder="Ask anything..."
               focus={true}
             />
           </Box>
 
-          {/* Autocomplete dropdown */}
+          {/* Slash Command Palette */}
           {showAutocomplete && (
             <Box marginTop={1}>
               <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelect} />
             </Box>
           )}
 
+          {/* File Picker Modal */}
+          {showFilePicker && (
+            <Box marginTop={1}>
+              <FilePickerModal
+                onSelectFile={(relPath) => {
+                  setInput(prev => {
+                    const cleaned = prev.replace(/^@/, '');
+                    return cleaned ? `${cleaned} ${relPath}` : relPath;
+                  });
+                  setShowFilePicker(false);
+                }}
+                onClose={() => setShowFilePicker(false)}
+              />
+            </Box>
+          )}
+
           {/* Claude Code CLI Session Status Bar */}
-          {!showAutocomplete && (
+          {!showAutocomplete && !showFilePicker && (
             <SessionStatusBar
               mode={selectedMode}
               totalTokens={totalTokens}

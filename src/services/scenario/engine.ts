@@ -4,6 +4,10 @@ import { planScenario } from './scenarios/planScenario';
 import { reactDashboardScenario } from './scenarios/reactDashboardScenario';
 import { dockerScenario } from './scenarios/dockerScenario';
 import { cicdScenario } from './scenarios/cicdScenario';
+import { apiPlanScenario } from './scenarios/apiPlanScenario';
+import { reactPlanScenario } from './scenarios/reactPlanScenario';
+import { dockerPlanScenario } from './scenarios/dockerPlanScenario';
+import { cicdPlanScenario } from './scenarios/cicdPlanScenario';
 
 export type ScenarioListener = (event: ScenarioEvent, index: number) => void;
 
@@ -100,36 +104,55 @@ const getEventDelay = (event: ScenarioEvent): number => {
 
 interface ScenarioMatcher {
   keywords: string[];
-  factory: (prompt: string) => Scenario;
+  build: (prompt: string) => Scenario;
+  plan: (prompt: string) => Scenario;
 }
 
-const scenarioMatchers: ScenarioMatcher[] = [
+const matchers: ScenarioMatcher[] = [
   {
-    keywords: ['react', 'dashboard', 'frontend', 'ui', 'component', 'recharts', 'chart'],
-    factory: reactDashboardScenario,
+    keywords: ['react', 'dashboard', 'frontend', 'ui', 'component', 'recharts', 'chart', 'next.js', 'vite', 'web app'],
+    build: reactDashboardScenario,
+    plan: reactPlanScenario,
   },
   {
-    keywords: ['docker', 'container', 'compose', 'dockerfile', 'nginx', 'containerize'],
-    factory: dockerScenario,
+    keywords: ['docker', 'container', 'compose', 'dockerfile', 'nginx', 'containerize', 'k8s'],
+    build: dockerScenario,
+    plan: dockerPlanScenario,
   },
   {
     keywords: ['ci/cd', 'ci cd', 'pipeline', 'github actions', 'workflow', 'deploy', 'automation', 'actions'],
-    factory: cicdScenario,
+    build: cicdScenario,
+    plan: cicdPlanScenario,
+  },
+  {
+    keywords: ['api', 'rest', 'crud', 'backend', 'fastapi', 'endpoint', 'route', 'database', 'user'],
+    build: buildScenario,
+    plan: apiPlanScenario,
   },
 ];
 
 const matchScenario = (prompt: string, mode: ScenarioMode): Scenario => {
-  if (mode === 'plan') {
-    return planScenario(prompt);
+  const lower = prompt.toLowerCase();
+
+  // Detect inline mode overrides in prompt string
+  let effectiveMode: ScenarioMode = mode;
+  if (lower.includes('[plan]') || lower.includes('--plan') || lower.includes('/plan')) {
+    effectiveMode = 'plan';
+  } else if (lower.includes('[build]') || lower.includes('--build') || lower.includes('/build')) {
+    effectiveMode = 'build';
   }
 
-  const lower = prompt.toLowerCase();
-  for (const matcher of scenarioMatchers) {
+  // Match prompt keywords to topic category
+  for (const matcher of matchers) {
     if (matcher.keywords.some(kw => lower.includes(kw))) {
-      return matcher.factory(prompt);
+      return matcher[effectiveMode](prompt);
     }
   }
 
+  // Fallback: generic scenario per effective mode
+  if (effectiveMode === 'plan') {
+    return planScenario(prompt);
+  }
   return buildScenario(prompt);
 };
 

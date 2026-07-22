@@ -1,104 +1,157 @@
 import { Scenario } from '../../../types/scenario';
 
 let idCounter = 0;
-const uid = () => `plan_${++idCounter}`;
+const uid = () => `plan_${Date.now()}_${++idCounter}`;
 
 export const planScenario = (prompt: string): Scenario => ({
   id: `plan_${Date.now()}`,
   mode: 'plan',
   prompt,
   events: [
+    // Phase 1: Reasoning & Requirements Analysis
     {
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Analyzing the request', delay: 300 },
-        { text: 'Identifying core requirements', delay: 400 },
-        { text: 'Evaluating technology options', delay: 350 },
-        { text: 'Assessing complexity and scope', delay: 300 },
-      ],
-      duration: 1500,
-    },
-    {
-      kind: 'analysis',
-      id: uid(),
-      title: 'Task Breakdown',
-      sections: [
-        {
-          title: 'Architecture',
-          items: [
-            'Component-based frontend with state management',
-            'RESTful API layer with proper error handling',
-            'Database schema with migration support',
-            'Authentication and authorization middleware',
-          ],
-        },
-        {
-          title: 'Implementation Plan',
-          items: [
-            'Phase 1: Project scaffolding and dependencies',
-            'Phase 2: Core data models and database setup',
-            'Phase 3: API endpoints and business logic',
-            'Phase 4: Frontend components and routing',
-            'Phase 5: Integration testing and validation',
-          ],
-        },
-      ],
-    },
-    {
-      kind: 'thinking',
-      id: uid(),
-      thoughts: [
-        { text: 'Mapping dependencies between components', delay: 350 },
-        { text: 'Identifying critical path', delay: 300 },
-        { text: 'Evaluating risks and mitigation strategies', delay: 400 },
+        { text: `Analyzing request: "${prompt}"`, delay: 250 },
+        { text: 'Deconstructing core system components & goals', delay: 300 },
+        { text: 'Identifying technical milestones & architectural layers', delay: 300 },
       ],
       duration: 1200,
     },
+
+    // Phase 2: Terminal Inspection & Discovery
+    {
+      kind: 'terminal',
+      id: uid(),
+      command: 'git status',
+      output: [
+        'On branch main',
+        'Your branch is up to date with "origin/main".',
+        'nothing to commit, working tree clean',
+      ],
+      duration: 400,
+    },
+    {
+      kind: 'terminal',
+      id: uid(),
+      command: 'npx check-workspace',
+      output: [
+        'Error: Could not locate workspace configuration manifest.',
+        'MISSING_MANIFEST: ./workspace.config.json',
+      ],
+      duration: 500,
+    },
+
+    // Phase 3: Failure Analysis & Automated Recovery
+    {
+      kind: 'thinking',
+      id: uid(),
+      thoughts: [
+        { text: 'Detected missing workspace configuration manifest', delay: 300 },
+        { text: 'Switching to fallback inspection: parsing package.json dependencies', delay: 300 },
+      ],
+      duration: 1000,
+    },
+    {
+      kind: 'retry',
+      id: uid(),
+      message: 'Retrying workspace discovery using fallback package inspection',
+      attempt: 2,
+    },
+    {
+      kind: 'terminal',
+      id: uid(),
+      command: 'cat package.json | grep -E "dependencies|devDependencies"',
+      output: [
+        '  "dependencies": { "fastapi": "^0.109.0", "pydantic": "^2.6.0" },',
+        '  "devDependencies": { "vitest": "^1.2.0", "typescript": "^5.3.0" }',
+      ],
+      duration: 450,
+    },
+
+    // Phase 4: Architectural Roadmap & Task Breakdown
     {
       kind: 'analysis',
       id: uid(),
-      title: 'Dependencies and Risks',
+      title: 'Architectural Roadmap & System Design',
       sections: [
         {
-          title: 'Estimated Files',
+          title: 'System Architecture',
           items: [
-            '12-15 source files',
-            '4-6 configuration files',
-            '3-5 test files',
-            '1-2 documentation files',
+            'API Layer: Modular REST endpoints with Pydantic schema validation',
+            'Data Layer: Async ORM models with migration tracking',
+            'Service Layer: Decoupled business logic & repository pattern',
+            'Security Layer: JWT authentication & rate limiting middleware',
           ],
         },
         {
-          title: 'Key Dependencies',
+          title: 'Implementation Milestones',
           items: [
-            'Framework: React 19 or Next.js 15',
-            'Styling: Tailwind CSS v4',
-            'State: Zustand or React Context',
-            'Testing: Vitest + Testing Library',
-          ],
-        },
-        {
-          title: 'Risks',
-          items: [
-            'Database migration compatibility with production',
-            'Third-party API rate limits during testing',
-            'Performance implications of real-time updates',
+            'Milestone 1: Project scaffolding & environment configuration',
+            'Milestone 2: Database schemas & data access layer',
+            'Milestone 3: REST API route handlers & validation schemas',
+            'Milestone 4: Automated test suite & CI validation',
           ],
         },
       ],
     },
     {
-      kind: 'message',
+      kind: 'thinking',
       id: uid(),
-      text: 'Analysis complete. Switch to Build mode to execute this plan.',
+      thoughts: [
+        { text: 'Evaluating dependencies & potential production risks', delay: 300 },
+        { text: 'Finalizing execution roadmap and file tree structure', delay: 300 },
+      ],
+      duration: 1000,
     },
     {
-      kind: 'success',
+      kind: 'analysis',
       id: uid(),
-      message: 'Plan generated successfully',
+      title: 'Dependencies, Risk Assessment & File Tree',
+      sections: [
+        {
+          title: 'Target File Structure',
+          items: [
+            'backend/app/main.py (App entrypoint & router initialization)',
+            'backend/app/models.py (Data schemas & Pydantic domain models)',
+            'backend/app/api/users.py (User CRUD API handlers)',
+            'backend/requirements.txt (Dependencies manifest)',
+          ],
+        },
+        {
+          title: 'Risks & Mitigation Strategies',
+          items: [
+            'Risk: Database migration lockup under concurrent traffic -> Mitigation: Connection pooling',
+            'Risk: Unhandled schema validation errors -> Mitigation: Centralized exception handlers',
+          ],
+        },
+      ],
+    },
+
+    // Phase 5: Plan Completion Summary & Save Action Panel
+    {
+      kind: 'summary',
+      id: uid(),
+      title: 'Implementation Plan Ready',
+      description: 'The architectural plan and step-by-step roadmap have been generated.',
       filesCreated: [],
-      commandsExecuted: [],
+      commandsExecuted: [
+        'git status',
+        'npx check-workspace (fallback recovered)',
+        'cat package.json',
+      ],
+      verified: [
+        'System Architecture',
+        'Milestone Breakdown',
+        'Risk Mitigation Strategy',
+        'Target File Structure',
+      ],
+    },
+    {
+      kind: 'planner_action_panel',
+      id: uid(),
+      defaultFilename: 'implementation-plan.md',
     },
   ],
 });

@@ -19,6 +19,7 @@ import { TestExecutionCard } from './TestExecutionCard';
 import { BuildStepCard } from './BuildStepCard';
 import { DeploymentCard } from './DeploymentCard';
 import { AnalysisCard } from './AnalysisCard';
+import { PlannerActionPanel } from './PlannerActionPanel';
 
 interface ScenarioRendererProps {
   events: ScenarioEvent[];
@@ -28,7 +29,6 @@ interface ScenarioRendererProps {
 }
 
 const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
-  const { theme } = useTheme();
   const [spinnerTick, setSpinnerTick] = useState(0);
 
   useEffect(() => {
@@ -36,15 +36,16 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
     return () => clearInterval(interval);
   }, []);
 
+  const spinnerFrames = ['|', '/', '-', '\\'];
+
   return (
-    <Box marginBottom={1} paddingX={1}>
-      <Box width={2}>
-        <Text color={theme.colors.text.emerald}>
-          {['◈', '◇', '◈', '◆'][spinnerTick % 4]}
-        </Text>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+      <Box flexDirection="row" alignItems="center" flexWrap="wrap">
+        <Text color="#58A6FF" bold>[IN PROGRESS] </Text>
+        <Text color="#3FB950" bold>{spinnerFrames[spinnerTick % 4]} </Text>
+        <Text color="#E6EDF3" bold>{label}</Text>
+        <Text color="#8B949E"> (Press ESC to cancel)</Text>
       </Box>
-      <Text color={theme.colors.text.ethereal} bold>{label}</Text>
-      <Text color={theme.colors.text.muted}> (esc to interrupt)</Text>
     </Box>
   );
 });
@@ -111,6 +112,8 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(({
             return <DeploymentCard key={event.id} event={event} />;
           case 'analysis':
             return <AnalysisCard key={event.id} event={event} />;
+          case 'planner_action_panel':
+            return <PlannerActionPanel key={event.id} event={event} />;
           default:
             return null;
         }

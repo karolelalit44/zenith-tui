@@ -9,7 +9,8 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ inpu
   const { theme } = useTheme();
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const filtered = COMMAND_LIST.filter(c => c.command.startsWith(input));
+  const cleanInput = input.startsWith('/') ? input : `/${input}`;
+  const filtered = COMMAND_LIST.filter(c => c.command.toLowerCase().includes(cleanInput.toLowerCase()));
 
   useInput((char, key) => {
     if (filtered.length === 0) return;
@@ -24,36 +25,41 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ inpu
 
   if (filtered.length === 0) {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text color={theme.colors.text.muted}>No matching commands.</Text>
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text color={theme.colors.text.muted}>No matching slash commands.</Text>
       </Box>
     );
   }
 
   return (
-    <Box flexDirection="column">
-      <Box marginBottom={1}>
-        <Text color={theme.colors.border.muted}>{'─'.repeat(UI_CONSTANTS.SEPARATOR_WIDTH)}</Text>
+    <Box flexDirection="column" width="100%" borderStyle="round" borderColor="#BD93F9" paddingX={1} paddingY={1} marginTop={1}>
+      <Box flexDirection="row" alignItems="center" marginBottom={1}>
+        <Text color="#BD93F9" bold>[SLASH COMMANDS]</Text>
+        <Text color={theme.colors.text.muted}> — Type to filter · ↑/↓ navigate · Enter select</Text>
       </Box>
-      {filtered.map((cmd, i) => (
-        <Box key={i} flexDirection="row">
-          <Box width={2}>
-            <Text color={i === activeIndex ? theme.colors.text.emerald : theme.colors.text.muted}>
-              {i === activeIndex ? '▸' : ' '}
-            </Text>
+
+      {filtered.map((cmd, i) => {
+        const isActive = i === activeIndex;
+        return (
+          <Box key={i} flexDirection="row" alignItems="center">
+            <Box width={2} flexShrink={0}>
+              <Text color={isActive ? "#3FB950" : theme.colors.text.muted}>
+                {isActive ? '▸' : ' '}
+              </Text>
+            </Box>
+            <Box width={16} flexShrink={0}>
+              <Text color={isActive ? "#58A6FF" : "#E6EDF3"} bold={isActive}>
+                {cmd.command}
+              </Text>
+            </Box>
+            <Box flexShrink={1}>
+              <Text color={isActive ? "#E6EDF3" : "#8B949E"}>
+                {cmd.description}
+              </Text>
+            </Box>
           </Box>
-          <Box width={UI_CONSTANTS.AUTOCOMPLETE_COMMAND_WIDTH}>
-            <Text color={i === activeIndex ? theme.colors.text.ethereal : theme.colors.text.muted} bold={i === activeIndex}>
-              {cmd.command}
-            </Text>
-          </Box>
-          <Box>
-            <Text color={i === activeIndex ? theme.colors.text.emerald : theme.colors.text.muted}>
-              {cmd.description}
-            </Text>
-          </Box>
-        </Box>
-      ))}
+        );
+      })}
     </Box>
   );
 };

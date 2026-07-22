@@ -15,7 +15,8 @@ export type EventKind =
   | 'test_execution'
   | 'build_step'
   | 'deployment'
-  | 'analysis';
+  | 'analysis'
+  | 'planner_action_panel';
 
 export interface ThinkingThought {
   text: string;
@@ -177,6 +178,13 @@ export interface AnalysisEvent {
   sections: AnalysisSection[];
 }
 
+export interface PlannerActionPanelEvent {
+  kind: 'planner_action_panel';
+  id: string;
+  defaultFilename: string;
+  saved?: boolean;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | FileCreateEvent
@@ -194,7 +202,8 @@ export type ScenarioEvent =
   | TestExecutionEvent
   | BuildStepEvent
   | DeploymentEvent
-  | AnalysisEvent;
+  | AnalysisEvent
+  | PlannerActionPanelEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 
