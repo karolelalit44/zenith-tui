@@ -1,0 +1,14 @@
+{
+  "id": "openrouter",
+  "name": "OpenRouter AI",
+  "description": "Unified router access to 100+ top open and proprietary models",
+  "defaultModel": "openrouter/auto",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "timeout": 30000,
+  "swatch": ["#6366F1", "#818CF8", "#A5B4FC", "#C7D2FE"],
+  "fields": [
+    { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "sk-or-v1-..." },
+    { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://openrouter.ai/api/v1" },
+    { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+  ]
+}

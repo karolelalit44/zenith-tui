@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { providerService } from '../modules/providers/ProviderService';
-import type { ProviderState } from '../modules/providers/types';
+import { providerService } from '../services/providers/ProviderService';
+import type { ProviderState } from '../services/providers/types';
 
 export interface UseProviderReturn {
   activeProvider: ProviderState;

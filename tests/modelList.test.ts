@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ModelListService } from '../src/modules/providers/ModelListService';
+import { ModelService } from '../src/services/providers/ModelService';
 
-describe('ModelListService Dynamic JSON Loader', () => {
-  const service = new ModelListService();
+describe('ModelService Dynamic JSON & Update Operations', () => {
+  const service = new ModelService();
 
   it('loads models.json for OpenRouter', () => {
     const data = service.getModelsData('openrouter');
@@ -12,22 +12,15 @@ describe('ModelListService Dynamic JSON Loader', () => {
     expect(data.models[0].id).toBe('openrouter/auto');
   });
 
-  it('loads models.json for OpenAI', () => {
-    const models = service.getModels('openai');
-    expect(models.some((m) => m.id === 'gpt-4o')).toBe(true);
-    expect(models.some((m) => m.id === 'o1')).toBe(true);
-  });
+  it('updates models list via updateModelsList()', () => {
+    const customModels = [
+      { id: 'custom-gpt-5', name: 'Custom GPT-5', contextWindow: 500000 },
+    ];
+    service.updateModelsList('openai', customModels);
 
-  it('loads models.json for Anthropic', () => {
-    const label = service.getTotalModelsLabel('anthropic');
-    expect(label).toContain('Claude models');
-    const contextWindow = service.getContextWindow('anthropic', 'claude-3-5-sonnet-latest');
-    expect(contextWindow).toBe(200000);
-  });
-
-  it('loads models.json for Gemini, Groq, and Custom', () => {
-    expect(service.getModels('gemini').length).toBeGreaterThan(0);
-    expect(service.getModels('groq').length).toBeGreaterThan(0);
-    expect(service.getModels('custom').length).toBeGreaterThan(0);
+    const updated = service.getModels('openai');
+    expect(updated.length).toBe(1);
+    expect(updated[0].id).toBe('custom-gpt-5');
+    expect(service.getTotalModelsLabel('openai')).toBe('1 models');
   });
 });

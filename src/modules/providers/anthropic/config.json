@@ -1,7 +1,0 @@
-{
-  "provider": "anthropic",
-  "name": "Anthropic",
-  "defaultModel": "claude-3-5-sonnet-latest",
-  "baseUrl": "https://api.anthropic.com",
-  "timeout": 30000
-}

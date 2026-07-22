@@ -1,7 +1,0 @@
-{
-  "provider": "openrouter",
-  "name": "OpenRouter",
-  "defaultModel": "openrouter/auto",
-  "baseUrl": "https://openrouter.ai/api/v1",
-  "timeout": 30000
-}

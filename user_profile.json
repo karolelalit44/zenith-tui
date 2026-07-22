@@ -1,7 +1,7 @@
 {
   "provider": {
-    "activeProvider": "openai",
-    "activeModel": "gpt-4o"
+    "activeProvider": "anthropic",
+    "activeModel": "claude-3-5-sonnet-latest"
   },
   "settings": {
     "theme": "stealth",
@@ -26,8 +26,8 @@
       "temperature": 0.7
     }
   },
-  "activeProvider": "openai",
-  "activeModel": "gpt-4o",
+  "activeProvider": "anthropic",
+  "activeModel": "claude-3-5-sonnet-latest",
   "theme": "stealth",
   "compactView": false,
   "thinkingCollapsed": false,
@@ -38,5 +38,5 @@
   "lastActiveWorkspace": "D:\\vdo\\code\\zenith-frontend-tui",
   "sessionCount": 1,
   "lastSessionTimestamp": "2026-07-22T11:30:42.071Z",
-  "updatedAt": "2026-07-22T14:16:50.970Z"
+  "updatedAt": "2026-07-22T14:41:45.566Z"
 }

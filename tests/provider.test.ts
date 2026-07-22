@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { PROVIDER_CATALOG } from '../src/modules/providers/ProviderCatalog';
-import { ProviderRepository } from '../src/modules/providers/ProviderRepository';
-import { ProviderService } from '../src/modules/providers/ProviderService';
+import { ProviderRepository } from '../src/services/providers/ProviderRepository';
+import { ProviderService } from '../src/services/providers/ProviderService';
 
 describe('Provider Management Module', () => {
-  it('loads all 6 supported provider catalogs', () => {
-    const keys = Object.keys(PROVIDER_CATALOG);
-    expect(keys).toContain('openrouter');
-    expect(keys).toContain('openai');
-    expect(keys).toContain('anthropic');
-    expect(keys).toContain('gemini');
-    expect(keys).toContain('groq');
-    expect(keys).toContain('custom');
+  it('loads all 6 supported provider metadata configs from JSON', () => {
+    const repo = new ProviderRepository();
+    expect(repo.getProviderMeta('openrouter').name).toBe('OpenRouter AI');
+    expect(repo.getProviderMeta('openai').name).toBe('OpenAI Direct');
+    expect(repo.getProviderMeta('anthropic').name).toBe('Anthropic Claude');
+    expect(repo.getProviderMeta('gemini').name).toBe('Google Gemini');
+    expect(repo.getProviderMeta('groq').name).toBe('Groq LPU Acceleration');
+    expect(repo.getProviderMeta('custom').name).toBe('Custom Endpoint (Ollama / vLLM / Local)');
   });
 
   it('validates provider config API key requirements', () => {

@@ -13,7 +13,6 @@ import { useOverlayManager } from './hooks/useOverlayManager';
 import { usePersona } from './hooks/usePersona';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
-import { ProviderScreen } from './modules/providers/ProviderScreen';
 import { AddDirModal } from './screens/AddDir/AddDirModal';
 import { AgentsModal } from './screens/Agents/AgentsModal';
 import { ContextModal } from './screens/Context/ContextModal';
@@ -21,8 +20,10 @@ import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
 import { PersonaSelectModal } from './screens/PersonaSelect/PersonaSelectModal';
 import { PluginsModal } from './screens/Plugins/PluginsModal';
+import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { WelcomeScreen } from './screens/Welcome';
+import { commandService } from './services/data/CommandService';
 import { SessionRepository } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
 import { useTheme } from './theme/ThemeContext';
@@ -83,49 +84,12 @@ export const App: React.FC = () => {
 
   const dispatchCommand = useCallback(
     (cmd: string) => {
-      const lower = cmd.trim().toLowerCase();
       clearInput();
-
-      switch (lower) {
-        case '/mode':
-          openOverlay('mode');
-          break;
-        case '/help':
-          openOverlay('help');
-          break;
-        case '/persona':
-          openOverlay('persona');
-          break;
-        case '/settings':
-        case '/theme':
-          openOverlay('settings');
-          break;
-        case '/context':
-          openOverlay('context');
-          break;
-        case '/add-dir':
-          openOverlay('add-dir');
-          break;
-        case '/agents':
-          openOverlay('agents');
-          break;
-        case '/plugin':
-        case '/plugins':
-          openOverlay('plugin');
-          break;
-        case '/provider':
-        case '/providers':
-          openOverlay('provider');
-          break;
-        case '/clear':
-          clearTurns();
-          break;
-        case '/compact':
-          compactTurns();
-          break;
-        default:
-          break;
-      }
+      commandService.dispatchCommand(cmd, {
+        openOverlay: (target) => openOverlay(target as any),
+        clearTurns,
+        compactTurns,
+      });
     },
     [clearInput, openOverlay, clearTurns, compactTurns],
   );
@@ -275,7 +239,7 @@ export const App: React.FC = () => {
 
       {overlay === 'provider' && (
         <Box flexDirection="column" marginTop={1}>
-          <ProviderScreen onClose={closeOverlay} />
+          <ProvidersScreen onClose={closeOverlay} />
         </Box>
       )}
     </Box>

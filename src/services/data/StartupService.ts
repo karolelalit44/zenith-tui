@@ -1,4 +1,4 @@
-import { ProviderService, providerService } from '../../modules/providers/ProviderService';
+import { ProviderService, providerService } from '../providers/ProviderService';
 import { loadUserProfile, saveUserProfile, UserProfile } from './userProfileService';
 
 export interface StartupResult {

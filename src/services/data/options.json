@@ -1,0 +1,88 @@
+{
+  "commands": [
+    {
+      "command": "/mode",
+      "action": "overlay",
+      "target": "mode",
+      "description": "Switch between Build and Plan mode"
+    },
+    {
+      "command": "/help",
+      "action": "overlay",
+      "target": "help",
+      "description": "Show available commands & keyboard shortcuts"
+    },
+    {
+      "command": "/persona",
+      "action": "overlay",
+      "target": "persona",
+      "description": "Switch the active agent persona"
+    },
+    {
+      "command": "/settings",
+      "action": "overlay",
+      "target": "settings",
+      "description": "Configure Zenith options and theme"
+    },
+    {
+      "command": "/theme",
+      "action": "overlay",
+      "target": "settings",
+      "description": "Configure Zenith options and theme"
+    },
+    {
+      "command": "/context",
+      "action": "overlay",
+      "target": "context",
+      "description": "View the current file context window"
+    },
+    {
+      "command": "/add-dir",
+      "action": "overlay",
+      "target": "add-dir",
+      "description": "Add a new working directory"
+    },
+    {
+      "command": "/agents",
+      "action": "overlay",
+      "target": "agents",
+      "description": "Manage agent configurations"
+    },
+    {
+      "command": "/plugin",
+      "action": "overlay",
+      "target": "plugin",
+      "description": "Manage Zenith plugins and extensions"
+    },
+    {
+      "command": "/plugins",
+      "action": "overlay",
+      "target": "plugin",
+      "description": "Manage Zenith plugins and extensions"
+    },
+    {
+      "command": "/provider",
+      "action": "overlay",
+      "target": "provider",
+      "description": "Manage AI provider configurations and active model"
+    },
+    {
+      "command": "/providers",
+      "action": "overlay",
+      "target": "provider",
+      "description": "Manage AI provider configurations and active model"
+    },
+    {
+      "command": "/clear",
+      "action": "clear",
+      "target": "",
+      "description": "Clear conversation history and free up context"
+    },
+    {
+      "command": "/compact",
+      "action": "compact",
+      "target": "",
+      "description": "Clear conversation history but keep a summary in context"
+    }
+  ]
+}

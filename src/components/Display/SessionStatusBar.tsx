@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
 import { StaticContentRepository } from '../../services/data/StaticContentRepository';
 import { getActiveGitBranch } from '../../services/gitService';
@@ -19,10 +20,10 @@ interface SessionStatusBarProps {
 export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   mode,
   totalTokens,
-  maxTokens = 200000,
+  maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
   isRunning = false,
   modelName,
-  workspaceName = 'zenith-frontend-tui',
+  workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
   gitBranch,
 }) => {
   const { theme } = useTheme();

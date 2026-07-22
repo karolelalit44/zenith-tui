@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ProviderRepository } from '../src/modules/providers/ProviderRepository';
-import { ProviderService } from '../src/modules/providers/ProviderService';
+import { ProviderRepository } from '../src/services/providers/ProviderRepository';
+import { ProviderService } from '../src/services/providers/ProviderService';
 import { StartupService } from '../src/services/data/StartupService';
 
 describe('StartupService Initialization', () => {
