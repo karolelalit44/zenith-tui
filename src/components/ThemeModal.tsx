@@ -7,7 +7,8 @@ const THEMES = [
   { id: 'deep_forest', label: 'Deep Forest', icon: '🌲', desc: 'Default dark green and ethereal hues.' },
   { id: 'synthwave', label: 'Synthwave', icon: '🌆', desc: 'Neon pinks, purples, and retrowave styling.' },
   { id: 'monokai', label: 'Monokai Pro', icon: '🎨', desc: 'Vibrant, high-contrast editor colors.' },
-  { id: 'dracula', label: 'Dracula', icon: '🧛', desc: 'A dark theme for vampires.' }
+  { id: 'dracula', label: 'Dracula', icon: '🧛', desc: 'A dark theme for vampires.' },
+  { id: 'graphite', label: 'Graphite Monochrome', icon: '⚙️', desc: 'Sleek, low-profile, grayscale aesthetic.' }
 ];
 
 export const ThemeModal: React.FC<{ 

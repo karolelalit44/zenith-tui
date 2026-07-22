@@ -12,13 +12,7 @@ import { ThemeModal } from './components/ThemeModal';
 import { PersonaModal, Persona } from './components/PersonaModal';
 import { AutocompleteDropdown } from './components/AutocompleteDropdown';
 import { useTheme } from './theme/ThemeContext';
-import { useMockEngine } from './hooks/useMockEngine';
-
-type HistoryItem = 
-  | { type: 'user'; text: string }
-  | { type: 'text'; text: string }
-  | { type: 'add-dir'; path: string }
-  | { type: 'tool'; name: string; args?: string; resultTitle?: string; diff?: any[] };
+import { useMockEngine, LogItem } from './hooks/useMockEngine';
 
 type OverlayState = 'none' | 'autocomplete' | 'plugin' | 'settings' | 'theme' | 'context' | 'persona';
 
@@ -27,6 +21,7 @@ export const App: React.FC = () => {
   const [input, setInput] = useState('');
   const [overlay, setOverlay] = useState<OverlayState>('none');
   const [persona, setPersona] = useState<Persona>('architect');
+  const [autoApprove, setAutoApprove] = useState(true);
   const [spinnerTick, setSpinnerTick] = useState(0);
   
   const { history, isExecuting, loadingText, executeCommand } = useMockEngine();
@@ -97,10 +92,10 @@ export const App: React.FC = () => {
     }
   };
 
-  const triggerPluginMock = () => {
+  const triggerPluginMock = (cmd: string) => {
     setOverlay('none');
     setInput('');
-    executeCommand('/plugin');
+    executeCommand(cmd);
   };
 
   return (
@@ -109,7 +104,7 @@ export const App: React.FC = () => {
       {history.length === 0 && <DashboardScreen persona={persona} />}
 
       <Box flexDirection="column" marginTop={1} width="100%">
-        {history.map((item, idx) => {
+        {history.map((item: LogItem, idx: number) => {
           if (item.type === 'user') {
              return (
                <Box key={idx} flexDirection="row" marginBottom={1}>
@@ -169,7 +164,11 @@ export const App: React.FC = () => {
              <Box marginTop={1}><PluginModal onClose={() => setOverlay('none')} onTriggerMock={triggerPluginMock} /></Box>
           )}
           {overlay === 'settings' && (
-             <Box marginTop={1}><SettingsModal onClose={() => setOverlay('none')} onOpenTheme={() => setOverlay('theme')} /></Box>
+             <Box marginTop={1}><SettingsModal          onClose={() => setOverlay('none')} 
+          onOpenTheme={() => setOverlay('theme')}
+          autoApprove={autoApprove}
+          setAutoApprove={setAutoApprove}
+        /></Box>
           )}
           {overlay === 'theme' && (
              <Box marginTop={1}><ThemeModal onClose={() => setOverlay('none')} /></Box>
@@ -178,13 +177,7 @@ export const App: React.FC = () => {
              <Box marginTop={1}><ContextModal onClose={() => setOverlay('none')} /></Box>
           )}
           {overlay === 'persona' && (
-             <Box marginTop={1}>
-               <PersonaModal 
-                 currentPersona={persona} 
-                 onSelect={(p) => { setPersona(p); setOverlay('none'); }} 
-                 onClose={() => setOverlay('none')} 
-               />
-             </Box>
+             <Box marginTop={1}><PersonaModal currentPersona={persona} onSelect={(p: Persona) => setPersona(p)} onClose={() => setOverlay('none')} /></Box>
           )}
         </Box>
       ) : null}

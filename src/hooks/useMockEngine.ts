@@ -4,6 +4,7 @@ import { DiffLine } from '../components/WordDiffViewer';
 export type LogItem =
   | { type: 'user'; text: string }
   | { type: 'text'; text: string }
+  | { type: 'add-dir'; path: string }
   | { type: 'tool'; name: string; args: string; resultTitle: string; diff?: DiffLine[] };
 
 export function useMockEngine() {

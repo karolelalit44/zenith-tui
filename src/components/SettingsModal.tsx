@@ -6,10 +6,11 @@ import { useTheme } from '../theme/ThemeContext';
 export const SettingsModal: React.FC<{ 
   onClose: () => void;
   onOpenTheme?: () => void;
-}> = ({ onClose, onOpenTheme }) => {
+  autoApprove: boolean;
+  setAutoApprove: React.Dispatch<React.SetStateAction<boolean>>;
+}> = ({ onClose, onOpenTheme, autoApprove, setAutoApprove }) => {
   const { theme } = useTheme();
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [autoApprove, setAutoApprove] = useState(true);
   
   const SETTINGS = [
     { 

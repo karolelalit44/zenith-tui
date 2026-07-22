@@ -26,7 +26,7 @@ export const PluginModal: React.FC<{ onClose: () => void; onTriggerMock: (cmd: s
     }
 
     if (key.return) {
-      onTriggerMock();
+      onTriggerMock('/plugin');
     }
   });
 

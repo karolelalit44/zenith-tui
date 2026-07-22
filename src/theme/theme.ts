@@ -80,5 +80,15 @@ export const themes: Record<string, Theme> = {
       diff: { addBg: '#1C3138', addWordBg: '#254E5A', removeBg: '#381C26', removeWordBg: '#5A2538' },
       logo: ['#61FFCA', '#6BEEF6', '#75DDFF', '#93AEFF', '#A392FF', '#A277FF']
     }
+  },
+  graphite: {
+    colors: {
+      bg: { app: '#121212', sidebar: '#1A1A1A', modal: '#222222' },
+      border: { default: '#333333', active: '#A0A0A0', muted: '#222222' },
+      text: { ethereal: '#E0E0E0', muted: '#707070', emerald: '#B0B0B0', warning: '#D0D0D0', error: '#888888' },
+      shadow: { ascii: '#000000' },
+      diff: { addBg: '#1E2320', addWordBg: '#2C3530', removeBg: '#261F1F', removeWordBg: '#382B2B' },
+      logo: ['#EEEEEE', '#CCCCCC', '#AAAAAA', '#888888', '#666666', '#444444']
+    }
   }
 };

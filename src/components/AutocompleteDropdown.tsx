@@ -10,7 +10,7 @@ interface CommandHint {
 const mockCommands: CommandHint[] = [
   { command: '/add-dir', description: 'Add a new working directory' },
   { command: '/agents', description: 'Manage agent configurations' },
-  { command: '/clear (reset, new)', description: 'Clear conversation history and free up context' },
+  { command: '/clear', description: 'Clear conversation history (reset, new) and free up context' },
   { command: '/compact', description: 'Clear conversation history but keep a summary in context' },
   { command: '/context', description: 'View the current file context window' },
   { command: '/help', description: 'Show available commands' },
