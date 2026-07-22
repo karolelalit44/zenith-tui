@@ -24,7 +24,7 @@ import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
-import { SessionRepository } from './services/data/SessionRepository';
+import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
 import { useTheme } from './theme/ThemeContext';
 
@@ -78,7 +78,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
       completeActiveTurn(events);
-      SessionRepository.addSession(activeTurn.prompt, persona);
+      addSession(activeTurn.prompt, persona);
     }
   }, [isRunning, events, activeTurn, completeActiveTurn, persona]);
 

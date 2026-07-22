@@ -3,7 +3,7 @@ import React from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { APP_VERSION, DEFAULT_WORKSPACE } from '../../constants';
 import { useProvider } from '../../hooks/useProvider';
-import { SessionRepository } from '../../services/data/SessionRepository';
+import { getRecentSessions } from '../../services/data/SessionRepository';
 import { useTheme } from '../../theme/ThemeContext';
 import type { Persona } from '../../types';
 import type { ScenarioMode } from '../../types/scenario';
@@ -19,7 +19,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
   const activeWorkspace = workspace || DEFAULT_WORKSPACE;
-  const recentSessions = SessionRepository.getRecentSessions();
+  const recentSessions = getRecentSessions();
   const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
 
   return (

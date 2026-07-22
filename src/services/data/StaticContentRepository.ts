@@ -1,23 +1,11 @@
 import { UI_CONTENT, UIContent } from '../../constants/uiContent';
 
-export class StaticContentRepository {
-  public static getUIContent(): UIContent {
-    return UI_CONTENT;
-  }
+export const getUIContent = (): UIContent => UI_CONTENT;
 
-  public static getCommands() {
-    return UI_CONTENT.commands;
-  }
+export const getCommands = () => UI_CONTENT.commands;
 
-  public static getAppMetadata() {
-    return UI_CONTENT.app;
-  }
+export const getAppMetadata = () => UI_CONTENT.app;
 
-  public static getStatusBarLabels() {
-    return UI_CONTENT.statusBar;
-  }
+export const getStatusBarLabels = () => UI_CONTENT.statusBar;
 
-  public static getExportMetadata() {
-    return UI_CONTENT.export;
-  }
-}
+export const getExportMetadata = () => UI_CONTENT.export;

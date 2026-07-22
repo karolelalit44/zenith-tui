@@ -2,7 +2,7 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
-import { StaticContentRepository } from '../../services/data/StaticContentRepository';
+import { getStatusBarLabels } from '../../services/data/StaticContentRepository';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
@@ -29,7 +29,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
   const activeBranch = gitBranch || getActiveGitBranch();
-  const statusLabels = StaticContentRepository.getStatusBarLabels();
+  const statusLabels = getStatusBarLabels();
 
   const displayModel =
     modelName ||

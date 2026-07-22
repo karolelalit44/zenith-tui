@@ -11,7 +11,14 @@ export const WELCOME_DATA = {
   },
 } as const;
 
-export const getGreeting = (persona: Persona): string => {
+function getTimeOfDay(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Morning';
+  if (hour < 18) return 'Afternoon';
+  return 'Evening';
+}
+
+function getPersonaMission(persona: Persona): string {
   switch (persona) {
     case 'debugger':
       return 'Inspecting tracebacks & stack traces...';
@@ -20,4 +27,15 @@ export const getGreeting = (persona: Persona): string => {
     default:
       return 'Designing scalable system architecture...';
   }
+}
+
+function getSystemUsername(): string {
+  return process.env.USERNAME || process.env.USER || 'Operator';
+}
+
+export const getGreeting = (persona: Persona): string => {
+  const username = getSystemUsername();
+  const timeOfDay = getTimeOfDay();
+  const mission = getPersonaMission(persona);
+  return `▸ Good ${timeOfDay}, ${username} ◂\n${mission}`;
 };
