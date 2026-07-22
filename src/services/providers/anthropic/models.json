@@ -1,0 +1,24 @@
+{
+  "provider": "anthropic",
+  "totalModelsLabel": "3 Claude models",
+  "models": [
+    {
+      "id": "claude-3-5-sonnet-latest",
+      "name": "Claude 3.5 Sonnet",
+      "contextWindow": 200000,
+      "description": "Premier coding & engineering agent model"
+    },
+    {
+      "id": "claude-3-5-haiku-latest",
+      "name": "Claude 3.5 Haiku",
+      "contextWindow": 200000,
+      "description": "Ultra-fast sub-agent execution model"
+    },
+    {
+      "id": "claude-3-opus-latest",
+      "name": "Claude 3 Opus",
+      "contextWindow": 200000,
+      "description": "Deep reasoning & architectural engine"
+    }
+  ]
+}

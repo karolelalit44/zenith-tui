@@ -1,5 +1,34 @@
 {
-  "theme": "graphite",
+  "provider": {
+    "activeProvider": "anthropic",
+    "activeModel": "claude-3-5-sonnet-latest"
+  },
+  "settings": {
+    "theme": "stealth",
+    "compactView": false,
+    "thinkingCollapsed": false,
+    "soundEffects": true,
+    "autoApproveTools": false,
+    "persona": "architect",
+    "defaultMode": "build"
+  },
+  "providerSettings": {
+    "openai": {
+      "model": "o3-mini",
+      "apiKey": "sk-test-key"
+    },
+    "openrouter": {
+      "model": "google/gemini-pro-1.5",
+      "apiKey": "",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "organizationId": "",
+      "timeout": 30000,
+      "temperature": 0.7
+    }
+  },
+  "activeProvider": "anthropic",
+  "activeModel": "claude-3-5-sonnet-latest",
+  "theme": "stealth",
   "compactView": false,
   "thinkingCollapsed": false,
   "soundEffects": true,
@@ -9,5 +38,5 @@
   "lastActiveWorkspace": "D:\\vdo\\code\\zenith-frontend-tui",
   "sessionCount": 1,
   "lastSessionTimestamp": "2026-07-22T11:30:42.071Z",
-  "updatedAt": "2026-07-22T11:30:42.100Z"
+  "updatedAt": "2026-07-22T14:56:20.476Z"
 }

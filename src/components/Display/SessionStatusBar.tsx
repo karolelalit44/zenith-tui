@@ -1,6 +1,8 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { StaticContentRepository } from '../../services/data/StaticContentRepository';
+import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
+import { useProvider } from '../../hooks/useProvider';
+import { getStatusBarLabels } from '../../services/data/StaticContentRepository';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
@@ -18,15 +20,20 @@ interface SessionStatusBarProps {
 export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   mode,
   totalTokens,
-  maxTokens = 200000,
+  maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
   isRunning = false,
-  modelName = 'Zenith 3.7 Sonnet',
-  workspaceName = 'zenith-frontend-tui',
+  modelName,
+  workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
   gitBranch,
 }) => {
   const { theme } = useTheme();
+  const { activeProvider } = useProvider();
   const activeBranch = gitBranch || getActiveGitBranch();
-  const statusLabels = StaticContentRepository.getStatusBarLabels();
+  const statusLabels = getStatusBarLabels();
+
+  const displayModel =
+    modelName ||
+    `Provider: ${activeProvider.meta.name} | Model: ${activeProvider.config.model || activeProvider.meta.defaultModel}`;
 
   const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
 
@@ -62,7 +69,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
           <Text color={theme.colors.text.muted}> </Text>
 
           <Text color={theme.colors.text.ethereal} bold>
-            {modelName}
+            {displayModel}
           </Text>
           <Text color={theme.colors.text.muted}> · </Text>
 

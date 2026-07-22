@@ -20,13 +20,20 @@ import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
 import { PersonaSelectModal } from './screens/PersonaSelect/PersonaSelectModal';
 import { PluginsModal } from './screens/Plugins/PluginsModal';
+import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { WelcomeScreen } from './screens/Welcome';
-import { SessionRepository } from './services/data/SessionRepository';
+import { commandService } from './services/data/CommandService';
+import { addSession } from './services/data/SessionRepository';
+import { startupService } from './services/data/StartupService';
 import { useTheme } from './theme/ThemeContext';
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
+
+  useEffect(() => {
+    startupService.initialize();
+  }, []);
   const { persona, setPersona } = usePersona('architect');
   const [workspace, setWorkspace] = useState(DEFAULT_WORKSPACE);
   const {
@@ -71,51 +78,18 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
       completeActiveTurn(events);
-      SessionRepository.addSession(activeTurn.prompt, persona);
+      addSession(activeTurn.prompt, persona);
     }
   }, [isRunning, events, activeTurn, completeActiveTurn, persona]);
 
   const dispatchCommand = useCallback(
     (cmd: string) => {
-      const lower = cmd.trim().toLowerCase();
       clearInput();
-
-      switch (lower) {
-        case '/mode':
-          openOverlay('mode');
-          break;
-        case '/help':
-          openOverlay('help');
-          break;
-        case '/persona':
-          openOverlay('persona');
-          break;
-        case '/settings':
-        case '/theme':
-          openOverlay('settings');
-          break;
-        case '/context':
-          openOverlay('context');
-          break;
-        case '/add-dir':
-          openOverlay('add-dir');
-          break;
-        case '/agents':
-          openOverlay('agents');
-          break;
-        case '/plugin':
-        case '/plugins':
-          openOverlay('plugin');
-          break;
-        case '/clear':
-          clearTurns();
-          break;
-        case '/compact':
-          compactTurns();
-          break;
-        default:
-          break;
-      }
+      commandService.dispatchCommand(cmd, {
+        openOverlay: (target) => openOverlay(target as any),
+        clearTurns,
+        compactTurns,
+      });
     },
     [clearInput, openOverlay, clearTurns, compactTurns],
   );
@@ -260,6 +234,12 @@ export const App: React.FC = () => {
       {overlay === 'plugin' && (
         <Box flexDirection="column" marginTop={1}>
           <PluginsModal onClose={closeOverlay} />
+        </Box>
+      )}
+
+      {overlay === 'provider' && (
+        <Box flexDirection="column" marginTop={1}>
+          <ProvidersScreen onClose={closeOverlay} />
         </Box>
       )}
     </Box>

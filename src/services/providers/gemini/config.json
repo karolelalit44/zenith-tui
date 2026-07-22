@@ -1,0 +1,19 @@
+{
+  "id": "gemini",
+  "name": "Google Gemini",
+  "description": "Google AI Studio Gemini 1.5 Pro, Flash, and 2.0 Flash models",
+  "defaultModel": "gemini-1.5-pro",
+  "baseUrl": "https://generativelanguage.googleapis.com",
+  "timeout": 30000,
+  "swatch": ["#2563EB", "#3B82F6", "#60A5FA", "#93C5FD"],
+  "fields": [
+    { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "AIzaSy..." },
+    {
+      "key": "baseUrl",
+      "label": "Base URL",
+      "type": "text",
+      "defaultValue": "https://generativelanguage.googleapis.com"
+    },
+    { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "anthropic",
+  "name": "Anthropic Claude",
+  "description": "Official Anthropic Claude 3.5 Sonnet, Haiku, and Opus API",
+  "defaultModel": "claude-3-5-sonnet-latest",
+  "baseUrl": "https://api.anthropic.com",
+  "timeout": 30000,
+  "swatch": ["#D97706", "#F59E0B", "#FBBF24", "#FDE68A"],
+  "fields": [
+    { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "sk-ant-api03-..." },
+    { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://api.anthropic.com" },
+    { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+  ]
+}

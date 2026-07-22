@@ -1,0 +1,15 @@
+{
+  "id": "openai",
+  "name": "OpenAI Direct",
+  "description": "Official OpenAI GPT-4o, o1, and o3-mini developer API",
+  "defaultModel": "gpt-4o",
+  "baseUrl": "https://api.openai.com/v1",
+  "timeout": 30000,
+  "swatch": ["#10A37F", "#1A7F64", "#26D07C", "#58F0A7"],
+  "fields": [
+    { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "sk-proj-..." },
+    { "key": "organizationId", "label": "Organization ID", "type": "text", "placeholder": "org-..." },
+    { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://api.openai.com/v1" },
+    { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+  ]
+}

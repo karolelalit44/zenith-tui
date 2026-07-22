@@ -1,0 +1,30 @@
+{
+  "provider": "openai",
+  "totalModelsLabel": "4 core models",
+  "models": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "contextWindow": 128000,
+      "description": "High intelligence & fast speed"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o Mini",
+      "contextWindow": 128000,
+      "description": "Lightweight & cost-efficient"
+    },
+    {
+      "id": "o1",
+      "name": "OpenAI o1 Reasoning",
+      "contextWindow": 200000,
+      "description": "Advanced STEM & code reasoning"
+    },
+    {
+      "id": "o3-mini",
+      "name": "OpenAI o3 Mini",
+      "contextWindow": 200000,
+      "description": "Ultra-fast code reasoning"
+    }
+  ]
+}

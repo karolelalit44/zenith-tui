@@ -22,7 +22,7 @@ export function useTerminalKeyboard({
   events,
   overlay,
   openOverlay,
-  closeOverlay,
+  closeOverlay: _closeOverlay,
   abort,
   abortActiveTurn,
   markTurnSaved,
@@ -52,9 +52,7 @@ export function useTerminalKeyboard({
       }
 
       if (overlay !== 'none') {
-        if (key.escape) {
-          closeOverlay();
-        }
+        // Active modal handles its own keyboard navigation & 1-step-back Esc key hierarchy
         return;
       }
 

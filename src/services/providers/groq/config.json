@@ -1,0 +1,14 @@
+{
+  "id": "groq",
+  "name": "Groq LPU Acceleration",
+  "description": "Ultra-low latency inference engine powering Llama 3.3 & DeepSeek",
+  "defaultModel": "llama-3.3-70b-versatile",
+  "baseUrl": "https://api.groq.com/openai/v1",
+  "timeout": 15000,
+  "swatch": ["#F97316", "#FB923C", "#FDBA74", "#FED7AA"],
+  "fields": [
+    { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "gsk_..." },
+    { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://api.groq.com/openai/v1" },
+    { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 15000 }
+  ]
+}

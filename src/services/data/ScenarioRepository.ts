@@ -39,45 +39,43 @@ const scenarioMatchers: ScenarioMatcher[] = [
   },
 ];
 
-export class ScenarioRepository {
-  public static getScenarioForPrompt(prompt: string, mode: ScenarioMode): Scenario {
-    const lower = prompt.toLowerCase();
+export const getScenarioForPrompt = (prompt: string, mode: ScenarioMode): Scenario => {
+  const lower = prompt.toLowerCase();
 
-    // Test Error Triggers
-    if (lower.includes('rate limit') || lower.includes('api key') || lower.includes('provider error')) {
-      return providerErrorScenario(prompt);
-    }
-    if (lower.includes('permission denied') || lower.includes('system error')) {
-      return systemErrorScenario(prompt);
-    }
-
-    // Explicit Mode Mismatch Triggers
-    if (
-      mode === 'plan' &&
-      (lower.includes('generate code') || lower.includes('create file') || lower.includes('write implementation'))
-    ) {
-      return modeMismatchScenario(prompt, 'plan');
-    }
-
-    // Inline mode overrides
-    let effectiveMode: ScenarioMode = mode;
-    if (lower.includes('[plan]') || lower.includes('--plan') || lower.includes('/plan')) {
-      effectiveMode = 'plan';
-    } else if (lower.includes('[build]') || lower.includes('--build') || lower.includes('/build')) {
-      effectiveMode = 'build';
-    }
-
-    // Keyword Matchers
-    for (const matcher of scenarioMatchers) {
-      if (matcher.keywords.some((kw) => lower.includes(kw))) {
-        return matcher[effectiveMode](prompt);
-      }
-    }
-
-    // Fallbacks
-    if (effectiveMode === 'plan') {
-      return planScenario(prompt);
-    }
-    return buildScenario(prompt);
+  // Test Error Triggers
+  if (lower.includes('rate limit') || lower.includes('api key') || lower.includes('provider error')) {
+    return providerErrorScenario(prompt);
   }
-}
+  if (lower.includes('permission denied') || lower.includes('system error')) {
+    return systemErrorScenario(prompt);
+  }
+
+  // Explicit Mode Mismatch Triggers
+  if (
+    mode === 'plan' &&
+    (lower.includes('generate code') || lower.includes('create file') || lower.includes('write implementation'))
+  ) {
+    return modeMismatchScenario(prompt, 'plan');
+  }
+
+  // Inline mode overrides
+  let effectiveMode: ScenarioMode = mode;
+  if (lower.includes('[plan]') || lower.includes('--plan') || lower.includes('/plan')) {
+    effectiveMode = 'plan';
+  } else if (lower.includes('[build]') || lower.includes('--build') || lower.includes('/build')) {
+    effectiveMode = 'build';
+  }
+
+  // Keyword Matchers
+  for (const matcher of scenarioMatchers) {
+    if (matcher.keywords.some((kw) => lower.includes(kw))) {
+      return matcher[effectiveMode](prompt);
+    }
+  }
+
+  // Fallbacks
+  if (effectiveMode === 'plan') {
+    return planScenario(prompt);
+  }
+  return buildScenario(prompt);
+};

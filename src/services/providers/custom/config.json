@@ -1,0 +1,26 @@
+{
+  "id": "custom",
+  "name": "Custom Endpoint (Ollama / vLLM / Local)",
+  "description": "Connect to local Ollama, LM Studio, vLLM, or custom OpenAI-compatible server",
+  "defaultModel": "llama3.2:latest",
+  "baseUrl": "http://localhost:11434/v1",
+  "timeout": 60000,
+  "swatch": ["#10B981", "#34D399", "#6EE7B7", "#A7F3D0"],
+  "fields": [
+    {
+      "key": "baseUrl",
+      "label": "Base Endpoint URL",
+      "type": "text",
+      "required": true,
+      "defaultValue": "http://localhost:11434/v1",
+      "placeholder": "http://localhost:11434/v1"
+    },
+    {
+      "key": "apiKey",
+      "label": "API Key (Optional)",
+      "type": "password",
+      "placeholder": "Not required for local Ollama"
+    },
+    { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 60000 }
+  ]
+}

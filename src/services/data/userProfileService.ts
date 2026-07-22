@@ -1,17 +1,37 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export interface UserProfile {
-  // Theme & Appearance
+export interface UserProviderSection {
+  activeProvider: string;
+  activeModel: string;
+}
+
+export interface UserSettingsSection {
   theme: string;
   compactView: boolean;
   thinkingCollapsed: boolean;
   soundEffects: boolean;
-
-  // Session & Execution Controls
   autoApproveTools: boolean;
   persona: string;
   defaultMode: 'build' | 'plan';
+}
+
+export interface UserProfile {
+  // Nested configuration blocks
+  provider?: UserProviderSection;
+  settings?: UserSettingsSection;
+  providerSettings?: Record<string, unknown>;
+
+  // Flat fallbacks / legacy compatibility
+  theme: string;
+  compactView: boolean;
+  thinkingCollapsed: boolean;
+  soundEffects: boolean;
+  autoApproveTools: boolean;
+  persona: string;
+  defaultMode: 'build' | 'plan';
+  activeProvider?: string;
+  activeModel?: string;
 
   // Session Cache Metadata
   lastActiveWorkspace: string;
@@ -23,6 +43,24 @@ export interface UserProfile {
 const PROFILE_FILE_NAME = 'user_profile.json';
 
 const DEFAULT_PROFILE: UserProfile = {
+  provider: {
+    activeProvider: 'openai',
+    activeModel: 'gpt-4o',
+  },
+  settings: {
+    theme: 'graphite',
+    compactView: false,
+    thinkingCollapsed: false,
+    soundEffects: true,
+    autoApproveTools: false,
+    persona: 'architect',
+    defaultMode: 'build',
+  },
+  providerSettings: {},
+
+  // Legacy flat fields synced with nested blocks
+  activeProvider: 'openai',
+  activeModel: 'gpt-4o',
   theme: 'graphite',
   compactView: false,
   thinkingCollapsed: false,
@@ -47,19 +85,40 @@ export const loadUserProfile = (): UserProfile => {
       const rawData = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(rawData) as Partial<UserProfile>;
       if (parsed && typeof parsed === 'object') {
+        const activeProv = parsed.provider?.activeProvider || parsed.activeProvider || 'openai';
+        const activeMod = parsed.provider?.activeModel || parsed.activeModel || 'gpt-4o';
+        const themeVal = parsed.settings?.theme || parsed.theme || 'graphite';
+        const personaVal = parsed.settings?.persona || parsed.persona || 'architect';
+
         return {
           ...DEFAULT_PROFILE,
           ...parsed,
+          activeProvider: activeProv,
+          activeModel: activeMod,
+          theme: themeVal,
+          persona: personaVal,
+          provider: {
+            activeProvider: activeProv,
+            activeModel: activeMod,
+          },
+          settings: {
+            theme: themeVal,
+            compactView: parsed.settings?.compactView ?? parsed.compactView ?? false,
+            thinkingCollapsed: parsed.settings?.thinkingCollapsed ?? parsed.thinkingCollapsed ?? false,
+            soundEffects: parsed.settings?.soundEffects ?? parsed.soundEffects ?? true,
+            autoApproveTools: parsed.settings?.autoApproveTools ?? parsed.autoApproveTools ?? false,
+            persona: personaVal,
+            defaultMode: parsed.settings?.defaultMode || parsed.defaultMode || 'build',
+          },
           sessionCount: (parsed.sessionCount ?? 0) + 1,
           lastSessionTimestamp: new Date().toISOString(),
         };
       }
     }
   } catch (_err) {
-    // Fall back to default profile on read failure
+    // Fall back to default profile
   }
 
-  // Create initial user_profile.json file if missing
   saveUserProfile(DEFAULT_PROFILE);
   return DEFAULT_PROFILE;
 };
@@ -77,19 +136,66 @@ export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
       }
     }
   } catch (_err) {
-    // Keep base defaults if read fails
+    // Keep base defaults
   }
+
+  const newActiveProvider =
+    updates.activeProvider || updates.provider?.activeProvider || current.activeProvider || 'openai';
+  const newActiveModel = updates.activeModel || updates.provider?.activeModel || current.activeModel || 'gpt-4o';
+  const newTheme = updates.theme || updates.settings?.theme || current.theme || 'graphite';
 
   const updatedProfile: UserProfile = {
     ...current,
     ...updates,
+    activeProvider: newActiveProvider,
+    activeModel: newActiveModel,
+    theme: newTheme,
+    provider: {
+      activeProvider: newActiveProvider,
+      activeModel: newActiveModel,
+    },
+    settings: {
+      theme: newTheme,
+      compactView:
+        updates.settings?.compactView ??
+        updates.compactView ??
+        current.settings?.compactView ??
+        current.compactView ??
+        false,
+      thinkingCollapsed:
+        updates.settings?.thinkingCollapsed ??
+        updates.thinkingCollapsed ??
+        current.settings?.thinkingCollapsed ??
+        current.thinkingCollapsed ??
+        false,
+      soundEffects:
+        updates.settings?.soundEffects ??
+        updates.soundEffects ??
+        current.settings?.soundEffects ??
+        current.soundEffects ??
+        true,
+      autoApproveTools:
+        updates.settings?.autoApproveTools ??
+        updates.autoApproveTools ??
+        current.settings?.autoApproveTools ??
+        current.autoApproveTools ??
+        false,
+      persona:
+        updates.settings?.persona || updates.persona || current.settings?.persona || current.persona || 'architect',
+      defaultMode:
+        updates.settings?.defaultMode ||
+        updates.defaultMode ||
+        current.settings?.defaultMode ||
+        current.defaultMode ||
+        'build',
+    },
     updatedAt: new Date().toISOString(),
   };
 
   try {
     fs.writeFileSync(filePath, JSON.stringify(updatedProfile, null, 2), 'utf-8');
   } catch (_err) {
-    // Ignore write errors in test environments
+    // Ignore write errors
   }
 
   return updatedProfile;
@@ -97,7 +203,7 @@ export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
 
 export const loadSavedTheme = (): string => {
   const profile = loadUserProfile();
-  return profile.theme || 'graphite';
+  return profile.settings?.theme || profile.theme || 'graphite';
 };
 
 export const saveTheme = (themeId: string): void => {
@@ -106,7 +212,7 @@ export const saveTheme = (themeId: string): void => {
 
 export const loadAutoApprove = (): boolean => {
   const profile = loadUserProfile();
-  return Boolean(profile.autoApproveTools);
+  return Boolean(profile.settings?.autoApproveTools ?? profile.autoApproveTools);
 };
 
 export const saveAutoApprove = (autoApprove: boolean): void => {
