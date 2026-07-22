@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
 import { GenericProviderConfigForm } from '../../components/Providers/GenericProviderConfigForm';
 import { ProviderList } from '../../components/Providers/ProviderList';
+import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { providerService } from '../../services/providers/ProviderService';
 import type { ProviderState } from '../../services/providers/types';
@@ -102,23 +103,28 @@ export const ProvidersScreen: React.FC<ProvidersScreenProps> = ({ onClose }) => 
           </Box>
         )}
 
-        {/* Footer Shortcut Instructions */}
         <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
-          {viewMode === 'list' ? (
-            <Text color={theme.colors.text.muted}>
-              <Text color={theme.colors.text.emerald}>[↑/↓]</Text> Navigate Providers ·{' '}
-              <Text color={theme.colors.text.emerald}>[Space/A]</Text> Activate Provider ·{' '}
-              <Text color={theme.colors.text.emerald}>[Enter]</Text> Edit Config ·{' '}
-              <Text color={theme.colors.text.emerald}>[Esc]</Text> Exit
-            </Text>
-          ) : (
-            <Text color={theme.colors.text.muted}>
-              <Text color={theme.colors.text.emerald}>[↑/↓]</Text> Navigate Fields ·{' '}
-              <Text color={theme.colors.text.emerald}>[Enter]</Text> Edit Field ·{' '}
-              <Text color={theme.colors.text.emerald}>[Ctrl+S]</Text> Save Config ·{' '}
-              <Text color={theme.colors.text.emerald}>[Esc]</Text> Back to List
-            </Text>
-          )}
+          <Text color={theme.colors.text.muted}>
+            {viewMode === 'list' ? (
+              <ModalFooter
+                shortcuts={[
+                  { key: '[↑/↓]', label: 'Navigate Providers' },
+                  { key: '[Space/A]', label: 'Activate Provider' },
+                  { key: '[Enter]', label: 'Edit Config' },
+                  { key: '[Esc]', label: 'Exit' },
+                ]}
+              />
+            ) : (
+              <ModalFooter
+                shortcuts={[
+                  { key: '[↑/↓]', label: 'Navigate Fields' },
+                  { key: '[Enter]', label: 'Edit Field' },
+                  { key: '[Ctrl+S]', label: 'Save Config' },
+                  { key: '[Esc]', label: 'Back to List' },
+                ]}
+              />
+            )}
+          </Text>
         </Box>
       </Box>
     </RoundedBox>

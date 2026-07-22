@@ -4,7 +4,7 @@
     "activeModel": "claude-3-5-sonnet-latest"
   },
   "settings": {
-    "theme": "stealth",
+    "theme": "golden_hour",
     "compactView": false,
     "thinkingCollapsed": false,
     "soundEffects": true,
@@ -28,7 +28,7 @@
   },
   "activeProvider": "anthropic",
   "activeModel": "claude-3-5-sonnet-latest",
-  "theme": "stealth",
+  "theme": "golden_hour",
   "compactView": false,
   "thinkingCollapsed": false,
   "soundEffects": true,
@@ -38,5 +38,5 @@
   "lastActiveWorkspace": "D:\\vdo\\code\\zenith-frontend-tui",
   "sessionCount": 1,
   "lastSessionTimestamp": "2026-07-22T11:30:42.071Z",
-  "updatedAt": "2026-07-22T14:56:20.476Z"
+  "updatedAt": "2026-07-22T16:22:13.549Z"
 }

@@ -11,8 +11,8 @@ test('App opens directly to Welcome + Input (no mode selection screen)', async (
   const frame = lastFrame();
   expect(frame).toContain('1.0.0');
   expect(frame).toContain('SYSTEM STATUS');
-  expect(frame).toContain('Mode:');
-  expect(frame).toContain('Build');
+  expect(frame).toContain('BUILD');
+  expect(frame).toContain('Ask');
   expect(frame).toContain('>');
   unmount();
 });
@@ -71,8 +71,7 @@ test('Mode selection changes current mode', async () => {
   await wait(300);
 
   // Should show Plan mode
-  expect(lastFrame()).toContain('Mode:');
-  expect(lastFrame()).toContain('Plan');
+  expect(lastFrame()).toContain('PLAN');
   unmount();
 });
 
@@ -90,8 +89,7 @@ test('Escape closes mode selector without changing mode', async () => {
   await wait(300);
 
   // Should still be Build mode
-  expect(lastFrame()).toContain('Mode:');
-  expect(lastFrame()).toContain('Build');
+  expect(lastFrame()).toContain('BUILD');
   unmount();
 });
 

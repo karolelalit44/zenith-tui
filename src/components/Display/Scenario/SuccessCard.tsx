@@ -7,7 +7,7 @@ interface SuccessCardProps {
   event: SuccessEvent;
 }
 
-export const SuccessCard: React.FC<SuccessCardProps> = ({ event }) => {
+export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
   return (
@@ -45,4 +45,4 @@ export const SuccessCard: React.FC<SuccessCardProps> = ({ event }) => {
       )}
     </Box>
   );
-};
+});

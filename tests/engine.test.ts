@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { getEventDelay } from '../src/services/scenario/delays';
-import { getScenarioForPrompt } from '../src/services/scenario/matcher';
+import { getScenarioForPrompt } from '../src/services/data/ScenarioRepository';
 import { runScenario } from '../src/services/scenario/engine';
 import type { ScenarioEvent, Scenario } from '../src/types/scenario';
 

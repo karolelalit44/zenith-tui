@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
+import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { loadUserProfile, saveUserProfile, type UserProfile } from '../../services/data/userProfileService';
 import { useTheme } from '../../theme/ThemeContext';
@@ -22,6 +23,7 @@ const THEME_OPTIONS: ThemeOption[] = [
   { id: 'monokai', name: 'Monokai Pro', swatch: ['#A6E22E', '#66D9EF', '#FD971F', '#F92672'] },
   { id: 'synthwave', name: 'Synthwave 84', swatch: ['#F92A82', '#00F2FE', '#F39C12', '#BC7FD4'] },
   { id: 'aura', name: 'Aura Dark', swatch: ['#61FFCA', '#82E2FF', '#A277FF', '#FF6767'] },
+  { id: 'golden_hour', name: 'Golden Hour (Sun & Sky)', swatch: ['#FFD700', '#64B5F6', '#FF8C00', '#FFF3B0'] },
 ];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
@@ -222,13 +224,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           </Box>
         )}
 
-        {/* Modal Controls Footer */}
         <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
           <Text color={theme.colors.text.muted}>
-            <Text color={theme.colors.text.emerald}>[Tab]</Text> Switch Tab ·{' '}
-            <Text color={theme.colors.text.emerald}>[↑/↓]</Text> Navigate ·{' '}
-            <Text color={theme.colors.text.emerald}>[Space/Enter]</Text> Select/Toggle ·{' '}
-            <Text color={theme.colors.text.emerald}>[Esc]</Text> Exit
+            <ModalFooter
+              shortcuts={[
+                { key: '[Tab]', label: 'Switch Tab' },
+                { key: '[↑/↓]', label: 'Navigate' },
+                { key: '[Space/Enter]', label: 'Select/Toggle' },
+                { key: '[Esc]', label: 'Exit' },
+              ]}
+            />
           </Text>
         </Box>
       </Box>

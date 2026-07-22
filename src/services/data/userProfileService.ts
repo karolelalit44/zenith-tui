@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+let profileCache: UserProfile | null = null;
+const CACHE_TTL = 5000;
+let cacheTimestamp = 0;
+
 export interface UserProviderSection {
   activeProvider: string;
   activeModel: string;
@@ -79,6 +83,9 @@ const getProfilePath = (): string => {
 };
 
 export const loadUserProfile = (): UserProfile => {
+  const now = Date.now();
+  if (profileCache && now - cacheTimestamp < CACHE_TTL) return profileCache;
+
   const filePath = getProfilePath();
   try {
     if (fs.existsSync(filePath)) {
@@ -90,7 +97,7 @@ export const loadUserProfile = (): UserProfile => {
         const themeVal = parsed.settings?.theme || parsed.theme || 'graphite';
         const personaVal = parsed.settings?.persona || parsed.persona || 'architect';
 
-        return {
+        profileCache = {
           ...DEFAULT_PROFILE,
           ...parsed,
           activeProvider: activeProv,
@@ -113,6 +120,8 @@ export const loadUserProfile = (): UserProfile => {
           sessionCount: (parsed.sessionCount ?? 0) + 1,
           lastSessionTimestamp: new Date().toISOString(),
         };
+        cacheTimestamp = now;
+        return profileCache;
       }
     }
   } catch (_err) {
@@ -120,10 +129,13 @@ export const loadUserProfile = (): UserProfile => {
   }
 
   saveUserProfile(DEFAULT_PROFILE);
+  profileCache = DEFAULT_PROFILE;
+  cacheTimestamp = Date.now();
   return DEFAULT_PROFILE;
 };
 
 export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
+  profileCache = null;
   const filePath = getProfilePath();
   let current: UserProfile = { ...DEFAULT_PROFILE };
 

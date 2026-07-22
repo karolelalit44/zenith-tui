@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { BuildStepEvent } from '../../../types/scenario';
@@ -7,8 +8,6 @@ import type { BuildStepEvent } from '../../../types/scenario';
 interface BuildStepCardProps {
   event: BuildStepEvent;
 }
-
-const SPINNERS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 export const BuildStepCard: React.FC<BuildStepCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
@@ -22,7 +21,7 @@ export const BuildStepCard: React.FC<BuildStepCardProps> = React.memo(({ event }
       color = theme.colors.status.success;
       break;
     case 'running':
-      icon = SPINNERS[tick % SPINNERS.length];
+      icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
       color = theme.colors.status.info;
       break;
     case 'error':

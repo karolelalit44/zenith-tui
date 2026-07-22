@@ -1,4 +1,5 @@
 import { Box, Text, useInput } from 'ink';
+import TextInput from 'ink-text-input';
 import React, { useState } from 'react';
 import { modelService } from '../../services/providers/ModelService';
 import { providerRepository } from '../../services/providers/ProviderRepository';
@@ -47,28 +48,10 @@ export const GenericProviderConfigForm: React.FC<GenericProviderConfigFormProps>
       return;
     }
 
-    // Text editing mode for text/password fields: Esc or Enter steps back out of editing
+    // Text editing mode: let TextInput handle all input
     if (isEditing && activeSection === 'fields') {
-      const currentField = fields[fieldCursor];
-
       if (key.return || key.escape) {
         setIsEditing(false);
-        return;
-      }
-
-      if (key.backspace || key.delete) {
-        setFormState((prev) => {
-          const val = String(prev[currentField?.key] || '');
-          return { ...prev, [currentField.key]: val.slice(0, -1) };
-        });
-        return;
-      }
-
-      if (char) {
-        setFormState((prev) => {
-          const val = String(prev[currentField?.key] || '');
-          return { ...prev, [currentField.key]: val + char };
-        });
       }
       return;
     }
@@ -187,24 +170,21 @@ export const GenericProviderConfigForm: React.FC<GenericProviderConfigFormProps>
               </Box>
 
               <Box flexDirection="row" alignItems="center">
-                <Text
-                  color={
-                    isSelected && isEditing
-                      ? theme.colors.status.success
-                      : valStr
-                        ? theme.colors.text.ethereal
-                        : theme.colors.text.dim
-                  }
-                  bold={isSelected && isEditing}
-                >
-                  {field.type === 'password' && valStr
-                    ? '•'.repeat(Math.min(16, valStr.length))
-                    : valStr || field.placeholder || '(Empty)'}
-                </Text>
-                {isSelected && isEditing && (
-                  <Text color={theme.colors.status.success} bold>
-                    {' '}
-                    [EDITING...]
+                {isSelected && isEditing ? (
+                  <TextInput
+                    value={valStr}
+                    onChange={(v: string) => setFormState((prev) => ({ ...prev, [field.key]: v }))}
+                    onSubmit={() => setIsEditing(false)}
+                    placeholder={field.placeholder}
+                  />
+                ) : (
+                  <Text
+                    color={valStr ? theme.colors.text.ethereal : theme.colors.text.dim}
+                    bold={isSelected && isEditing}
+                  >
+                    {field.type === 'password' && valStr
+                      ? '•'.repeat(Math.min(16, valStr.length))
+                      : valStr || field.placeholder || '(Empty)'}
                   </Text>
                 )}
               </Box>

@@ -1,6 +1,6 @@
 import type { Scenario, ScenarioMode } from '../../../types/scenario';
+import { getScenarioForPrompt } from '../../data/ScenarioRepository';
 import { runScenario } from '../engine';
-import { getScenarioForPrompt } from '../matcher';
 import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../types';
 
 export class MockScenarioProvider implements ScenarioProvider {

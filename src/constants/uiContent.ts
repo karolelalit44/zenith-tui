@@ -1,8 +1,10 @@
+import { APP_VERSION } from './app';
+
 export const UI_CONTENT = {
   app: {
     title: 'ZENITH AI',
     subtitle: 'Terminal Agentic Coding Assistant',
-    version: '1.0.0',
+    version: APP_VERSION,
     engineStatus: 'Online (Sonnet 3.7)',
     workspaceLabel: 'Workspace:',
     recentSessionsTitle: 'Recent Sessions',

@@ -39,7 +39,7 @@ export const RoundedBox: React.FC<RoundedBoxProps> = ({
         </Box>
 
         {title && (
-          // @ts-expect-error
+          // @ts-expect-error - Ink Box supports position absolute but types may not include it
           <Box position="absolute" top={0} left={0} width="100%" justifyContent="flex-end" paddingRight={4}>
             <Box flexDirection="row">
               <Text color={currentBorderColor}>╣ </Text>

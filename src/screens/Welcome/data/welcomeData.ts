@@ -1,8 +1,9 @@
+import { APP_VERSION } from '../../../constants/app';
 import type { Persona } from '../../../types';
 
 export const WELCOME_DATA = {
   title: 'ZENITH',
-  version: 'v1.0.0',
+  version: `v${APP_VERSION}`,
   systemStatus: {
     label: 'SYSTEM STATUS',
     engineLabel: 'Engine: ',

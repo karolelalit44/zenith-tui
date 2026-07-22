@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React from 'react';
+import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { useTheme } from '../../theme/ThemeContext';
 
@@ -52,7 +53,7 @@ export const PluginsModal: React.FC<PluginsModalProps> = ({ onClose }) => {
 
         <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
           <Text color={theme.colors.text.muted}>
-            Press <Text color={theme.colors.text.emerald}>[Esc]</Text> to close
+            <ModalFooter shortcuts={[{ key: '[Esc]', label: 'to close' }]} />
           </Text>
         </Box>
       </Box>

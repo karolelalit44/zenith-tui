@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
+import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { useTheme } from '../../theme/ThemeContext';
 import type { Persona } from '../../types';
@@ -108,9 +109,13 @@ export const PersonaSelectModal: React.FC<PersonaSelectModalProps> = ({ currentP
 
         <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
           <Text color={theme.colors.text.muted}>
-            <Text color={theme.colors.text.emerald}>[↑/↓]</Text> Navigate ·{' '}
-            <Text color={theme.colors.text.emerald}>[↵]</Text> Select Persona ·{' '}
-            <Text color={theme.colors.text.emerald}>[Esc]</Text> Close
+            <ModalFooter
+              shortcuts={[
+                { key: '[↑/↓]', label: 'Navigate' },
+                { key: '[↵]', label: 'Select Persona' },
+                { key: '[Esc]', label: 'Close' },
+              ]}
+            />
           </Text>
         </Box>
       </Box>

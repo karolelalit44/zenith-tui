@@ -1,6 +1,6 @@
 import type { Scenario, ScenarioEvent, ScenarioMode } from '../../types/scenario';
 
-let idCounter = 0;
+let idCounter = Date.now();
 const uid = () => `evt_${++idCounter}`;
 
 export interface EventTemplate {
@@ -27,5 +27,5 @@ export function createScenario(prompt: string, template: ScenarioTemplate): Scen
 }
 
 export function resetIdCounter(): void {
-  idCounter = 0;
+  idCounter = Date.now();
 }

@@ -126,7 +126,7 @@ export const App: React.FC = () => {
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
       {/* Welcome Screen - always visible */}
-      <WelcomeScreen persona={persona} mode={selectedMode} workspace={workspace} />
+      <WelcomeScreen persona={persona} workspace={workspace} />
 
       {/* Conversation turns */}
       {turns.map((turn) => (
