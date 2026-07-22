@@ -20,6 +20,7 @@ import { BuildStepCard } from './BuildStepCard';
 import { DeploymentCard } from './DeploymentCard';
 import { AnalysisCard } from './AnalysisCard';
 import { PlannerActionPanel } from './PlannerActionPanel';
+import { ModeMismatchView } from './ModeMismatchView';
 
 interface ScenarioRendererProps {
   events: ScenarioEvent[];
@@ -114,6 +115,8 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(({
             return <AnalysisCard key={event.id} event={event} />;
           case 'planner_action_panel':
             return <PlannerActionPanel key={event.id} event={event} />;
+          case 'mode_mismatch':
+            return <ModeMismatchView key={event.id} event={event} />;
           default:
             return null;
         }

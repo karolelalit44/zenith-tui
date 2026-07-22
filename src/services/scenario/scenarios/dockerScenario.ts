@@ -1,7 +1,7 @@
 import { Scenario } from '../../../types/scenario';
 
 let idCounter = 0;
-const uid = () => `docker_${++idCounter}`;
+const uid = () => `docker_${Date.now()}_${++idCounter}`;
 
 export const dockerScenario = (prompt: string): Scenario => ({
   id: `docker_${Date.now()}`,
@@ -13,9 +13,9 @@ export const dockerScenario = (prompt: string): Scenario => ({
       id: uid(),
       thoughts: [
         { text: 'Analyzing project structure for containerization', delay: 300 },
-        { text: 'Identifying runtime dependencies', delay: 350 },
-        { text: 'Planning multi-stage build strategy', delay: 400 },
-        { text: 'Configuring health checks and networking', delay: 300 },
+        { text: 'Identifying Node.js runtime dependencies & Nginx static serving requirements', delay: 350 },
+        { text: 'Planning multi-stage image build & layer caching strategy', delay: 400 },
+        { text: 'Configuring Docker container health checks and bridge networking', delay: 300 },
       ],
       duration: 1500,
     },
@@ -84,30 +84,29 @@ export const dockerScenario = (prompt: string): Scenario => ({
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Building Docker image', delay: 300 },
-        { text: 'Testing container startup', delay: 400 },
-        { text: 'Verifying health checks', delay: 300 },
+        { text: 'Building Docker image layer cache', delay: 300 },
+        { text: 'Testing container startup & port forwarding', delay: 400 },
+        { text: 'Verifying Nginx health check endpoint', delay: 300 },
       ],
       duration: 1000,
     },
     {
-      kind: 'terminal',
+      kind: 'build_step',
       id: uid(),
-      command: 'docker build -t app:latest .',
+      step: 'docker build -t app:latest .',
+      status: 'success',
+      duration: 3800,
       output: [
         '[+] Building 18.4s (12/12) FINISHED',
-        ' => [builder 1/5] FROM node:20-alpine@sha256:abc123...',
+        ' => [builder 1/5] FROM node:20-alpine',
         ' => [builder 2/5] COPY package*.json ./',
         ' => [builder 3/5] RUN npm ci --only=production',
         ' => [builder 4/5] COPY . .',
         ' => [builder 5/5] RUN npm run build',
         ' => [production 1/3] FROM nginx:alpine',
         ' => [production 2/3] COPY --from=builder /app/dist',
-        ' => [production 3/3] COPY nginx.conf',
-        ' => exporting to image',
-        ' => => naming to docker.io/library/app:latest',
+        ' => exporting to image docker.io/library/app:latest',
       ],
-      duration: 5000,
     },
     {
       kind: 'terminal',
@@ -116,16 +115,27 @@ export const dockerScenario = (prompt: string): Scenario => ({
       output: [
         '[+] Running 1/1',
         ' ✔ app Started',
-        'Attaching to app_1',
         'app_1  | 172.17.0.1 - - [22/Jul/2026:10:00:00 +0000] "GET / HTTP/1.1" 200',
       ],
-      duration: 3000,
+      duration: 2000,
+    },
+    {
+      kind: 'deployment',
+      id: uid(),
+      target: 'Local Docker Desktop Container',
+      status: 'success',
+      url: 'http://localhost:3000',
+      output: [
+        'Container ID: 7f89d0e12a4b',
+        'Port Mapping: 0.0.0.0:3000->80/tcp',
+        'Health Status: Healthy',
+      ],
     },
     {
       kind: 'summary',
       id: uid(),
-      title: 'Docker Configuration Created',
-      description: 'Multi-stage Docker build with production-ready nginx serving and docker-compose orchestration.',
+      title: 'Docker Configuration Complete',
+      description: 'Multi-stage Docker build with production-ready Nginx serving and docker-compose orchestration.',
       filesCreated: [
         'Dockerfile',
         'docker-compose.yml',
@@ -136,10 +146,10 @@ export const dockerScenario = (prompt: string): Scenario => ({
         'docker compose up -d',
       ],
       verified: [
-        'Multi-stage build',
-        'Health check endpoint',
-        'Production nginx config',
-        'Container startup',
+        'Multi-stage layer caching',
+        'Health check endpoint (http://localhost:3000)',
+        'Production Nginx configuration',
+        'Container startup & deployment',
       ],
     },
   ],

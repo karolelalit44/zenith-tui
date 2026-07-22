@@ -185,6 +185,15 @@ export interface PlannerActionPanelEvent {
   saved?: boolean;
 }
 
+export interface ModeMismatchEvent {
+  kind: 'mode_mismatch';
+  id: string;
+  currentMode: 'plan' | 'build';
+  suggestedMode: 'plan' | 'build';
+  reason: string;
+  prompt: string;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | FileCreateEvent
@@ -203,7 +212,8 @@ export type ScenarioEvent =
   | BuildStepEvent
   | DeploymentEvent
   | AnalysisEvent
-  | PlannerActionPanelEvent;
+  | PlannerActionPanelEvent
+  | ModeMismatchEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 

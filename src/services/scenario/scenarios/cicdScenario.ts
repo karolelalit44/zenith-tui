@@ -1,7 +1,7 @@
 import { Scenario } from '../../../types/scenario';
 
 let idCounter = 0;
-const uid = () => `ci_${++idCounter}`;
+const uid = () => `ci_${Date.now()}_${++idCounter}`;
 
 export const cicdScenario = (prompt: string): Scenario => ({
   id: `cicd_${Date.now()}`,
@@ -12,10 +12,10 @@ export const cicdScenario = (prompt: string): Scenario => ({
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Analyzing repository structure', delay: 300 },
-        { text: 'Determining CI/CD requirements', delay: 350 },
-        { text: 'Designing pipeline stages', delay: 400 },
-        { text: 'Configuring environment secrets', delay: 300 },
+        { text: 'Analyzing repository structure for CI/CD automation', delay: 300 },
+        { text: 'Determining test matrix, linting, and Docker container build stages', delay: 350 },
+        { text: 'Designing GitHub Actions workflow pipeline triggers', delay: 400 },
+        { text: 'Configuring environment secrets & deployment permissions', delay: 300 },
       ],
       duration: 1500,
     },
@@ -86,9 +86,9 @@ export const cicdScenario = (prompt: string): Scenario => ({
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Validating YAML syntax', delay: 300 },
-        { text: 'Checking workflow triggers', delay: 350 },
-        { text: 'Testing pipeline locally', delay: 400 },
+        { text: 'Validating YAML syntax & schema constraints', delay: 300 },
+        { text: 'Checking workflow event triggers', delay: 350 },
+        { text: 'Simulating pipeline execution locally using act runner', delay: 400 },
       ],
       duration: 1100,
     },
@@ -102,6 +102,19 @@ export const cicdScenario = (prompt: string): Scenario => ({
         'deploy  CI/CD Pipeline               ci.yml         push (main only)',
       ],
       duration: 1500,
+    },
+    {
+      kind: 'test_execution',
+      id: uid(),
+      command: 'act -j test',
+      framework: 'GitHub Actions Local Runner',
+      results: [
+        { name: 'Job test: Checkout repository (actions/checkout@v4)', status: 'pass', duration: 180 },
+        { name: 'Job test: Setup Node 20 (actions/setup-node@v4)', status: 'pass', duration: 320 },
+        { name: 'Job test: Run npm ci && npm test', status: 'pass', duration: 840 },
+        { name: 'Job test: Run npm run build', status: 'pass', duration: 610 },
+      ],
+      summary: { total: 4, passed: 4, failed: 0, skipped: 0 },
     },
     {
       kind: 'warning',
@@ -120,11 +133,12 @@ export const cicdScenario = (prompt: string): Scenario => ({
       ],
       commandsExecuted: [
         'act -l',
+        'act -j test',
       ],
       verified: [
-        'YAML syntax',
-        'Workflow triggers',
-        'Job dependencies',
+        'YAML syntax validation',
+        'Workflow event triggers',
+        'Job dependency graph',
         'Environment configuration',
       ],
     },

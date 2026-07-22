@@ -1,7 +1,7 @@
 import { Scenario } from '../../../types/scenario';
 
 let idCounter = 0;
-const uid = () => `plan_api_${++idCounter}`;
+const uid = () => `plan_api_${Date.now()}_${++idCounter}`;
 
 export const apiPlanScenario = (prompt: string): Scenario => ({
   id: `plan_api_${Date.now()}`,
@@ -12,92 +12,110 @@ export const apiPlanScenario = (prompt: string): Scenario => ({
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Analyzing API requirements', delay: 300 },
-        { text: 'Identifying endpoints and data models', delay: 400 },
-        { text: 'Evaluating framework options', delay: 350 },
-        { text: 'Assessing authentication needs', delay: 300 },
+        { text: `Analyzing API & Backend prompt: "${prompt}"`, delay: 250 },
+        { text: 'Evaluating FastAPI REST endpoints & Pydantic v2 domain schemas', delay: 300 },
+        { text: 'Planning PostgreSQL database migration strategy & auth middleware', delay: 300 },
       ],
-      duration: 1500,
+      duration: 1200,
     },
     {
-      kind: 'analysis',
+      kind: 'terminal',
       id: uid(),
-      title: 'API Architecture',
-      sections: [
-        {
-          title: 'Endpoints',
-          items: [
-            'GET /api/resources — List all resources',
-            'GET /api/resources/:id — Get single resource',
-            'POST /api/resources — Create new resource',
-            'PUT /api/resources/:id — Update resource',
-            'DELETE /api/resources/:id — Delete resource',
-          ],
-        },
-        {
-          title: 'Data Models',
-          items: [
-            'Resource model with id, name, created_at, updated_at',
-            'User model with id, email, role, permissions',
-            'Relationship: User has many Resources',
-          ],
-        },
+      command: 'git status',
+      output: [
+        'On branch main',
+        'Your branch is up to date with "origin/main".',
+        'nothing to commit, working tree clean',
       ],
+      duration: 400,
+    },
+    {
+      kind: 'terminal',
+      id: uid(),
+      command: 'python -c "import fastapi, pydantic; print(fastapi.__version__, pydantic.__version__)"',
+      output: [
+        '0.109.0 2.6.0',
+      ],
+      duration: 500,
     },
     {
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Planning database schema', delay: 350 },
-        { text: 'Designing error handling strategy', delay: 300 },
-        { text: 'Evaluating rate limiting approach', delay: 400 },
+        { text: 'FastAPI 0.109 and Pydantic 2.6 verified in local environment', delay: 300 },
+        { text: 'Designing RESTful endpoint routing structure & database schemas', delay: 300 },
       ],
-      duration: 1200,
+      duration: 1000,
     },
     {
       kind: 'analysis',
       id: uid(),
-      title: 'Implementation Plan',
+      title: 'REST API Architecture & Endpoint Specification',
       sections: [
         {
-          title: 'Estimated Files',
+          title: 'Endpoints Specification',
           items: [
-            '8-12 source files',
-            '3-4 configuration files',
-            '2-3 test files',
-            '1 migration file',
+            'GET /api/users — List paginated users (query params: skip, limit, search)',
+            'GET /api/users/{id} — Retrieve user profile by ID',
+            'POST /api/users — Register new user with Pydantic schema validation',
+            'PUT /api/users/{id} — Update user profile details',
+            'DELETE /api/users/{id} — Soft-delete user account',
           ],
         },
         {
-          title: 'Dependencies',
+          title: 'Data & Schema Layer',
           items: [
-            'Framework: FastAPI or Express',
-            'Database: PostgreSQL with SQLAlchemy/Prisma',
-            'Auth: JWT with refresh tokens',
-            'Testing: Pytest or Vitest',
-          ],
-        },
-        {
-          title: 'Risks',
-          items: [
-            'Database migration complexity',
-            'Authentication token expiry handling',
-            'Input validation edge cases',
+            'Domain Models: UserBase, UserCreate, UserResponse, UserUpdate',
+            'Database ORM: SQLAlchemy async engine with Alembic migrations',
+            'Authentication: OAuth2 Bearer password flow with JWT tokens',
           ],
         },
       ],
     },
     {
-      kind: 'message',
+      kind: 'analysis',
       id: uid(),
-      text: 'API architecture analysis complete. Switch to Build mode to implement.',
+      title: 'Target Files, Risk Assessment & Optimization',
+      sections: [
+        {
+          title: 'Estimated File Tree',
+          items: [
+            'backend/app/main.py (FastAPI app entrypoint & middleware)',
+            'backend/app/models.py (Pydantic domain schemas)',
+            'backend/app/api/users.py (User CRUD route handlers)',
+            'backend/app/api/__init__.py (Router exports)',
+          ],
+        },
+        {
+          title: 'Risks & Mitigation Strategies',
+          items: [
+            'Risk: Database connection pool starvation -> Mitigation: SQLAlchemy AsyncSession with pool size 20',
+            'Risk: Unhandled Pydantic validation errors -> Mitigation: Global RequestValidationError handler',
+          ],
+        },
+      ],
     },
     {
-      kind: 'success',
+      kind: 'summary',
       id: uid(),
-      message: 'Plan generated successfully',
+      title: 'REST API Architecture Plan Ready',
+      description: 'The FastAPI endpoint design, Pydantic schemas, and SQLAlchemy data architecture plan have been generated.',
       filesCreated: [],
-      commandsExecuted: [],
+      commandsExecuted: [
+        'git status',
+        'python -c "import fastapi, pydantic"',
+      ],
+      verified: [
+        'FastAPI 0.109 & Pydantic 2.6 environment',
+        'RESTful endpoint specification',
+        'OAuth2 & JWT authentication model',
+        'File structure breakdown',
+      ],
+    },
+    {
+      kind: 'planner_action_panel',
+      id: uid(),
+      defaultFilename: 'implementation-plan.md',
     },
   ],
 });

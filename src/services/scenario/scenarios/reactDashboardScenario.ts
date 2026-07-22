@@ -1,7 +1,7 @@
 import { Scenario } from '../../../types/scenario';
 
 let idCounter = 0;
-const uid = () => `react_${++idCounter}`;
+const uid = () => `react_${Date.now()}_${++idCounter}`;
 
 export const reactDashboardScenario = (prompt: string): Scenario => ({
   id: `react_dashboard_${Date.now()}`,
@@ -13,44 +13,31 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
       id: uid(),
       thoughts: [
         { text: 'Setting up React 19 project with Vite', delay: 300 },
-        { text: 'Configuring TypeScript and ESLint', delay: 350 },
-        { text: 'Planning component architecture', delay: 400 },
-        { text: 'Designing dashboard layout', delay: 300 },
+        { text: 'Configuring TypeScript and ESLint rules', delay: 350 },
+        { text: 'Planning responsive component architecture & layout', delay: 400 },
+        { text: 'Integrating Recharts analytics & Zustand state management', delay: 300 },
       ],
       duration: 1500,
-    },
-    {
-      kind: 'progress',
-      id: uid(),
-      label: 'Project Scaffolding',
-      steps: [
-        { label: 'Initialize Vite project', status: 'active' },
-        { label: 'Install dependencies', status: 'pending' },
-        { label: 'Configure TypeScript', status: 'pending' },
-        { label: 'Set up folder structure', status: 'pending' },
-      ],
     },
     {
       kind: 'terminal',
       id: uid(),
       command: 'npm create vite@latest dashboard -- --template react-ts',
       output: [
-        'Scaffolding project in D:\\projects\\dashboard...',
-        'Done.',
+        'Scaffolding project in ./dashboard...',
+        '✓ Scaffolding complete.',
       ],
-      duration: 1500,
+      duration: 1200,
     },
     {
       kind: 'terminal',
       id: uid(),
-      command: 'npm install recharts@2 react-router-dom@7 zustand@5',
+      command: 'npm install recharts@2 react-router-dom@7 zustand@5 lucide-react',
       output: [
-        'added 42 packages in 3.2s',
-        '',
-        '12 packages are looking for funding',
-        '  run `npm fund` for details',
+        'added 42 packages in 2.8s',
+        'found 0 vulnerabilities',
       ],
-      duration: 2500,
+      duration: 2000,
     },
     {
       kind: 'file_create',
@@ -89,7 +76,7 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
         { text: '  title: string;', type: 'add' },
         { text: '  value: string | number;', type: 'add' },
         { text: '  change?: number;', type: 'add' },
-        { text: '  icon: React.ReactNode;', type: 'add' },
+        { text: '  icon: string;', type: 'add' },
         { text: '}', type: 'add' },
         { text: '', type: 'add' },
         { text: 'export function MetricCard({ title, value, change, icon }: MetricCardProps) {', type: 'add' },
@@ -128,7 +115,7 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
         { text: '  return (', type: 'add' },
         { text: '    <div className="overview">', type: 'add' },
         { text: '      <MetricCard title="Total Revenue" value="$12,000" change={12.5} icon="$" />', type: 'add' },
-        { text: '      <MetricCard title="Active Users" value="7,598" change={8.2} icon="👤" />', type: 'add' },
+        { text: '      <MetricCard title="Active Users" value="7,598" change={8.2} icon="U" />', type: 'add' },
         { text: '      <BarChart width={600} height={300} data={data}>', type: 'add' },
         { text: '        <XAxis dataKey="name" />', type: 'add' },
         { text: '        <YAxis />', type: 'add' },
@@ -144,11 +131,30 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Validating component structure', delay: 300 },
-        { text: 'Running type checks', delay: 350 },
-        { text: 'Building the project', delay: 400 },
+        { text: 'Running Vitest unit test suite on dashboard components', delay: 300 },
+        { text: 'Executing TypeScript compiler dry-run', delay: 350 },
       ],
-      duration: 1100,
+      duration: 1000,
+    },
+    {
+      kind: 'test_execution',
+      id: uid(),
+      command: 'npx vitest run',
+      framework: 'Vitest 1.6',
+      results: [
+        { name: 'MetricCard renders title and formatted value correctly', status: 'pass', duration: 42 },
+        { name: 'OverviewPage renders Recharts revenue visualization', status: 'pass', duration: 118 },
+        { name: 'App routing resolves overview and analytics routes', status: 'pass', duration: 65 },
+      ],
+      summary: { total: 3, passed: 3, failed: 0, skipped: 0 },
+    },
+    {
+      kind: 'build_step',
+      id: uid(),
+      step: 'npx tsc --noEmit',
+      status: 'success',
+      duration: 1400,
+      output: ['✓ TypeScript type checking passed cleanly.'],
     },
     {
       kind: 'terminal',
@@ -158,17 +164,16 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
         'vite v6.0.0 building for production...',
         '✓ 23 modules transformed.',
         'dist/index.html                   0.46 kB │ gzip:  0.30 kB',
-        'dist/assets/index-Dk4dF2m.css     1.24 kB │ gzip:  0.65 kB',
         'dist/assets/index-Cv3xY1qJ.js   142.85 kB │ gzip: 45.72 kB',
         '✓ built in 1.84s',
       ],
-      duration: 2500,
+      duration: 2200,
     },
     {
       kind: 'summary',
       id: uid(),
-      title: 'React Dashboard Created',
-      description: 'A React 19 dashboard with Recharts visualizations, Zustand state management, and React Router navigation.',
+      title: 'React 19 Dashboard Created',
+      description: 'A responsive React 19 dashboard featuring Recharts data visualizations, Zustand state management, and Vitest test coverage.',
       filesCreated: [
         'dashboard/src/App.tsx',
         'dashboard/src/components/MetricCard.tsx',
@@ -177,13 +182,13 @@ export const reactDashboardScenario = (prompt: string): Scenario => ({
       commandsExecuted: [
         'npm create vite@latest',
         'npm install recharts react-router-dom zustand',
+        'npx vitest run',
         'npm run build',
       ],
       verified: [
         'TypeScript compilation',
-        'Build output',
-        'Component exports',
-        'Route configuration',
+        'Vitest component test suite (3 passed)',
+        'Production bundle optimization',
       ],
     },
   ],

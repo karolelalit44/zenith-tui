@@ -131,8 +131,23 @@ const matchers: ScenarioMatcher[] = [
   },
 ];
 
+import { modeMismatchScenario, providerErrorScenario, systemErrorScenario } from './scenarios/errorScenarios';
+
 const matchScenario = (prompt: string, mode: ScenarioMode): Scenario => {
   const lower = prompt.toLowerCase();
+
+  // Test Error Prompt Triggers
+  if (lower.includes('rate limit') || lower.includes('api key') || lower.includes('provider error')) {
+    return providerErrorScenario(prompt);
+  }
+  if (lower.includes('permission denied') || lower.includes('system error')) {
+    return systemErrorScenario(prompt);
+  }
+
+  // Explicit Mode Mismatch Triggers
+  if (mode === 'plan' && (lower.includes('generate code') || lower.includes('create file') || lower.includes('write implementation'))) {
+    return modeMismatchScenario(prompt, 'plan');
+  }
 
   // Detect inline mode overrides in prompt string
   let effectiveMode: ScenarioMode = mode;

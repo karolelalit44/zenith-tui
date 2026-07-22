@@ -1,7 +1,7 @@
 import { Scenario } from '../../../types/scenario';
 
 let idCounter = 0;
-const uid = () => `plan_docker_${++idCounter}`;
+const uid = () => `plan_docker_${Date.now()}_${++idCounter}`;
 
 export const dockerPlanScenario = (prompt: string): Scenario => ({
   id: `plan_docker_${Date.now()}`,
@@ -12,90 +12,114 @@ export const dockerPlanScenario = (prompt: string): Scenario => ({
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Analyzing application for containerization', delay: 300 },
-        { text: 'Identifying runtime dependencies', delay: 400 },
-        { text: 'Evaluating multi-stage build needs', delay: 350 },
-        { text: 'Assessing networking requirements', delay: 300 },
+        { text: `Analyzing Docker container prompt: "${prompt}"`, delay: 250 },
+        { text: 'Evaluating multi-stage build optimization & Alpine Linux security', delay: 300 },
+        { text: 'Planning Docker Compose service topology, volumes & bridge networks', delay: 300 },
       ],
-      duration: 1500,
+      duration: 1200,
     },
     {
-      kind: 'analysis',
+      kind: 'terminal',
       id: uid(),
-      title: 'Container Architecture',
-      sections: [
-        {
-          title: 'Services',
-          items: [
-            'App service (Node.js / Python / Go)',
-            'Database service (PostgreSQL / MongoDB)',
-            'Cache service (Redis)',
-            'Reverse proxy (Nginx / Traefik)',
-          ],
-        },
-        {
-          title: 'Networking',
-          items: [
-            'Internal bridge network for service communication',
-            'Exposed ports for external access',
-            'Health check endpoints per service',
-          ],
-        },
+      command: 'docker info',
+      output: [
+        'Client: Docker Engine - Community',
+        ' Server Version: 26.0.0',
+        ' Storage Driver: overlay2',
+        ' Cgroup Driver: systemd',
       ],
+      duration: 400,
+    },
+    {
+      kind: 'terminal',
+      id: uid(),
+      command: 'docker compose config --quiet',
+      output: [
+        'Error: docker-compose.yml file not found in working directory.',
+      ],
+      duration: 450,
     },
     {
       kind: 'thinking',
       id: uid(),
       thoughts: [
-        { text: 'Planning volume mounts for persistence', delay: 350 },
-        { text: 'Designing environment variable strategy', delay: 300 },
-        { text: 'Evaluating security constraints', delay: 400 },
+        { text: 'Detected missing docker-compose.yml manifest', delay: 300 },
+        { text: 'Designing multi-service compose schema from project dependencies', delay: 300 },
       ],
-      duration: 1200,
+      duration: 1000,
+    },
+    {
+      kind: 'retry',
+      id: uid(),
+      message: 'Generating new multi-stage container deployment architecture',
+      attempt: 1,
     },
     {
       kind: 'analysis',
       id: uid(),
-      title: 'Implementation Plan',
+      title: 'Container Architecture & Service Topology',
       sections: [
         {
-          title: 'Estimated Files',
+          title: 'Services Architecture',
           items: [
-            '1-2 Dockerfiles (multi-stage)',
-            '1 docker-compose.yml',
-            '1 .dockerignore',
-            '1 nginx.conf (if applicable)',
+            'App Container: Node 20 / Python multi-stage build (distroless/alpine)',
+            'Reverse Proxy Container: Nginx Alpine (SSL termination & Gzip compression)',
+            'Database Container: PostgreSQL 16 with persistent volume claim',
           ],
         },
         {
-          title: 'Dependencies',
+          title: 'Networking & Health Checks',
           items: [
-            'Base images: node:20-alpine, python:3.12-slim',
-            'Build tools: npm, pip, cargo',
-            'Runtime: nginx:alpine for static serving',
-          ],
-        },
-        {
-          title: 'Risks',
-          items: [
-            'Image size optimization',
-            'Secret management in containers',
-            'Data persistence across rebuilds',
+            'Internal Bridge Network: backend-net (isolated database communication)',
+            'Exposed Ports: 80:80 (HTTP) -> Nginx -> 3000 (Internal App)',
+            'Health Check Endpoint: HTTP GET /healthz interval 30s timeout 10s',
           ],
         },
       ],
     },
     {
-      kind: 'message',
+      kind: 'analysis',
       id: uid(),
-      text: 'Container architecture analysis complete. Switch to Build mode to implement.',
+      title: 'Target Files, Security & Risk Matrix',
+      sections: [
+        {
+          title: 'Target Manifest Files',
+          items: [
+            'Dockerfile (Multi-stage builder + Nginx production image)',
+            'docker-compose.yml (Multi-container orchestration & network definition)',
+            '.dockerignore (Exclude node_modules, .git, and secrets)',
+          ],
+        },
+        {
+          title: 'Risks & Mitigation Strategies',
+          items: [
+            'Risk: Root container vulnerability -> Mitigation: Run as non-root appuser:1000',
+            'Risk: Uncached dependency layers -> Mitigation: Separate package.json COPY step',
+          ],
+        },
+      ],
     },
     {
-      kind: 'success',
+      kind: 'summary',
       id: uid(),
-      message: 'Plan generated successfully',
+      title: 'Container Architecture Plan Ready',
+      description: 'The multi-stage Docker build design and Docker Compose architecture plan have been generated.',
       filesCreated: [],
-      commandsExecuted: [],
+      commandsExecuted: [
+        'docker info',
+        'docker compose config (initial discovery)',
+      ],
+      verified: [
+        'Multi-stage layer caching',
+        'Docker Compose v3.8 spec',
+        'Security & non-root permissions',
+        'Health check monitoring',
+      ],
+    },
+    {
+      kind: 'planner_action_panel',
+      id: uid(),
+      defaultFilename: 'implementation-plan.md',
     },
   ],
 });

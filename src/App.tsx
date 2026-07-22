@@ -61,28 +61,41 @@ export const App: React.FC = () => {
   const [scrollOffset, setScrollOffset] = useState(0);
 
   useEffect(() => {
-    // Enable mouse wheel scroll tracking in terminal
+    // Enable extended VT/SGR/Urxvt mouse wheel and touchpad tracking in terminal
     try {
-      process.stdout.write('\x1B[?1000h\x1B[?1006h');
+      process.stdout.write('\x1B[?1000h\x1B[?1002h\x1B[?1006h\x1B[?1015h');
     } catch (_e) {}
 
     return () => {
       try {
-        process.stdout.write('\x1B[?1000l\x1B[?1006l');
+        process.stdout.write('\x1B[?1000l\x1B[?1002l\x1B[?1006l\x1B[?1015l');
       } catch (_e) {}
     };
   }, []);
 
   useInput((char, key) => {
-    const isMouseWheelUp = char.includes('\x1b[<64') || char.includes('\x1b[M`');
-    const isMouseWheelDown = char.includes('\x1b[<65') || char.includes('\x1b[Ma');
+    const isTouchpadOrWheelUp =
+      key.upArrow ||
+      key.pageUp ||
+      char.includes('\x1b[<64') ||
+      char.includes('\x1b[<0') ||
+      char.includes('\x1b[M`') ||
+      char.includes('\x1b[64');
 
-    if (key.pageUp || isMouseWheelUp) {
+    const isTouchpadOrWheelDown =
+      key.downArrow ||
+      key.pageDown ||
+      char.includes('\x1b[<65') ||
+      char.includes('\x1b[<1') ||
+      char.includes('\x1b[Ma') ||
+      char.includes('\x1b[65');
+
+    if (isTouchpadOrWheelUp) {
       setScrollOffset(prev => Math.min(turns.length, prev + 1));
       return;
     }
 
-    if (key.pageDown || isMouseWheelDown) {
+    if (isTouchpadOrWheelDown) {
       setScrollOffset(prev => Math.max(0, prev - 1));
       return;
     }
