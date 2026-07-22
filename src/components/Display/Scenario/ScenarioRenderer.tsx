@@ -1,27 +1,10 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
+import { parseJsonEvent } from '../../../services/data/jsonEventNormalizer';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ScenarioEvent } from '../../../types/scenario';
-import { AnalysisCard } from './AnalysisCard';
-import { BuildStepCard } from './BuildStepCard';
-import { DeploymentCard } from './DeploymentCard';
-import { ErrorBlock } from './ErrorBlock';
-import { FileDeleteCard } from './FileDeleteCard';
-import { FileDiffCard } from './FileDiffCard';
-import { FileEditDiffCard } from './FileEditDiffCard';
-import { MessageBlock } from './MessageBlock';
-import { ModeMismatchView } from './ModeMismatchView';
-import { PlannerActionPanel } from './PlannerActionPanel';
-import { ProgressBar } from './ProgressBar';
-import { RetryBlock } from './RetryBlock';
-import { SuccessCard } from './SuccessCard';
-import { SummaryCard } from './SummaryCard';
-import { TerminalBlock } from './TerminalBlock';
-import { TestExecutionCard } from './TestExecutionCard';
-import { ThinkingBlock } from './ThinkingBlock';
-import { WaitingIndicator } from './WaitingIndicator';
-import { WarningBlock } from './WarningBlock';
+import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
   events: ScenarioEvent[];
@@ -64,60 +47,24 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     });
 
     const lastEvent = events[events.length - 1];
-    const showLiveIndicator = isRunning && !isHistorical && lastEvent?.kind === 'thinking';
+    const showLiveIndicator =
+      isRunning && !isHistorical && (lastEvent?.kind === 'thinking' || lastEvent?.kind === 'waiting');
+    const renderContext = {
+      thinkingCollapsed: !thinkingVisible,
+      isHistorical,
+      isRunning,
+    };
 
     return (
       <Box flexDirection="column" width="100%">
-        {events.map((event) => {
-          switch (event.kind) {
-            case 'thinking':
-              return (
-                <ThinkingBlock key={event.id} event={event} collapsed={!thinkingVisible} isHistorical={isHistorical} />
-              );
-            case 'file_create':
-              return <FileDiffCard key={event.id} event={event} />;
-            case 'file_edit':
-              return <FileEditDiffCard key={event.id} event={event} />;
-            case 'file_delete':
-              return <FileDeleteCard key={event.id} event={event} />;
-            case 'terminal':
-              return <TerminalBlock key={event.id} event={event} />;
-            case 'error':
-              return <ErrorBlock key={event.id} event={event} />;
-            case 'warning':
-              return <WarningBlock key={event.id} event={event} />;
-            case 'retry':
-              return <RetryBlock key={event.id} event={event} />;
-            case 'success':
-              return <SuccessCard key={event.id} event={event} />;
-            case 'summary':
-              return <SummaryCard key={event.id} event={event} />;
-            case 'message':
-              return <MessageBlock key={event.id} event={event} />;
-            case 'progress':
-              return <ProgressBar key={event.id} event={event} />;
-            case 'waiting':
-              return <WaitingIndicator key={event.id} event={event} />;
-            case 'test_execution':
-              return <TestExecutionCard key={event.id} event={event} />;
-            case 'build_step':
-              return <BuildStepCard key={event.id} event={event} />;
-            case 'deployment':
-              return <DeploymentCard key={event.id} event={event} />;
-            case 'analysis':
-              return <AnalysisCard key={event.id} event={event} />;
-            case 'planner_action_panel':
-              return <PlannerActionPanel key={event.id} event={event} />;
-            case 'mode_mismatch':
-              return <ModeMismatchView key={event.id} event={event} />;
-            default:
-              return null;
-          }
+        {events.map((rawEvt) => {
+          const event = parseJsonEvent(rawEvt);
+          const Component = componentRegistry.getComponent(event.kind);
+
+          return <Component key={event.id} event={event} context={renderContext} />;
         })}
 
-        {isRunning && !isHistorical && events.length === 0 && <LiveSpinner label="Thinking..." />}
-
-        {showLiveIndicator && <LiveSpinner label="Processing..." />}
+        {showLiveIndicator && <LiveSpinner label="Processing event stream..." />}
       </Box>
     );
   },

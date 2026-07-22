@@ -19,8 +19,7 @@ export const runScenario = (scenario: Scenario, onEvent: ScenarioListener, onCom
       if (aborted) break;
 
       const event = events[i];
-      const eventDelay = getEventDelay(event);
-      cumulativeDelay += eventDelay;
+      const currentDelay = cumulativeDelay;
 
       const timeoutId = setTimeout(() => {
         if (aborted) return;
@@ -32,9 +31,12 @@ export const runScenario = (scenario: Scenario, onEvent: ScenarioListener, onCom
           }, 500);
           timeoutIds.push(finalDelay);
         }
-      }, cumulativeDelay);
+      }, currentDelay);
 
       timeoutIds.push(timeoutId);
+
+      // Add event delay for the NEXT event in the sequence
+      cumulativeDelay += getEventDelay(event);
     }
   };
 

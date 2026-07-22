@@ -3,10 +3,13 @@ import React, { useEffect, useState } from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ThinkingEvent, ThinkingThought } from '../../../types/scenario';
 
+import type { EventRenderContext } from './componentRegistry';
+
 interface ThinkingBlockProps {
   event: ThinkingEvent;
-  collapsed: boolean;
+  collapsed?: boolean;
   isHistorical?: boolean;
+  context?: EventRenderContext;
 }
 
 const getThoughtText = (thought: string | ThinkingThought): string =>
@@ -15,12 +18,14 @@ const getThoughtText = (thought: string | ThinkingThought): string =>
 const getThoughtDelay = (thought: string | ThinkingThought, index: number): number =>
   typeof thought === 'string' ? 0 : (thought.delay ?? index * 400);
 
-export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, collapsed, isHistorical }) => {
+export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, collapsed, isHistorical, context }) => {
   const { theme } = useTheme();
-  const [visibleCount, setVisibleCount] = useState(isHistorical ? event.thoughts.length : 0);
+  const isCollapsed = context?.thinkingCollapsed ?? collapsed ?? false;
+  const historical = context?.isHistorical ?? isHistorical ?? false;
+  const [visibleCount, setVisibleCount] = useState(historical ? event.thoughts.length : 0);
 
   useEffect(() => {
-    if (collapsed || isHistorical) {
+    if (isCollapsed || historical) {
       setVisibleCount(event.thoughts.length);
       return;
     }
@@ -42,15 +47,15 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     return () => {
       cancelled = true;
     };
-  }, [event.thoughts, collapsed, isHistorical]);
+  }, [event.thoughts, isCollapsed, historical]);
 
-  const displayedThoughts = collapsed || isHistorical ? event.thoughts : event.thoughts.slice(0, visibleCount);
+  const displayedThoughts = isCollapsed || historical ? event.thoughts : event.thoughts.slice(0, visibleCount);
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      <Box flexDirection="row" alignItems="center" marginBottom={collapsed ? 0 : 1} flexWrap="wrap">
+      <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
         <Text color={theme.colors.status.accent} bold>
-          {collapsed ? '▸' : '▾'} Thinking
+          {isCollapsed ? '▸' : '▾'} Thinking
         </Text>
         <Text color={theme.colors.text.muted}> ({event.thoughts.length} steps)</Text>
         <Text color={theme.colors.text.muted}> · </Text>
@@ -59,7 +64,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         </Text>
       </Box>
 
-      {!collapsed && (
+      {!isCollapsed && (
         <Box flexDirection="column" paddingLeft={2} width="100%">
           {displayedThoughts.map((thought, idx) => {
             const isLatest = !isHistorical && idx === visibleCount - 1 && visibleCount < event.thoughts.length;
