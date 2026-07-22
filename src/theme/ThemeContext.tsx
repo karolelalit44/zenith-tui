@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { loadSavedTheme, saveTheme } from '../services/data/userProfileService';
 import { type Theme, themes } from './theme';
 
 interface ThemeContextType {
@@ -8,19 +9,20 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: themes.deep_forest,
-  activeThemeId: 'deep_forest',
+  theme: themes.graphite,
+  activeThemeId: 'graphite',
   setTheme: () => {},
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeThemeId, setActiveThemeId] = useState<string>('deep_forest');
+  const [activeThemeId, setActiveThemeId] = useState<string>(() => loadSavedTheme());
 
-  const theme = themes[activeThemeId] || themes.deep_forest;
+  const theme = themes[activeThemeId] || themes.graphite;
 
   const setTheme = (themeId: string) => {
     if (themes[themeId]) {
       setActiveThemeId(themeId);
+      saveTheme(themeId);
     }
   };
 
