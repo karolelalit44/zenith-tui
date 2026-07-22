@@ -20,6 +20,8 @@ export interface UseConversationReturn {
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: () => void;
   markTurnSaved: (turnId: string) => void;
+  clearTurns: () => void;
+  compactTurns: () => void;
 }
 
 export function useConversation(): UseConversationReturn {
@@ -79,6 +81,37 @@ export function useConversation(): UseConversationReturn {
     });
   }, []);
 
+  const clearTurns = useCallback(() => {
+    setTurns([]);
+  }, []);
+
+  const compactTurns = useCallback(() => {
+    setTurns((prev) => {
+      if (prev.length === 0) return prev;
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const summaryTurn: ConversationTurn = {
+        id: `turn_compact_${Date.now()}`,
+        prompt: `Compact Context (${prev.length} previous turns compressed)`,
+        mode: prev[prev.length - 1].mode,
+        isComplete: true,
+        timestamp: timeStr,
+        events: [
+          {
+            kind: 'summary',
+            id: `evt_summary_${Date.now()}`,
+            title: 'Context Compacted',
+            description: `Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
+            filesCreated: [],
+            commandsExecuted: ['/compact'],
+            verified: ['Conversation history summarized', 'Context window memory freed'],
+          },
+        ],
+      };
+      return [summaryTurn];
+    });
+  }, []);
+
   return {
     turns,
     activeTurn,
@@ -87,5 +120,7 @@ export function useConversation(): UseConversationReturn {
     completeActiveTurn,
     abortActiveTurn,
     markTurnSaved,
+    clearTurns,
+    compactTurns,
   };
 }

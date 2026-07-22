@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { APP_VERSION, DEFAULT_WORKSPACE, ENGINE_MODEL } from '../../constants';
+import { SessionRepository } from '../../services/data/SessionRepository';
 import { useTheme } from '../../theme/ThemeContext';
 import type { Persona } from '../../types';
 import type { ScenarioMode } from '../../types/scenario';
@@ -10,10 +11,13 @@ import { getGreeting, WELCOME_DATA } from './data/welcomeData';
 interface WelcomeScreenProps {
   persona: Persona;
   mode: ScenarioMode;
+  workspace?: string;
 }
 
-export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona, mode }) => {
+export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona, mode, workspace }) => {
   const { theme } = useTheme();
+  const activeWorkspace = workspace || DEFAULT_WORKSPACE;
+  const recentSessions = SessionRepository.getRecentSessions();
 
   return (
     <RoundedBox title={APP_VERSION} borderColor={theme.colors.border.active}>
@@ -68,7 +72,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
 
             <Box flexDirection="row" marginTop={1}>
               <Text color={theme.colors.text.muted}>{WELCOME_DATA.systemStatus.workspaceLabel}</Text>
-              <Text color={theme.colors.text.emerald}>{DEFAULT_WORKSPACE}</Text>
+              <Text color={theme.colors.text.emerald}>{activeWorkspace}</Text>
             </Box>
           </Box>
         </Box>
@@ -90,7 +94,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
             Recent Sessions
           </Text>
           <Box marginTop={1} flexDirection="column" width="100%">
-            {WELCOME_DATA.recentSessions.map((session, idx) => (
+            {recentSessions.map((session, idx) => (
               <Box key={idx} flexDirection="row" marginBottom={1} width="100%">
                 <Box width={18} flexShrink={0}>
                   <Text color={theme.colors.text.muted}>{session.time} </Text>

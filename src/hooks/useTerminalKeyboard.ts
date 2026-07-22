@@ -2,13 +2,14 @@ import { useInput } from 'ink';
 import { useEffect } from 'react';
 import { savePlanToFile } from '../services/export/markdownExport';
 import type { ConversationTurn } from './useConversation';
-import type { OverlayState } from './useModeSelector';
+import type { OverlayType } from './useOverlayManager';
 
 interface UseTerminalKeyboardOptions {
   turns: ConversationTurn[];
   isRunning: boolean;
   events: import('../types/scenario').ScenarioEvent[];
-  overlay: OverlayState;
+  overlay: OverlayType;
+  openOverlay?: (type: OverlayType) => void;
   closeOverlay: () => void;
   abort: () => void;
   abortActiveTurn: () => void;
@@ -20,6 +21,7 @@ export function useTerminalKeyboard({
   isRunning,
   events,
   overlay,
+  openOverlay,
   closeOverlay,
   abort,
   abortActiveTurn,
@@ -37,12 +39,19 @@ export function useTerminalKeyboard({
 
         if (targetEvents.length > 0) {
           savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
-          markTurnSaved(targetTurn.id);
+          if (targetTurn) {
+            markTurnSaved(targetTurn.id);
+          }
         }
         return;
       }
 
-      if (overlay === 'mode') {
+      if (key.shift && (char === 'm' || char === 'M') && overlay === 'none' && openOverlay) {
+        openOverlay('mode');
+        return;
+      }
+
+      if (overlay !== 'none') {
         if (key.escape) {
           closeOverlay();
         }
