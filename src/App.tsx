@@ -50,6 +50,7 @@ export const App: React.FC = () => {
     clearInput,
     insertFilePath,
     closeFilePicker,
+    addHistory,
   } = useAutocomplete();
   const { events, isRunning, startScenario, abort } = useScenario();
 
@@ -129,11 +130,12 @@ export const App: React.FC = () => {
         return;
       }
 
+      addHistory(trimmed);
       addTurn(trimmed, selectedMode);
       clearInput();
       startScenario(trimmed, selectedMode);
     },
-    [selectedMode, startScenario, addTurn, clearInput, dispatchCommand],
+    [selectedMode, startScenario, addTurn, clearInput, dispatchCommand, addHistory],
   );
 
   const handleAutocompleteSelectWithRouter = useCallback(

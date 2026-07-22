@@ -165,4 +165,31 @@ export const themes: Record<string, Theme> = {
       logo: ['#EEEEEE', '#CCCCCC', '#AAAAAA', '#888888', '#666666', '#444444'],
     },
   },
+  stealth: {
+    colors: {
+      bg: { app: '#101413', sidebar: '#161A19', modal: '#1D2221' },
+      border: { default: '#2A3330', active: '#7DA396', muted: '#1C2220' },
+      text: {
+        ethereal: '#C5D1CF',
+        muted: '#6C7D79',
+        emerald: '#7DA396',
+        warning: '#B89C6D',
+        error: '#BD6B6B',
+        bright: '#E1E8E7',
+        dim: '#485451',
+      },
+      status: { success: '#7DA396', info: '#6B8E9C', error: '#BD6B6B', warning: '#B89C6D', accent: '#7A8C88' },
+      diff: {
+        addBg: '#131F1C',
+        addWordBg: '#1D302B',
+        addFg: '#7DA396',
+        removeBg: '#241717',
+        removeWordBg: '#381E1E',
+        removeFg: '#BD6B6B',
+      },
+      code: { border: '#2A3330', background: '#101413', lineNum: '#485451', output: '#C5D1CF' },
+      shadow: { ascii: '#0A0D0C' },
+      logo: ['#C5D1CF', '#A3B5B2', '#7DA396', '#5F7C73', '#435852', '#293632'],
+    },
+  },
 };

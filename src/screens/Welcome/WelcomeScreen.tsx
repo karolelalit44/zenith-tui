@@ -79,7 +79,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
 
         <Box width={1} justifyContent="center" alignItems="center">
           <Text color={theme.colors.border.muted}>
-            ║{'\n'}║{'\n'}║{'\n'}║{'\n'}║{'\n'}║{'\n'}║{'\n'}║{'\n'}║{'\n'}║{'\n'}║
+            │{'\n'}│{'\n'}│{'\n'}│{'\n'}│{'\n'}│{'\n'}│{'\n'}│{'\n'}│{'\n'}│{'\n'}│
           </Text>
         </Box>
 

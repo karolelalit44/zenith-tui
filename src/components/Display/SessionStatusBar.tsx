@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { StaticContentRepository } from '../../services/data/StaticContentRepository';
+import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
 
@@ -21,9 +22,10 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   isRunning = false,
   modelName = 'Zenith 3.7 Sonnet',
   workspaceName = 'zenith-frontend-tui',
-  gitBranch = 'main',
+  gitBranch,
 }) => {
   const { theme } = useTheme();
+  const activeBranch = gitBranch || getActiveGitBranch();
   const statusLabels = StaticContentRepository.getStatusBarLabels();
 
   const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
@@ -90,7 +92,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
           <Text color={theme.colors.text.muted}> </Text>
 
           <Text color={theme.colors.text.muted}>git:(</Text>
-          <Text color={theme.colors.status.success}>{gitBranch}</Text>
+          <Text color={theme.colors.status.success}>{activeBranch}</Text>
           <Text color={theme.colors.text.muted}>)</Text>
         </Box>
 

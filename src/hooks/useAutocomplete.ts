@@ -1,3 +1,4 @@
+import { useInput } from 'ink';
 import { useCallback, useState } from 'react';
 
 export interface UseAutocompleteReturn {
@@ -9,12 +10,15 @@ export interface UseAutocompleteReturn {
   clearInput: () => void;
   insertFilePath: (relPath: string) => void;
   closeFilePicker: () => void;
+  addHistory: (prompt: string) => void;
 }
 
 export function useAutocomplete(): UseAutocompleteReturn {
   const [input, setInput] = useState('');
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   const handleInputChange = useCallback((val: string) => {
     setInput(val);
@@ -39,6 +43,13 @@ export function useAutocomplete(): UseAutocompleteReturn {
     setInput('');
     setShowAutocomplete(false);
     setShowFilePicker(false);
+    setHistoryIndex(-1);
+  }, []);
+
+  const addHistory = useCallback((prompt: string) => {
+    if (!prompt.trim() || prompt.startsWith('/')) return;
+    setHistory((prev) => [prompt, ...prev.filter((p) => p !== prompt)]);
+    setHistoryIndex(-1);
   }, []);
 
   const insertFilePath = useCallback((relPath: string) => {
@@ -53,6 +64,26 @@ export function useAutocomplete(): UseAutocompleteReturn {
     setShowFilePicker(false);
   }, []);
 
+  useInput((_char, key) => {
+    if (showAutocomplete || showFilePicker) return;
+
+    if (key.upArrow) {
+      if (history.length === 0) return;
+      const nextIdx = Math.min(history.length - 1, historyIndex + 1);
+      setHistoryIndex(nextIdx);
+      setInput(history[nextIdx]);
+    } else if (key.downArrow) {
+      if (historyIndex <= 0) {
+        setHistoryIndex(-1);
+        setInput('');
+      } else {
+        const nextIdx = historyIndex - 1;
+        setHistoryIndex(nextIdx);
+        setInput(history[nextIdx]);
+      }
+    }
+  });
+
   return {
     input,
     showAutocomplete,
@@ -62,5 +93,6 @@ export function useAutocomplete(): UseAutocompleteReturn {
     clearInput,
     insertFilePath,
     closeFilePicker,
+    addHistory,
   };
 }

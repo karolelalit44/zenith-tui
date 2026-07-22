@@ -15,6 +15,7 @@ interface ThemeOption {
 
 const THEME_OPTIONS: ThemeOption[] = [
   { id: 'deep_forest', name: 'Deep Forest (Default)', swatch: ['#50C878', '#8FBC8F', '#DAA520', '#FF6B6B'] },
+  { id: 'stealth', name: 'Stealth Tactical (Lowkey Slate)', swatch: ['#7DA396', '#6B8E9C', '#B89C6D', '#BD6B6B'] },
   { id: 'dracula', name: 'Dracula', swatch: ['#BD93F9', '#50FA7B', '#8BE9FD', '#FF79C6'] },
   { id: 'monokai', name: 'Monokai Pro', swatch: ['#A6E22E', '#66D9EF', '#FD971F', '#F92672'] },
   { id: 'synthwave', name: 'Synthwave 84', swatch: ['#F92A82', '#00F2FE', '#F39C12', '#BC7FD4'] },

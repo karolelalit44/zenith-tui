@@ -45,7 +45,9 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
         <Box flexDirection="row" alignItems="center">
           <Text color={theme.colors.text.muted}>The plan will be exported as: </Text>
           <Text color={theme.colors.status.info} bold>
-            {event.defaultFilename || 'zenith_plans/implementation-plan.md'}
+            {event.defaultFilename?.includes('/')
+              ? event.defaultFilename
+              : `zenith_plans/${event.defaultFilename || 'implementation-plan.md'}`}
           </Text>
         </Box>
 
@@ -54,7 +56,12 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
             <Text color={theme.colors.status.success} bold>
               [SAVED SUCCESS]{' '}
             </Text>
-            <Text color={theme.colors.text.bright}>File written to {event.defaultFilename}</Text>
+            <Text color={theme.colors.text.bright}>
+              File written to{' '}
+              {event.defaultFilename?.includes('/')
+                ? event.defaultFilename
+                : `zenith_plans/${event.defaultFilename || 'implementation-plan.md'}`}
+            </Text>
           </Box>
         )}
       </Box>
