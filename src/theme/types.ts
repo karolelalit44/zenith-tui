@@ -1,8 +1,11 @@
 export interface Theme {
   colors: {
     bg: {
+      /** App-level background (reserved for future Ink bg support) */
       app: string;
+      /** Sidebar background (reserved for future Ink bg support) */
       sidebar: string;
+      /** Modal background - used as fallback text color context */
       modal: string;
     };
     border: {

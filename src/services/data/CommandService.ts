@@ -3,7 +3,7 @@ import optionsData from './options.json';
 
 export interface CommandOption {
   command: string;
-  action: 'overlay' | 'clear' | 'compact' | string;
+  action: 'overlay' | 'clear' | 'compact' | 'mode' | string;
   target?: string;
   description: string;
 }
@@ -12,6 +12,7 @@ export interface CommandHandlers {
   openOverlay: (target: string) => void;
   clearTurns: () => void;
   compactTurns: () => void;
+  setMode: (mode: string) => void;
 }
 
 export class CommandService {
@@ -26,15 +27,10 @@ export class CommandService {
   }
 
   public getCommandHints(): CommandHint[] {
-    // Filter unique command hints for autocomplete dropdown
     const seen = new Set<string>();
     const hints: CommandHint[] = [];
 
     this.commands.forEach((cmd) => {
-      // Map aliases cleanly (prefer primary commands like /settings and /provider)
-      if (cmd.command === '/theme' || cmd.command === '/plugins' || cmd.command === '/providers') {
-        return;
-      }
       if (!seen.has(cmd.command)) {
         seen.add(cmd.command);
         hints.push({ command: cmd.command, description: cmd.description });
@@ -63,6 +59,11 @@ export class CommandService {
         return true;
       case 'compact':
         handlers.compactTurns();
+        return true;
+      case 'mode':
+        if (match.target) {
+          handlers.setMode(match.target);
+        }
         return true;
       default:
         return false;

@@ -89,9 +89,6 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
                 <Text color={theme.colors.status.success}>/mode</Text> Switch Build / Plan
               </Text>
               <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/persona</Text> Change Agent Persona
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
                 <Text color={theme.colors.status.success}>/provider</Text> AI Provider Management
               </Text>
               <Text color={theme.colors.text.ethereal}>

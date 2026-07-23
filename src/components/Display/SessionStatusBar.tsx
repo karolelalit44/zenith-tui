@@ -3,6 +3,8 @@ import React from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
 import { getStatusBarLabels } from '../../services/data/StaticContentRepository';
+import { formatTokenCount } from '../../services/data/tokenEstimationService';
+import { isAutoApproveEnabled } from '../../services/data/toolApprovalService';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
@@ -72,7 +74,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
           </Text>
           <Text color={theme.colors.text.muted}> · </Text>
 
-          <Text color={theme.colors.text.muted}>{totalTokens.toLocaleString()} tokens</Text>
+          <Text color={theme.colors.text.muted}>{formatTokenCount(totalTokens)} tokens</Text>
           <Text color={theme.colors.text.muted}> · </Text>
 
           <Text color={contextPercent > 80 ? theme.colors.text.warning : theme.colors.status.success}>
@@ -104,6 +106,12 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
 
         <Box flexDirection="row" alignItems="center">
           <Text color={theme.colors.text.muted} dimColor>
+            {isAutoApproveEnabled() ? (
+              <Text color={theme.colors.status.success}>auto-approve:on</Text>
+            ) : (
+              <Text color={theme.colors.text.muted}>auto-approve:off</Text>
+            )}
+            {' · '}
             {statusLabels.cancelHint} · {statusLabels.commandsHint} · {statusLabels.modeHint}
           </Text>
         </Box>

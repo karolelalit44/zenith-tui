@@ -1,4 +1,4 @@
-export type { CommandHint, Persona } from './common';
+export type { CommandHint } from './common';
 export type {
   AnalysisEvent,
   AnalysisSection,
