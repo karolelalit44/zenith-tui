@@ -1,31 +1,27 @@
 import { Box, Text } from 'ink';
-import TextInput from 'ink-text-input';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PromptHeader } from './components/Display/PromptHeader';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
+import { CommandInput } from './components/Input/CommandInput';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
-import { DEFAULT_WORKSPACE } from './constants';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
-import { usePersona } from './hooks/usePersona';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { AddDirModal } from './screens/AddDir/AddDirModal';
-import { AgentsModal } from './screens/Agents/AgentsModal';
 import { ContextModal } from './screens/Context/ContextModal';
 import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
-import { PersonaSelectModal } from './screens/PersonaSelect/PersonaSelectModal';
-import { PluginsModal } from './screens/Plugins/PluginsModal';
 import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
+import { loadUserProfile, saveUserProfile } from './services/data/userProfileService';
 import { useTheme } from './theme/ThemeContext';
 
 export const App: React.FC = () => {
@@ -34,8 +30,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     startupService.initialize();
   }, []);
-  const { persona, setPersona } = usePersona('architect');
-  const [workspace, setWorkspace] = useState(DEFAULT_WORKSPACE);
+  const [workspace, setWorkspace] = useState(() => process.cwd());
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().thinkingCollapsed);
+
+  const toggleThinking = useCallback(() => {
+    setThinkingCollapsed((prev) => {
+      const next = !prev;
+      saveUserProfile({ thinkingCollapsed: next });
+      return next;
+    });
+  }, []);
   const {
     turns,
     activeTurn,
@@ -61,6 +65,30 @@ export const App: React.FC = () => {
   } = useAutocomplete();
   const { events, isRunning, startScenario, abort } = useScenario();
 
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const prevTurnCountRef = useRef(turns.length);
+  const suppressSubmitRef = useRef(false);
+
+  const insertNewline = useCallback(() => {
+    suppressSubmitRef.current = true;
+    handleInputChange(`${input}\n`);
+  }, [input, handleInputChange]);
+
+  useEffect(() => {
+    if (turns.length > prevTurnCountRef.current) {
+      setScrollOffset(0);
+    }
+    prevTurnCountRef.current = turns.length;
+  }, [turns.length]);
+
+  const scrollUp = useCallback(() => {
+    setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, turns.length - 1)));
+  }, [turns.length]);
+
+  const scrollDown = useCallback(() => {
+    setScrollOffset((prev) => Math.max(0, prev - 1));
+  }, []);
+
   const isIdle = !isRunning && !isOverlayOpen;
 
   useTerminalKeyboard({
@@ -73,14 +101,18 @@ export const App: React.FC = () => {
     abort,
     abortActiveTurn,
     markTurnSaved,
+    onToggleThinking: toggleThinking,
+    onScrollUp: scrollUp,
+    onScrollDown: scrollDown,
+    onInsertNewline: insertNewline,
   });
 
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
       completeActiveTurn(events);
-      addSession(activeTurn.prompt, persona);
+      addSession(activeTurn.prompt);
     }
-  }, [isRunning, events, activeTurn, completeActiveTurn, persona]);
+  }, [isRunning, events, activeTurn, completeActiveTurn]);
 
   const dispatchCommand = useCallback(
     (cmd: string) => {
@@ -89,13 +121,18 @@ export const App: React.FC = () => {
         openOverlay: (target) => openOverlay(target as any),
         clearTurns,
         compactTurns,
+        setMode: (mode) => handleModeSelect(mode as any),
       });
     },
-    [clearInput, openOverlay, clearTurns, compactTurns],
+    [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect],
   );
 
   const handleSubmit = useCallback(
     (value: string) => {
+      if (suppressSubmitRef.current) {
+        suppressSubmitRef.current = false;
+        return;
+      }
       const trimmed = value.trim();
       if (!trimmed) return;
 
@@ -126,15 +163,35 @@ export const App: React.FC = () => {
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
       {/* Welcome Screen - always visible */}
-      <WelcomeScreen persona={persona} workspace={workspace} />
+      <WelcomeScreen workspace={workspace} />
 
       {/* Conversation turns */}
-      {turns.map((turn) => (
-        <Box key={turn.id} flexDirection="column" marginTop={1}>
-          <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
-          {turn.events.length > 0 && <ScenarioRenderer events={turn.events} isRunning={false} isHistorical={true} />}
+      {turns.map((turn, idx) => {
+        const isHidden = idx < turns.length - 1 - scrollOffset;
+        if (isHidden) return null;
+        return (
+          <Box key={turn.id} flexDirection="column" marginTop={1}>
+            <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
+            {turn.events.length > 0 && (
+              <ScenarioRenderer
+                events={turn.events}
+                isRunning={false}
+                isHistorical={true}
+                thinkingCollapsed={thinkingCollapsed}
+              />
+            )}
+          </Box>
+        );
+      })}
+
+      {/* Scroll indicator */}
+      {scrollOffset > 0 && (
+        <Box marginTop={1}>
+          <Text color={theme.colors.text.muted} italic>
+            ↑ Scrolled up {scrollOffset} turn{scrollOffset > 1 ? 's' : ''} (PgDn to scroll down)
+          </Text>
         </Box>
-      ))}
+      )}
 
       {/* Currently running scenario */}
       {isRunning && (
@@ -142,43 +199,47 @@ export const App: React.FC = () => {
           {activeTurn && (
             <PromptHeader prompt={activeTurn.prompt} mode={activeTurn.mode} timestamp={activeTurn.timestamp} />
           )}
-          <ScenarioRenderer events={events} isRunning={isRunning} isHistorical={false} />
+          <ScenarioRenderer
+            events={events}
+            isRunning={isRunning}
+            isHistorical={false}
+            thinkingCollapsed={thinkingCollapsed}
+          />
         </Box>
       )}
 
-      {/* Input box & Session Status Bar - visible when idle */}
-      {isIdle && (
-        <Box flexDirection="column" marginTop={1}>
-          <Box flexDirection="row">
-            <Text color={theme.colors.text.muted}>{'> '}</Text>
-            <TextInput
-              value={input}
-              onChange={handleInputChange}
-              onSubmit={handleSubmit}
-              placeholder="Ask anything..."
-              focus={true}
-            />
-          </Box>
+      {/* Input box - visible when idle and no overlays */}
+      {isIdle && !showAutocomplete && !showFilePicker && (
+        <CommandInput
+          input={input}
+          selectedMode={selectedMode}
+          onInputChange={handleInputChange}
+          onSubmit={handleSubmit}
+        />
+      )}
 
-          {/* Slash Command Palette */}
-          {showAutocomplete && (
-            <Box marginTop={1}>
-              <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithRouter} />
-            </Box>
-          )}
-
-          {/* File Picker Modal */}
-          {showFilePicker && (
-            <Box marginTop={1}>
-              <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
-            </Box>
-          )}
-
-          {/* Claude Code CLI Session Status Bar */}
-          {!showAutocomplete && !showFilePicker && (
-            <SessionStatusBar mode={selectedMode} totalTokens={totalTokens} isRunning={isRunning} />
-          )}
+      {/* Slash Command Palette */}
+      {showAutocomplete && (
+        <Box marginTop={1}>
+          <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithRouter} />
         </Box>
+      )}
+
+      {/* File Picker Modal */}
+      {showFilePicker && (
+        <Box marginTop={1}>
+          <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
+        </Box>
+      )}
+
+      {/* Session Status Bar - always visible when there are turns or running */}
+      {(turns.length > 0 || isRunning) && !showAutocomplete && !showFilePicker && (
+        <SessionStatusBar
+          mode={selectedMode}
+          totalTokens={totalTokens}
+          isRunning={isRunning}
+          workspaceName={workspace}
+        />
       )}
 
       {/* Overlays & Modals */}
@@ -194,19 +255,6 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {overlay === 'persona' && (
-        <Box flexDirection="column" marginTop={1}>
-          <PersonaSelectModal
-            currentPersona={persona}
-            onSelect={(p) => {
-              setPersona(p);
-              closeOverlay();
-            }}
-            onClose={closeOverlay}
-          />
-        </Box>
-      )}
-
       {overlay === 'settings' && (
         <Box flexDirection="column" marginTop={1}>
           <SettingsModal onClose={closeOverlay} />
@@ -215,25 +263,13 @@ export const App: React.FC = () => {
 
       {overlay === 'context' && (
         <Box flexDirection="column" marginTop={1}>
-          <ContextModal totalTokens={totalTokens} onClose={closeOverlay} />
+          <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={closeOverlay} />
         </Box>
       )}
 
       {overlay === 'add-dir' && (
         <Box flexDirection="column" marginTop={1}>
           <AddDirModal currentWorkspace={workspace} onSelectDir={(dir) => setWorkspace(dir)} onClose={closeOverlay} />
-        </Box>
-      )}
-
-      {overlay === 'agents' && (
-        <Box flexDirection="column" marginTop={1}>
-          <AgentsModal onClose={closeOverlay} />
-        </Box>
-      )}
-
-      {overlay === 'plugin' && (
-        <Box flexDirection="column" marginTop={1}>
-          <PluginsModal onClose={closeOverlay} />
         </Box>
       )}
 

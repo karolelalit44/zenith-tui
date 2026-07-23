@@ -5,11 +5,8 @@
   },
   "settings": {
     "theme": "golden_hour",
-    "compactView": false,
     "thinkingCollapsed": false,
-    "soundEffects": true,
     "autoApproveTools": false,
-    "persona": "architect",
     "defaultMode": "build"
   },
   "providerSettings": {
@@ -29,14 +26,14 @@
   "activeProvider": "anthropic",
   "activeModel": "claude-3-5-sonnet-latest",
   "theme": "golden_hour",
-  "compactView": false,
   "thinkingCollapsed": false,
-  "soundEffects": true,
   "autoApproveTools": false,
-  "persona": "architect",
   "defaultMode": "build",
   "lastActiveWorkspace": "D:\\vdo\\code\\zenith-frontend-tui",
   "sessionCount": 1,
   "lastSessionTimestamp": "2026-07-22T11:30:42.071Z",
-  "updatedAt": "2026-07-22T16:22:13.549Z"
+  "updatedAt": "2026-07-23T05:16:06.603Z",
+  "compactView": false,
+  "soundEffects": true,
+  "persona": "architect"
 }

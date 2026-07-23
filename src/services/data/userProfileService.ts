@@ -12,11 +12,8 @@ export interface UserProviderSection {
 
 export interface UserSettingsSection {
   theme: string;
-  compactView: boolean;
   thinkingCollapsed: boolean;
-  soundEffects: boolean;
   autoApproveTools: boolean;
-  persona: string;
   defaultMode: 'build' | 'plan';
 }
 
@@ -28,11 +25,8 @@ export interface UserProfile {
 
   // Flat fallbacks / legacy compatibility
   theme: string;
-  compactView: boolean;
   thinkingCollapsed: boolean;
-  soundEffects: boolean;
   autoApproveTools: boolean;
-  persona: string;
   defaultMode: 'build' | 'plan';
   activeProvider?: string;
   activeModel?: string;
@@ -53,11 +47,8 @@ const DEFAULT_PROFILE: UserProfile = {
   },
   settings: {
     theme: 'graphite',
-    compactView: false,
     thinkingCollapsed: false,
-    soundEffects: true,
     autoApproveTools: false,
-    persona: 'architect',
     defaultMode: 'build',
   },
   providerSettings: {},
@@ -66,11 +57,8 @@ const DEFAULT_PROFILE: UserProfile = {
   activeProvider: 'openai',
   activeModel: 'gpt-4o',
   theme: 'graphite',
-  compactView: false,
   thinkingCollapsed: false,
-  soundEffects: true,
   autoApproveTools: false,
-  persona: 'architect',
   defaultMode: 'build',
   lastActiveWorkspace: process.cwd(),
   sessionCount: 1,
@@ -95,7 +83,6 @@ export const loadUserProfile = (): UserProfile => {
         const activeProv = parsed.provider?.activeProvider || parsed.activeProvider || 'openai';
         const activeMod = parsed.provider?.activeModel || parsed.activeModel || 'gpt-4o';
         const themeVal = parsed.settings?.theme || parsed.theme || 'graphite';
-        const personaVal = parsed.settings?.persona || parsed.persona || 'architect';
 
         profileCache = {
           ...DEFAULT_PROFILE,
@@ -103,18 +90,14 @@ export const loadUserProfile = (): UserProfile => {
           activeProvider: activeProv,
           activeModel: activeMod,
           theme: themeVal,
-          persona: personaVal,
           provider: {
             activeProvider: activeProv,
             activeModel: activeMod,
           },
           settings: {
             theme: themeVal,
-            compactView: parsed.settings?.compactView ?? parsed.compactView ?? false,
             thinkingCollapsed: parsed.settings?.thinkingCollapsed ?? parsed.thinkingCollapsed ?? false,
-            soundEffects: parsed.settings?.soundEffects ?? parsed.soundEffects ?? true,
             autoApproveTools: parsed.settings?.autoApproveTools ?? parsed.autoApproveTools ?? false,
-            persona: personaVal,
             defaultMode: parsed.settings?.defaultMode || parsed.defaultMode || 'build',
           },
           sessionCount: (parsed.sessionCount ?? 0) + 1,
@@ -168,32 +151,18 @@ export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
     },
     settings: {
       theme: newTheme,
-      compactView:
-        updates.settings?.compactView ??
-        updates.compactView ??
-        current.settings?.compactView ??
-        current.compactView ??
-        false,
       thinkingCollapsed:
         updates.settings?.thinkingCollapsed ??
         updates.thinkingCollapsed ??
         current.settings?.thinkingCollapsed ??
         current.thinkingCollapsed ??
         false,
-      soundEffects:
-        updates.settings?.soundEffects ??
-        updates.soundEffects ??
-        current.settings?.soundEffects ??
-        current.soundEffects ??
-        true,
       autoApproveTools:
         updates.settings?.autoApproveTools ??
         updates.autoApproveTools ??
         current.settings?.autoApproveTools ??
         current.autoApproveTools ??
         false,
-      persona:
-        updates.settings?.persona || updates.persona || current.settings?.persona || current.persona || 'architect',
       defaultMode:
         updates.settings?.defaultMode ||
         updates.defaultMode ||

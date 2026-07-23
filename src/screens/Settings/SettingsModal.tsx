@@ -41,12 +41,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
     saveUserProfile({ autoApproveTools: updated });
   };
 
-  const toggleCompactView = () => {
-    const updated = !userProfile.compactView;
-    setUserProfile((prev) => ({ ...prev, compactView: updated }));
-    saveUserProfile({ compactView: updated });
-  };
-
   const toggleThinkingCollapsed = () => {
     const updated = !userProfile.thinkingCollapsed;
     setUserProfile((prev) => ({ ...prev, thinkingCollapsed: updated }));
@@ -77,13 +71,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       }
 
       if (key.downArrow) {
-        setPrefCursor((prev) => Math.min(2, prev + 1));
+        setPrefCursor((prev) => Math.min(1, prev + 1));
       }
 
       if (key.return || char === ' ') {
         if (prefCursor === 0) toggleAutoApprove();
-        if (prefCursor === 1) toggleCompactView();
-        if (prefCursor === 2) toggleThinkingCollapsed();
+        if (prefCursor === 1) toggleThinkingCollapsed();
       }
     }
 
@@ -182,7 +175,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               </Text>
             </Box>
 
-            {/* Preference Option 2: Compact View Density */}
+            {/* Preference Option 2: Thinking Chain-of-Thought Collapse */}
             <Box flexDirection="row" alignItems="center" marginY={1}>
               <Box width={3}>
                 <Text color={prefCursor === 1 ? theme.colors.text.emerald : theme.colors.text.dim}>
@@ -193,26 +186,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 <Text
                   color={prefCursor === 1 ? theme.colors.text.bright : theme.colors.text.dim}
                   bold={prefCursor === 1}
-                >
-                  Compact Interface Density
-                </Text>
-              </Box>
-              <Text color={userProfile.compactView ? theme.colors.status.success : theme.colors.text.muted} bold>
-                {userProfile.compactView ? '[ENABLED]' : '[DISABLED]'}
-              </Text>
-            </Box>
-
-            {/* Preference Option 3: Thinking Chain-of-Thought Collapse */}
-            <Box flexDirection="row" alignItems="center" marginY={1}>
-              <Box width={3}>
-                <Text color={prefCursor === 2 ? theme.colors.text.emerald : theme.colors.text.dim}>
-                  {prefCursor === 2 ? '▸ ' : '  '}
-                </Text>
-              </Box>
-              <Box width={30}>
-                <Text
-                  color={prefCursor === 2 ? theme.colors.text.bright : theme.colors.text.dim}
-                  bold={prefCursor === 2}
                 >
                   Thinking Block Display State
                 </Text>

@@ -1,5 +1,5 @@
-import { Box, Text, useInput } from 'ink';
-import React, { useState } from 'react';
+import { Box, Text } from 'ink';
+import React from 'react';
 import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { parseJsonEvent } from '../../../services/data/jsonEventNormalizer';
@@ -11,6 +11,7 @@ interface ScenarioRendererProps {
   events: ScenarioEvent[];
   isRunning: boolean;
   isHistorical?: boolean;
+  thinkingCollapsed?: boolean;
 }
 
 const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
@@ -36,20 +37,10 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
 });
 
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
-  ({ events, isRunning, isHistorical = false }) => {
-    const [thinkingVisible, setThinkingVisible] = useState(true);
-
-    useInput((char, key) => {
-      if (key.shift && (char === 't' || char === 'T')) {
-        setThinkingVisible((prev) => !prev);
-      }
-    });
-
-    const lastEvent = events[events.length - 1];
-    const showLiveIndicator =
-      isRunning && !isHistorical && (lastEvent?.kind === 'thinking' || lastEvent?.kind === 'waiting');
+  ({ events, isRunning, isHistorical = false, thinkingCollapsed = false }) => {
+    const showLiveIndicator = isRunning && !isHistorical;
     const renderContext = {
-      thinkingCollapsed: !thinkingVisible,
+      thinkingCollapsed,
       isHistorical,
       isRunning,
     };

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
+import { estimateTokensForEvents } from '../services/data/tokenEstimationService';
 import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
-
-const MOCK_TOKENS_PER_TURN = 1247;
 
 export interface ConversationTurn {
   id: string;
@@ -30,7 +29,7 @@ export function useConversation(): UseConversationReturn {
   const activeTurn = turns.length > 0 ? turns[turns.length - 1] : null;
 
   const totalTokens = useMemo(() => {
-    return turns.filter((t) => t.isComplete).length * MOCK_TOKENS_PER_TURN;
+    return turns.reduce((sum, t) => sum + (t.isComplete ? estimateTokensForEvents(t.events) : 0), 0);
   }, [turns]);
 
   const addTurn = useCallback((prompt: string, mode: ScenarioMode): string => {
@@ -64,7 +63,15 @@ export function useConversation(): UseConversationReturn {
     setTurns((prev) => {
       const last = prev[prev.length - 1];
       if (last && !last.isComplete) {
-        return prev.map((t, i) => (i === prev.length - 1 ? { ...t, isComplete: true } : t));
+        const abortEvent: ScenarioEvent = {
+          kind: 'warning',
+          id: `evt_abort_${Date.now()}`,
+          message: 'Scenario cancelled by user',
+          details: 'Execution was stopped before completion.',
+        };
+        return prev.map((t, i) =>
+          i === prev.length - 1 ? { ...t, events: [...t.events, abortEvent], isComplete: true } : t,
+        );
       }
       return prev;
     });

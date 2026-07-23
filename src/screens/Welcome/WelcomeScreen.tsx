@@ -1,22 +1,20 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
-import { APP_VERSION, DEFAULT_WORKSPACE } from '../../constants';
+import { APP_VERSION } from '../../constants';
 import { useProvider } from '../../hooks/useProvider';
 import { getRecentSessions } from '../../services/data/SessionRepository';
 import { useTheme } from '../../theme/ThemeContext';
-import type { Persona } from '../../types';
 import { getGreeting, WELCOME_DATA } from './data/welcomeData';
 
 interface WelcomeScreenProps {
-  persona: Persona;
   workspace?: string;
 }
 
-export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona, workspace }) => {
+export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspace }) => {
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
-  const activeWorkspace = workspace || DEFAULT_WORKSPACE;
+  const activeWorkspace = workspace || process.cwd();
   const recentSessions = getRecentSessions();
   const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
 
@@ -26,12 +24,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
         flexGrow={1}
         width="100%"
         flexDirection="row"
-        justifyContent="space-evenly"
+        justifyContent="center"
         alignItems="center"
         paddingX={4}
         paddingY={2}
       >
-        <Box flexDirection="column" width={56} flexShrink={0}>
+        <Box flexDirection="column" width="60%" minWidth={56} paddingRight={2}>
           <Box marginBottom={1} flexDirection="column">
             <Text color={theme.colors.logo[0]} bold>
               {'███████╗ ███████╗ ███╗   ██╗ ██╗ ████████╗ ██╗  ██╗'}
@@ -86,33 +84,44 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ persona
           </Text>
         </Box>
 
-        <Box flexDirection="column" flexGrow={1} flexShrink={1} justifyContent="center" paddingLeft={2}>
-          <Box marginBottom={2} flexDirection="row" flexWrap="wrap">
+        <Box flexDirection="column" width="39%" justifyContent="center" paddingLeft={3}>
+          <Box marginBottom={1} flexDirection="row" flexWrap="wrap">
             <Text color={theme.colors.text.emerald} bold>
-              {getGreeting(persona)}
+              {getGreeting()}
             </Text>
           </Box>
 
-          <Text color={theme.colors.text.warning} bold>
-            Recent Sessions
-          </Text>
-          <Box marginTop={1} flexDirection="column" width="100%">
-            {recentSessions.map((session, idx) => (
-              <Box key={idx} flexDirection="row" marginBottom={1} width="100%">
-                <Box width={18} flexShrink={0}>
-                  <Text color={theme.colors.text.muted}>{session.time} </Text>
-                </Box>
-                <Box flexGrow={1} flexShrink={1} paddingRight={1}>
-                  <Text color={theme.colors.text.ethereal} wrap="truncate-end">
-                    {session.title}
-                  </Text>
-                </Box>
-                <Box width={12} flexShrink={0} flexDirection="row" justifyContent="flex-end">
-                  <Text color={theme.colors.text.muted}>│ </Text>
-                  <Text color={theme.colors.text.warning}>{session.persona}</Text>
-                </Box>
-              </Box>
-            ))}
+          <Box flexDirection="column" width="100%" marginTop={1}>
+            <Box flexDirection="row" alignItems="center" marginBottom={1}>
+              <Text color={theme.colors.text.muted} bold>
+                RECENT SESSIONS
+              </Text>
+            </Box>
+
+            <Box flexDirection="column" width="100%">
+              {recentSessions.length === 0 ? (
+                <Text color={theme.colors.text.dim} italic>
+                  No recent sessions
+                </Text>
+              ) : (
+                recentSessions.map((session, idx) => {
+                  const formattedTime = session.time.replace(/^\[\s*/, '').replace(/\s*\]$/, '');
+                  return (
+                    <Box key={idx} flexDirection="column" marginBottom={1} width="100%">
+                      <Box flexDirection="row" alignItems="center">
+                        <Text color={theme.colors.border.active}>│ </Text>
+                        <Text color={theme.colors.text.ethereal} bold wrap="truncate-end">
+                          {session.title}
+                        </Text>
+                      </Box>
+                      <Box paddingLeft={2}>
+                        <Text color={theme.colors.text.dim}>{formattedTime}</Text>
+                      </Box>
+                    </Box>
+                  );
+                })
+              )}
+            </Box>
           </Box>
         </Box>
       </Box>

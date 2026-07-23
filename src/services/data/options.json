@@ -13,19 +13,7 @@
       "description": "Show available commands & keyboard shortcuts"
     },
     {
-      "command": "/persona",
-      "action": "overlay",
-      "target": "persona",
-      "description": "Switch the active agent persona"
-    },
-    {
       "command": "/settings",
-      "action": "overlay",
-      "target": "settings",
-      "description": "Configure Zenith options and theme"
-    },
-    {
-      "command": "/theme",
       "action": "overlay",
       "target": "settings",
       "description": "Configure Zenith options and theme"
@@ -43,31 +31,7 @@
       "description": "Add a new working directory"
     },
     {
-      "command": "/agents",
-      "action": "overlay",
-      "target": "agents",
-      "description": "Manage agent configurations"
-    },
-    {
-      "command": "/plugin",
-      "action": "overlay",
-      "target": "plugin",
-      "description": "Manage Zenith plugins and extensions"
-    },
-    {
-      "command": "/plugins",
-      "action": "overlay",
-      "target": "plugin",
-      "description": "Manage Zenith plugins and extensions"
-    },
-    {
       "command": "/provider",
-      "action": "overlay",
-      "target": "provider",
-      "description": "Manage AI provider configurations and active model"
-    },
-    {
-      "command": "/providers",
       "action": "overlay",
       "target": "provider",
       "description": "Manage AI provider configurations and active model"
@@ -83,6 +47,18 @@
       "action": "compact",
       "target": "",
       "description": "Clear conversation history but keep a summary in context"
+    },
+    {
+      "command": "/build",
+      "action": "mode",
+      "target": "build",
+      "description": "Switch to Build mode"
+    },
+    {
+      "command": "/plan",
+      "action": "mode",
+      "target": "plan",
+      "description": "Switch to Plan mode"
     }
   ]
 }

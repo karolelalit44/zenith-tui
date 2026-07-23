@@ -14,6 +14,10 @@ interface UseTerminalKeyboardOptions {
   abort: () => void;
   abortActiveTurn: () => void;
   markTurnSaved: (turnId: string) => void;
+  onToggleThinking?: () => void;
+  onScrollUp?: () => void;
+  onScrollDown?: () => void;
+  onInsertNewline?: () => void;
 }
 
 export function useTerminalKeyboard({
@@ -26,6 +30,10 @@ export function useTerminalKeyboard({
   abort,
   abortActiveTurn,
   markTurnSaved,
+  onToggleThinking,
+  onScrollUp,
+  onScrollDown,
+  onInsertNewline,
 }: UseTerminalKeyboardOptions): void {
   useEffect(() => {
     // Native terminal scrolling enabled for touchpad & mouse wheel
@@ -34,6 +42,7 @@ export function useTerminalKeyboard({
   useInput(
     (char, key) => {
       if ((key.ctrl || key.meta) && (char === 's' || char === 'S')) {
+        if (overlay !== 'none') return;
         const targetTurn = turns[turns.length - 1];
         const targetEvents = isRunning ? events : targetTurn?.events || [];
 
@@ -46,8 +55,28 @@ export function useTerminalKeyboard({
         return;
       }
 
+      if (key.shift && (char === 't' || char === 'T') && overlay === 'none' && onToggleThinking) {
+        onToggleThinking();
+        return;
+      }
+
+      if (key.pageUp && overlay === 'none' && onScrollUp) {
+        onScrollUp();
+        return;
+      }
+
+      if (key.pageDown && overlay === 'none' && onScrollDown) {
+        onScrollDown();
+        return;
+      }
+
       if (key.shift && (char === 'm' || char === 'M') && overlay === 'none' && openOverlay) {
         openOverlay('mode');
+        return;
+      }
+
+      if (key.return && key.shift && overlay === 'none' && onInsertNewline) {
+        onInsertNewline();
         return;
       }
 

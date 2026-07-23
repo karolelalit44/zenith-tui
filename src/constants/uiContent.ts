@@ -30,9 +30,6 @@ export const UI_CONTENT = {
   ],
   export: {
     defaultPath: 'zenith_plans/implementation-plan.md',
-    saveInstruction: 'Press Ctrl + S to save this plan.',
-    exportLabel: 'The plan will be exported as: ',
-    savedSuccessPrefix: '[SAVED SUCCESS] ',
   },
 } as const;
 
