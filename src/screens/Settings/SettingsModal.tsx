@@ -36,15 +36,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const [prefCursor, setPrefCursor] = useState(0);
 
   const toggleAutoApprove = () => {
-    const updated = !userProfile.autoApproveTools;
-    setUserProfile((prev) => ({ ...prev, autoApproveTools: updated }));
-    saveUserProfile({ autoApproveTools: updated });
+    const next = !userProfile.settings.autoApproveTools;
+    setUserProfile((prev) => ({ ...prev, settings: { ...prev.settings, autoApproveTools: next } }));
+    saveUserProfile({ settings: { ...userProfile.settings, autoApproveTools: next } });
   };
 
   const toggleThinkingCollapsed = () => {
-    const updated = !userProfile.thinkingCollapsed;
-    setUserProfile((prev) => ({ ...prev, thinkingCollapsed: updated }));
-    saveUserProfile({ thinkingCollapsed: updated });
+    const next = !userProfile.settings.thinkingCollapsed;
+    setUserProfile((prev) => ({ ...prev, settings: { ...prev.settings, thinkingCollapsed: next } }));
+    saveUserProfile({ settings: { ...userProfile.settings, thinkingCollapsed: next } });
   };
 
   useInput((char, key) => {
@@ -170,8 +170,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                   Auto-Approve Tool Execution
                 </Text>
               </Box>
-              <Text color={userProfile.autoApproveTools ? theme.colors.status.success : theme.colors.status.error} bold>
-                {userProfile.autoApproveTools ? '[ENABLED]' : '[DISABLED]'}
+              <Text
+                color={userProfile.settings.autoApproveTools ? theme.colors.status.success : theme.colors.status.error}
+                bold
+              >
+                {userProfile.settings.autoApproveTools ? '[ENABLED]' : '[DISABLED]'}
               </Text>
             </Box>
 
@@ -190,8 +193,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                   Thinking Block Display State
                 </Text>
               </Box>
-              <Text color={userProfile.thinkingCollapsed ? theme.colors.status.warning : theme.colors.status.info} bold>
-                {userProfile.thinkingCollapsed ? '[COLLAPSED]' : '[EXPANDED]'}
+              <Text
+                color={userProfile.settings.thinkingCollapsed ? theme.colors.status.warning : theme.colors.status.info}
+                bold
+              >
+                {userProfile.settings.thinkingCollapsed ? '[COLLAPSED]' : '[EXPANDED]'}
               </Text>
             </Box>
           </Box>

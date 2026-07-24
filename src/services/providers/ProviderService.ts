@@ -42,7 +42,7 @@ export class ProviderService {
   }
 
   public getAllProviders(): ProviderState[] {
-    const ids: ProviderId[] = ['openrouter', 'openai', 'anthropic', 'gemini', 'groq', 'nvidia', 'custom'];
+    const ids: ProviderId[] = ['nvidia', 'openrouter', 'openai', 'anthropic', 'google', 'groq', 'custom'];
     return ids.map((id) => this.getProviderState(id));
   }
 

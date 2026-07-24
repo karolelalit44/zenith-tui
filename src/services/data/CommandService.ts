@@ -1,4 +1,6 @@
 import type { CommandHint } from '../../types';
+import type { OverlayType } from '../../hooks/useOverlayManager';
+import type { ScenarioMode } from '../../types/scenario';
 import optionsData from './options.json';
 
 export interface CommandOption {
@@ -9,10 +11,10 @@ export interface CommandOption {
 }
 
 export interface CommandHandlers {
-  openOverlay: (target: string) => void;
+  openOverlay: (target: OverlayType) => void;
   clearTurns: () => void;
   compactTurns: () => void;
-  setMode: (mode: string) => void;
+  setMode: (mode: ScenarioMode) => void;
 }
 
 export class CommandService {
@@ -51,7 +53,7 @@ export class CommandService {
     switch (match.action) {
       case 'overlay':
         if (match.target) {
-          handlers.openOverlay(match.target);
+          handlers.openOverlay(match.target as OverlayType);
         }
         return true;
       case 'clear':
@@ -62,7 +64,7 @@ export class CommandService {
         return true;
       case 'mode':
         if (match.target) {
-          handlers.setMode(match.target);
+          handlers.setMode(match.target as ScenarioMode);
         }
         return true;
       default:

@@ -22,7 +22,7 @@ import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
-import { loadUserProfile, saveUserProfile } from './services/data/userProfileService';
+import { loadUserProfile } from './services/data/userProfileService';
 import { useTheme } from './theme/ThemeContext';
 import type { AppStartupState } from './types/startup';
 
@@ -30,7 +30,7 @@ export const App: React.FC = () => {
   const { theme } = useTheme();
   const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
   const [workspace, setWorkspace] = useState(() => process.cwd());
-  const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().thinkingCollapsed);
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
 
   useEffect(() => {
     startupService.initialize().then(setStartupState);
@@ -39,11 +39,7 @@ export const App: React.FC = () => {
   }, []);
 
   const toggleThinking = useCallback(() => {
-    setThinkingCollapsed((prev) => {
-      const next = !prev;
-      saveUserProfile({ thinkingCollapsed: next });
-      return next;
-    });
+    setThinkingCollapsed((prev: boolean) => !prev);
   }, []);
   const {
     turns,
@@ -131,10 +127,10 @@ export const App: React.FC = () => {
     (cmd: string) => {
       clearInput();
       commandService.dispatchCommand(cmd, {
-        openOverlay: (target) => openOverlay(target as any),
+        openOverlay,
         clearTurns,
         compactTurns,
-        setMode: (mode) => handleModeSelect(mode as any),
+        setMode: handleModeSelect,
       });
     },
     [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect],

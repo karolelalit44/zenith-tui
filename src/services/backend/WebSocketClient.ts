@@ -48,8 +48,6 @@ export class WebSocketClient {
   private requestIdCounter = 0;
   private emitter = new EventEmitter();
   private _status: WsStatus = 'disconnected';
-  private _sessionId: string | null = null;
-  private artificialLatency = 800;
 
   constructor(url?: string) {
     this.url = url || this.detectBackendUrl();
@@ -57,18 +55,6 @@ export class WebSocketClient {
 
   get status(): WsStatus {
     return this._status;
-  }
-
-  get sessionId(): string | null {
-    return this._sessionId;
-  }
-
-  get latency(): number {
-    return this.artificialLatency;
-  }
-
-  setLatency(ms: number): void {
-    this.artificialLatency = ms;
   }
 
   onEvent(callback: (event: JsonRpcEvent) => void): () => void {
@@ -112,7 +98,8 @@ export class WebSocketClient {
         };
         this.ws.onerror = (evt) => {
           this.setStatus('disconnected');
-          const msg = (evt as any).message || (evt as any).error?.message || `Failed to connect to ${this.url}`;
+          const errEvt = evt as { message?: string; error?: { message?: string } };
+          const msg = errEvt.message || errEvt.error?.message || `Failed to connect to ${this.url}`;
           reject(new Error(msg));
         };
       } catch (err) {

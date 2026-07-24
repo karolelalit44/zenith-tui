@@ -2,7 +2,7 @@ import { loadUserProfile } from './userProfileService';
 
 export function isAutoApproveEnabled(): boolean {
   const profile = loadUserProfile();
-  return Boolean(profile.settings?.autoApproveTools ?? profile.autoApproveTools);
+  return Boolean(profile.settings.autoApproveTools);
 }
 
 export function requiresApproval(eventKind: string): boolean {

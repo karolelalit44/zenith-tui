@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState } from 'react';
-import { loadSavedTheme, saveTheme } from '../services/data/userProfileService';
 import { type Theme, themes } from './theme';
 
 interface ThemeContextType {
@@ -15,14 +14,13 @@ const ThemeContext = createContext<ThemeContextType>({
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeThemeId, setActiveThemeId] = useState<string>(() => loadSavedTheme());
+  const [activeThemeId, setActiveThemeId] = useState<string>('graphite');
 
   const theme = themes[activeThemeId] || themes.graphite;
 
   const setTheme = (themeId: string) => {
     if (themes[themeId]) {
       setActiveThemeId(themeId);
-      saveTheme(themeId);
     }
   };
 

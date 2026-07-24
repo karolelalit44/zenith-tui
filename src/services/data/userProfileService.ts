@@ -1,9 +1,4 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
 let profileCache: UserProfile | null = null;
-const CACHE_TTL = 5000;
-let cacheTimestamp = 0;
 
 export interface UserProviderSection {
   activeProvider: string;
@@ -18,184 +13,75 @@ export interface UserSettingsSection {
 }
 
 export interface UserProfile {
-  // Nested configuration blocks
-  provider?: UserProviderSection;
-  settings?: UserSettingsSection;
+  provider: UserProviderSection;
+  settings: UserSettingsSection;
   providerSettings?: Record<string, unknown>;
-
-  // Flat fallbacks / legacy compatibility
-  theme: string;
-  thinkingCollapsed: boolean;
-  autoApproveTools: boolean;
-  defaultMode: 'build' | 'plan';
-  activeProvider?: string;
-  activeModel?: string;
-
-  // Session Cache Metadata
   lastActiveWorkspace: string;
   sessionCount: number;
   lastSessionTimestamp: string;
   updatedAt: string;
 }
 
-const PROFILE_FILE_NAME = 'user_profile.json';
+const DEFAULT_THEME = 'graphite';
+const DEFAULT_MODE = 'build' as const;
 
-const DEFAULT_PROFILE: UserProfile = {
-  provider: {
-    activeProvider: 'openai',
-    activeModel: 'gpt-4o',
-  },
-  settings: {
-    theme: 'graphite',
-    thinkingCollapsed: false,
-    autoApproveTools: false,
-    defaultMode: 'build',
-  },
-  providerSettings: {},
-
-  // Legacy flat fields synced with nested blocks
-  activeProvider: 'openai',
-  activeModel: 'gpt-4o',
-  theme: 'graphite',
-  thinkingCollapsed: false,
-  autoApproveTools: false,
-  defaultMode: 'build',
-  lastActiveWorkspace: process.cwd(),
-  sessionCount: 1,
-  lastSessionTimestamp: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-};
-
-const getProfilePath = (): string => {
-  return path.resolve(process.cwd(), PROFILE_FILE_NAME);
-};
+function getInitialProfile(): UserProfile {
+  return {
+    provider: {
+      activeProvider: '',
+      activeModel: '',
+    },
+    settings: {
+      theme: DEFAULT_THEME,
+      thinkingCollapsed: false,
+      autoApproveTools: false,
+      defaultMode: DEFAULT_MODE,
+    },
+    providerSettings: {},
+    lastActiveWorkspace: process.cwd(),
+    sessionCount: 1,
+    lastSessionTimestamp: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 export const loadUserProfile = (): UserProfile => {
-  const now = Date.now();
-  if (profileCache && now - cacheTimestamp < CACHE_TTL) return profileCache;
-
-  const filePath = getProfilePath();
-  try {
-    if (fs.existsSync(filePath)) {
-      const rawData = fs.readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(rawData) as Partial<UserProfile>;
-      if (parsed && typeof parsed === 'object') {
-        const activeProv = parsed.provider?.activeProvider || parsed.activeProvider || 'openai';
-        const activeMod = parsed.provider?.activeModel || parsed.activeModel || 'gpt-4o';
-        const themeVal = parsed.settings?.theme || parsed.theme || 'graphite';
-
-        profileCache = {
-          ...DEFAULT_PROFILE,
-          ...parsed,
-          activeProvider: activeProv,
-          activeModel: activeMod,
-          theme: themeVal,
-          provider: {
-            activeProvider: activeProv,
-            activeModel: activeMod,
-          },
-          settings: {
-            theme: themeVal,
-            thinkingCollapsed: parsed.settings?.thinkingCollapsed ?? parsed.thinkingCollapsed ?? false,
-            autoApproveTools: parsed.settings?.autoApproveTools ?? parsed.autoApproveTools ?? false,
-            defaultMode: parsed.settings?.defaultMode || parsed.defaultMode || 'build',
-          },
-          sessionCount: (parsed.sessionCount ?? 0) + 1,
-          lastSessionTimestamp: new Date().toISOString(),
-        };
-        cacheTimestamp = now;
-        return profileCache;
-      }
-    }
-  } catch (_err) {
-    // Fall back to default profile
-  }
-
-  saveUserProfile(DEFAULT_PROFILE);
-  profileCache = DEFAULT_PROFILE;
-  cacheTimestamp = Date.now();
-  return DEFAULT_PROFILE;
+  if (profileCache) return profileCache;
+  profileCache = getInitialProfile();
+  return profileCache;
 };
 
 export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
-  profileCache = null;
-  const filePath = getProfilePath();
-  let current: UserProfile = { ...DEFAULT_PROFILE };
-
-  try {
-    if (fs.existsSync(filePath)) {
-      const rawData = fs.readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(rawData);
-      if (parsed && typeof parsed === 'object') {
-        current = { ...current, ...parsed };
-      }
-    }
-  } catch (_err) {
-    // Keep base defaults
-  }
-
-  const newActiveProvider =
-    updates.activeProvider || updates.provider?.activeProvider || current.activeProvider || 'openai';
-  const newActiveModel = updates.activeModel || updates.provider?.activeModel || current.activeModel || 'gpt-4o';
-  const newTheme = updates.theme || updates.settings?.theme || current.theme || 'graphite';
+  const current = loadUserProfile();
 
   const updatedProfile: UserProfile = {
     ...current,
     ...updates,
-    activeProvider: newActiveProvider,
-    activeModel: newActiveModel,
-    theme: newTheme,
-    provider: {
-      activeProvider: newActiveProvider,
-      activeModel: newActiveModel,
-    },
-    settings: {
-      theme: newTheme,
-      thinkingCollapsed:
-        updates.settings?.thinkingCollapsed ??
-        updates.thinkingCollapsed ??
-        current.settings?.thinkingCollapsed ??
-        current.thinkingCollapsed ??
-        false,
-      autoApproveTools:
-        updates.settings?.autoApproveTools ??
-        updates.autoApproveTools ??
-        current.settings?.autoApproveTools ??
-        current.autoApproveTools ??
-        false,
-      defaultMode:
-        updates.settings?.defaultMode ||
-        updates.defaultMode ||
-        current.settings?.defaultMode ||
-        current.defaultMode ||
-        'build',
-    },
+    provider: updates.provider
+      ? { ...current.provider, ...updates.provider }
+      : current.provider,
+    settings: updates.settings
+      ? { ...current.settings, ...updates.settings }
+      : current.settings,
     updatedAt: new Date().toISOString(),
   };
 
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(updatedProfile, null, 2), 'utf-8');
-  } catch (_err) {
-    // Ignore write errors
-  }
-
+  profileCache = updatedProfile;
   return updatedProfile;
 };
 
 export const loadSavedTheme = (): string => {
-  const profile = loadUserProfile();
-  return profile.settings?.theme || profile.theme || 'graphite';
+  return loadUserProfile().settings.theme;
 };
 
 export const saveTheme = (themeId: string): void => {
-  saveUserProfile({ theme: themeId });
+  saveUserProfile({ settings: { ...loadUserProfile().settings, theme: themeId } });
 };
 
 export const loadAutoApprove = (): boolean => {
-  const profile = loadUserProfile();
-  return Boolean(profile.settings?.autoApproveTools ?? profile.autoApproveTools);
+  return loadUserProfile().settings.autoApproveTools;
 };
 
 export const saveAutoApprove = (autoApprove: boolean): void => {
-  saveUserProfile({ autoApproveTools: autoApprove });
+  saveUserProfile({ settings: { ...loadUserProfile().settings, autoApproveTools: autoApprove } });
 };

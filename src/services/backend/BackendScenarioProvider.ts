@@ -20,7 +20,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
     this.abortFlag = false;
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
-    let _partialMessageId: string | null = null;
     let accumulatedText = '';
 
     const unsubscribe = wsClient.onEvent((rpcEvent) => {
@@ -34,7 +33,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
         if (partialMessageIndex === null) {
           partialMessageIndex = eventIndex;
-          _partialMessageId = `evt_stream_${Date.now()}`;
           eventIndex++;
         }
 
@@ -66,7 +64,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
         });
         onEvent(finalEvent, partialMessageIndex);
         partialMessageIndex = null;
-        _partialMessageId = null;
         accumulatedText = '';
       }
 
@@ -85,7 +82,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
         });
         onEvent(finalEvent, targetIndex);
         partialMessageIndex = null;
-        _partialMessageId = null;
         accumulatedText = '';
         return;
       }
