@@ -11,7 +11,6 @@ from .base import BaseTool, ToolResult
 class FileDeleteTool(BaseTool):
     name = "file_delete"
     description = "Delete a file"
-    permission_level = "HIGH"
     requires_mode = "build"
 
     def get_schema(self) -> dict:

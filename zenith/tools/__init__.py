@@ -2,7 +2,6 @@
 
 from .base import BaseTool, ToolResult
 from .registry import ToolRegistry
-from .permission import PermissionGate
 from .bash import BashTool
 from .file_read import FileReadTool
 from .file_write import FileWriteTool
@@ -16,7 +15,6 @@ __all__ = [
     "BaseTool",
     "ToolResult",
     "ToolRegistry",
-    "PermissionGate",
     "BashTool",
     "FileReadTool",
     "FileWriteTool",

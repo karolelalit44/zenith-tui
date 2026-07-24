@@ -12,7 +12,6 @@ from .base import BaseTool, ToolResult
 class BashTool(BaseTool):
     name = "bash"
     description = "Execute a shell command"
-    permission_level = "HIGH"
 
     def __init__(self, timeout: int = 30) -> None:
         self.timeout = timeout

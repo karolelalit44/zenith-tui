@@ -13,7 +13,7 @@ import { mapEvent } from '../src/services/backend/EventMapper';
 import type { JsonRpcEvent } from '../src/services/backend/WebSocketClient';
 import type { EventKind, ScenarioEvent } from '../src/types/scenario';
 
-// ── All 20 backend EventKind values ──────────────────────────────────────────
+// ── All 19 backend EventKind values ──────────────────────────────────────────
 const ALL_EVENT_KINDS: EventKind[] = [
   'thinking',
   'file_create',
@@ -34,7 +34,6 @@ const ALL_EVENT_KINDS: EventKind[] = [
   'analysis',
   'planner_action_panel',
   'mode_mismatch',
-  'permission_request',
 ];
 
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
@@ -307,8 +306,8 @@ describe('ComponentRegistry covers all EventKind types', () => {
 
 // ── Pipeline integrity: EventKind count matches ─────────────────────────────
 describe('Pipeline integrity', () => {
-  it('has exactly 20 EventKind values', () => {
-    expect(ALL_EVENT_KINDS.length).toBe(20);
+  it('has exactly 19 EventKind values', () => {
+    expect(ALL_EVENT_KINDS.length).toBe(19);
   });
 
   it('no duplicate EventKind values', () => {

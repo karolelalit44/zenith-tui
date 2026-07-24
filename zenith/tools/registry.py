@@ -1,4 +1,4 @@
-"""Tool registry — dispatches tool execution, enforces mode permissions."""
+"""Tool registry — dispatches tool execution, enforces mode."""
 
 from __future__ import annotations
 
@@ -6,22 +6,15 @@ import logging
 from typing import Any
 
 from .base import BaseTool, ToolResult
-from .permission import PermissionGate
-from zenith.core.errors import ToolError, PermissionDenied
 
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    """Registry of available tools with dispatch, mode enforcement, and permission gating."""
+    """Registry of available tools with dispatch and mode enforcement."""
 
-    def __init__(self, permission_gate: PermissionGate | None = None) -> None:
+    def __init__(self) -> None:
         self._tools: dict[str, BaseTool] = {}
-        self._gate = permission_gate or PermissionGate()
-
-    @property
-    def gate(self) -> PermissionGate:
-        return self._gate
 
     def register(self, tool: BaseTool) -> None:
         self._tools[tool.name] = tool
@@ -38,7 +31,6 @@ class ToolRegistry:
             {
                 "name": t.name,
                 "description": t.description,
-                "permission_level": t.permission_level,
                 "schema": t.get_schema(),
             }
             for t in self._tools.values()
@@ -66,7 +58,7 @@ class ToolRegistry:
         workspace_root: str,
         mode: str = "build",
     ) -> ToolResult:
-        """Execute a tool by name with mode enforcement and permission gating."""
+        """Execute a tool by name with mode enforcement."""
         tool = self.get(tool_name)
         if not tool:
             return ToolResult(success=False, error=f"Unknown tool: {tool_name}")
@@ -77,9 +69,6 @@ class ToolRegistry:
                 error=f"Tool '{tool_name}' not available in '{mode}' mode",
             )
 
-        if not await self._gate.check(tool):
-            raise PermissionDenied(tool_name)
-
         if not tool.validate_params(params):
             return ToolResult(
                 success=False,
@@ -88,8 +77,6 @@ class ToolRegistry:
 
         try:
             return await tool.execute(params, workspace_root)
-        except PermissionDenied:
-            raise
         except Exception as e:
             logger.exception("Tool execution failed: %s", tool_name)
             return ToolResult(success=False, error=str(e))

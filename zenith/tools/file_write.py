@@ -12,7 +12,6 @@ from .param_normalizer import normalize_file_params
 class FileWriteTool(BaseTool):
     name = "file_write"
     description = "Create a new file with given content"
-    permission_level = "HIGH"
     requires_mode = "build"
 
     def get_schema(self) -> dict:

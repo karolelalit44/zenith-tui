@@ -190,29 +190,6 @@ export class WebSocketClient {
     return this.send('workspace.status');
   }
 
-  respondPermission(
-    tool: string,
-    approved: boolean,
-    remember: boolean = false,
-    requestId: string = '',
-  ): Promise<{ responded: boolean; tool: string; approved: boolean }> {
-    return this.send('permission.respond', { tool, approved, remember, requestId });
-  }
-
-  listPermissions(): Promise<{
-    permissions: Array<{ tool_name: string; pattern: string; approved: boolean; created_at: string }>;
-  }> {
-    return this.send('permission.list');
-  }
-
-  approveTool(tool: string): Promise<{ approved: boolean; tool: string }> {
-    return this.send('permission.approve', { tool });
-  }
-
-  denyTool(tool: string): Promise<{ denied: boolean; tool: string }> {
-    return this.send('permission.deny', { tool });
-  }
-
   health(): Promise<{ status: string }> {
     return this.send('health');
   }

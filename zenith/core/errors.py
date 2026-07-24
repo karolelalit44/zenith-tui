@@ -32,12 +32,6 @@ class TransportError(ZenithError):
         super().__init__(message, code="TRANSPORT_ERROR", recoverable=True)
 
 
-class PermissionDenied(ZenithError):
-    def __init__(self, tool: str):
-        super().__init__(f"Permission denied for tool: {tool}", code="PERMISSION_DENIED", recoverable=False)
-        self.tool = tool
-
-
 class MaxIterationsError(ZenithError):
     def __init__(self, max_iter: int):
         super().__init__(f"Max iterations ({max_iter}) exceeded", code="MAX_ITERATIONS", recoverable=False)

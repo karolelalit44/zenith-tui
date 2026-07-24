@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
-import uuid
 from typing import AsyncIterator
 
 from zenith.config.settings import AppSettings
@@ -24,6 +23,9 @@ from zenith.session.history import HistoryManager
 logger = logging.getLogger(__name__)
 
 FILE_MODIFY_TOOLS = {"file_write", "file_edit", "file_delete"}
+
+
+from zenith.tools.param_normalizer import normalize_file_params
 
 
 def _format_tool_result(tool_name: str, result: ToolResult, max_output: int = 10000) -> str:
@@ -187,34 +189,10 @@ class AgentLoop:
 
             for tc in tool_calls:
                 tool_name = tc["tool"]
-                tool_params = tc.get("params", {})
+                tool_params = normalize_file_params(tc.get("params", {}))
                 if tool_name == "file_write" and "overwrite" not in tool_params:
                     tool_params["overwrite"] = True
                 logger.info("Executing tool '%s' with params: %s", tool_name, json.dumps(tool_params))
-
-                # Check permission before execution
-                tool = self.tool_registry.get(tool_name)
-                if tool and tool.permission_level == "HIGH":
-                    gate = self.tool_registry.gate
-                    if not await gate.check(tool):
-                        # Need to request permission from user
-                        request_id = f"perm_{uuid.uuid4().hex[:12]}"
-                        yield r.permission_request(tool_name, tool_params, session_id, request_id)
-
-                        # Let the frontend know the loop is waiting for user action
-                        yield r.waiting_for_permission(tool_name, session_id)
-
-                        # Wait for permission response (keyed by request_id)
-                        approved = await gate.request_permission(tool, tool_params, request_id)
-                        if not approved:
-                            yield r.warning(
-                                f"Permission denied for tool '{tool_name}'. Skipping execution.",
-                                session_id,
-                            )
-                            # Add denial result to context so LLM knows
-                            tool_result_text = f"[Tool: {tool_name} | Status: DENIED]\nPermission denied by user."
-                            messages.append({"role": "user", "content": tool_result_text})
-                            continue
 
                 # Emit analysis summary event only for non-file and non-terminal tools
                 if tool_name not in FILE_MODIFY_TOOLS and tool_name not in ("bash", "terminal"):

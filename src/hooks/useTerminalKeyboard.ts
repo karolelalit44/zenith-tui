@@ -1,5 +1,4 @@
 import { useInput } from 'ink';
-import { useEffect } from 'react';
 import { savePlanToFile } from '../services/export/markdownExport';
 import type { ConversationTurn } from './useConversation';
 import type { OverlayType } from './useOverlayManager';
@@ -15,8 +14,6 @@ interface UseTerminalKeyboardOptions {
   abortActiveTurn: () => void;
   markTurnSaved: (turnId: string) => void;
   onToggleThinking?: () => void;
-  onScrollUp?: () => void;
-  onScrollDown?: () => void;
   onInsertNewline?: () => void;
 }
 
@@ -31,14 +28,8 @@ export function useTerminalKeyboard({
   abortActiveTurn,
   markTurnSaved,
   onToggleThinking,
-  onScrollUp,
-  onScrollDown,
   onInsertNewline,
 }: UseTerminalKeyboardOptions): void {
-  useEffect(() => {
-    // Native terminal scrolling enabled for touchpad & mouse wheel
-  }, []);
-
   useInput(
     (char, key) => {
       if ((key.ctrl || key.meta) && (char === 's' || char === 'S')) {
@@ -60,16 +51,6 @@ export function useTerminalKeyboard({
         return;
       }
 
-      if (key.pageUp && overlay === 'none' && onScrollUp) {
-        onScrollUp();
-        return;
-      }
-
-      if (key.pageDown && overlay === 'none' && onScrollDown) {
-        onScrollDown();
-        return;
-      }
-
       if (key.shift && (char === 'm' || char === 'M') && overlay === 'none' && openOverlay) {
         openOverlay('mode');
         return;
@@ -81,7 +62,6 @@ export function useTerminalKeyboard({
       }
 
       if (overlay !== 'none') {
-        // Active modal handles its own keyboard navigation & 1-step-back Esc key hierarchy
         return;
       }
 

@@ -12,7 +12,6 @@ from .base import BaseTool, ToolResult
 class GrepTool(BaseTool):
     name = "grep"
     description = "Search file contents using regex pattern"
-    permission_level = "LOW"
     requires_mode = None  # Available in both plan and build
 
     def get_schema(self) -> dict:

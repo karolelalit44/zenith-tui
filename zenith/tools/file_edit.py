@@ -12,7 +12,6 @@ from .param_normalizer import normalize_file_params
 class FileEditTool(BaseTool):
     name = "file_edit"
     description = "Edit an existing file using search-replace"
-    permission_level = "HIGH"
     requires_mode = "build"
 
     def get_schema(self) -> dict:

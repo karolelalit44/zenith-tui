@@ -19,7 +19,6 @@ class BaseTool(ABC):
     """Abstract base class for all tools."""
     name: str = "base"
     description: str = ""
-    permission_level: str = "LOW"  # LOW, MEDIUM, HIGH
     requires_mode: str | None = None  # None = any, "build", "plan"
 
     @abstractmethod

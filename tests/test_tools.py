@@ -1,10 +1,9 @@
-"""Tests for tool framework: base, registry, permission, all tools."""
+"""Tests for tool framework: base, registry, all tools."""
 
 import pytest
 from pathlib import Path
 from zenith.tools.base import BaseTool, ToolResult
 from zenith.tools.registry import ToolRegistry
-from zenith.tools.permission import PermissionGate
 from zenith.tools.bash import BashTool
 from zenith.tools.file_read import FileReadTool
 from zenith.tools.file_write import FileWriteTool
@@ -14,7 +13,6 @@ from zenith.tools.glob_tool import GlobTool
 from zenith.tools.grep_tool import GrepTool
 from zenith.tools.webfetch import WebfetchTool
 from zenith.tools import create_default_registry
-from zenith.core.errors import PermissionDenied
 
 
 # ── Tool Base & Result ──────────────────────────────────────────────
@@ -94,35 +92,6 @@ class TestToolRegistry:
         result = await reg.execute("file_write", {"path": "x", "content": "y"}, ".", mode="plan")
         assert not result.success
         assert "not available" in result.error
-
-
-# ── Permission Gate ─────────────────────────────────────────────────
-
-
-class TestPermissionGate:
-    @pytest.mark.asyncio
-    async def test_low_auto_approved(self):
-        gate = PermissionGate(auto_approve_low=True)
-        tool = GlobTool()
-        assert await gate.check(tool) is True
-
-    @pytest.mark.asyncio
-    async def test_medium_not_auto_approved(self):
-        gate = PermissionGate(auto_approve_medium=False)
-        tool = WebfetchTool()
-        assert await gate.check(tool) is False
-
-    @pytest.mark.asyncio
-    async def test_high_never_auto_approved(self):
-        gate = PermissionGate(auto_approve_low=True, auto_approve_medium=True)
-        tool = BashTool()
-        assert await gate.check(tool) is False
-
-    @pytest.mark.asyncio
-    async def test_require_raises_for_high(self):
-        gate = PermissionGate()
-        tool = BashTool()
-        assert gate.check_sync(tool) is False
 
 
 # ── Bash Tool ───────────────────────────────────────────────────────

@@ -38,13 +38,6 @@ def progress(percent: int, status: str, session_id: str, iteration: int = 0) -> 
     }, session_id)
 
 
-def waiting_for_permission(tool_name: str, session_id: str) -> Event:
-    return event(EventKind.WAITING, {
-        "message": f"Waiting for permission approval for '{tool_name}'...",
-        "duration": 0,
-    }, session_id)
-
-
 def analysis(tool_name: str, session_id: str, params: dict | None = None) -> Event:
     return event(EventKind.ANALYSIS, {
         "tool": tool_name, "params": params or {},
@@ -86,19 +79,6 @@ def success(message: str, session_id: str, iterations: int = 0, token_info: dict
 
 def message_event(text: str, session_id: str, partial: bool = False) -> Event:
     return event(EventKind.MESSAGE, {"text": text, "partial": partial}, session_id)
-
-
-def permission_request(
-    tool_name: str,
-    params: dict,
-    session_id: str,
-    request_id: str,
-) -> Event:
-    return event(EventKind.PERMISSION_REQUEST, {
-        "tool": tool_name,
-        "params": params,
-        "requestId": request_id,
-    }, session_id)
 
 
 async def stream_tokens(

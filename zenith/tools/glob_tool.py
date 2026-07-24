@@ -11,7 +11,6 @@ from .base import BaseTool, ToolResult
 class GlobTool(BaseTool):
     name = "glob"
     description = "Search for files matching a glob pattern"
-    permission_level = "LOW"
     requires_mode = None  # Available in both plan and build
 
     def get_schema(self) -> dict:

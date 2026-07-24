@@ -25,7 +25,6 @@ class EventKind(str, Enum):
     ANALYSIS = "analysis"
     PLANNER_ACTION_PANEL = "planner_action_panel"
     MODE_MISMATCH = "mode_mismatch"
-    PERMISSION_REQUEST = "permission_request"
 
 
 class Event(BaseModel):

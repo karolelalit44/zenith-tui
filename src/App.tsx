@@ -69,37 +69,12 @@ export const App: React.FC = () => {
   } = useAutocomplete();
   const { events, isRunning, startScenario, abort } = useScenario();
 
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const MAX_VISIBLE_COMPLETED = 8;
-  const prevTurnCountRef = useRef(turns.length);
   const suppressSubmitRef = useRef(false);
 
   const insertNewline = useCallback(() => {
     suppressSubmitRef.current = true;
     handleInputChange(`${input}\n`);
   }, [input, handleInputChange]);
-
-  useEffect(() => {
-    if (turns.length > prevTurnCountRef.current) {
-      setScrollOffset(0);
-    }
-    prevTurnCountRef.current = turns.length;
-  }, [turns.length]);
-
-  const completedTurns = isRunning ? turns.slice(0, -1) : turns;
-  const hiddenAbove = Math.max(0, completedTurns.length - MAX_VISIBLE_COMPLETED - scrollOffset);
-  const visibleTurns = completedTurns.slice(
-    Math.max(0, completedTurns.length - MAX_VISIBLE_COMPLETED - scrollOffset),
-    completedTurns.length - scrollOffset,
-  );
-
-  const scrollUp = useCallback(() => {
-    setScrollOffset((prev) => Math.min(prev + 3, Math.max(0, completedTurns.length - MAX_VISIBLE_COMPLETED)));
-  }, [completedTurns.length]);
-
-  const scrollDown = useCallback(() => {
-    setScrollOffset((prev) => Math.max(0, prev - 3));
-  }, []);
 
   const isIdle = !isRunning && !isOverlayOpen;
 
@@ -114,8 +89,6 @@ export const App: React.FC = () => {
     abortActiveTurn,
     markTurnSaved,
     onToggleThinking: toggleThinking,
-    onScrollUp: scrollUp,
-    onScrollDown: scrollDown,
     onInsertNewline: insertNewline,
   });
 
@@ -205,19 +178,10 @@ export const App: React.FC = () => {
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-      {/* Welcome Screen - always visible */}
       <WelcomeScreen workspace={workspace} />
 
-      {/* Conversation turns */}
-      {hiddenAbove > 0 && (
-        <Box marginTop={1}>
-          <Text color={theme.colors.text.muted} italic>
-            ↑ {hiddenAbove} earlier turn{hiddenAbove > 1 ? 's' : ''} hidden (PgUp to scroll)
-          </Text>
-        </Box>
-      )}
-
-      {visibleTurns.map((turn) => (
+      {/* All completed turns — native terminal scroll handles overflow */}
+      {turns.map((turn) => (
         <Box key={turn.id} flexDirection="column" marginTop={1}>
           <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
           {turn.events.length > 0 && (
@@ -230,15 +194,6 @@ export const App: React.FC = () => {
           )}
         </Box>
       ))}
-
-      {/* Scroll indicator */}
-      {scrollOffset > 0 && (
-        <Box marginTop={1}>
-          <Text color={theme.colors.text.muted} italic>
-            ↓ Showing older turns (PgDn to scroll down)
-          </Text>
-        </Box>
-      )}
 
       {/* Currently running scenario */}
       {isRunning && (
@@ -255,7 +210,7 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {/* Input box - visible when idle and no overlays */}
+      {/* Input box */}
       {isIdle && !showAutocomplete && !showFilePicker && (
         <CommandInput
           input={input}
@@ -279,7 +234,7 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {/* Session Status Bar - always visible when there are turns or running */}
+      {/* Session Status Bar */}
       {(turns.length > 0 || isRunning) && !showAutocomplete && !showFilePicker && (
         <SessionStatusBar
           mode={selectedMode}

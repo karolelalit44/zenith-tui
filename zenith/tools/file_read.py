@@ -12,7 +12,6 @@ from .param_normalizer import normalize_file_params
 class FileReadTool(BaseTool):
     name = "file_read"
     description = "Read the contents of a file"
-    permission_level = "LOW"
     requires_mode = None  # Available in both plan and build
 
     def get_schema(self) -> dict:

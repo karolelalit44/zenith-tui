@@ -14,7 +14,6 @@ _WEBFETCH_MAX_BYTES = require_int("ZENITH_WEBFETCH_MAX_BYTES")
 class WebfetchTool(BaseTool):
     name = "webfetch"
     description = "Fetch content from a URL"
-    permission_level = "MEDIUM"
 
     def get_schema(self) -> dict:
         return {
