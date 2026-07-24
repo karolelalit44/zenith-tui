@@ -14,7 +14,7 @@ export const FileDeleteCard: React.FC<FileDeleteCardProps> = ({ event }) => {
     <Box flexDirection="column" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
         <Text color={theme.colors.status.error} bold>
-          ✗ Deleted
+          [DELETED]
         </Text>
         <Text color={theme.colors.text.muted}> · </Text>
         <Text color={theme.colors.text.ethereal} bold>

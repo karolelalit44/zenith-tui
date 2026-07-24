@@ -11,6 +11,13 @@ export class ProviderService {
     this.repo = repo;
   }
 
+  public async refreshFromBackend(): Promise<ProviderState> {
+    await this.repo.refreshFromBackend();
+    const active = this.getActiveProvider();
+    this.notifyListeners(active);
+    return active;
+  }
+
   public getActiveProviderId(): ProviderId {
     return this.repo.getActiveProviderId();
   }
@@ -35,7 +42,7 @@ export class ProviderService {
   }
 
   public getAllProviders(): ProviderState[] {
-    const ids: ProviderId[] = ['openrouter', 'openai', 'anthropic', 'gemini', 'groq', 'custom'];
+    const ids: ProviderId[] = ['openrouter', 'openai', 'anthropic', 'gemini', 'groq', 'nvidia', 'custom'];
     return ids.map((id) => this.getProviderState(id));
   }
 

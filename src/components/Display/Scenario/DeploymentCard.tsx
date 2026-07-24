@@ -17,7 +17,7 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = React.memo(({ event
   let color: string;
   switch (event.status) {
     case 'success':
-      icon = '✔';
+      icon = '[OK]';
       color = theme.colors.status.success;
       break;
     case 'deploying':
@@ -25,11 +25,11 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = React.memo(({ event
       color = theme.colors.status.info;
       break;
     case 'failed':
-      icon = '✗';
+      icon = '[FAIL]';
       color = theme.colors.status.error;
       break;
     default:
-      icon = '○';
+      icon = '[-]';
       color = theme.colors.text.muted;
       break;
   }

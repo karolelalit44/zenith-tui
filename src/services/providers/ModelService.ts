@@ -1,9 +1,4 @@
-import anthropicModels from './anthropic/models.json';
-import customModels from './custom/models.json';
-import geminiModels from './gemini/models.json';
-import groqModels from './groq/models.json';
-import openaiModels from './openai/models.json';
-import openrouterModels from './openrouter/models.json';
+import { providerRepository } from './ProviderRepository';
 import type { ProviderId } from './types';
 
 export interface ProviderModelItem {
@@ -19,18 +14,27 @@ export interface ProviderModelsData {
   models: ProviderModelItem[];
 }
 
-const DYNAMIC_MODEL_CACHE: Record<ProviderId, ProviderModelsData> = {
-  openrouter: openrouterModels as ProviderModelsData,
-  openai: openaiModels as ProviderModelsData,
-  anthropic: anthropicModels as ProviderModelsData,
-  gemini: geminiModels as ProviderModelsData,
-  groq: groqModels as ProviderModelsData,
-  custom: customModels as ProviderModelsData,
-};
-
 export class ModelService {
+  private _customCache: Partial<Record<ProviderId, ProviderModelsData>> = {};
+
   public getModelsData(providerId: ProviderId): ProviderModelsData {
-    return DYNAMIC_MODEL_CACHE[providerId] || DYNAMIC_MODEL_CACHE.openai;
+    if (this._customCache[providerId]) {
+      return this._customCache[providerId]!;
+    }
+    const meta = providerRepository.getProviderMeta(providerId);
+    const rawModels = meta.availableModels || [];
+    const models: ProviderModelItem[] = rawModels.map((m) => ({
+      id: m.id,
+      name: m.name,
+      contextWindow: 128000,
+      description: m.description,
+    }));
+
+    return {
+      provider: providerId,
+      totalModelsLabel: `${models.length} models`,
+      models,
+    };
   }
 
   public getModels(providerId: ProviderId): ProviderModelItem[] {
@@ -38,13 +42,12 @@ export class ModelService {
   }
 
   public updateModelsList(providerId: ProviderId, newModels: ProviderModelItem[]): ProviderModelsData {
-    const existing = this.getModelsData(providerId);
     const updated: ProviderModelsData = {
-      ...existing,
+      provider: providerId,
       totalModelsLabel: `${newModels.length} models`,
       models: newModels,
     };
-    DYNAMIC_MODEL_CACHE[providerId] = updated;
+    this._customCache[providerId] = updated;
     return updated;
   }
 

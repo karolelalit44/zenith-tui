@@ -78,7 +78,7 @@ export const SummaryCard: React.FC<SummaryCardProps> = React.memo(({ event }) =>
             <Box flexDirection="column" paddingLeft={2}>
               {event.verified.map((item, idx) => (
                 <Box key={idx} flexDirection="row">
-                  <Text color={theme.colors.status.success}>✔ </Text>
+                  <Text color={theme.colors.status.success}>+ </Text>
                   <Text color={theme.colors.text.ethereal}>{item}</Text>
                 </Box>
               ))}

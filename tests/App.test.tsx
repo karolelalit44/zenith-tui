@@ -1,26 +1,95 @@
 import React from 'react';
-import { expect, test } from 'vitest';
+import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { App } from '../src/App';
+import { startupService } from '../src/services/data/StartupService';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test('App opens directly to Welcome + Input (no mode selection screen)', async () => {
+// ── Mock backend for tests that need the main app ─────────────────
+
+// Mock WebSocket to fail immediately in tests (no real backend running)
+class MockWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  readonly CONNECTING = 0;
+  readonly OPEN = 1;
+  readonly CLOSING = 2;
+  readonly CLOSED = 3;
+  readyState = 3;
+  onopen: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: ((evt: Event) => void) | null = null;
+  onmessage: ((evt: MessageEvent) => void) | null = null;
+  close() {}
+  send(_data: string) {}
+  constructor(_url: string) {
+    setTimeout(() => {
+      this.readyState = 3;
+      this.onerror?.(new Event('error'));
+      this.onclose?.(new Event('close'));
+    }, 0);
+  }
+  addEventListener() {}
+  removeEventListener() {}
+  dispatchEvent(_e: Event) { return false; }
+}
+beforeAll(() => {
+  (globalThis as any).WebSocket = MockWebSocket;
+});
+
+const READY_RESPONSE = {
+  status: 'ready',
+  missing: [],
+  active_provider: 'openai',
+  active_model: 'gpt-4o',
+  provider_count: 1,
+  message: '',
+};
+
+function mockBackendReady() {
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve(READY_RESPONSE),
+  });
+}
+
+function mockBackendUnavailable() {
+  global.fetch = vi.fn().mockRejectedValue(new Error('fetch failed: connection refused'));
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  startupService.reset();
+});
+
+// ── Startup / Welcome Tests ───────────────────────────────────────
+
+test('App shows Welcome screen when backend validates ready', async () => {
+  mockBackendReady();
   const { lastFrame, unmount } = render(<App />);
+
+  // Initially loading
+  expect(lastFrame()).toContain('Initializing');
+
+  // Wait for async startup to complete
+  await wait(500);
 
   const frame = lastFrame();
   expect(frame).toContain('1.0.0');
   expect(frame).toContain('SYSTEM STATUS');
   expect(frame).toContain('BUILD');
   expect(frame).toContain('Ask');
-  expect(frame).toContain('>');
   unmount();
 });
 
-test('Input is ready immediately on startup', async () => {
+test('Input is ready after startup', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
 
-  expect(lastFrame()).toContain('>');
+  await wait(500);
 
   stdin.write('hello');
   await wait(300);
@@ -28,20 +97,26 @@ test('Input is ready immediately on startup', async () => {
   unmount();
 });
 
-test('Submitting a prompt triggers scenario', async () => {
+test('Submitting a prompt triggers scenario flow', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
 
   stdin.write('create a todo app');
   await wait(300);
   stdin.write('\r');
   await wait(500);
 
-  expect(lastFrame()).toContain('Thinking');
+  expect(lastFrame()).toContain('Cannot connect to backend');
   unmount();
 });
 
 test('/mode command opens mode selector overlay', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
 
   stdin.write('/mode');
   await wait(200);
@@ -56,7 +131,10 @@ test('/mode command opens mode selector overlay', async () => {
 });
 
 test('Mode selection changes current mode', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
 
   // Open mode selector
   stdin.write('/mode');
@@ -76,7 +154,10 @@ test('Mode selection changes current mode', async () => {
 });
 
 test('Escape closes mode selector without changing mode', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
 
   // Open mode selector
   stdin.write('/mode');
@@ -94,45 +175,46 @@ test('Escape closes mode selector without changing mode', async () => {
 });
 
 test('Escape during scenario stops execution', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
 
   stdin.write('test');
   await wait(200);
   stdin.write('\r');
   await wait(500);
 
-  expect(lastFrame()).toContain('Thinking');
+  expect(lastFrame()).toContain('Cannot connect to backend');
 
   stdin.write('\x1B');
   await wait(300);
 
-  expect(lastFrame()).toContain('>');
+  expect(lastFrame()).toContain('❯');
   unmount();
 });
 
-test('Full Build Scenario end-to-end', async () => {
+test('Full Build Scenario shows backend error', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
 
-  // Submit prompt
+  await wait(500);
+
   stdin.write('create a todo app');
   await wait(400);
   stdin.write('\r');
   await wait(1200);
 
-  expect(lastFrame()).toContain('Thinking');
-
-  await wait(5000);
-  expect(lastFrame()).toContain('New File');
-
-  await wait(14000);
-  expect(lastFrame()).toContain('>');
+  expect(lastFrame()).toContain('Cannot connect to backend');
   unmount();
-}, 30000);
+});
 
-test('Full Plan Scenario end-to-end', async () => {
+test('Full Plan Scenario shows backend error', async () => {
+  mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
 
-  // Switch to Plan mode first via /mode
+  await wait(500);
+
   stdin.write('/mode');
   await wait(400);
   stdin.write('\r');
@@ -142,15 +224,29 @@ test('Full Plan Scenario end-to-end', async () => {
   stdin.write('\r');
   await wait(500);
 
-  // Submit prompt
   stdin.write('design a REST API');
   await wait(400);
   stdin.write('\r');
   await wait(1200);
 
-  expect(lastFrame()).toContain('Thinking');
-
-  await wait(7000);
-  expect(lastFrame()).toContain('>');
+  expect(lastFrame()).toContain('Cannot connect to backend');
   unmount();
-}, 30000);
+});
+
+// ── Startup Error / Setup Flow Tests ──────────────────────────────
+
+test('App shows SetupWizard when backend is unavailable', async () => {
+  mockBackendUnavailable();
+  const { lastFrame, unmount } = render(<App />);
+
+  // Initially loading
+  expect(lastFrame()).toContain('Initializing');
+
+  // Wait for startup to fail
+  await wait(1000);
+
+  const frame = lastFrame();
+  expect(frame).toContain('ZENITH SETUP');
+  expect(frame).toContain('Setup Required');
+  unmount();
+});

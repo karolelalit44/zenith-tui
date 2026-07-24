@@ -3,14 +3,15 @@ import { ProviderRepository } from '../src/services/providers/ProviderRepository
 import { ProviderService } from '../src/services/providers/ProviderService';
 
 describe('Provider Management Module', () => {
-  it('loads all 6 supported provider metadata configs from JSON', () => {
+  it('loads all supported provider metadata configs', () => {
     const repo = new ProviderRepository();
-    expect(repo.getProviderMeta('openrouter').name).toBe('OpenRouter AI');
-    expect(repo.getProviderMeta('openai').name).toBe('OpenAI Direct');
-    expect(repo.getProviderMeta('anthropic').name).toBe('Anthropic Claude');
+    expect(repo.getProviderMeta('openrouter').name).toBe('OpenRouter');
+    expect(repo.getProviderMeta('openai').name).toBe('OpenAI');
+    expect(repo.getProviderMeta('anthropic').name).toBe('Anthropic');
     expect(repo.getProviderMeta('gemini').name).toBe('Google Gemini');
-    expect(repo.getProviderMeta('groq').name).toBe('Groq LPU Acceleration');
-    expect(repo.getProviderMeta('custom').name).toBe('Custom Endpoint (Ollama / vLLM / Local)');
+    expect(repo.getProviderMeta('groq').name).toBe('Groq');
+    expect(repo.getProviderMeta('nvidia').name).toBe('NVIDIA AI');
+    expect(repo.getProviderMeta('custom').name).toBe('Custom OpenAI-Compatible');
   });
 
   it('validates provider config API key requirements', () => {
@@ -37,7 +38,7 @@ describe('Provider Management Module', () => {
 
     expect(active.id).toBe('anthropic');
     expect(active.isActive).toBe(true);
-    expect(active.meta.name).toBe('Anthropic Claude');
+    expect(active.meta.name).toBe('Anthropic');
   });
 
   it('updates provider config settings', () => {

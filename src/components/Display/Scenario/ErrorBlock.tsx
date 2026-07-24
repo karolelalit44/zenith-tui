@@ -15,36 +15,42 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
       <Box
         flexDirection="column"
         width="100%"
-        borderStyle="round"
+        borderStyle="single"
         borderColor={theme.colors.status.error}
         paddingX={1}
-        paddingY={1}
+        paddingY={0}
       >
-        <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
+        <Box flexDirection="row" alignItems="center" marginBottom={0} flexWrap="wrap">
           <Text color={theme.colors.status.error} bold>
             [ERROR]{' '}
           </Text>
-          <Text color={theme.colors.text.bright} bold>
+          <Text color={theme.colors.text.bright} bold wrap="wrap">
             {event.message}
           </Text>
-          {event.command && <Text color={theme.colors.text.muted}> (command: {event.command})</Text>}
         </Box>
 
+        {event.command && (
+          <Box flexDirection="row" marginTop={0}>
+            <Text color={theme.colors.text.muted}>Command: </Text>
+            <Text color={theme.colors.status.warning} wrap="wrap">{event.command}</Text>
+          </Box>
+        )}
+
         {event.stack && (
-          <Box flexDirection="column" marginBottom={1} paddingLeft={1} backgroundColor={theme.colors.bg.modal}>
+          <Box flexDirection="column" marginTop={0} paddingX={1} backgroundColor={theme.colors.bg.card}>
             <Text color={theme.colors.status.error} dimColor wrap="wrap">
               {event.stack}
             </Text>
           </Box>
         )}
 
-        <Box flexDirection="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" marginTop={1}>
+        <Box flexDirection="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" marginTop={0}>
           <Text color={theme.colors.text.muted}>
-            Recommendation: Check credentials, permissions, or project config.
+            Status: Execution halted due to error.
           </Text>
           <Box paddingX={1} backgroundColor={theme.colors.status.error}>
             <Text color={theme.colors.bg.app} bold>
-              [RETRY AVAILABLE]
+              [FAILED]
             </Text>
           </Box>
         </Box>

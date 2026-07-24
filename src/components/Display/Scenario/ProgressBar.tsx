@@ -24,7 +24,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
     <Box flexDirection="column" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
         <Text color={theme.colors.text.emerald} bold>
-          ◆ {event.label}
+          [{event.label}]
         </Text>
         <Text color={theme.colors.text.muted}> </Text>
         <Text color={theme.colors.text.muted}>{bar}</Text>
@@ -40,7 +40,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
           let color: string;
           switch (step.status) {
             case 'done':
-              icon = '✔';
+              icon = '[OK]';
               color = theme.colors.text.emerald;
               break;
             case 'active':
@@ -48,11 +48,11 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
               color = theme.colors.text.ethereal;
               break;
             case 'error':
-              icon = '✗';
+              icon = '[FAIL]';
               color = theme.colors.text.error;
               break;
             default:
-              icon = '○';
+              icon = '[-]';
               color = theme.colors.text.muted;
               break;
           }

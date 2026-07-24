@@ -117,6 +117,7 @@ export interface MessageEvent {
   kind: 'message';
   id: string;
   text: string;
+  partial?: boolean;
 }
 
 export interface ProgressEvent {

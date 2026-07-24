@@ -1,19 +1,93 @@
-import { describe, expect, it } from 'vitest';
-import { ProviderRepository } from '../src/services/providers/ProviderRepository';
-import { ProviderService } from '../src/services/providers/ProviderService';
+import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest';
 import { StartupService } from '../src/services/data/StartupService';
 
-describe('StartupService Initialization', () => {
-  it('bootstraps application configuration and active provider', () => {
-    const repo = new ProviderRepository();
-    const providerSvc = new ProviderService(repo);
-    const startupSvc = new StartupService(providerSvc);
+const READY_RESPONSE = {
+  status: 'ready',
+  missing: [],
+  active_provider: 'openai',
+  active_model: 'gpt-4o',
+  provider_count: 1,
+  message: '',
+};
 
-    const result = startupSvc.initialize();
+const CONFIG_REQUIRED_RESPONSE = {
+  status: 'configuration_required',
+  missing: ['provider', 'apiKey'],
+  active_provider: '',
+  active_model: '',
+  provider_count: 0,
+  message: 'Missing configuration: provider, apiKey',
+};
 
-    expect(result.initialized).toBe(true);
-    expect(result.profile).toBeDefined();
-    expect(result.activeProviderId).toBeDefined();
-    expect(typeof result.timestamp).toBe('string');
+describe('StartupService Backend Validation', () => {
+  it('returns ready when backend validates successfully', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(READY_RESPONSE),
+    });
+
+    const svc = new StartupService();
+    const state = await svc.initialize();
+
+    expect(state.phase).toBe('ready');
+    expect(state.result?.status).toBe('ready');
+    expect(state.result?.active_provider).toBe('openai');
+    expect(state.result?.active_model).toBe('gpt-4o');
+    expect(state.error).toBeNull();
+
+    vi.restoreAllMocks();
+  });
+
+  it('returns setup phase when configuration is missing', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(CONFIG_REQUIRED_RESPONSE),
+    });
+
+    const svc = new StartupService();
+    const state = await svc.initialize();
+
+    expect(state.phase).toBe('setup');
+    expect(state.result?.status).toBe('configuration_required');
+    expect(state.result?.missing).toContain('provider');
+    expect(state.result?.missing).toContain('apiKey');
+    expect(state.error).toBeNull();
+
+    vi.restoreAllMocks();
+  });
+
+  it('returns error phase when backend is unreachable', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('fetch failed'));
+
+    const svc = new StartupService();
+    const state = await svc.initialize();
+
+    expect(state.phase).toBe('error');
+    expect(state.result).toBeNull();
+    expect(state.error).toBeTruthy();
+
+    vi.restoreAllMocks();
+  });
+
+  it('can validate a provider setup', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ valid: true, provider: 'openai', model: 'gpt-4o', message: 'OK' }),
+    });
+
+    const svc = new StartupService();
+    const result = await svc.validateProvider({
+      provider: 'openai',
+      api_key: 'sk-test',
+      model: 'gpt-4o',
+      base_url: '',
+      max_tokens: 4096,
+      temperature: 0.7,
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.provider).toBe('openai');
+
+    vi.restoreAllMocks();
   });
 });

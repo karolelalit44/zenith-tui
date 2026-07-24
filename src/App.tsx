@@ -18,20 +18,25 @@ import { ModeSelectScreen } from './screens/ModeSelect';
 import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { WelcomeScreen } from './screens/Welcome';
+import { SetupWizard } from './screens/SetupWizard';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
 import { loadUserProfile, saveUserProfile } from './services/data/userProfileService';
+import type { AppStartupState } from './types/startup';
 import { useTheme } from './theme/ThemeContext';
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
-
-  useEffect(() => {
-    startupService.initialize();
-  }, []);
+  const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
   const [workspace, setWorkspace] = useState(() => process.cwd());
   const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().thinkingCollapsed);
+
+  useEffect(() => {
+    startupService.initialize().then(setStartupState);
+    const unsub = startupService.subscribe(setStartupState);
+    return unsub;
+  }, []);
 
   const toggleThinking = useCallback(() => {
     setThinkingCollapsed((prev) => {
@@ -159,6 +164,27 @@ export const App: React.FC = () => {
     },
     [dispatchCommand, handleAutocompleteSelect],
   );
+
+  if (startupState.phase === 'loading') {
+    return (
+      <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%" justifyContent="center" alignItems="center" minHeight={5}>
+        <Text color={theme.colors.text.muted}>Initializing Zenith...</Text>
+      </Box>
+    );
+  }
+
+  if (startupState.phase === 'setup' || startupState.phase === 'error') {
+    return (
+      <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+        <SetupWizard
+          startupState={startupState}
+          onComplete={() => {
+            setStartupState({ phase: 'ready', result: startupState.result, error: null });
+          }}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">

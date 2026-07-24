@@ -50,7 +50,7 @@ export const TestExecutionCard: React.FC<TestExecutionCardProps> = ({ event }) =
                   }
                   bold
                 >
-                  {result.status === 'pass' ? '✔' : result.status === 'fail' ? '✗' : '○'}
+                  {result.status === 'pass' ? '[PASS]' : result.status === 'fail' ? '[FAIL]' : '[-]'}
                 </Text>
               </Box>
               <Text color={result.status === 'fail' ? theme.colors.status.error : theme.colors.text.ethereal}>

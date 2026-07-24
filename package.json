@@ -6,8 +6,8 @@
   "scripts": {
     "start": "tsx src/index.tsx",
     "build": "tsc",
-    "preview": "node dist/index.js",
-    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "preview": "node dist-tsc/index.js",
+    "clean": "node -e \"require('fs').rmSync('dist-tsc',{recursive:true,force:true})\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "biome check src/",
@@ -24,7 +24,8 @@
     "cli-highlight": "^2.1.11",
     "ink": "^6.8.0",
     "ink-text-input": "^6.0.0",
-    "react": "^19.2.7"
+    "react": "^19.2.7",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",

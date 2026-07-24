@@ -1,4 +1,4 @@
-export type ProviderId = 'openrouter' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'custom';
+export type ProviderId = 'openrouter' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'nvidia' | 'custom';
 
 export interface ProviderConfigField {
   key: string;

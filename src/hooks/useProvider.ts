@@ -12,6 +12,9 @@ export function useProvider(): UseProviderReturn {
   const [activeProvider, setActiveProviderState] = useState<ProviderState>(() => providerService.getActiveProvider());
 
   useEffect(() => {
+    providerService.refreshFromBackend().then(() => {
+      setActiveProviderState(providerService.getActiveProvider());
+    });
     const unsubscribe = providerService.subscribe((state) => {
       setActiveProviderState(state);
     });
