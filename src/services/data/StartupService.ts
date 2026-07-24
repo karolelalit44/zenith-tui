@@ -1,5 +1,5 @@
+import type { AppStartupState, ProviderSetupRequest, ProviderSetupResult, StartupResult } from '../../types/startup';
 import { providerRepository } from '../providers/ProviderRepository';
-import type { AppStartupState, ProviderSetupRequest, ProviderSetupResult, StartupResult, StartupStatus } from '../../types/startup';
 
 const BACKEND_BASE = process.env.VITE_BACKEND_URL || 'http://localhost:8765';
 
@@ -9,7 +9,7 @@ function backendUrl(path: string): string {
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
-    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(120_000),
     ...options,
   });
@@ -44,7 +44,11 @@ export class StartupService {
 
   private _notify(): void {
     for (const fn of this._listeners) {
-      try { fn(this._state); } catch { /* ignore */ }
+      try {
+        fn(this._state);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -66,9 +70,10 @@ export class StartupService {
       this._state = {
         phase: 'error',
         result: null,
-        error: message.includes('fetch') || message.includes('NetworkError')
-          ? 'Cannot connect to backend. Run: zenith serve'
-          : message,
+        error:
+          message.includes('fetch') || message.includes('NetworkError')
+            ? 'Cannot connect to backend. Run: zenith serve'
+            : message,
       };
     }
 
@@ -82,10 +87,10 @@ export class StartupService {
 
   async validateProvider(request: ProviderSetupRequest): Promise<ProviderSetupResult> {
     try {
-      return await fetchJson<ProviderSetupResult>(
-        backendUrl('/startup/validate-provider'),
-        { method: 'POST', body: JSON.stringify(request) },
-      );
+      return await fetchJson<ProviderSetupResult>(backendUrl('/startup/validate-provider'), {
+        method: 'POST',
+        body: JSON.stringify(request),
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       return { valid: false, provider: request.provider, model: request.model, message };
@@ -94,10 +99,10 @@ export class StartupService {
 
   async saveProviderConfig(request: ProviderSetupRequest): Promise<ProviderSetupResult> {
     try {
-      return await fetchJson<ProviderSetupResult>(
-        backendUrl('/startup/save-config'),
-        { method: 'POST', body: JSON.stringify(request) },
-      );
+      return await fetchJson<ProviderSetupResult>(backendUrl('/startup/save-config'), {
+        method: 'POST',
+        body: JSON.stringify(request),
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       return { valid: false, provider: request.provider, model: request.model, message };

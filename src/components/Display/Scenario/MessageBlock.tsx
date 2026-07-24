@@ -22,9 +22,7 @@ export const MessageBlock: React.FC<MessageBlockProps> = ({ event }) => {
     return null;
   }
 
-  const cursor = event.partial && showCursor ? (
-    <Text color={theme.colors.status.accent}> ▌</Text>
-  ) : null;
+  const cursor = event.partial && showCursor ? <Text color={theme.colors.status.accent}> ▌</Text> : null;
 
   return (
     <Box flexDirection="column" marginBottom={1} paddingX={1}>

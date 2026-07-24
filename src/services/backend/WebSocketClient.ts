@@ -73,12 +73,16 @@ export class WebSocketClient {
 
   onEvent(callback: (event: JsonRpcEvent) => void): () => void {
     this.emitter.on('event', callback);
-    return () => { this.emitter.off('event', callback); };
+    return () => {
+      this.emitter.off('event', callback);
+    };
   }
 
   onStatusChange(callback: (status: WsStatus) => void): () => void {
     this.emitter.on('status', callback);
-    return () => { this.emitter.off('status', callback); };
+    return () => {
+      this.emitter.off('status', callback);
+    };
   }
 
   async connect(): Promise<void> {
@@ -147,8 +151,14 @@ export class WebSocketClient {
       }, 60000);
 
       this.pendingRequests.set(id, {
-        resolve: (v: unknown) => { clearTimeout(timeout); resolve(v as T); },
-        reject: (e: Error) => { clearTimeout(timeout); reject(e); },
+        resolve: (v: unknown) => {
+          clearTimeout(timeout);
+          resolve(v as T);
+        },
+        reject: (e: Error) => {
+          clearTimeout(timeout);
+          reject(e);
+        },
       });
 
       this.ws!.send(JSON.stringify(request));
@@ -167,7 +177,11 @@ export class WebSocketClient {
     return this.send('session.resume', { session_id: sessionId });
   }
 
-  sendPrompt(content: string, mode: string = 'build', sessionId?: string): Promise<{ session_id: string; status: string }> {
+  sendPrompt(
+    content: string,
+    mode: string = 'build',
+    sessionId?: string,
+  ): Promise<{ session_id: string; status: string }> {
     return this.send('prompt.send', { content, mode, session_id: sessionId });
   }
 
@@ -221,7 +235,7 @@ export class WebSocketClient {
     this.reconnectAttempts++;
     this.setStatus('reconnecting');
 
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const delay = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
     setTimeout(() => {
       this.connect().catch(() => {});
     }, delay);

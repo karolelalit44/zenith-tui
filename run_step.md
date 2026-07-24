@@ -208,3 +208,9 @@ zenith serve --port 8765
 | `gitpython` import error | Install with `pip install -e ".[git]"` |
 | `tsx` not found | Run `npm install` in the project root |
 | Port already in use | Use `--port <other>` or kill the process using that port |
+
+
+cmd /c "zenith serve --host localhost --port 8765 2>&1" | Tee-Object -FilePath .\zenith_run.log
+
+
+ Stop-Process -Name python -Force

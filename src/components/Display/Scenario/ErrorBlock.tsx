@@ -29,24 +29,27 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
           </Text>
         </Box>
 
-        {event.command && (
+        {event.code && (
           <Box flexDirection="row" marginTop={0}>
-            <Text color={theme.colors.text.muted}>Command: </Text>
-            <Text color={theme.colors.status.warning} wrap="wrap">{event.command}</Text>
+            <Text color={theme.colors.text.muted}>Code: </Text>
+            <Text color={theme.colors.status.warning} wrap="wrap">
+              {event.code}
+            </Text>
           </Box>
         )}
 
-        {event.stack && (
-          <Box flexDirection="column" marginTop={0} paddingX={1} backgroundColor={theme.colors.bg.card}>
-            <Text color={theme.colors.status.error} dimColor wrap="wrap">
-              {event.stack}
+        {event.provider && (
+          <Box flexDirection="row" marginTop={0}>
+            <Text color={theme.colors.text.muted}>Provider: </Text>
+            <Text color={theme.colors.text.bright} wrap="wrap">
+              {event.provider}
             </Text>
           </Box>
         )}
 
         <Box flexDirection="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" marginTop={0}>
           <Text color={theme.colors.text.muted}>
-            Status: Execution halted due to error.
+            {event.recoverable ? 'Recoverable - ' : ''}Status: Execution halted due to error.
           </Text>
           <Box paddingX={1} backgroundColor={theme.colors.status.error}>
             <Text color={theme.colors.bg.app} bold>

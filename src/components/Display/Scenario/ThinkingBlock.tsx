@@ -55,7 +55,10 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         <Text color={theme.colors.status.accent} bold>
           [THINK] {isCollapsed ? '▸' : '▾'}
         </Text>
-        <Text color={theme.colors.text.muted}> ({event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'})</Text>
+        <Text color={theme.colors.text.muted}>
+          {' '}
+          ({event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'})
+        </Text>
         <Text color={theme.colors.text.muted}> · </Text>
         <Text color={theme.colors.text.muted} underline>
           Shift+T to toggle

@@ -2,9 +2,7 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
-import { getStatusBarLabels } from '../../services/data/StaticContentRepository';
 import { formatTokenCount } from '../../services/data/tokenEstimationService';
-import { isAutoApproveEnabled } from '../../services/data/toolApprovalService';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
@@ -31,28 +29,23 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
   const activeBranch = gitBranch || getActiveGitBranch();
-  const statusLabels = getStatusBarLabels();
 
-  const displayModel =
-    modelName ||
-    `Provider: ${activeProvider.meta.name} | Model: ${activeProvider.config.model || activeProvider.meta.defaultModel}`;
+  const providerName = activeProvider.meta.name || 'Unknown';
+  const modelShort = modelName || activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
   const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
 
-  const getModeBadge = (m: ScenarioMode) => {
-    switch (m) {
-      case 'plan':
-        return { label: '[PLAN]', color: theme.colors.status.accent };
-      default:
-        return { label: '[BUILD]', color: theme.colors.status.success };
-    }
-  };
-
-  const modeBadge = getModeBadge(mode);
+  const modeBadge =
+    mode === 'plan'
+      ? { label: '[PLAN]', color: theme.colors.status.accent }
+      : { label: '[BUILD]', color: theme.colors.status.success };
 
   const totalBlocks = 10;
   const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
   const contextGauge = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
+
+  const dirParts = workspaceName.replace(/\\/g, '/').split('/');
+  const shortDir = dirParts.length > 2 ? `.../${dirParts.slice(-2).join('/')}` : workspaceName;
 
   return (
     <Box flexDirection="column" width="100%" marginTop={1}>
@@ -68,52 +61,40 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
             </Text>
           </Box>
           <Text color={theme.colors.text.muted}> </Text>
-
+          <Text color={theme.colors.text.muted}>Provider:</Text>
+          <Text color={theme.colors.text.bright} bold>
+            {' '}
+            {providerName}
+          </Text>
+          <Text color={theme.colors.text.muted}> | </Text>
+          <Text color={theme.colors.text.muted}>Model:</Text>
           <Text color={theme.colors.text.ethereal} bold>
-            {displayModel}
-          </Text>
-          <Text color={theme.colors.text.muted}> · </Text>
-
-          <Text color={theme.colors.text.muted}>{formatTokenCount(totalTokens)} tokens</Text>
-          <Text color={theme.colors.text.muted}> · </Text>
-
-          <Text color={contextPercent > 80 ? theme.colors.text.warning : theme.colors.status.success}>
-            [{contextGauge}] {contextPercent}%
+            {' '}
+            {modelShort}
           </Text>
         </Box>
 
         <Box flexDirection="row" alignItems="center">
-          {isRunning ? (
-            <Text color={theme.colors.status.success} bold>
-              {statusLabels.processingText}
-            </Text>
-          ) : (
-            <Text color={theme.colors.text.muted}>{statusLabels.idleText}</Text>
-          )}
-        </Box>
-      </Box>
-
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center" marginTop={0} flexWrap="wrap">
-        <Box flexDirection="row" alignItems="center">
-          <Text color={theme.colors.text.muted}>{statusLabels.dirPrefix} </Text>
-          <Text color={theme.colors.text.ethereal}>{workspaceName}</Text>
+          <Text color={theme.colors.text.muted}>dir:</Text>
+          <Text color={theme.colors.text.ethereal}> {shortDir}</Text>
           <Text color={theme.colors.text.muted}> </Text>
-
           <Text color={theme.colors.text.muted}>git:(</Text>
           <Text color={theme.colors.status.success}>{activeBranch}</Text>
           <Text color={theme.colors.text.muted}>)</Text>
-        </Box>
-
-        <Box flexDirection="row" alignItems="center">
-          <Text color={theme.colors.text.muted} dimColor>
-            {isAutoApproveEnabled() ? (
-              <Text color={theme.colors.status.success}>auto-approve:on</Text>
-            ) : (
-              <Text color={theme.colors.text.muted}>auto-approve:off</Text>
-            )}
-            {' · '}
-            {statusLabels.cancelHint} · {statusLabels.commandsHint} · {statusLabels.modeHint}
+          <Text color={theme.colors.text.muted}> | </Text>
+          <Text color={theme.colors.text.muted}>{formatTokenCount(totalTokens)} tokens</Text>
+          <Text color={theme.colors.text.muted}> </Text>
+          <Text color={contextPercent > 80 ? theme.colors.status.warning : theme.colors.status.success}>
+            [{contextGauge}] {contextPercent}%
           </Text>
+          <Text color={theme.colors.text.muted}> | </Text>
+          {isRunning ? (
+            <Text color={theme.colors.status.success} bold>
+              Running
+            </Text>
+          ) : (
+            <Text color={theme.colors.text.muted}>Idle</Text>
+          )}
         </Box>
       </Box>
     </Box>

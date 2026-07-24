@@ -9,7 +9,7 @@ export function cleanMessageText(rawText: string): string {
   cleaned = cleaned.replace(/```(?:tool|json)?\s*\n?\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?\}\s*\n?```/gi, '');
   cleaned = cleaned.replace(/\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?"params"\s*:\s*\{[\s\S]*?\}\s*\}/gi, '');
   cleaned = cleaned.replace(/```(?:tool|json)?\s*\n?\{[\s\S]*$/gi, '');
-  cleaned = cleaned.replace(/Command:\s*cd\s+.*?\nOutput:[\s\S]*?(?=\n\n|\Z)/gi, '');
+  cleaned = cleaned.replace(/Command:\s*cd\s+.*?\nOutput:[\s\S]*?(?=\n\n|Z)/gi, '');
   cleaned = cleaned.replace(/Successfully created new file:\s*[^\n]+/gi, '');
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
   return cleaned.trim();
@@ -105,8 +105,9 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
         kind: 'error',
         id: uid(),
         message: String(data.message || 'An error occurred'),
-        command: data.command ? String(data.command) : undefined,
-        stack: data.stack ? String(data.stack) : undefined,
+        code: data.code ? String(data.code) : undefined,
+        recoverable: typeof data.recoverable === 'boolean' ? data.recoverable : undefined,
+        provider: data.provider ? String(data.provider) : undefined,
       } as ScenarioEvent;
 
     case 'warning':
@@ -114,7 +115,7 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
         kind: 'warning',
         id: uid(),
         message: String(data.message || ''),
-        details: data.details ? String(data.details) : undefined,
+        code: data.code ? String(data.code) : undefined,
       } as ScenarioEvent;
 
     case 'retry':
@@ -129,20 +130,40 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
       return {
         kind: 'success',
         id: uid(),
-        message: String(data.message || 'Completed'),
+        message: String(data.message || data.tool || 'Completed'),
         filesCreated: Array.isArray(data.filesCreated) ? data.filesCreated.map(String) : [],
         commandsExecuted: Array.isArray(data.commandsExecuted) ? data.commandsExecuted.map(String) : [],
+        iterations: typeof data.iterations === 'number' ? data.iterations : undefined,
+        tokenInfo:
+          data.tokenInfo && typeof data.tokenInfo === 'object'
+            ? {
+                used: Number((data.tokenInfo as Record<string, unknown>).used) || 0,
+                remaining: Number((data.tokenInfo as Record<string, unknown>).remaining) || 0,
+                total: Number((data.tokenInfo as Record<string, unknown>).total) || 0,
+                percent: Number((data.tokenInfo as Record<string, unknown>).percent) || 0,
+              }
+            : undefined,
+        tool: data.tool ? String(data.tool) : undefined,
+        result:
+          data.result && typeof data.result === 'object'
+            ? {
+                success: Boolean((data.result as Record<string, unknown>).success),
+                output: String((data.result as Record<string, unknown>).output || ''),
+                error: String((data.result as Record<string, unknown>).error || ''),
+              }
+            : undefined,
       } as ScenarioEvent;
 
     case 'summary':
       return {
         kind: 'summary',
         id: uid(),
-        title: String(data.title || 'Summary'),
-        description: String(data.description || ''),
+        title: String(data.title || data.action || 'Summary'),
+        description: String(data.description || data.text || ''),
         filesCreated: Array.isArray(data.filesCreated) ? data.filesCreated.map(String) : [],
         commandsExecuted: Array.isArray(data.commandsExecuted) ? data.commandsExecuted.map(String) : [],
         verified: Array.isArray(data.verified) ? data.verified.map(String) : undefined,
+        action: data.action ? String(data.action) : undefined,
       } as ScenarioEvent;
 
     case 'progress':
@@ -150,7 +171,11 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
         kind: 'progress',
         id: uid(),
         label: String(data.label || data.status || 'Progress'),
-        steps: Array.isArray(data.steps) ? data.steps as ScenarioEvent['kind' extends 'progress' ? never : never] : [],
+        percent: typeof data.percent === 'number' ? data.percent : undefined,
+        iteration: typeof data.iteration === 'number' ? data.iteration : undefined,
+        steps: Array.isArray(data.steps)
+          ? (data.steps as ScenarioEvent['kind' extends 'progress' ? never : never])
+          : [],
       } as ScenarioEvent;
 
     case 'waiting':
@@ -168,7 +193,12 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
         command: String(data.command || ''),
         framework: String(data.framework || 'unknown'),
         results: Array.isArray(data.results) ? data.results : [],
-        summary: (data.summary as { total: number; passed: number; failed: number; skipped: number }) || { total: 0, passed: 0, failed: 0, skipped: 0 },
+        summary: (data.summary as { total: number; passed: number; failed: number; skipped: number }) || {
+          total: 0,
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+        },
       } as ScenarioEvent;
 
     case 'build_step':
@@ -253,12 +283,35 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
 function detectLanguage(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   const langMap: Record<string, string> = {
-    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-    py: 'python', rs: 'rust', go: 'go', java: 'java', kt: 'kotlin',
-    swift: 'swift', rb: 'ruby', php: 'php', c: 'c', cpp: 'cpp', h: 'c',
-    html: 'html', css: 'css', scss: 'scss', json: 'json', yaml: 'yaml',
-    yml: 'yaml', toml: 'toml', md: 'markdown', sql: 'sql', sh: 'bash',
-    bash: 'bash', zsh: 'bash', dockerfile: 'dockerfile', tf: 'terraform',
+    ts: 'typescript',
+    tsx: 'typescript',
+    js: 'javascript',
+    jsx: 'javascript',
+    py: 'python',
+    rs: 'rust',
+    go: 'go',
+    java: 'java',
+    kt: 'kotlin',
+    swift: 'swift',
+    rb: 'ruby',
+    php: 'php',
+    c: 'c',
+    cpp: 'cpp',
+    h: 'c',
+    html: 'html',
+    css: 'css',
+    scss: 'scss',
+    json: 'json',
+    yaml: 'yaml',
+    yml: 'yaml',
+    toml: 'toml',
+    md: 'markdown',
+    sql: 'sql',
+    sh: 'bash',
+    bash: 'bash',
+    zsh: 'bash',
+    dockerfile: 'dockerfile',
+    tf: 'terraform',
   };
   return langMap[ext] || 'text';
 }

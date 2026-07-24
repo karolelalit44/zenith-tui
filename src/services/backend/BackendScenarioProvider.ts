@@ -1,7 +1,7 @@
 import type { Scenario, ScenarioMode } from '../../types/scenario';
-import { wsClient } from './WebSocketClient';
+import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scenario/types';
 import { mapEvent } from './EventMapper';
-import type { ScenarioProvider, ScenarioListener, ScenarioRunner } from '../scenario/types';
+import { wsClient } from './WebSocketClient';
 
 export class BackendScenarioProvider implements ScenarioProvider {
   readonly name = 'backend';
@@ -16,11 +16,11 @@ export class BackendScenarioProvider implements ScenarioProvider {
     };
   }
 
-  execute(scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
+  execute(_scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
     this.abortFlag = false;
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
-    let partialMessageId: string | null = null;
+    let _partialMessageId: string | null = null;
     let accumulatedText = '';
 
     const unsubscribe = wsClient.onEvent((rpcEvent) => {
@@ -34,7 +34,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
         if (partialMessageIndex === null) {
           partialMessageIndex = eventIndex;
-          partialMessageId = `evt_stream_${Date.now()}`;
+          _partialMessageId = `evt_stream_${Date.now()}`;
           eventIndex++;
         }
 
@@ -66,7 +66,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         });
         onEvent(finalEvent, partialMessageIndex);
         partialMessageIndex = null;
-        partialMessageId = null;
+        _partialMessageId = null;
         accumulatedText = '';
       }
 
@@ -85,7 +85,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         });
         onEvent(finalEvent, targetIndex);
         partialMessageIndex = null;
-        partialMessageId = null;
+        _partialMessageId = null;
         accumulatedText = '';
         return;
       }
@@ -101,11 +101,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
     const statusUnsub = wsClient.onStatusChange((status) => {
       if (status === 'disconnected') {
-        onEvent({
-          kind: 'error',
-          id: `evt_ws_error_${Date.now()}`,
-          message: 'Connection to backend lost. Check that zenith serve is running.',
-        }, eventIndex++);
+        onEvent(
+          {
+            kind: 'error',
+            id: `evt_ws_error_${Date.now()}`,
+            message: 'Connection to backend lost. Check that zenith serve is running.',
+          },
+          eventIndex++,
+        );
         onComplete();
       }
     });
@@ -113,12 +116,15 @@ export class BackendScenarioProvider implements ScenarioProvider {
     const handle = setTimeout(() => {
       if (eventIndex === 0) {
         const waitingId = `evt_wait_${Date.now()}`;
-        onEvent({
-          kind: 'waiting',
-          id: waitingId,
-          message: 'Waiting for backend response...',
-          duration: 2000,
-        }, eventIndex++);
+        onEvent(
+          {
+            kind: 'waiting',
+            id: waitingId,
+            message: 'Waiting for backend response...',
+            duration: 2000,
+          },
+          eventIndex++,
+        );
       }
     }, 2000);
 

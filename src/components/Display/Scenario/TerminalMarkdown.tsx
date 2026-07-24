@@ -51,7 +51,7 @@ const FormattedInlineText: React.FC<{ text: string }> = ({ text }) => {
       {tokens.map((t, i) => {
         if (t.code) {
           return (
-            <Text key={i} color={theme.colors.status.warning} backgroundColor={theme.colors.bg.card}>
+            <Text key={i} color={theme.colors.status.warning} backgroundColor={theme.colors.bg.modal}>
               {` ${t.text} `}
             </Text>
           );
@@ -80,19 +80,48 @@ const FormattedInlineText: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-const SyntaxHighlightedLine: React.FC<{ line: string }> = ({ line }) => {
+const _SyntaxHighlightedLine: React.FC<{ line: string }> = ({ line }) => {
   const { theme } = useTheme();
 
   if (line.trim().startsWith('#') || line.trim().startsWith('//')) {
     return <Text color={theme.colors.text.muted}>{line}</Text>;
   }
 
-  const parts = line.split(/(\b(?:def|class|import|from|return|const|let|var|function|fn|pub|async|await|if|else|for|while|try|except|catch|raise|print|dict|str|int|bool|True|False|None|self)\b|".*?"|'.*?'|\b\d+\b)/g);
+  const parts = line.split(
+    /(\b(?:def|class|import|from|return|const|let|var|function|fn|pub|async|await|if|else|for|while|try|except|catch|raise|print|dict|str|int|bool|True|False|None|self)\b|".*?"|'.*?'|\b\d+\b)/g,
+  );
 
   const keywords = new Set([
-    'def', 'class', 'import', 'from', 'return', 'const', 'let', 'var', 'function',
-    'fn', 'pub', 'async', 'await', 'if', 'else', 'for', 'while', 'try', 'except',
-    'catch', 'raise', 'print', 'dict', 'str', 'int', 'bool', 'True', 'False', 'None', 'self',
+    'def',
+    'class',
+    'import',
+    'from',
+    'return',
+    'const',
+    'let',
+    'var',
+    'function',
+    'fn',
+    'pub',
+    'async',
+    'await',
+    'if',
+    'else',
+    'for',
+    'while',
+    'try',
+    'except',
+    'catch',
+    'raise',
+    'print',
+    'dict',
+    'str',
+    'int',
+    'bool',
+    'True',
+    'False',
+    'None',
+    'self',
   ]);
 
   return (
@@ -119,7 +148,11 @@ const SyntaxHighlightedLine: React.FC<{ line: string }> = ({ line }) => {
             </Text>
           );
         }
-        return <Text key={i} color={theme.colors.text.ethereal}>{p}</Text>;
+        return (
+          <Text key={i} color={theme.colors.text.ethereal}>
+            {p}
+          </Text>
+        );
       })}
     </Text>
   );
@@ -166,11 +199,11 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   });
 
   const makeRowStr = (cells: string[]) =>
-    '│ ' + cells.map((cell, i) => (cell || '').padEnd(colWidths[i])).join(' │ ') + ' │';
+    `│ ${cells.map((cell, i) => (cell || '').padEnd(colWidths[i])).join(' │ ')} │`;
 
-  const topBorder = '┌─' + colWidths.map((w) => '─'.repeat(w)).join('─┬─') + '─┐';
-  const headerSep = '├─' + colWidths.map((w) => '─'.repeat(w)).join('─┼─') + '─┤';
-  const bottomBorder = '└─' + colWidths.map((w) => '─'.repeat(w)).join('─┴─') + '─┘';
+  const topBorder = `┌─${colWidths.map((w) => '─'.repeat(w)).join('─┬─')}─┐`;
+  const headerSep = `├─${colWidths.map((w) => '─'.repeat(w)).join('─┼─')}─┤`;
+  const bottomBorder = `└─${colWidths.map((w) => '─'.repeat(w)).join('─┴─')}─┘`;
 
   return (
     <Box flexDirection="column" marginY={1}>
@@ -216,12 +249,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
       blocks.push(
         <Box key={`code_${idx}`} flexDirection="column" marginY={1} width="100%">
-          <Box
-            flexDirection="row"
-            justifyContent="space-between"
-            paddingX={1}
-            backgroundColor={theme.colors.bg.card}
-          >
+          <Box flexDirection="row" justifyContent="space-between" paddingX={1} backgroundColor={theme.colors.bg.modal}>
             <Text color={theme.colors.status.accent} bold>
               [{lang}]
             </Text>
@@ -346,5 +374,9 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     idx++;
   }
 
-  return <Box flexDirection="column" width="100%">{blocks}</Box>;
+  return (
+    <Box flexDirection="column" width="100%">
+      {blocks}
+    </Box>
+  );
 };

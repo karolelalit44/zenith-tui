@@ -12,7 +12,6 @@ export const SummaryCard: React.FC<SummaryCardProps> = React.memo(({ event }) =>
 
   return (
     <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1} paddingX={1}>
-      {/* Summary Header */}
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
         <Text color={theme.colors.status.success} bold>
           [SUMMARY]
@@ -23,7 +22,6 @@ export const SummaryCard: React.FC<SummaryCardProps> = React.memo(({ event }) =>
         </Text>
       </Box>
 
-      {/* Summary Box Container */}
       <Box
         flexDirection="column"
         width="100%"
@@ -32,6 +30,13 @@ export const SummaryCard: React.FC<SummaryCardProps> = React.memo(({ event }) =>
         paddingX={2}
         paddingY={1}
       >
+        {event.action && (
+          <Box marginBottom={1}>
+            <Text color={theme.colors.text.muted}>Action: </Text>
+            <Text color={theme.colors.status.accent}>{event.action}</Text>
+          </Box>
+        )}
+
         {event.description && (
           <Box marginBottom={1}>
             <Text color={theme.colors.text.ethereal}>{event.description}</Text>

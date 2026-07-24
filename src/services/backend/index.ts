@@ -1,4 +1,4 @@
-export { wsClient, WebSocketClient } from './WebSocketClient';
 export { BackendScenarioProvider, backendScenarioProvider } from './BackendScenarioProvider';
 export { mapEvent } from './EventMapper';
-export { sessionService, SessionService } from './SessionService';
+export { SessionService, sessionService } from './SessionService';
+export { WebSocketClient, wsClient } from './WebSocketClient';

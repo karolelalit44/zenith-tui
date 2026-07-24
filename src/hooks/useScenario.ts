@@ -30,13 +30,13 @@ export function useScenario(provider?: ScenarioProvider): UseScenarioReturn {
       try {
         await wsClient.connect();
       } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
+        const _reason = err instanceof Error ? err.message : String(err);
         setEvents([
           {
             kind: 'error',
             id: `evt_conn_${Date.now()}`,
             message: 'Cannot connect to backend. Run: zenith serve',
-            stack: reason,
+            code: 'CONNECTION_FAILED',
           },
         ]);
         setIsRunning(false);

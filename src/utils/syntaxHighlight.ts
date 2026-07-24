@@ -15,7 +15,7 @@ const LANG_MAP: Record<string, string> = {
 
 export function highlightCode(code: string, lang?: string): string {
   if (!code) return '';
-  const language = lang ? (LANG_MAP[lang.toLowerCase()] || lang.toLowerCase()) : 'text';
+  const language = lang ? LANG_MAP[lang.toLowerCase()] || lang.toLowerCase() : 'text';
 
   try {
     return highlight(code, {
@@ -26,4 +26,3 @@ export function highlightCode(code: string, lang?: string): string {
     return code;
   }
 }
-

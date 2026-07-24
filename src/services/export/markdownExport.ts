@@ -123,26 +123,24 @@ export function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string)
       case 'error':
         lines.push(`### Error: ${event.message}`);
         lines.push('');
-        if (event.command) {
-          lines.push(`Command: \`${event.command}\``);
+        if (event.code) {
+          lines.push(`Code: \`${event.code}\``);
           lines.push('');
         }
-        if (event.stack) {
-          lines.push('<details>');
-          lines.push('<summary>Stack Trace</summary>');
+        if (event.provider) {
+          lines.push(`Provider: \`${event.provider}\``);
           lines.push('');
-          lines.push('```');
-          lines.push(event.stack);
-          lines.push('```');
-          lines.push('</details>');
+        }
+        if (event.recoverable) {
+          lines.push('> This error may be recoverable. You can retry or switch providers.');
           lines.push('');
         }
         break;
 
       case 'warning':
-        lines.push(`> ⚠️ **Warning:** ${event.message}`);
-        if (event.details) {
-          lines.push(`> ${event.details}`);
+        lines.push(`> **Warning:** ${event.message}`);
+        if (event.code) {
+          lines.push(`> Code: ${event.code}`);
         }
         lines.push('');
         break;

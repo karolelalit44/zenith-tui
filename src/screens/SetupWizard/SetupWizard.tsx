@@ -2,11 +2,11 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import React, { useCallback, useState } from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
-import { providerService } from '../../services/providers/ProviderService';
 import { startupService } from '../../services/data/StartupService';
-import type { ProviderId, ProviderState } from '../../services/providers/types';
-import type { AppStartupState, ProviderSetupRequest } from '../../types/startup';
+import { providerService } from '../../services/providers/ProviderService';
+import type { ProviderState } from '../../services/providers/types';
 import { useTheme } from '../../theme/ThemeContext';
+import type { AppStartupState, ProviderSetupRequest } from '../../types/startup';
 
 interface SetupWizardProps {
   startupState: AppStartupState;
@@ -31,7 +31,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   const [providers] = useState<ProviderState[]>(() => providerService.getAllProviders());
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [apiKeyInput, setApiKeyInput] = useState('');
-  const [apiKeyCursor, setApiKeyCursor] = useState(0);
+  const [_apiKeyCursor, _setApiKeyCursor] = useState(0);
   const [modelIdx, setModelIdx] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [editingField, setEditingField] = useState(false);
@@ -82,7 +82,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
     }
 
     if (step === 'select_provider') {
-      if (key.escape) { setStep('intro'); return; }
+      if (key.escape) {
+        setStep('intro');
+        return;
+      }
       if (key.upArrow) setSelectedIdx((p) => Math.max(0, p - 1));
       if (key.downArrow) setSelectedIdx((p) => Math.min(providers.length - 1, p + 1));
       if (key.return) {
@@ -101,7 +104,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
         return;
       }
 
-      if (key.escape) { setStep('select_provider'); return; }
+      if (key.escape) {
+        setStep('select_provider');
+        return;
+      }
       if (key.return) {
         if (!apiKeyInput.trim()) {
           setErrorMsg('API key is required.');
@@ -118,7 +124,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
     }
 
     if (step === 'select_model') {
-      if (key.escape) { setStep('enter_key'); return; }
+      if (key.escape) {
+        setStep('enter_key');
+        return;
+      }
       if (key.upArrow) setModelIdx((p) => Math.max(0, p - 1));
       if (key.downArrow) setModelIdx((p) => Math.min(models.length - 1, p + 1));
       if (key.return) handleValidateAndSave();
@@ -150,7 +159,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
     };
     return (
       <Box flexDirection="column" marginBottom={1}>
-        <Text color={theme.colors.status.warning} bold>Missing Configuration:</Text>
+        <Text color={theme.colors.status.warning} bold>
+          Missing Configuration:
+        </Text>
         {startupState.result.missing.map((item) => (
           <Box key={item} marginLeft={2}>
             <Text color={theme.colors.status.error}>✗ </Text>
@@ -169,7 +180,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
         {steps.map((s, i) => {
           const isActive = s === step;
           const isPast = i < currentIdx;
-          const color = isActive ? theme.colors.status.success : isPast ? theme.colors.text.dim : theme.colors.text.muted;
+          const color = isActive
+            ? theme.colors.status.success
+            : isPast
+              ? theme.colors.text.dim
+              : theme.colors.text.muted;
           return (
             <Box key={s}>
               <Text color={color}>
@@ -185,7 +200,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
 
   const renderProviderList = () => (
     <Box flexDirection="column">
-      <Text color={theme.colors.text.ethereal} bold>Select an AI Provider:</Text>
+      <Text color={theme.colors.text.ethereal} bold>
+        Select an AI Provider:
+      </Text>
       <Box flexDirection="column" marginTop={1}>
         {providers.map((p, idx) => {
           const isSelected = idx === selectedIdx;
@@ -203,7 +220,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
               </Box>
               <Box flexDirection="row" marginRight={1}>
                 {p.meta.swatch.map((c, i) => (
-                  <Text key={i} color={c}>█</Text>
+                  <Text key={i} color={c}>
+                    █
+                  </Text>
                 ))}
               </Box>
               <Box marginLeft={1}>
@@ -246,12 +265,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
       </Box>
       {!editingField && (
         <Box marginTop={1}>
-          <Text color={theme.colors.text.dim} italic>Press Space to edit, Enter to continue, Esc to go back</Text>
+          <Text color={theme.colors.text.dim} italic>
+            Press Space to edit, Enter to continue, Esc to go back
+          </Text>
         </Box>
       )}
       {editingField && (
         <Box marginTop={1}>
-          <Text color={theme.colors.text.dim} italic>Type or paste the key, Enter to confirm, Esc to cancel</Text>
+          <Text color={theme.colors.text.dim} italic>
+            Type or paste the key, Enter to confirm, Esc to cancel
+          </Text>
         </Box>
       )}
     </Box>
@@ -265,11 +288,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
       <Box flexDirection="column" marginTop={1}>
         {models.length === 0 && (
           <Box>
-            <Text color={theme.colors.text.muted}>
-              Using default: {selectedProvider.meta.defaultModel}
-            </Text>
+            <Text color={theme.colors.text.muted}>Using default: {selectedProvider.meta.defaultModel}</Text>
             <Box marginTop={1}>
-              <Text color={theme.colors.text.dim} italic>Press Enter to continue</Text>
+              <Text color={theme.colors.text.dim} italic>
+                Press Enter to continue
+              </Text>
             </Box>
           </Box>
         )}
@@ -286,9 +309,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
                 <Text color={isSelected ? theme.colors.text.bright : theme.colors.text.ethereal} bold={isSelected}>
                   {m.name || m.id}
                 </Text>
-                {m.description && (
-                  <Text color={theme.colors.text.dim}> — {m.description}</Text>
-                )}
+                {m.description && <Text color={theme.colors.text.dim}> — {m.description}</Text>}
               </Box>
             </Box>
           );
@@ -300,14 +321,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   const renderIntro = () => (
     <Box flexDirection="column">
       <Box marginBottom={1}>
-        <Text color={theme.colors.status.warning} bold>⚙ Setup Required</Text>
+        <Text color={theme.colors.status.warning} bold>
+          ⚙ Setup Required
+        </Text>
       </Box>
-      <Text color={theme.colors.text.ethereal}>
-        Before you can start using Zenith, some configuration is needed.
-      </Text>
+      <Text color={theme.colors.text.ethereal}>Before you can start using Zenith, some configuration is needed.</Text>
       {renderMissingSummary()}
       <Box marginTop={1}>
-        <Text color={theme.colors.text.dim} italic>Press Enter to begin setup</Text>
+        <Text color={theme.colors.text.dim} italic>
+          Press Enter to begin setup
+        </Text>
       </Box>
     </Box>
   );
@@ -326,19 +349,25 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
 
   const renderError = () => (
     <Box flexDirection="column">
-      <Text color={theme.colors.status.error} bold>Configuration Error</Text>
+      <Text color={theme.colors.status.error} bold>
+        Configuration Error
+      </Text>
       <Box marginTop={1}>
         <Text color={theme.colors.text.ethereal}>{errorMsg}</Text>
       </Box>
       <Box marginTop={1}>
-        <Text color={theme.colors.text.dim} italic>Press Enter to retry</Text>
+        <Text color={theme.colors.text.dim} italic>
+          Press Enter to retry
+        </Text>
       </Box>
     </Box>
   );
 
   const renderDone = () => (
     <Box flexDirection="column">
-      <Text color={theme.colors.status.success} bold>✓ Configuration Complete</Text>
+      <Text color={theme.colors.status.success} bold>
+        ✓ Configuration Complete
+      </Text>
       <Box marginTop={1}>
         <Text color={theme.colors.text.ethereal}>
           Provider: {selectedProvider.meta.name} | Model: {models[modelIdx]?.name || selectedProvider.meta.defaultModel}
@@ -352,20 +381,30 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
 
   const renderStepContent = () => {
     switch (step) {
-      case 'intro': return renderIntro();
-      case 'select_provider': return renderProviderList();
-      case 'enter_key': return renderApiKeyInput();
-      case 'select_model': return renderModelList();
-      case 'validating': return renderValidating();
-      case 'done': return renderDone();
-      case 'error': return renderError();
+      case 'intro':
+        return renderIntro();
+      case 'select_provider':
+        return renderProviderList();
+      case 'enter_key':
+        return renderApiKeyInput();
+      case 'select_model':
+        return renderModelList();
+      case 'validating':
+        return renderValidating();
+      case 'done':
+        return renderDone();
+      case 'error':
+        return renderError();
     }
   };
 
   const renderHotkeys = () => {
     if (step === 'intro') return 'Enter — Start Setup';
     if (step === 'select_provider') return '↑↓ — Navigate  |  Enter — Select  |  Esc — Back';
-    if (step === 'enter_key') return editingField ? 'Type or paste the key  |  Enter — Confirm  |  Esc — Cancel' : 'Space — Edit  |  Enter — Continue  |  Esc — Back';
+    if (step === 'enter_key')
+      return editingField
+        ? 'Type or paste the key  |  Enter — Confirm  |  Esc — Cancel'
+        : 'Space — Edit  |  Enter — Continue  |  Esc — Back';
     if (step === 'select_model') return '↑↓ — Navigate  |  Enter — Validate & Save  |  Esc — Back';
     if (step === 'error') return 'Enter — Retry  |  Esc — Back';
     if (step === 'validating' || step === 'done') return '';
@@ -375,7 +414,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   return (
     <RoundedBox title="ZENITH SETUP" borderColor={theme.colors.status.warning} hasShadow={true}>
       <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
-        <Box marginBottom={1} paddingBottom={1} borderStyle="single" borderBottom={true} borderColor={theme.colors.border.muted}>
+        <Box
+          marginBottom={1}
+          paddingBottom={1}
+          borderStyle="single"
+          borderBottom={true}
+          borderColor={theme.colors.border.muted}
+        >
           {renderStepIndicator()}
         </Box>
         <Box flexDirection="column" minHeight={6}>

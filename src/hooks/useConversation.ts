@@ -67,7 +67,7 @@ export function useConversation(): UseConversationReturn {
           kind: 'warning',
           id: `evt_abort_${Date.now()}`,
           message: 'Scenario cancelled by user',
-          details: 'Execution was stopped before completion.',
+          code: 'USER_ABORT',
         };
         return prev.map((t, i) =>
           i === prev.length - 1 ? { ...t, events: [...t.events, abortEvent], isComplete: true } : t,

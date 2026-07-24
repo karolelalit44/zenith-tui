@@ -17,14 +17,14 @@ import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
 import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
-import { WelcomeScreen } from './screens/Welcome';
 import { SetupWizard } from './screens/SetupWizard';
+import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
 import { loadUserProfile, saveUserProfile } from './services/data/userProfileService';
-import type { AppStartupState } from './types/startup';
 import { useTheme } from './theme/ThemeContext';
+import type { AppStartupState } from './types/startup';
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
@@ -71,6 +71,7 @@ export const App: React.FC = () => {
   const { events, isRunning, startScenario, abort } = useScenario();
 
   const [scrollOffset, setScrollOffset] = useState(0);
+  const MAX_VISIBLE_COMPLETED = 8;
   const prevTurnCountRef = useRef(turns.length);
   const suppressSubmitRef = useRef(false);
 
@@ -86,12 +87,19 @@ export const App: React.FC = () => {
     prevTurnCountRef.current = turns.length;
   }, [turns.length]);
 
+  const completedTurns = isRunning ? turns.slice(0, -1) : turns;
+  const hiddenAbove = Math.max(0, completedTurns.length - MAX_VISIBLE_COMPLETED - scrollOffset);
+  const visibleTurns = completedTurns.slice(
+    Math.max(0, completedTurns.length - MAX_VISIBLE_COMPLETED - scrollOffset),
+    completedTurns.length - scrollOffset,
+  );
+
   const scrollUp = useCallback(() => {
-    setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, turns.length - 1)));
-  }, [turns.length]);
+    setScrollOffset((prev) => Math.min(prev + 3, Math.max(0, completedTurns.length - MAX_VISIBLE_COMPLETED)));
+  }, [completedTurns.length]);
 
   const scrollDown = useCallback(() => {
-    setScrollOffset((prev) => Math.max(0, prev - 1));
+    setScrollOffset((prev) => Math.max(0, prev - 3));
   }, []);
 
   const isIdle = !isRunning && !isOverlayOpen;
@@ -167,7 +175,15 @@ export const App: React.FC = () => {
 
   if (startupState.phase === 'loading') {
     return (
-      <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%" justifyContent="center" alignItems="center" minHeight={5}>
+      <Box
+        flexDirection="column"
+        paddingX={1}
+        paddingTop={1}
+        width="100%"
+        justifyContent="center"
+        alignItems="center"
+        minHeight={5}
+      >
         <Text color={theme.colors.text.muted}>Initializing Zenith...</Text>
       </Box>
     );
@@ -192,29 +208,33 @@ export const App: React.FC = () => {
       <WelcomeScreen workspace={workspace} />
 
       {/* Conversation turns */}
-      {turns.map((turn, idx) => {
-        const isHidden = idx < turns.length - 1 - scrollOffset;
-        if (isHidden) return null;
-        return (
-          <Box key={turn.id} flexDirection="column" marginTop={1}>
-            <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
-            {turn.events.length > 0 && (
-              <ScenarioRenderer
-                events={turn.events}
-                isRunning={false}
-                isHistorical={true}
-                thinkingCollapsed={thinkingCollapsed}
-              />
-            )}
-          </Box>
-        );
-      })}
+      {hiddenAbove > 0 && (
+        <Box marginTop={1}>
+          <Text color={theme.colors.text.muted} italic>
+            ↑ {hiddenAbove} earlier turn{hiddenAbove > 1 ? 's' : ''} hidden (PgUp to scroll)
+          </Text>
+        </Box>
+      )}
+
+      {visibleTurns.map((turn) => (
+        <Box key={turn.id} flexDirection="column" marginTop={1}>
+          <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
+          {turn.events.length > 0 && (
+            <ScenarioRenderer
+              events={turn.events}
+              isRunning={false}
+              isHistorical={true}
+              thinkingCollapsed={thinkingCollapsed}
+            />
+          )}
+        </Box>
+      ))}
 
       {/* Scroll indicator */}
       {scrollOffset > 0 && (
         <Box marginTop={1}>
           <Text color={theme.colors.text.muted} italic>
-            ↑ Scrolled up {scrollOffset} turn{scrollOffset > 1 ? 's' : ''} (PgDn to scroll down)
+            ↓ Showing older turns (PgDn to scroll down)
           </Text>
         </Box>
       )}
