@@ -12,7 +12,7 @@ from zenith.core.errors import PermissionDenied
 
 logger = logging.getLogger(__name__)
 
-PERMISSION_TIMEOUT_SECONDS = 300
+PERMISSION_TIMEOUT_SECONDS = 60
 
 
 class PermissionGate:

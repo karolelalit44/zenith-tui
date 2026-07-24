@@ -30,11 +30,13 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
     case 'message': {
       const isPartial = data.partial === true;
       const raw = String(data.text || '');
-      const cleanedText = cleanMessageText(raw);
+      // Only clean finalized messages — partial tokens may contain incomplete
+      // tool JSON that the regex cannot match yet.
+      const text = isPartial ? raw : cleanMessageText(raw);
       return {
         kind: 'message',
         id: uid(),
-        text: cleanedText || (isPartial ? raw : ''),
+        text: text || (isPartial ? raw : ''),
         partial: isPartial,
       } as ScenarioEvent;
     }

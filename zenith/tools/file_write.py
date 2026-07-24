@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import BaseTool, ToolResult
+from .param_normalizer import normalize_file_params
 
 
 class FileWriteTool(BaseTool):
@@ -31,7 +32,8 @@ class FileWriteTool(BaseTool):
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        rel_path = params.get("filepath") or params.get("path") or params.get("file_path") or ""
+        params = normalize_file_params(params)
+        rel_path = params.get("path") or ""
         if not rel_path:
             return ToolResult(success=False, error="Missing file path parameter")
 

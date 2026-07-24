@@ -34,7 +34,14 @@ def error(message: str, session_id: str, code: str = "", recoverable: bool = Fal
 
 def progress(percent: int, status: str, session_id: str, iteration: int = 0) -> Event:
     return event(EventKind.PROGRESS, {
-        "percent": percent, "status": status, "iteration": iteration,
+        "percent": percent, "label": status, "steps": [], "iteration": iteration,
+    }, session_id)
+
+
+def waiting_for_permission(tool_name: str, session_id: str) -> Event:
+    return event(EventKind.WAITING, {
+        "message": f"Waiting for permission approval for '{tool_name}'...",
+        "duration": 0,
     }, session_id)
 
 

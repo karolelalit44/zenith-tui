@@ -201,6 +201,9 @@ class AgentLoop:
                         request_id = f"perm_{uuid.uuid4().hex[:12]}"
                         yield r.permission_request(tool_name, tool_params, session_id, request_id)
 
+                        # Let the frontend know the loop is waiting for user action
+                        yield r.waiting_for_permission(tool_name, session_id)
+
                         # Wait for permission response (keyed by request_id)
                         approved = await gate.request_permission(tool, tool_params, request_id)
                         if not approved:

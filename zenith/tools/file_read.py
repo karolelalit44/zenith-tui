@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import BaseTool, ToolResult
+from .param_normalizer import normalize_file_params
 
 
 class FileReadTool(BaseTool):
@@ -37,7 +38,8 @@ class FileReadTool(BaseTool):
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        rel_path = params.get("filepath") or params.get("path") or params.get("file_path") or ""
+        params = normalize_file_params(params)
+        rel_path = params.get("path") or ""
         path = Path(workspace_root) / rel_path
         offset = params.get("offset", 0)
         limit = params.get("limit", 2000)

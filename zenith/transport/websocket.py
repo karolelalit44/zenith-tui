@@ -342,6 +342,16 @@ class ZenithHandler:
             await self._active_prompt_task
         except asyncio.CancelledError:
             logger.info("Prompt task cancelled for session %s", session_id)
+            if session_id:
+                cancel_event = Event(
+                    kind=EventKind.WARNING,
+                    data={
+                        "message": "Request cancelled.",
+                        "code": "CANCELLED",
+                    },
+                    session_id=session_id,
+                )
+                await self.manager.send_event(session_id, cancel_event)
 
     async def _handle_provider_validate(self, ws: WebSocket, rid, params) -> None:
         name = params.get("provider", self.config.active_provider)

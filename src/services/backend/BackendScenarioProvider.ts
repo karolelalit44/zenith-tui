@@ -3,6 +3,9 @@ import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scen
 import { mapEvent } from './EventMapper';
 import { wsClient } from './WebSocketClient';
 
+/** Timeout (ms) after which the frontend auto-finalizes if no events arrive. */
+const STALE_TIMEOUT_MS = 90_000;
+
 export class BackendScenarioProvider implements ScenarioProvider {
   readonly name = 'backend';
   private abortFlag = false;
@@ -20,9 +23,32 @@ export class BackendScenarioProvider implements ScenarioProvider {
     this.abortFlag = false;
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
+    /** Tracks the last slot used for a partial message — survives resets from non-message events. */
+    let lastPartialMessageIndex: number | null = null;
     let accumulatedText = '';
     let completed = false;
     let timerHandle: ReturnType<typeof setTimeout> | null = null;
+    let staleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const resetStaleTimer = () => {
+      if (staleTimer) clearTimeout(staleTimer);
+      staleTimer = setTimeout(() => {
+        if (!completed) {
+          onEvent(
+            {
+              kind: 'error',
+              id: `evt_stale_${Date.now()}`,
+              message: 'Backend response timed out. The backend may have disconnected.',
+              code: 'STALE_TIMEOUT',
+              recoverable: true,
+            },
+            eventIndex++,
+          );
+          finalize();
+          onComplete();
+        }
+      }, STALE_TIMEOUT_MS);
+    };
 
     const finalize = () => {
       if (completed) return;
@@ -31,12 +57,22 @@ export class BackendScenarioProvider implements ScenarioProvider {
         clearTimeout(timerHandle);
         timerHandle = null;
       }
+      if (staleTimer) {
+        clearTimeout(staleTimer);
+        staleTimer = null;
+      }
       unsubscribe();
       statusUnsub();
     };
 
+    // Start the stale-event safety net
+    resetStaleTimer();
+
     const unsubscribe = wsClient.onEvent((rpcEvent) => {
       if (this.abortFlag || completed) return;
+
+      // Any event resets the stale timer
+      resetStaleTimer();
 
       const { kind, data } = rpcEvent.params;
 
@@ -46,6 +82,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
         if (partialMessageIndex === null) {
           partialMessageIndex = eventIndex;
+          lastPartialMessageIndex = eventIndex;
           eventIndex++;
         }
 
@@ -82,7 +119,20 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       if (kind === 'message' && !data?.partial) {
         const fullText = String(data.text || accumulatedText);
-        const targetIndex = partialMessageIndex !== null ? partialMessageIndex : eventIndex++;
+
+        // Determine target index: prefer active partial, then the last known partial slot,
+        // otherwise allocate a new slot.
+        let targetIndex: number;
+        if (partialMessageIndex !== null) {
+          targetIndex = partialMessageIndex;
+        } else if (lastPartialMessageIndex !== null && accumulatedText) {
+          // The partial was already finalized by a non-message event,
+          // but this is the cleaned replacement — reuse the same slot.
+          targetIndex = lastPartialMessageIndex;
+        } else {
+          targetIndex = eventIndex++;
+        }
+
         const finalEvent = mapEvent({
           ...rpcEvent,
           params: {
@@ -95,6 +145,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         });
         onEvent(finalEvent, targetIndex);
         partialMessageIndex = null;
+        lastPartialMessageIndex = null;
         accumulatedText = '';
         return;
       }
