@@ -7,14 +7,14 @@ interface FileDeleteCardProps {
   event: FileDeleteEvent;
 }
 
-export const FileDeleteCard: React.FC<FileDeleteCardProps> = ({ event }) => {
+export const FileDeleteCard: React.FC<FileDeleteCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
         <Text color={theme.colors.status.error} bold>
-          [DELETED]
+          [DELETE]
         </Text>
         <Text color={theme.colors.text.muted}> · </Text>
         <Text color={theme.colors.text.ethereal} bold>
@@ -23,14 +23,20 @@ export const FileDeleteCard: React.FC<FileDeleteCardProps> = ({ event }) => {
       </Box>
 
       {event.lines.length > 0 && (
-        <Box flexDirection="column" borderStyle="round" borderColor={theme.colors.text.error} paddingX={1}>
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={theme.colors.status.error}
+          paddingX={1}
+          flexWrap="wrap"
+        >
           {event.lines.map((line, idx) => (
             <Box key={idx} flexDirection="row">
               <Box width={4}>
                 <Text color={theme.colors.text.muted}>{idx + 1}</Text>
               </Box>
               <Box width={2}>
-                <Text color={theme.colors.text.error}>-</Text>
+                <Text color={theme.colors.status.error}>-</Text>
               </Box>
               <Text color={theme.colors.text.error} strikethrough>
                 {line.text}
@@ -41,4 +47,4 @@ export const FileDeleteCard: React.FC<FileDeleteCardProps> = ({ event }) => {
       )}
     </Box>
   );
-};
+});

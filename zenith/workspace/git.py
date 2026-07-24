@@ -7,7 +7,11 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from zenith.config.env import require_int
+
 logger = logging.getLogger(__name__)
+
+_GIT_TIMEOUT = require_int("ZENITH_GIT_TIMEOUT")
 
 
 class GitOps:
@@ -34,7 +38,7 @@ class GitOps:
         """Check if workspace is inside a git repository."""
         return self.find_git_root() is not None
 
-    def _run(self, *args: str, timeout: int = 30) -> tuple[int, str, str]:
+    def _run(self, *args: str, timeout: int = _GIT_TIMEOUT) -> tuple[int, str, str]:
         """Run a git command and return (exit_code, stdout, stderr)."""
         root = self.find_git_root()
         if not root:

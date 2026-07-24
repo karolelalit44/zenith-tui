@@ -1,6 +1,7 @@
+import { render } from 'ink-testing-library';
+// biome-ignore lint/correctness/noUnusedImports: React is required for JSX transform (jsx: "react")
 import React from 'react';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
-import { render } from 'ink-testing-library';
 import { App } from '../src/App';
 import { startupService } from '../src/services/data/StartupService';
 
@@ -34,7 +35,9 @@ class MockWebSocket {
   }
   addEventListener() {}
   removeEventListener() {}
-  dispatchEvent(_e: Event) { return false; }
+  dispatchEvent(_e: Event) {
+    return false;
+  }
 }
 beforeAll(() => {
   (globalThis as any).WebSocket = MockWebSocket;

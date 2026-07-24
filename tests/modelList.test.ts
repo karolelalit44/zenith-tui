@@ -12,9 +12,7 @@ describe('ModelService Dynamic DB & Update Operations', () => {
   });
 
   it('updates models list via updateModelsList()', () => {
-    const customModels = [
-      { id: 'custom-gpt-5', name: 'Custom GPT-5', contextWindow: 500000 },
-    ];
+    const customModels = [{ id: 'custom-gpt-5', name: 'Custom GPT-5', contextWindow: 500000 }];
     service.updateModelsList('openai', customModels);
 
     const updated = service.getModels('openai');

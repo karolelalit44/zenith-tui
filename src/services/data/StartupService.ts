@@ -1,7 +1,9 @@
 import type { AppStartupState, ProviderSetupRequest, ProviderSetupResult, StartupResult } from '../../types/startup';
 import { providerRepository } from '../providers/ProviderRepository';
+import { requireInt } from '../../config/env';
 
 const BACKEND_BASE = process.env.VITE_BACKEND_URL || 'http://localhost:8765';
+const VALIDATION_TIMEOUT = requireInt('ZENITH_VALIDATION_TIMEOUT') * 1000 + 5000;
 
 function backendUrl(path: string): string {
   return `${BACKEND_BASE.replace(/\/+$/, '')}${path}`;
@@ -10,7 +12,7 @@ function backendUrl(path: string): string {
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(VALIDATION_TIMEOUT),
     ...options,
   });
   if (!res.ok) {

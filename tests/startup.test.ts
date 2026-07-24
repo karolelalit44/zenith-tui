@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { StartupService } from '../src/services/data/StartupService';
 
 const READY_RESPONSE = {

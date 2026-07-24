@@ -36,9 +36,7 @@ export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event }) 
         )}
 
         <Box marginTop={1} flexDirection="row" justifyContent="flex-end">
-          <Text color={theme.colors.status.warning} dimColor>
-            [NON-FATAL - Execution Continuing]
-          </Text>
+          <Text color={theme.colors.text.dim}>[NON-FATAL - Execution Continuing]</Text>
         </Box>
       </Box>
     </Box>

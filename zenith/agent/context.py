@@ -8,6 +8,10 @@ from zenith.config.settings import AppSettings
 from zenith.core.message import Message
 from zenith.providers.token_counter import TokenCounter
 
+RESPONSE_RESERVE_RATIO = 0.7
+PROMPT_BUFFER_TOKENS = 500
+SUMMARY_FRAMING_TOKENS = 4
+
 
 @dataclass
 class TokenInfo:
@@ -38,7 +42,7 @@ class ContextManager:
         Older history is dropped first when approaching the limit.
         """
         max_tokens = self.config.max_context_tokens
-        budget = int(max_tokens * 0.7)  # reserve 30% for response
+        budget = int(max_tokens * RESPONSE_RESERVE_RATIO)
 
         messages: list[dict] = []
 
@@ -52,8 +56,8 @@ class ContextManager:
             summary_tokens = self.token_counter.count(summary, model)
             if used + summary_tokens <= budget:
                 messages.append({"role": "user", "content": f"[Previous conversation summary]\n{summary}"})
-                messages.append({"role": "assistant", "content": "Understood. I have the context from the previous summary."})
-                used += summary_tokens + 4
+                messages.append({"role": "assistant", "content": "Understood."})
+                used += summary_tokens + SUMMARY_FRAMING_TOKENS
 
         # 3. History — add most recent first, drop oldest when budget exceeded
         history_msgs: list[dict] = []
@@ -62,11 +66,9 @@ class ContextManager:
             entry_tokens = self.token_counter.count(msg.content, model)
             history_msgs.append((entry, entry_tokens))
 
-        # Iterate history in reverse (most recent first), stop when budget exceeded
         included: list[dict] = []
         for entry, tokens in reversed(history_msgs):
-            # Reserve space for new_prompt + a buffer
-            if used + tokens + 500 > budget:
+            if used + tokens + PROMPT_BUFFER_TOKENS > budget:
                 break
             included.insert(0, entry)
             used += tokens

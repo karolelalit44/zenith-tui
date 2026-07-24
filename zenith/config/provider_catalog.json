@@ -1,0 +1,378 @@
+{
+  "version": 1,
+  "default_active_provider": "nvidia",
+  "providers": {
+    "openrouter": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "description": "Unified API gateway for 100+ LLMs",
+      "adapter": "openai_compat",
+      "default_model": "meta-llama/llama-3.3-70b-instruct",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_prefix": "sk-or-v1-",
+      "requires_api_key": true,
+      "swatch": ["#7000FF", "#A033FF", "#6000DF"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "sk-or-v1-..." },
+        { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://openrouter.ai/api/v1" },
+        { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+      ],
+      "models": [
+        {
+          "id": "meta-llama/llama-3.3-70b-instruct",
+          "name": "Meta Llama 3.3 70B",
+          "context_window": 128000,
+          "is_default": true
+        },
+        { "id": "openai/gpt-4o", "name": "OpenAI GPT-4o", "context_window": 128000 },
+        { "id": "openai/gpt-4o-mini", "name": "OpenAI GPT-4o Mini", "context_window": 128000 },
+        { "id": "anthropic/claude-sonnet-4-20250514", "name": "Anthropic Claude Sonnet 4", "context_window": 200000 },
+        { "id": "anthropic/claude-3-5-haiku-20241022", "name": "Anthropic Claude 3.5 Haiku", "context_window": 200000 },
+        {
+          "id": "google/gemini-2.0-flash-exp:free",
+          "name": "Google Gemini 2.0 Flash (free)",
+          "context_window": 1048576
+        },
+        { "id": "meta-llama/llama-3.1-8b-instruct", "name": "Meta Llama 3.1 8B", "context_window": 131072 },
+        { "id": "mistralai/mistral-7b-instruct", "name": "Mistral 7B", "context_window": 32768 },
+        { "id": "deepseek/deepseek-chat", "name": "DeepSeek Chat", "context_window": 128000 },
+        { "id": "openrouter/auto", "name": "Auto (cheapest suitable)", "context_window": 128000 }
+      ]
+    },
+    "openai": {
+      "id": "openai",
+      "name": "OpenAI",
+      "description": "Official OpenAI GPT series models",
+      "adapter": "openai_compat",
+      "default_model": "gpt-4o-mini",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_prefix": "sk-",
+      "requires_api_key": true,
+      "swatch": ["#10A37F", "#1A7F64", "#0D8C6D"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "sk-..." },
+        { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://api.openai.com/v1" },
+        { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+      ],
+      "models": [
+        { "id": "gpt-4o-mini", "name": "GPT-4o Mini", "context_window": 128000, "is_default": true },
+        { "id": "gpt-4o", "name": "GPT-4o", "context_window": 128000 },
+        { "id": "gpt-4-turbo", "name": "GPT-4 Turbo", "context_window": 128000 },
+        { "id": "gpt-4", "name": "GPT-4", "context_window": 8192 },
+        { "id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo", "context_window": 16385 }
+      ]
+    },
+    "nvidia": {
+      "id": "nvidia",
+      "name": "NVIDIA AI",
+      "description": "NVIDIA NIM microservices & high-performance LLM catalog",
+      "adapter": "nvidia",
+      "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_key_prefix": "nvapi-",
+      "requires_api_key": true,
+      "swatch": ["#76B900", "#5C9900", "#447700"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "nvapi-..." },
+        {
+          "key": "baseUrl",
+          "label": "Base URL",
+          "type": "text",
+          "defaultValue": "https://integrate.api.nvidia.com/v1"
+        },
+        { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+      ],
+      "models": [
+        {
+          "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
+          "name": "NVIDIA Nemotron Super 49B",
+          "description": "Open, efficient hybrid Mamba-Transformer MoE with 1M context, excelling in agentic reasoning, coding, planning, tool calling",
+          "context_window": 1048576,
+          "parameters": "561B",
+          "architecture": "Mamba-Transformer MoE",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tags": ["agent", "frontier", "long-context", "moe", "reasoning"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": false,
+            "reasoning": true,
+            "thinking": true
+          },
+          "speed_tier": "fast",
+          "best_for": ["agentic reasoning", "coding", "planning", "tool calling"],
+          "is_default": true
+        },
+        {
+          "id": "deepseek-ai/deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "description": "Fast MoE model optimized for coding tasks with reasoning support",
+          "context_window": 128000,
+          "parameters": "671B (MoE)",
+          "architecture": "Mixture of Experts",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tags": ["moe", "coding", "reasoning"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": true,
+            "reasoning": true,
+            "thinking": true
+          },
+          "speed_tier": "fast",
+          "best_for": ["coding", "reasoning", "general tasks"]
+        },
+        {
+          "id": "poolside/laguna-xs-2.1",
+          "name": "Poolside Laguna XS",
+          "description": "Efficient 33B MoE for local, long-horizon agentic coding and terminal tasks",
+          "context_window": 262144,
+          "parameters": "33B",
+          "architecture": "MoE",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tags": ["agentic", "coding", "reasoning", "tool-use"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": false,
+            "reasoning": true,
+            "thinking": true
+          },
+          "speed_tier": "fast",
+          "best_for": ["agentic coding", "terminal tasks", "long-horizon workflows"]
+        },
+        {
+          "id": "minimaxai/minimax-m3",
+          "name": "MiniMax M3",
+          "description": "Multimodal MoE vision-language model with strong reasoning, coding, and tool-calling capabilities",
+          "context_window": 1048576,
+          "parameters": "427B",
+          "architecture": "MoE",
+          "input_modalities": ["text", "image", "video"],
+          "output_modalities": ["text"],
+          "tags": ["coding", "reasoning", "multimodal"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": true,
+            "reasoning": true,
+            "thinking": true
+          },
+          "speed_tier": "moderate",
+          "best_for": ["multimodal tasks", "vision + reasoning", "coding"]
+        },
+        {
+          "id": "meta/llama-3.3-70b-instruct",
+          "name": "Meta Llama 3.3 70B",
+          "description": "Large open-weight model with strong general reasoning and instruction following",
+          "context_window": 128000,
+          "parameters": "70B",
+          "architecture": "Dense Transformer",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tags": ["general", "reasoning"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": true,
+            "reasoning": true,
+            "thinking": true
+          },
+          "speed_tier": "slow",
+          "best_for": ["general reasoning", "instruction following"]
+        },
+        {
+          "id": "meta/llama-3.1-8b-instruct",
+          "name": "Meta Llama 3.1 8B",
+          "description": "Lightweight model for fast responses on simple tasks",
+          "context_window": 131072,
+          "parameters": "8B",
+          "architecture": "Dense Transformer",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tags": ["lightweight", "fast"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": false,
+            "reasoning": false,
+            "thinking": true
+          },
+          "speed_tier": "fast",
+          "best_for": ["quick responses", "simple tasks", "batch processing"]
+        },
+        {
+          "id": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "name": "NVIDIA Nemotron 70B",
+          "description": "NVIDIA-tuned Llama 3.1 70B optimized for instruction following",
+          "context_window": 131072,
+          "parameters": "70B",
+          "architecture": "Dense Transformer",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tags": ["instruction-following", "reasoning"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": true,
+            "reasoning": true,
+            "thinking": true
+          },
+          "speed_tier": "moderate",
+          "best_for": ["instruction following", "structured tasks"]
+        },
+        {
+          "id": "mistralai/mistral-large-2-instruct",
+          "name": "Mistral Large 2",
+          "description": "Mistral's flagship model with strong multilingual and coding capabilities",
+          "context_window": 128000,
+          "parameters": "123B",
+          "architecture": "Dense Transformer",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tags": ["multilingual", "coding", "reasoning"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": true,
+            "reasoning": true,
+            "thinking": true
+          },
+          "speed_tier": "moderate",
+          "best_for": ["multilingual tasks", "coding", "complex reasoning"]
+        }
+      ]
+    },
+    "anthropic": {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "description": "Official Anthropic Claude family models",
+      "adapter": "openai_compat",
+      "default_model": "claude-sonnet-4-20250514",
+      "base_url": "https://api.anthropic.com",
+      "api_key_prefix": "sk-ant-",
+      "requires_api_key": true,
+      "swatch": ["#D97706", "#B45309", "#92400E"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "sk-ant-..." },
+        { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://api.anthropic.com" },
+        { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+      ],
+      "models": [
+        { "id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "context_window": 200000, "is_default": true },
+        { "id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku", "context_window": 200000 },
+        { "id": "claude-3-opus-20240229", "name": "Claude 3 Opus", "context_window": 200000 }
+      ]
+    },
+    "google": {
+      "id": "google",
+      "name": "Google Gemini",
+      "description": "Google Gemini AI models",
+      "adapter": "openai_compat",
+      "default_model": "gemini-2.0-flash",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_key_prefix": "AIzaSy",
+      "requires_api_key": true,
+      "swatch": ["#4285F4", "#34A853", "#FBBC05"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "AIzaSy..." },
+        {
+          "key": "baseUrl",
+          "label": "Base URL",
+          "type": "text",
+          "defaultValue": "https://generativelanguage.googleapis.com"
+        },
+        { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+      ],
+      "models": [
+        { "id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "context_window": 1048576, "is_default": true },
+        { "id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "context_window": 2097152 },
+        { "id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "context_window": 1048576 }
+      ]
+    },
+    "groq": {
+      "id": "groq",
+      "name": "Groq",
+      "description": "Groq LPU ultra-fast inference API",
+      "adapter": "openai_compat",
+      "default_model": "llama-3.3-70b-versatile",
+      "base_url": "https://api.groq.com/openai/v1",
+      "api_key_prefix": "gsk_",
+      "requires_api_key": true,
+      "swatch": ["#F55036", "#D43E26", "#B22F19"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "apiKey", "label": "API Key", "type": "password", "required": true, "placeholder": "gsk_..." },
+        { "key": "baseUrl", "label": "Base URL", "type": "text", "defaultValue": "https://api.groq.com/openai/v1" },
+        { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+      ],
+      "models": [
+        {
+          "id": "llama-3.3-70b-versatile",
+          "name": "Llama 3.3 70B Versatile",
+          "context_window": 128000,
+          "is_default": true
+        },
+        { "id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B", "context_window": 32768 },
+        { "id": "gemma2-9b-it", "name": "Gemma 2 9B", "context_window": 8192 }
+      ]
+    },
+    "custom": {
+      "id": "custom",
+      "name": "Custom OpenAI-Compatible",
+      "description": "Self-hosted Ollama, vLLM, or custom server",
+      "adapter": "openai_compat",
+      "default_model": "llama3",
+      "base_url": "http://localhost:11434/v1",
+      "api_key_prefix": null,
+      "requires_api_key": false,
+      "swatch": ["#6B7280", "#4B5563", "#374151"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        {
+          "key": "baseUrl",
+          "label": "Base URL",
+          "type": "text",
+          "required": true,
+          "placeholder": "http://localhost:11434/v1"
+        },
+        { "key": "apiKey", "label": "API Key", "type": "password", "placeholder": "Optional" },
+        { "key": "model", "label": "Model Name", "type": "text", "required": true, "placeholder": "e.g. llama3" },
+        { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
+      ],
+      "models": [
+        { "id": "llama3", "name": "Llama 3", "context_window": 8192, "is_default": true },
+        { "id": "codellama", "name": "CodeLlama", "context_window": 16384 },
+        { "id": "mistral", "name": "Mistral", "context_window": 32768 }
+      ]
+    }
+  }
+}

@@ -7,7 +7,7 @@ interface UnknownEventFallbackProps {
   event: ScenarioEvent;
 }
 
-export const UnknownEventFallback: React.FC<UnknownEventFallbackProps> = ({ event }) => {
+export const UnknownEventFallback: React.FC<UnknownEventFallbackProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const eventKind = event.kind ? String(event.kind).toUpperCase() : 'EVENT';
 
@@ -31,7 +31,7 @@ export const UnknownEventFallback: React.FC<UnknownEventFallbackProps> = ({ even
       >
         <Box marginBottom={1}>
           <Text color={theme.colors.text.muted} italic>
-            No specific UI renderer registered for kind: &quot;{event.kind}&quot;. Fallback raw data render:
+            No specific UI renderer registered for kind: "{event.kind}". Fallback raw data render:
           </Text>
         </Box>
 
@@ -50,4 +50,4 @@ export const UnknownEventFallback: React.FC<UnknownEventFallbackProps> = ({ even
       </Box>
     </Box>
   );
-};
+});

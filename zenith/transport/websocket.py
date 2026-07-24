@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from fastapi import WebSocket, WebSocketDisconnect
@@ -14,6 +15,7 @@ from zenith.db.connection import Database
 from zenith.db.repository import SessionRepository, MessageRepository
 from zenith.providers.registry import ProviderRegistry
 from zenith.tools.registry import ToolRegistry
+from zenith.tools.permission_store import PermissionStore
 from zenith.tools import create_default_registry
 from zenith.agent.loop import AgentLoop
 from zenith.agent.recovery import RecoverableAgentLoop
@@ -23,6 +25,8 @@ from zenith.session.export import SessionExporter
 from zenith.config.settings import AppSettings
 
 logger = logging.getLogger(__name__)
+
+PERMISSION_TIMEOUT_SECONDS = 300
 
 
 class ConnectionManager:
@@ -60,7 +64,6 @@ class ConnectionManager:
             )
 
 
-
 class ZenithHandler:
     def __init__(
         self,
@@ -80,6 +83,8 @@ class ZenithHandler:
         self.manager = ConnectionManager()
         self.skill_loader = SkillLoader(config.workspace_root)
         self.exporter = SessionExporter()
+        self._perm_store = PermissionStore(db)
+        self._active_prompt_task: asyncio.Task | None = None
 
     def _reload_config(self) -> None:
         """Reload configuration from SQLite database after setup wizard saves to zenith.db."""
@@ -123,6 +128,8 @@ class ZenithHandler:
         finally:
             if session_id:
                 self.manager.disconnect(session_id)
+            if self._active_prompt_task and not self._active_prompt_task.done():
+                self._active_prompt_task.cancel()
 
     async def _dispatch(
         self,
@@ -162,6 +169,22 @@ class ZenithHandler:
 
         elif method == "tools.list":
             await self._handle_tools_list(websocket, rid, params)
+            return current_session_id
+
+        elif method == "permission.respond":
+            await self._handle_permission_respond(websocket, rid, params)
+            return current_session_id
+
+        elif method == "permission.list":
+            await self._handle_permission_list(websocket, rid)
+            return current_session_id
+
+        elif method == "permission.approve":
+            await self._handle_permission_approve(websocket, rid, params)
+            return current_session_id
+
+        elif method == "permission.deny":
+            await self._handle_permission_deny(websocket, rid, params)
             return current_session_id
 
         elif method == "workspace.status":
@@ -274,43 +297,51 @@ class ZenithHandler:
             make_response(rid, {"session_id": session_id, "status": "processing"})
         )
 
-        history = await self.message_repo.get_by_session(session_id)
-        context_manager = ContextManager(self.config)
-        agent = RecoverableAgentLoop(
-            self.config, provider, context_manager, self.tool_registry
-        )
+        if self._active_prompt_task and not self._active_prompt_task.done():
+            self._active_prompt_task.cancel()
 
-        skills_section = self.skill_loader.get_skill_prompt()
-
-        collected_events: list[Event] = []
-        response_text = ""
-
-        try:
-            async for event in agent.process_prompt(
-                content, session_id, history, mode,
-                skills_section=skills_section,
-            ):
-                collected_events.append(event)
-                await self.manager.send_event(session_id, event)
-                if event.kind == EventKind.MESSAGE and not event.data.get("partial"):
-                    response_text += event.data.get("text", "")
-
-        except Exception as e:
-            error_event = Event(
-                kind=EventKind.ERROR,
-                data={"message": str(e)},
-                session_id=session_id,
+        async def _run_prompt():
+            history = await self.message_repo.get_by_session(session_id)
+            context_manager = ContextManager(self.config)
+            agent = RecoverableAgentLoop(
+                self.config, provider, context_manager, self.tool_registry
             )
-            await self.manager.send_event(session_id, error_event)
-            collected_events.append(error_event)
+            skills_section = self.skill_loader.get_skill_prompt()
+            collected_events: list[Event] = []
+            response_text = ""
 
-        assistant_msg = Message(
-            session_id=session_id,
-            role="assistant",
-            content=response_text,
-            events=collected_events,
-        )
-        await self.message_repo.create(assistant_msg)
+            try:
+                async for event in agent.process_prompt(
+                    content, session_id, history, mode,
+                    skills_section=skills_section,
+                ):
+                    collected_events.append(event)
+                    await self.manager.send_event(session_id, event)
+                    if event.kind == EventKind.MESSAGE and not event.data.get("partial"):
+                        response_text += event.data.get("text", "")
+
+            except Exception as e:
+                error_event = Event(
+                    kind=EventKind.ERROR,
+                    data={"message": str(e)},
+                    session_id=session_id,
+                )
+                await self.manager.send_event(session_id, error_event)
+                collected_events.append(error_event)
+
+            assistant_msg = Message(
+                session_id=session_id,
+                role="assistant",
+                content=response_text,
+                events=collected_events,
+            )
+            await self.message_repo.create(assistant_msg)
+
+        self._active_prompt_task = asyncio.create_task(_run_prompt())
+        try:
+            await self._active_prompt_task
+        except asyncio.CancelledError:
+            logger.info("Prompt task cancelled for session %s", session_id)
 
     async def _handle_provider_validate(self, ws: WebSocket, rid, params) -> None:
         name = params.get("provider", self.config.active_provider)
@@ -380,3 +411,56 @@ class ZenithHandler:
                 "keyFiles": key_files,
             })
         )
+
+    async def _handle_permission_respond(self, ws: WebSocket, rid, params) -> None:
+        tool_name = params.get("tool", "")
+        approved = params.get("approved", False)
+        remember = params.get("remember", False)
+        request_id = params.get("requestId", "")
+
+        if not tool_name:
+            await ws.send_text(make_error_response(rid, -32602, "Missing tool name"))
+            return
+
+        gate = self.tool_registry.gate
+        responded = gate.respond(request_id or tool_name, approved, remember)
+
+        if responded and approved and remember:
+            try:
+                await self._perm_store.approve(tool_name)
+            except Exception as e:
+                logger.warning("Failed to persist permission for %s: %s", tool_name, e)
+
+        await ws.send_text(make_response(rid, {
+            "responded": responded,
+            "tool": tool_name,
+            "approved": approved,
+        }))
+
+    async def _handle_permission_list(self, ws: WebSocket, rid) -> None:
+        permissions = await self._perm_store.list_all()
+        await ws.send_text(make_response(rid, {"permissions": permissions}))
+
+    async def _handle_permission_approve(self, ws: WebSocket, rid, params) -> None:
+        tool_name = params.get("tool", "")
+        if not tool_name:
+            await ws.send_text(make_error_response(rid, -32602, "Missing tool name"))
+            return
+
+        await self._perm_store.approve(tool_name)
+        gate = self.tool_registry.gate
+        gate.approve_session(tool_name)
+
+        await ws.send_text(make_response(rid, {"approved": True, "tool": tool_name}))
+
+    async def _handle_permission_deny(self, ws: WebSocket, rid, params) -> None:
+        tool_name = params.get("tool", "")
+        if not tool_name:
+            await ws.send_text(make_error_response(rid, -32602, "Missing tool name"))
+            return
+
+        await self._perm_store.deny(tool_name)
+        gate = self.tool_registry.gate
+        gate.deny_session(tool_name)
+
+        await ws.send_text(make_response(rid, {"denied": True, "tool": tool_name}))

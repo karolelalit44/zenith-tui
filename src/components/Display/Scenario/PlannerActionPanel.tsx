@@ -14,7 +14,7 @@ export const PlannerActionPanel: React.FC<PlannerActionPanelProps> = React.memo(
     : `zenith_plans/${event.defaultFilename || 'implementation-plan.md'}`;
 
   return (
-    <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box
         flexDirection="column"
         width="100%"

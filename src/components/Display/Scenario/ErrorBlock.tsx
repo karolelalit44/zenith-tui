@@ -15,10 +15,10 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
       <Box
         flexDirection="column"
         width="100%"
-        borderStyle="single"
+        borderStyle="round"
         borderColor={theme.colors.status.error}
         paddingX={1}
-        paddingY={0}
+        paddingY={1}
       >
         <Box flexDirection="row" alignItems="center" marginBottom={0} flexWrap="wrap">
           <Text color={theme.colors.status.error} bold>

@@ -144,14 +144,14 @@ export const themes: Record<string, Theme> = {
       border: { default: '#333333', active: '#A0A0A0', muted: '#222222' },
       text: {
         ethereal: '#E0E0E0',
-        muted: '#707070',
+        muted: '#808080',
         emerald: '#B0B0B0',
         warning: '#D0D0D0',
         error: '#888888',
         bright: '#FFFFFF',
-        dim: '#444444',
+        dim: '#666666',
       },
-      status: { success: '#A0A0A0', info: '#909090', error: '#888888', warning: '#D0D0D0', accent: '#C0C0C0' },
+      status: { success: '#4ADE80', info: '#60A5FA', error: '#F87171', warning: '#FBBF24', accent: '#C0C0C0' },
       diff: {
         addBg: '#1E2320',
         addWordBg: '#2C3530',

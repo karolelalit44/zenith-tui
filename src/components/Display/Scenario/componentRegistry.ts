@@ -9,6 +9,7 @@ import { FileDiffCard } from './FileDiffCard';
 import { FileEditDiffCard } from './FileEditDiffCard';
 import { MessageBlock } from './MessageBlock';
 import { ModeMismatchView } from './ModeMismatchView';
+import { PermissionDialog } from './PermissionDialog';
 import { PlannerActionPanel } from './PlannerActionPanel';
 import { ProgressBar } from './ProgressBar';
 import { RetryBlock } from './RetryBlock';
@@ -65,6 +66,7 @@ class ComponentRegistry {
     this.register('analysis', AnalysisCard as EventComponentType);
     this.register('planner_action_panel', PlannerActionPanel as EventComponentType);
     this.register('mode_mismatch', ModeMismatchView as EventComponentType);
+    this.register('permission_request', PermissionDialog as EventComponentType);
   }
 
   public register(kind: string, component: EventComponentType): void {

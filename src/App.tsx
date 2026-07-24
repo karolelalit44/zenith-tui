@@ -6,11 +6,13 @@ import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
+import { ASCII_SPINNER_FRAMES } from './constants/animation';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
+import { useTickAnimation } from './hooks/useTickAnimation';
 import { AddDirModal } from './screens/AddDir/AddDirModal';
 import { ContextModal } from './screens/Context/ContextModal';
 import { HelpModal } from './screens/Help/HelpModal';
@@ -29,6 +31,7 @@ import type { AppStartupState } from './types/startup';
 export const App: React.FC = () => {
   const { theme } = useTheme();
   const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
+  const tick = useTickAnimation(150, startupState.phase === 'loading');
   const [workspace, setWorkspace] = useState(() => process.cwd());
   const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
 
@@ -180,7 +183,9 @@ export const App: React.FC = () => {
         alignItems="center"
         minHeight={5}
       >
-        <Text color={theme.colors.text.muted}>Initializing Zenith...</Text>
+        <Text color={theme.colors.text.muted}>
+          {ASCII_SPINNER_FRAMES[tick % ASCII_SPINNER_FRAMES.length]} Initializing Zenith...
+        </Text>
       </Box>
     );
   }

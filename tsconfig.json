@@ -6,12 +6,13 @@
     "lib": ["es2022"],
     "jsx": "react",
     "outDir": "./dist-tsc",
-    "rootDir": "./src",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "zenith/config/*.json"]
 }

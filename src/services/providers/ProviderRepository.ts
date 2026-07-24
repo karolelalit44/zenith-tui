@@ -1,4 +1,5 @@
 import catalogData from '../../../zenith/config/provider_catalog.json';
+import { requireEnv, requireFloat, requireInt } from '../../config/env';
 import type { ProviderConfig, ProviderId, ProviderMeta } from './types';
 
 const catalog = catalogData as {
@@ -11,7 +12,26 @@ const catalog = catalogData as {
       description?: string;
       default_model: string;
       swatch?: string[];
-      models?: Array<{ id: string; name: string; context_window?: number; is_default?: number }>;
+      models?: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        context_window?: number;
+        parameters?: string;
+        architecture?: string;
+        input_modalities?: string[];
+        output_modalities?: string[];
+        tags?: string[];
+        model_capabilities?: {
+          function_calling?: boolean;
+          structured_output?: boolean;
+          reasoning?: boolean;
+          thinking?: boolean;
+        };
+        speed_tier?: string;
+        best_for?: string[];
+        is_default?: number;
+      }>;
       config_fields?: Array<{
         key: string;
         label: string;
@@ -24,7 +44,11 @@ const catalog = catalogData as {
   >;
 };
 
-const BACKEND_BASE = process.env.VITE_BACKEND_URL || 'http://localhost:8765';
+const BACKEND_BASE = requireEnv('VITE_BACKEND_URL');
+const BACKEND_FETCH_TIMEOUT = requireInt('VITE_BACKEND_FETCH_TIMEOUT');
+const DEFAULT_MAX_TOKENS = requireInt('VITE_DEFAULT_MAX_TOKENS');
+const DEFAULT_TEMPERATURE = requireFloat('VITE_DEFAULT_TEMPERATURE');
+const FALLBACK_MAX_TOKENS = requireInt('VITE_FALLBACK_MAX_TOKENS');
 
 function backendUrl(path: string): string {
   return `${BACKEND_BASE.replace(/\/+$/, '')}${path}`;
@@ -33,8 +57,21 @@ function backendUrl(path: string): string {
 export interface BackendProviderModel {
   id: string;
   name: string;
-  context_window?: number;
   description?: string;
+  context_window?: number;
+  parameters?: string;
+  architecture?: string;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  tags?: string[];
+  model_capabilities?: {
+    function_calling?: boolean;
+    structured_output?: boolean;
+    reasoning?: boolean;
+    thinking?: boolean;
+  };
+  speed_tier?: string;
+  best_for?: string[];
   is_default?: number;
 }
 
@@ -66,7 +103,20 @@ const DEFAULT_METAS: Record<ProviderId, ProviderMeta> = Object.fromEntries(
       description: p.description || '',
       defaultModel: p.default_model,
       swatch: p.swatch || [],
-      availableModels: (p.models || []).map((m) => ({ id: m.id, name: m.name })),
+      availableModels: (p.models || []).map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        context_window: m.context_window,
+        parameters: m.parameters,
+        architecture: m.architecture,
+        input_modalities: m.input_modalities,
+        output_modalities: m.output_modalities,
+        tags: m.tags,
+        model_capabilities: m.model_capabilities,
+        speed_tier: m.speed_tier as 'fast' | 'moderate' | 'slow' | undefined,
+        best_for: m.best_for,
+      })),
       fields: (p.config_fields || []).map((f) => ({
         key: f.key,
         label: f.label,
@@ -92,7 +142,20 @@ export class ProviderRepository {
       if (backend.models && backend.models.length > 0) {
         return {
           ...meta,
-          availableModels: backend.models.map((m) => ({ id: m.id, name: m.name, description: m.description })),
+          availableModels: backend.models.map((m) => ({
+            id: m.id,
+            name: m.name,
+            description: m.description,
+            context_window: m.context_window,
+            parameters: m.parameters,
+            architecture: m.architecture,
+            input_modalities: m.input_modalities,
+            output_modalities: m.output_modalities,
+            tags: m.tags,
+            model_capabilities: m.model_capabilities,
+            speed_tier: m.speed_tier as 'fast' | 'moderate' | 'slow' | undefined,
+            best_for: m.best_for,
+          })),
         };
       }
     }
@@ -103,7 +166,7 @@ export class ProviderRepository {
     try {
       const res = await fetch(backendUrl('/startup/provider-config'), {
         headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT),
       });
       if (res.ok) {
         const data = (await res.json()) as BackendProvidersResponse;
@@ -143,10 +206,10 @@ export class ProviderRepository {
         api_key: currentConfig.apiKey || '',
         model: activeModel,
         base_url: currentConfig.baseUrl || '',
-        max_tokens: currentConfig.timeout || 4096,
-        temperature: currentConfig.temperature ?? 0.7,
+        max_tokens: currentConfig.timeout || DEFAULT_MAX_TOKENS,
+        temperature: currentConfig.temperature ?? DEFAULT_TEMPERATURE,
       }),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT),
     })
       .then(() => this.refreshFromBackend())
       .catch(() => {});
@@ -159,18 +222,21 @@ export class ProviderRepository {
       ? {
           model: this._backendCache.providers[id].model || meta.defaultModel,
           apiKey: this._backendCache.providers[id].api_key || '',
-          baseUrl: this._backendCache.providers[id].base_url || (meta.fields?.find((f) => f.key === 'baseUrl')?.defaultValue as string) || '',
+          baseUrl:
+            this._backendCache.providers[id].base_url ||
+            (meta.fields?.find((f) => f.key === 'baseUrl')?.defaultValue as string) ||
+            '',
           organizationId: '',
-          timeout: this._backendCache.providers[id].max_tokens ?? 30000,
-          temperature: this._backendCache.providers[id].temperature ?? 0.7,
+          timeout: this._backendCache.providers[id].max_tokens ?? FALLBACK_MAX_TOKENS,
+          temperature: this._backendCache.providers[id].temperature ?? DEFAULT_TEMPERATURE,
         }
       : {
           model: meta.defaultModel,
           apiKey: '',
           baseUrl: (meta.fields?.find((f) => f.key === 'baseUrl')?.defaultValue as string) || '',
           organizationId: '',
-          timeout: 30000,
-          temperature: 0.7,
+          timeout: FALLBACK_MAX_TOKENS,
+          temperature: DEFAULT_TEMPERATURE,
         };
 
     return this._localConfigOverrides ? { ...base, ...this._localConfigOverrides } : base;
@@ -190,10 +256,10 @@ export class ProviderRepository {
         api_key: updatedConfig.apiKey || '',
         model: updatedConfig.model || '',
         base_url: updatedConfig.baseUrl || '',
-        max_tokens: updatedConfig.timeout || 30000,
-        temperature: updatedConfig.temperature ?? 0.7,
+        max_tokens: updatedConfig.timeout || FALLBACK_MAX_TOKENS,
+        temperature: updatedConfig.temperature ?? DEFAULT_TEMPERATURE,
       }),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT),
     })
       .then(() => this.refreshFromBackend())
       .catch(() => {});

@@ -12,8 +12,14 @@ from pydantic import BaseModel, Field
 
 from zenith.config.loader import load_config, save_config
 from zenith.config.settings import AppSettings
+from zenith.config.env import require_int, require_float
 from zenith.providers.registry import ProviderRegistry
 from zenith.providers.llm_provider import LLMProvider
+from zenith.db.repository import load_catalog
+from zenith.db.connection import resolve_db_path
+
+_DEFAULT_MAX_TOKENS = require_int("ZENITH_MAX_TOKENS")
+_DEFAULT_TEMPERATURE = require_float("ZENITH_TEMPERATURE")
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +52,8 @@ class ProviderSetupRequest(BaseModel):
     api_key: str = ""
     model: str = ""
     base_url: str = ""
-    max_tokens: int = 4096
-    temperature: float = 0.7
+    max_tokens: int = _DEFAULT_MAX_TOKENS
+    temperature: float = _DEFAULT_TEMPERATURE
 
 
 class ProviderSetupResult(BaseModel):
@@ -73,12 +79,13 @@ def validate_startup(workspace_root: str = ".") -> StartupResult:
 
     providers = config.providers or {}
     active = config.active_provider
+    catalog = load_catalog()
+    known_providers = set(catalog.get("providers", {}).keys())
 
     if not providers:
         missing.append(MissingItem.PROVIDER)
-    elif not active or active not in providers:
-        if active != "custom" or active not in providers:
-            missing.append(MissingItem.PROVIDER)
+    elif not active or (active not in providers and active not in known_providers):
+        missing.append(MissingItem.PROVIDER)
 
     provider_config = providers.get(active) if active else None
     active_model = ""
@@ -146,6 +153,7 @@ async def validate_provider_setup(request: ProviderSetupRequest, workspace_root:
         )
 
     logger.info("Validating provider '%s' with model '%s' via real API call...", request.provider, model)
+    import asyncio
     try:
         import litellm
         litellm.drop_params = True
@@ -158,20 +166,19 @@ async def validate_provider_setup(request: ProviderSetupRequest, workspace_root:
             max_tokens=request.max_tokens,
             temperature=request.temperature,
         )
-        await temp_provider.complete([{"role": "user", "content": "Say OK"}])
+        validation_timeout = require_int("ZENITH_VALIDATION_TIMEOUT")
+        await asyncio.wait_for(
+            temp_provider.complete([{"role": "user", "content": "Say OK"}]),
+            timeout=validation_timeout,
+        )
         logger.info("Provider '%s' validation succeeded (API call returned OK)", request.provider)
     except ImportError:
         # litellm not installed — fall back to format check only
         logger.warning("litellm not available — provider validation skipped")
-        known_providers = {"openai", "anthropic", "google", "groq", "openrouter", "nvidia"}
-        if request.provider in known_providers:
-            key_prefixes = {
-                "openai": "sk-",
-                "anthropic": "sk-ant-",
-                "groq": "gsk_",
-                "nvidia": "nvapi-",
-            }
-            expected = key_prefixes.get(request.provider)
+        catalog = load_catalog()
+        catalog_entry = catalog["providers"].get(request.provider)
+        if catalog_entry:
+            expected = catalog_entry.get("api_key_prefix")
             if expected and not api_key.strip().startswith(expected):
                 logger.info("Validation failed for '%s': API key format mismatch (expected %s...)", request.provider, expected)
                 return ProviderSetupResult(
@@ -180,6 +187,15 @@ async def validate_provider_setup(request: ProviderSetupRequest, workspace_root:
                     model=model,
                     message=f"API key format looks wrong. {request.provider.title()} keys typically start with '{expected}'",
                 )
+    except asyncio.TimeoutError:
+        timeout_sec = require_int("ZENITH_VALIDATION_TIMEOUT")
+        logger.warning("Provider validation timed out for '%s' after %ds", request.provider, timeout_sec)
+        return ProviderSetupResult(
+            valid=False,
+            provider=request.provider,
+            model=model,
+            message=f"Validation timed out after {timeout_sec}s. The provider may be unreachable.",
+        )
     except Exception as e:
         logger.warning("Provider validation FAILED for '%s': %s", request.provider, e)
         return ProviderSetupResult(
@@ -202,10 +218,12 @@ class ProviderConfigResponse(BaseModel):
     providers: dict[str, dict[str, Any]] = {}
 
 
-def get_provider_config(db_path: str = "zenith.db") -> ProviderConfigResponse:
-    """Return the current provider configuration directly from zenith.db."""
+def get_provider_config(db_path: str | None = None) -> ProviderConfigResponse:
+    """Return the current provider configuration directly from zenith.db,
+    enriched with full model specs from the catalog."""
     import sqlite3
 
+    db_path = db_path or resolve_db_path()
     if not Path(db_path).exists():
         return ProviderConfigResponse()
 
@@ -216,7 +234,7 @@ def get_provider_config(db_path: str = "zenith.db") -> ProviderConfigResponse:
 
         cursor.execute("SELECT value FROM app_settings WHERE key = 'active_provider'")
         active_row = cursor.fetchone()
-        active = active_row["value"] if active_row else "openrouter"
+        active = active_row["value"] if active_row else "nvidia"
 
         cursor.execute("SELECT * FROM providers")
         p_rows = cursor.fetchall()
@@ -229,7 +247,28 @@ def get_provider_config(db_path: str = "zenith.db") -> ProviderConfigResponse:
                 (pid,),
             )
             m_rows = cursor.fetchall()
-            p_dict["models"] = [dict(m) for m in m_rows]
+
+            catalog = load_catalog()
+            catalog_models = {
+                m["id"]: m
+                for m in catalog.get("providers", {}).get(pid, {}).get("models", [])
+            }
+
+            enriched_models = []
+            for m in m_rows:
+                m_dict = dict(m)
+                cat = catalog_models.get(m_dict["id"], {})
+                m_dict["parameters"] = cat.get("parameters")
+                m_dict["architecture"] = cat.get("architecture")
+                m_dict["input_modalities"] = cat.get("input_modalities")
+                m_dict["output_modalities"] = cat.get("output_modalities")
+                m_dict["tags"] = cat.get("tags")
+                m_dict["model_capabilities"] = cat.get("model_capabilities")
+                m_dict["speed_tier"] = cat.get("speed_tier")
+                m_dict["best_for"] = cat.get("best_for")
+                enriched_models.append(m_dict)
+
+            p_dict["models"] = enriched_models
             p_dict["swatch"] = json.loads(p_dict.get("swatch_json", "[]"))
             result_providers[pid] = p_dict
         conn.close()
@@ -239,10 +278,12 @@ def get_provider_config(db_path: str = "zenith.db") -> ProviderConfigResponse:
         return ProviderConfigResponse()
 
 
-def save_provider_setup(request: ProviderSetupRequest, db_path: str = "zenith.db") -> ProviderSetupResult:
+def save_provider_setup(request: ProviderSetupRequest, db_path: str | None = None) -> ProviderSetupResult:
     """Save provider configuration directly to zenith.db."""
     import sqlite3
     from datetime import datetime
+
+    db_path = db_path or resolve_db_path()
 
     try:
         conn = sqlite3.connect(db_path)

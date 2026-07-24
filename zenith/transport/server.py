@@ -10,8 +10,9 @@ from .websocket import ZenithHandler
 from .shutdown import GracefulShutdown
 from .startup import validate_startup, validate_provider_setup, save_provider_setup, get_provider_config, ProviderSetupRequest
 from .middleware import wrap_handler
+from zenith import __version__
 from zenith.config.loader import load_config
-from zenith.db.connection import Database
+from zenith.db.connection import Database, resolve_db_path
 from zenith.providers.registry import ProviderRegistry
 from zenith.tools import create_default_registry
 
@@ -30,7 +31,7 @@ async def _startup() -> None:
 
     _shutdown = GracefulShutdown()
 
-    db = Database("zenith.db")
+    db = Database(resolve_db_path())
     await db.connect()
     logger.info("Database connected")
 
@@ -67,7 +68,7 @@ async def _shutdown_event() -> None:
     logger.info("Zenith backend stopped")
 
 
-app = FastAPI(title="Zenith Backend", version="0.1.0")
+app = FastAPI(title="Zenith Backend", version=__version__)
 app.add_event_handler("startup", _startup)
 app.add_event_handler("shutdown", _shutdown_event)
 
@@ -77,7 +78,7 @@ async def health():
     return {
         "status": "ok",
         "handler": _handler is not None,
-        "version": "0.1.0",
+        "version": __version__,
     }
 
 

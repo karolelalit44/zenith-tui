@@ -119,8 +119,8 @@ class _MockProvider(BaseProvider):
         return "mock response"
 
     async def stream(self, messages: list[dict]):
-        yield "mock "
-        yield "stream"
+        yield ("mock ", None)
+        yield ("stream", None)
 
     async def validate(self) -> bool:
         return True

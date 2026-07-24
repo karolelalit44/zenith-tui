@@ -8,7 +8,7 @@ interface MessageBlockProps {
   event: MessageEvent;
 }
 
-export const MessageBlock: React.FC<MessageBlockProps> = ({ event }) => {
+export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const [showCursor, setShowCursor] = useState(true);
 
@@ -25,7 +25,7 @@ export const MessageBlock: React.FC<MessageBlockProps> = ({ event }) => {
   const cursor = event.partial && showCursor ? <Text color={theme.colors.status.accent}> ▌</Text> : null;
 
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={0}>
         <Text color={theme.colors.status.accent} bold>
           [ASSISTANT]
@@ -37,4 +37,4 @@ export const MessageBlock: React.FC<MessageBlockProps> = ({ event }) => {
       </Box>
     </Box>
   );
-};
+});

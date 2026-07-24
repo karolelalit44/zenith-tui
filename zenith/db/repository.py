@@ -1,11 +1,20 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from .connection import Database
 from zenith.core.session import Session
 from zenith.core.message import Message
 from zenith.core.events import Event
+
+CATALOG_PATH = Path(__file__).parent.parent / "config" / "provider_catalog.json"
+
+
+def load_catalog() -> dict:
+    """Load the provider catalog from the canonical JSON file."""
+    with open(CATALOG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 class SessionRepository:
@@ -137,118 +146,32 @@ class MessageRepository:
         return row["total"] if row else 0
 
 
-DEFAULT_SEED_PROVIDERS = [
-    {
-        "id": "openrouter",
-        "name": "OpenRouter",
-        "description": "Unified API gateway for 100+ LLMs",
-        "model": "meta-llama/llama-3.3-70b-instruct",
-        "base_url": "https://openrouter.ai/api/v1",
-        "swatch": ["#7000FF", "#A033FF", "#6000DF"],
-        "is_active": 1,
-        "models": [
-            {"id": "meta-llama/llama-3.3-70b-instruct", "name": "Meta Llama 3.3 70B", "is_default": 1},
-            {"id": "openai/gpt-4o", "name": "OpenAI GPT-4o"},
-            {"id": "openai/gpt-4o-mini", "name": "OpenAI GPT-4o Mini"},
-            {"id": "anthropic/claude-sonnet-4-20250514", "name": "Anthropic Claude Sonnet 4"},
-            {"id": "anthropic/claude-3-5-haiku-20241022", "name": "Anthropic Claude 3.5 Haiku"},
-            {"id": "google/gemini-2.0-flash-exp:free", "name": "Google Gemini 2.0 Flash (free)"},
-            {"id": "meta-llama/llama-3.1-8b-instruct", "name": "Meta Llama 3.1 8B"},
-            {"id": "mistralai/mistral-7b-instruct", "name": "Mistral 7B"},
-            {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat"},
-            {"id": "openrouter/auto", "name": "Auto (cheapest suitable)"},
-        ],
-    },
-    {
-        "id": "openai",
-        "name": "OpenAI",
-        "description": "Official OpenAI GPT series models",
-        "model": "gpt-4o-mini",
-        "base_url": "https://api.openai.com/v1",
-        "swatch": ["#10A37F", "#1A7F64", "#0D8C6D"],
-        "is_active": 0,
-        "models": [
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "is_default": 1},
-            {"id": "gpt-4o", "name": "GPT-4o"},
-            {"id": "gpt-4-turbo", "name": "GPT-4 Turbo"},
-            {"id": "gpt-4", "name": "GPT-4"},
-            {"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo"},
-        ],
-    },
-    {
-        "id": "nvidia",
-        "name": "NVIDIA AI",
-        "description": "NVIDIA NIM microservices & high-performance LLM catalog",
-        "model": "deepseek-ai/deepseek-v4-pro",
-        "base_url": "https://integrate.api.nvidia.com/v1",
-        "swatch": ["#76B900", "#5C9900", "#447700"],
-        "is_active": 0,
-        "models": [
-            {"id": "deepseek-ai/deepseek-v4-pro", "name": "DeepSeek V4 Pro", "is_default": 1},
-            {"id": "minimaxai/minimax-m3", "name": "MiniMax M3"},
-            {"id": "nvidia/nemotron-3-ultra-550b-a55b", "name": "NVIDIA Nemotron 3 Ultra"},
-            {"id": "nvidia/llama-3.1-nemotron-70b-instruct", "name": "NVIDIA Llama 3.1 Nemotron 70B"},
-            {"id": "meta/llama-3.3-70b-instruct", "name": "Meta Llama 3.3 70B"},
-            {"id": "mistralai/mistral-large-2-instruct", "name": "Mistral Large 2"},
-        ],
-    },
-    {
-        "id": "anthropic",
-        "name": "Anthropic",
-        "description": "Official Anthropic Claude family models",
-        "model": "claude-sonnet-4-20250514",
-        "base_url": "https://api.anthropic.com",
-        "swatch": ["#D97706", "#B45309", "#92400E"],
-        "is_active": 0,
-        "models": [
-            {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "is_default": 1},
-            {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku"},
-            {"id": "claude-3-opus-20240229", "name": "Claude 3 Opus"},
-        ],
-    },
-    {
-        "id": "google",
-        "name": "Google Gemini",
-        "description": "Google Gemini AI models",
-        "model": "gemini-2.0-flash",
-        "base_url": "https://generativelanguage.googleapis.com",
-        "swatch": ["#4285F4", "#34A853", "#FBBC05"],
-        "is_active": 0,
-        "models": [
-            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "is_default": 1},
-            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
-            {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash"},
-        ],
-    },
-    {
-        "id": "groq",
-        "name": "Groq",
-        "description": "Groq LPU ultra-fast inference API",
-        "model": "llama-3.3-70b-versatile",
-        "base_url": "https://api.groq.com/openai/v1",
-        "swatch": ["#F55036", "#D43E26", "#B22F19"],
-        "is_active": 0,
-        "models": [
-            {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B Versatile", "is_default": 1},
-            {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B"},
-            {"id": "gemma2-9b-it", "name": "Gemma 2 9B"},
-        ],
-    },
-    {
-        "id": "custom",
-        "name": "Custom OpenAI-Compatible",
-        "description": "Self-hosted Ollama, vLLM, or custom server",
-        "model": "llama3",
-        "base_url": "http://localhost:11434/v1",
-        "swatch": ["#6B7280", "#4B5563", "#374151"],
-        "is_active": 0,
-        "models": [
-            {"id": "llama3", "name": "Llama 3", "is_default": 1},
-            {"id": "codellama", "name": "CodeLlama"},
-            {"id": "mistral", "name": "Mistral"},
-        ],
-    },
-]
+def _seed_providers_from_catalog(catalog: dict) -> list[dict]:
+    """Convert catalog JSON to the seed data format expected by ensure_seeded()."""
+    providers = []
+    for pid, p in catalog["providers"].items():
+        providers.append({
+            "id": pid,
+            "name": p["name"],
+            "description": p.get("description", ""),
+            "model": p["default_model"],
+            "base_url": p["base_url"],
+            "adapter": p.get("adapter", "openai_compat"),
+            "capabilities": p.get("capabilities", {}),
+            "api_key_prefix": p.get("api_key_prefix"),
+            "swatch": p.get("swatch", []),
+            "is_active": 1 if pid == catalog.get("default_active_provider") else 0,
+            "models": [
+                {
+                    "id": m["id"],
+                    "name": m["name"],
+                    "context_window": m.get("context_window", 128000),
+                    "is_default": 1 if m.get("is_default") else 0,
+                }
+                for m in p.get("models", [])
+            ],
+        })
+    return providers
 
 
 class ProviderRepositoryDB:
@@ -261,12 +184,16 @@ class ProviderRepositoryDB:
         if count_row and count_row["cnt"] > 0:
             return
 
+        catalog = load_catalog()
+        seed_providers = _seed_providers_from_catalog(catalog)
+        default_provider = catalog.get("default_active_provider", "nvidia")
+
         now = datetime.now().isoformat()
-        for p in DEFAULT_SEED_PROVIDERS:
+        for p in seed_providers:
             await self.db.execute(
                 """
-                INSERT INTO providers (id, name, description, api_key, model, base_url, max_tokens, temperature, is_active, swatch_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO providers (id, name, description, api_key, model, base_url, max_tokens, temperature, is_active, swatch_json, adapter_type, capabilities_json, api_key_prefix, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     p["id"],
@@ -279,6 +206,9 @@ class ProviderRepositoryDB:
                     0.7,
                     p["is_active"],
                     json.dumps(p["swatch"]),
+                    p["adapter"],
+                    json.dumps(p["capabilities"]),
+                    p["api_key_prefix"],
                     now,
                 ),
             )
@@ -298,7 +228,8 @@ class ProviderRepositoryDB:
                     ),
                 )
         await self.db.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('active_provider', 'openrouter')"
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('active_provider', ?)",
+            (default_provider,),
         )
         await self.db.commit()
 
@@ -309,7 +240,7 @@ class ProviderRepositoryDB:
         active_row = await self.db.fetch_one("SELECT id FROM providers WHERE is_active = 1 LIMIT 1")
         if active_row:
             return active_row["id"]
-        return "openrouter"
+        return "nvidia"
 
     async def set_active_provider_id(self, provider_id: str) -> None:
         await self.db.execute("UPDATE providers SET is_active = 0")

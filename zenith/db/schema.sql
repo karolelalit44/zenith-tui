@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS providers (
     temperature REAL NOT NULL DEFAULT 0.7,
     is_active INTEGER NOT NULL DEFAULT 0,
     swatch_json TEXT NOT NULL DEFAULT '[]',
+    adapter_type TEXT NOT NULL DEFAULT 'openai_compat',
+    capabilities_json TEXT NOT NULL DEFAULT '{}',
+    api_key_prefix TEXT,
     updated_at TEXT NOT NULL
 );
 

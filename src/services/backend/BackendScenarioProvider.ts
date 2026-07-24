@@ -21,9 +21,22 @@ export class BackendScenarioProvider implements ScenarioProvider {
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
     let accumulatedText = '';
+    let completed = false;
+    let timerHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const finalize = () => {
+      if (completed) return;
+      completed = true;
+      if (timerHandle) {
+        clearTimeout(timerHandle);
+        timerHandle = null;
+      }
+      unsubscribe();
+      statusUnsub();
+    };
 
     const unsubscribe = wsClient.onEvent((rpcEvent) => {
-      if (this.abortFlag) return;
+      if (this.abortFlag || completed) return;
 
       const { kind, data } = rpcEvent.params;
 
@@ -90,13 +103,15 @@ export class BackendScenarioProvider implements ScenarioProvider {
       onEvent(mapped, eventIndex);
       eventIndex++;
 
+      // Only complete on terminal events: success, error, or thinking (stream start)
       if (kind === 'success' || kind === 'error') {
+        finalize();
         onComplete();
       }
     });
 
     const statusUnsub = wsClient.onStatusChange((status) => {
-      if (status === 'disconnected') {
+      if (status === 'disconnected' && !completed) {
         onEvent(
           {
             kind: 'error',
@@ -105,12 +120,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
           },
           eventIndex++,
         );
+        finalize();
         onComplete();
       }
     });
 
-    const handle = setTimeout(() => {
-      if (eventIndex === 0) {
+    timerHandle = setTimeout(() => {
+      timerHandle = null;
+      if (eventIndex === 0 && !completed) {
         const waitingId = `evt_wait_${Date.now()}`;
         onEvent(
           {
@@ -127,9 +144,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
     return {
       abort: () => {
         this.abortFlag = true;
-        clearTimeout(handle);
-        unsubscribe();
-        statusUnsub();
+        finalize();
       },
     };
   }

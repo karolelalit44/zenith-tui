@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from .base import BaseTool, ToolResult
+from zenith.config.env import require_int
+
+_WEBFETCH_TIMEOUT = require_int("ZENITH_WEBFETCH_TIMEOUT")
+_WEBFETCH_MAX_BYTES = require_int("ZENITH_WEBFETCH_MAX_BYTES")
 
 
 class WebfetchTool(BaseTool):
@@ -37,10 +41,10 @@ class WebfetchTool(BaseTool):
         try:
             import httpx
 
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=_WEBFETCH_TIMEOUT) as client:
                 response = await client.get(url, follow_redirects=True)
                 response.raise_for_status()
-                content = response.text[:50000]  # cap at 50KB
+                content = response.text[:_WEBFETCH_MAX_BYTES]
                 return ToolResult(
                     success=True,
                     output=content,

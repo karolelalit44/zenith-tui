@@ -5,13 +5,14 @@ from typing import AsyncIterator
 
 import time as _time
 
-from .base import Chunk, ModelAdapter
+from .base import AdapterCapabilities, Chunk, ModelAdapter
 
 logger = logging.getLogger(__name__)
 
 
 class OpenAICompatAdapter(ModelAdapter):
     name = "openai_compat"
+    capabilities = AdapterCapabilities(streaming=True, thinking=False, function_calling=True, max_output_tokens=4096)
 
     def __init__(
         self,

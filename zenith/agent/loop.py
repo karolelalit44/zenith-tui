@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time as _time
+import uuid
 from typing import AsyncIterator
 
 from zenith.config.settings import AppSettings
@@ -11,31 +13,28 @@ from zenith.core.errors import ZenithError, MaxIterationsError
 from zenith.core.events import Event, EventKind
 from zenith.core.message import Message
 from zenith.providers.base import BaseProvider
-from zenith.providers.parser import clean_tool_text, parse_tool_calls
+from zenith.providers.parser import UnifiedResponseFormatter
 from zenith.providers import responder as r
 from zenith.tools.base import ToolResult
 from zenith.tools.registry import ToolRegistry
 from .context import ContextManager
 from .prompts import build_system_prompt
+from zenith.session.history import HistoryManager
 
 logger = logging.getLogger(__name__)
 
-# Tools that modify files
 FILE_MODIFY_TOOLS = {"file_write", "file_edit", "file_delete"}
 
-# Maximum characters for tool output fed back to LLM
-MAX_TOOL_OUTPUT = 10000
 
-
-def _format_tool_result(tool_name: str, result: ToolResult) -> str:
+def _format_tool_result(tool_name: str, result: ToolResult, max_output: int = 10000) -> str:
     """Format a tool result for LLM consumption."""
     status = "SUCCESS" if result.success else "FAILED"
     lines = [f"[Tool: {tool_name} | Status: {status}]"]
 
     if result.output:
         output = result.output
-        if len(output) > MAX_TOOL_OUTPUT:
-            output = output[:MAX_TOOL_OUTPUT] + f"\n... (truncated, {len(result.output)} total chars)"
+        if len(output) > max_output:
+            output = output[:max_output] + f"\n... (truncated, {len(result.output)} total chars)"
         lines.append(output)
 
     if result.error:
@@ -107,8 +106,6 @@ class AgentLoop:
             logger.info("SUMMARIZE starting for session=%s", session_id)
             yield r.summary("summarize", "Context approaching limit, summarizing...", session_id)
             try:
-                from zenith.session.history import HistoryManager
-
                 history_mgr = HistoryManager(self.config, self.provider)
                 self._summary = await history_mgr.summarize(history, model)
                 logger.info("SUMMARIZE complete for session=%s (summary_len=%d)", session_id, len(self._summary or ""))
@@ -134,6 +131,10 @@ class AgentLoop:
             suppress_stream = False
             try:
                 async for evt in r.stream_tokens(self.provider.stream(messages), session_id):
+                    if evt.kind == EventKind.THINKING:
+                        yield evt
+                        continue
+
                     if evt.kind == EventKind.MESSAGE and evt.data.get("partial"):
                         token = evt.data.get("text", "")
                         response_text += token
@@ -153,7 +154,6 @@ class AgentLoop:
             full_response += response_text
 
             # Finalize visible message text and extract tool calls using UnifiedResponseFormatter
-            from zenith.providers.parser import UnifiedResponseFormatter
             clean_response, tool_calls = UnifiedResponseFormatter.process_response(response_text)
             if clean_response:
                 yield r.message_event(clean_response, session_id, partial=False)
@@ -192,11 +192,31 @@ class AgentLoop:
                     tool_params["overwrite"] = True
                 logger.info("Executing tool '%s' with params: %s", tool_name, json.dumps(tool_params))
 
+                # Check permission before execution
+                tool = self.tool_registry.get(tool_name)
+                if tool and tool.permission_level == "HIGH":
+                    gate = self.tool_registry.gate
+                    if not await gate.check(tool):
+                        # Need to request permission from user
+                        request_id = f"perm_{uuid.uuid4().hex[:12]}"
+                        yield r.permission_request(tool_name, tool_params, session_id, request_id)
+
+                        # Wait for permission response (keyed by request_id)
+                        approved = await gate.request_permission(tool, tool_params, request_id)
+                        if not approved:
+                            yield r.warning(
+                                f"Permission denied for tool '{tool_name}'. Skipping execution.",
+                                session_id,
+                            )
+                            # Add denial result to context so LLM knows
+                            tool_result_text = f"[Tool: {tool_name} | Status: DENIED]\nPermission denied by user."
+                            messages.append({"role": "user", "content": tool_result_text})
+                            continue
+
                 # Emit analysis summary event only for non-file and non-terminal tools
                 if tool_name not in FILE_MODIFY_TOOLS and tool_name not in ("bash", "terminal"):
                     yield r.analysis(tool_name, session_id, tool_params)
 
-                import time as _time
                 start_ts = _time.monotonic()
                 result = await self.tool_registry.execute(
                     tool_name, tool_params, workspace_root, mode
@@ -231,14 +251,19 @@ class AgentLoop:
                     # Emit structured error event for tool failure
                     err_msg = result.error or f"Tool '{tool_name}' execution failed"
                     yield r.error(err_msg, session_id, code=f"TOOL_ERROR_{tool_name.upper()}", recoverable=True)
+                    yield r.warning(
+                        f"Tool '{tool_name}' failed. Consider trying a different approach or parameters.",
+                        session_id,
+                    )
 
                 # Add tool result to messages
-                tool_result_text = _format_tool_result(tool_name, result)
+                tool_result_text = _format_tool_result(tool_name, result, self.config.tools.max_tool_output)
                 messages.append({"role": "user", "content": tool_result_text})
 
         else:
             # Max iterations exceeded
             yield r.error(f"Max iterations ({max_iterations}) exceeded", session_id, code="MAX_ITERATIONS")
+            return
 
         # Token info
         token_info = self.context_manager.get_token_info(messages, model)

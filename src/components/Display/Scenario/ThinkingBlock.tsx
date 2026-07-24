@@ -31,6 +31,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     }
 
     const thoughts = event.thoughts;
+    const timers: ReturnType<typeof setTimeout>[] = [];
     let cancelled = false;
     let cumulativeDelay = 0;
 
@@ -40,10 +41,12 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
       const _revealTimer = setTimeout(() => {
         if (!cancelled) setVisibleCount(idx + 1);
       }, cumulativeDelay);
+      timers.push(_revealTimer);
     });
 
     return () => {
       cancelled = true;
+      timers.forEach(clearTimeout);
     };
   }, [event.thoughts, isCollapsed, historical]);
 

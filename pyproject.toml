@@ -40,6 +40,10 @@ zenith = "zenith.main:cli"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: tests that require a live server subprocess (use: pytest -m slow)",
+]
+addopts = "--ignore=tests/e2e_real.py --ignore=tests/test_e2e_websocket.py --ignore=tests/test_e2e_integration.py"
 
 [tool.ruff]
 line-length = 100

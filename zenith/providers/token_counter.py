@@ -39,7 +39,7 @@ class TokenCounter:
                     return None  # type: ignore[return-value]
         return self._encodings[model]
 
-    def count(self, text: str, model: str = "gpt-4") -> int:
+    def count(self, text: str, model: str = "cl100k_base") -> int:
         """Count tokens in a text string."""
         if not self._available:
             return self._count_heuristic(text)
@@ -53,7 +53,7 @@ class TokenCounter:
         except Exception:
             return self._count_heuristic(text)
 
-    def count_messages(self, messages: list[dict], model: str = "gpt-4") -> int:
+    def count_messages(self, messages: list[dict], model: str = "cl100k_base") -> int:
         """Count tokens across a list of chat messages (with message framing)."""
         total = 0
         for msg in messages:

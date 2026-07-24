@@ -1,13 +1,15 @@
+import os
 from zenith.config.settings import AppSettings
 from zenith.config.loader import load_config
 
 
 def test_default_config():
+    """Config reads from env vars set by conftest.py."""
     config = AppSettings()
-    assert config.active_provider == "openai"
-    assert config.db_path == "zenith.db"
-    assert config.max_context_tokens == 128000
-    assert config.tools.max_iterations == 25
+    assert config.active_provider == os.environ["ZENITH_ACTIVE_PROVIDER"]
+    assert config.db_path == os.environ["ZENITH_DB_PATH"]
+    assert config.max_context_tokens == int(os.environ["ZENITH_MAX_CONTEXT_TOKENS"])
+    assert config.tools.max_iterations == int(os.environ["ZENITH_MAX_ITERATIONS"])
 
 
 def test_config_validation():
@@ -21,7 +23,7 @@ def test_config_validation():
 def test_load_config(temp_dir):
     config = load_config(str(temp_dir))
     assert config is not None
-    assert config.active_provider == "openai"
+    assert config.active_provider == os.environ["ZENITH_ACTIVE_PROVIDER"]
 
 
 def test_get_active_provider_config():

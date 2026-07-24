@@ -6,13 +6,14 @@ from typing import AsyncIterator
 
 import time as _time
 
-from .base import Chunk, ModelAdapter
+from .base import AdapterCapabilities, Chunk, ModelAdapter
 
 logger = logging.getLogger(__name__)
 
 
 class NVIDIAAdapter(ModelAdapter):
     name = "nvidia"
+    capabilities = AdapterCapabilities(streaming=True, thinking=True, function_calling=True, max_output_tokens=16384)
 
     def __init__(
         self,
@@ -53,9 +54,11 @@ class NVIDIAAdapter(ModelAdapter):
         token_count = 0
         reasoning_token_count = 0
 
+        clean_messages = self._strip_image_content(messages)
+
         response = await client.chat.completions.create(
             model=self.model,
-            messages=messages,
+            messages=clean_messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             stream=True,
@@ -112,3 +115,20 @@ class NVIDIAAdapter(ModelAdapter):
         )
 
         return response.choices[0].message.content or ""
+
+    def _strip_image_content(self, messages: list[dict]) -> list[dict]:
+        """Strip image content from messages to prevent API errors."""
+        clean = []
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                    elif isinstance(part, str):
+                        text_parts.append(part)
+                clean.append({**msg, "content": "\n".join(text_parts)})
+            else:
+                clean.append(msg)
+        return clean

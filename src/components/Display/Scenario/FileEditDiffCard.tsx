@@ -42,7 +42,7 @@ export const FileEditDiffCard: React.FC<FileEditDiffCardProps> = React.memo(({ e
         <Box
           flexDirection="column"
           width="100%"
-          borderStyle="single"
+          borderStyle="round"
           borderColor={theme.colors.border.muted}
           paddingX={1}
         >
@@ -98,13 +98,7 @@ export const FileEditDiffCard: React.FC<FileEditDiffCardProps> = React.memo(({ e
         </Text>
       </Box>
 
-      <Box
-        flexDirection="column"
-        width="100%"
-        borderStyle="single"
-        borderColor={theme.colors.border.muted}
-        paddingX={1}
-      >
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1}>
         {visibleRemoved.map((line, idx) => (
           <Box key={`rm-${idx}`} flexDirection="row" width="100%">
             <Box width={4} flexShrink={0}>

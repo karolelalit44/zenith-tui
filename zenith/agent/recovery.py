@@ -58,14 +58,12 @@ class RecoverableAgentLoop:
         them and add recovery guidance.
         """
         self._last_error = None
-        had_error = False
 
         try:
             async for event in self.agent.process_prompt(
                 prompt, session_id, history, mode, skills_section=skills_section
             ):
                 if event.kind == EventKind.ERROR:
-                    had_error = True
                     self._last_error = event.data.get("message", "Unknown error")
                     # Check if the error is recoverable
                     recoverable = event.data.get("recoverable", False)

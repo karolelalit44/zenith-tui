@@ -53,8 +53,18 @@ class MigrationRunner:
                 logger.info("Applied migration: %s", filepath.name)
                 results.append(filepath.name)
             except Exception as e:
-                await self.db.execute("ROLLBACK")
-                logger.error("Migration %s failed: %s", filepath.name, e)
-                raise
+                msg = str(e).lower()
+                if "duplicate column" in msg:
+                    await self.db.execute(
+                        "INSERT INTO _migrations (name) VALUES (?)",
+                        (filepath.name,),
+                    )
+                    await self.db.commit()
+                    logger.info("Migration %s already applied (columns exist): %s", filepath.name, e)
+                    results.append(filepath.name)
+                else:
+                    await self.db.execute("ROLLBACK")
+                    logger.error("Migration %s failed: %s", filepath.name, e)
+                    raise
 
         return results

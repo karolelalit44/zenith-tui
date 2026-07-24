@@ -7,7 +7,7 @@ interface AnalysisCardProps {
   event: AnalysisEvent;
 }
 
-export const AnalysisCard: React.FC<AnalysisCardProps> = ({ event }) => {
+export const AnalysisCard: React.FC<AnalysisCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
   return (
@@ -27,10 +27,10 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ event }) => {
       <Box
         flexDirection="column"
         width="100%"
-        borderStyle="single"
+        borderStyle="round"
         borderColor={theme.colors.border.muted}
         paddingX={1}
-        paddingY={0}
+        paddingY={1}
       >
         {event.sections.map((section, sIdx) => (
           <Box key={sIdx} flexDirection="column" marginBottom={sIdx === event.sections.length - 1 ? 0 : 1}>
@@ -52,4 +52,4 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ event }) => {
       </Box>
     </Box>
   );
-};
+});

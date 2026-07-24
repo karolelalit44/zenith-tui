@@ -11,7 +11,7 @@ export const SummaryCard: React.FC<SummaryCardProps> = React.memo(({ event }) =>
   const { theme } = useTheme();
 
   return (
-    <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
         <Text color={theme.colors.status.success} bold>
           [SUMMARY]

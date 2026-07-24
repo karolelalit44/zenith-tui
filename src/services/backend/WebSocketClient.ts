@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { requireInt } from '../../config/env';
 
 if (typeof WebSocket === 'undefined') {
   try {
@@ -42,12 +43,13 @@ export class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = requireInt('ZENITH_WS_MAX_RECONNECT');
+  private reconnectDelay = requireInt('ZENITH_WS_RECONNECT_DELAY');
   private pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private requestIdCounter = 0;
   private emitter = new EventEmitter();
   private _status: WsStatus = 'disconnected';
+  private rpcTimeout = requireInt('ZENITH_WS_RPC_TIMEOUT');
 
   constructor(url?: string) {
     this.url = url || this.detectBackendUrl();
@@ -135,7 +137,7 @@ export class WebSocketClient {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error(`RPC timeout: ${method}`));
-      }, 60000);
+      }, this.rpcTimeout);
 
       this.pendingRequests.set(id, {
         resolve: (v: unknown) => {
@@ -186,6 +188,29 @@ export class WebSocketClient {
 
   workspaceStatus(): Promise<Record<string, unknown>> {
     return this.send('workspace.status');
+  }
+
+  respondPermission(
+    tool: string,
+    approved: boolean,
+    remember: boolean = false,
+    requestId: string = '',
+  ): Promise<{ responded: boolean; tool: string; approved: boolean }> {
+    return this.send('permission.respond', { tool, approved, remember, requestId });
+  }
+
+  listPermissions(): Promise<{
+    permissions: Array<{ tool_name: string; pattern: string; approved: boolean; created_at: string }>;
+  }> {
+    return this.send('permission.list');
+  }
+
+  approveTool(tool: string): Promise<{ approved: boolean; tool: string }> {
+    return this.send('permission.approve', { tool });
+  }
+
+  denyTool(tool: string): Promise<{ denied: boolean; tool: string }> {
+    return this.send('permission.deny', { tool });
   }
 
   health(): Promise<{ status: string }> {

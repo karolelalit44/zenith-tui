@@ -15,7 +15,10 @@ export const WaitingIndicator: React.FC<WaitingIndicatorProps> = React.memo(({ e
   const dots = '.'.repeat(tick % 4);
 
   return (
-    <Box flexDirection="row" marginBottom={1} paddingX={1} alignItems="center">
+    <Box flexDirection="row" width="100%" marginBottom={1} paddingX={1} alignItems="center">
+      <Text color={theme.colors.text.muted} bold>
+        [WAITING]{' '}
+      </Text>
       <Box width={2}>
         <Text color={theme.colors.text.muted}>{['◷', '◶', '◵', '◴'][tick % 4]}</Text>
       </Box>

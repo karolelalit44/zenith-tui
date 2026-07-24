@@ -17,7 +17,8 @@ export type EventKind =
   | 'deployment'
   | 'analysis'
   | 'planner_action_panel'
-  | 'mode_mismatch';
+  | 'mode_mismatch'
+  | 'permission_request';
 
 export interface ThinkingThought {
   text: string;
@@ -217,6 +218,14 @@ export interface ModeMismatchEvent {
   prompt: string;
 }
 
+export interface PermissionRequestEvent {
+  kind: 'permission_request';
+  id: string;
+  tool: string;
+  params: Record<string, unknown>;
+  requestId: string;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | FileCreateEvent
@@ -236,7 +245,8 @@ export type ScenarioEvent =
   | DeploymentEvent
   | AnalysisEvent
   | PlannerActionPanelEvent
-  | ModeMismatchEvent;
+  | ModeMismatchEvent
+  | PermissionRequestEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 

@@ -21,8 +21,17 @@ class ModelResponse:
     finish_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class AdapterCapabilities:
+    streaming: bool = True
+    thinking: bool = False
+    function_calling: bool = True
+    max_output_tokens: int = 4096
+
+
 class ModelAdapter(ABC):
     name: str = "base"
+    capabilities: AdapterCapabilities = AdapterCapabilities()
 
     @abstractmethod
     async def stream(self, messages: list[dict]) -> AsyncIterator[Chunk]:

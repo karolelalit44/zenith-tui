@@ -18,9 +18,9 @@ function parseInlineTokens(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
   let lastIdx = 0;
-  let match: RegExpExecArray | null;
+  let match = regex.exec(text);
 
-  while ((match = regex.exec(text)) !== null) {
+  while (match !== null) {
     if (match.index > lastIdx) {
       tokens.push({ text: text.slice(lastIdx, match.index) });
     }
@@ -33,6 +33,7 @@ function parseInlineTokens(text: string): InlineToken[] {
       tokens.push({ text: matched.slice(1, -1), code: true });
     }
     lastIdx = regex.lastIndex;
+    match = regex.exec(text);
   }
 
   if (lastIdx < text.length) {
@@ -73,84 +74,6 @@ const FormattedInlineText: React.FC<{ text: string }> = ({ text }) => {
         return (
           <Text key={i} color={theme.colors.text.ethereal}>
             {t.text}
-          </Text>
-        );
-      })}
-    </Text>
-  );
-};
-
-const _SyntaxHighlightedLine: React.FC<{ line: string }> = ({ line }) => {
-  const { theme } = useTheme();
-
-  if (line.trim().startsWith('#') || line.trim().startsWith('//')) {
-    return <Text color={theme.colors.text.muted}>{line}</Text>;
-  }
-
-  const parts = line.split(
-    /(\b(?:def|class|import|from|return|const|let|var|function|fn|pub|async|await|if|else|for|while|try|except|catch|raise|print|dict|str|int|bool|True|False|None|self)\b|".*?"|'.*?'|\b\d+\b)/g,
-  );
-
-  const keywords = new Set([
-    'def',
-    'class',
-    'import',
-    'from',
-    'return',
-    'const',
-    'let',
-    'var',
-    'function',
-    'fn',
-    'pub',
-    'async',
-    'await',
-    'if',
-    'else',
-    'for',
-    'while',
-    'try',
-    'except',
-    'catch',
-    'raise',
-    'print',
-    'dict',
-    'str',
-    'int',
-    'bool',
-    'True',
-    'False',
-    'None',
-    'self',
-  ]);
-
-  return (
-    <Text>
-      {parts.map((p, i) => {
-        if (keywords.has(p)) {
-          return (
-            <Text key={i} color={theme.colors.status.info} bold>
-              {p}
-            </Text>
-          );
-        }
-        if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'"))) {
-          return (
-            <Text key={i} color={theme.colors.status.success}>
-              {p}
-            </Text>
-          );
-        }
-        if (/^\d+$/.test(p)) {
-          return (
-            <Text key={i} color={theme.colors.status.warning}>
-              {p}
-            </Text>
-          );
-        }
-        return (
-          <Text key={i} color={theme.colors.text.ethereal}>
-            {p}
           </Text>
         );
       })}
@@ -259,7 +182,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
             flexDirection="column"
             paddingX={1}
             paddingY={0}
-            borderStyle="single"
+            borderStyle="round"
             borderColor={theme.colors.border.muted}
           >
             {codeLines.map((cL, cIdx) => (

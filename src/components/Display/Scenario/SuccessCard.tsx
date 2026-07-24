@@ -11,11 +11,21 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event }) =>
   const { theme } = useTheme();
 
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={1}>
+    <Box
+      flexDirection="column"
+      width="100%"
+      borderStyle="round"
+      borderColor={theme.colors.status.success}
+      paddingX={1}
+      paddingY={1}
+      marginBottom={1}
+    >
       <Box flexDirection="row" alignItems="center" marginBottom={0}>
         <Text color={theme.colors.status.success} bold>
-          [SUCCESS] {event.message}
+          [SUCCESS]
         </Text>
+        <Text color={theme.colors.text.muted}> </Text>
+        <Text color={theme.colors.text.ethereal}>{event.message}</Text>
       </Box>
 
       {event.tool && (

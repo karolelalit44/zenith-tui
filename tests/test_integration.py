@@ -50,7 +50,7 @@ class EchoProvider(BaseProvider):
     async def stream(self, messages: list[dict]):
         response = await self.complete(messages)
         for char in response:
-            yield char
+            yield (char, None)
 
     async def validate(self) -> bool:
         return True
@@ -147,7 +147,7 @@ class TestErrorRecovery:
                 raise Exception("API down")
 
             async def stream(self, messages):
-                yield "should not reach"
+                yield ("should not reach", None)
                 raise Exception("API down")
 
             async def validate(self):
@@ -177,7 +177,7 @@ class TestErrorRecovery:
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 
             async def stream(self, messages):
-                yield "should not reach"
+                yield ("should not reach", None)
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 
             async def validate(self):

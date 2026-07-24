@@ -17,7 +17,7 @@ export const BuildStepCard: React.FC<BuildStepCardProps> = React.memo(({ event }
   let color: string;
   switch (event.status) {
     case 'success':
-      icon = '[OK]';
+      icon = '✓';
       color = theme.colors.status.success;
       break;
     case 'running':
@@ -25,11 +25,11 @@ export const BuildStepCard: React.FC<BuildStepCardProps> = React.memo(({ event }
       color = theme.colors.status.info;
       break;
     case 'error':
-      icon = '[FAIL]';
+      icon = '✗';
       color = theme.colors.status.error;
       break;
     default:
-      icon = '[-]';
+      icon = '○';
       color = theme.colors.text.muted;
       break;
   }
@@ -60,7 +60,7 @@ export const BuildStepCard: React.FC<BuildStepCardProps> = React.memo(({ event }
           flexDirection="column"
           width="100%"
           borderStyle="round"
-          borderColor={theme.colors.code.border}
+          borderColor={theme.colors.border.muted}
           paddingX={2}
           paddingY={1}
         >

@@ -7,22 +7,36 @@ from pathlib import Path
 from dotenv import load_dotenv
 from .settings import AppSettings
 from .providers import ProviderConfig
+from zenith.db.connection import resolve_db_path
 
 logger = logging.getLogger(__name__)
 
-ENV_MAP = {
-    "ZENITH_DB_PATH": (None, "db_path"),
-}
+_catalog_cache: dict | None = None
+_validated_once: bool = False
 
-API_KEY_FIELDS = {"api_key"}
-PROVIDERS_REQUIRING_KEY = {"openai", "anthropic", "google", "groq", "openrouter", "nvidia"}
+
+def _load_catalog() -> dict:
+    global _catalog_cache
+    if _catalog_cache is not None:
+        return _catalog_cache
+    from zenith.db.repository import load_catalog
+    _catalog_cache = load_catalog()
+    return _catalog_cache
+
+
+def providers_requiring_key() -> set[str]:
+    catalog = _load_catalog()
+    return {
+        pid for pid, p in catalog["providers"].items()
+        if p.get("requires_api_key", True)
+    }
 
 
 def load_config(workspace_root: str = ".") -> AppSettings:
     load_dotenv()
 
     data: dict = {}
-    db_path = os.getenv("ZENITH_DB_PATH", "zenith.db")
+    db_path = resolve_db_path()
     data["db_path"] = db_path
 
     if Path(db_path).exists():
@@ -64,14 +78,23 @@ def load_config(workspace_root: str = ".") -> AppSettings:
 
 
 def _validate_config(settings: AppSettings) -> None:
-    """Run startup validation checks and log warnings for misconfigurations."""
+    """Run startup validation checks and log warnings for misconfigurations.
+    
+    Only runs once to avoid spamming logs on every load_config() call.
+    """
+    global _validated_once
+    if _validated_once:
+        return
+    _validated_once = True
+
     warnings: list[str] = []
 
     providers = settings.providers or {}
 
     has_any_key = False
+    requiring_key = providers_requiring_key()
     for name, cfg in providers.items():
-        if name in PROVIDERS_REQUIRING_KEY:
+        if name in requiring_key:
             key = getattr(cfg, "api_key", None) or ""
             if key.strip():
                 has_any_key = True
@@ -87,7 +110,8 @@ def _validate_config(settings: AppSettings) -> None:
             "No provider API keys found in zenith.db database. Configure at least one provider via setup wizard."
         )
 
-    if settings.active_provider not in providers and settings.active_provider != "custom":
+    catalog = _load_catalog()
+    if settings.active_provider not in providers and settings.active_provider not in catalog.get("providers", {}):
         warnings.append(
             f"Active provider '{settings.active_provider}' is not in the configured "
             f"providers list {list(providers.keys()) or '[]'}. "
@@ -109,23 +133,22 @@ def _validate_config(settings: AppSettings) -> None:
     for warning in warnings:
         logger.warning("Config: %s", warning)
 
-    if warnings and os.getenv("ZENITH_STRICT_VALIDATION"):
+    if warnings and os.getenv("ZENITH_STRICT_VALIDATION", "").strip().lower() in ("1", "true", "yes"):
         print("Configuration errors detected:", file=sys.stderr)
         for w in warnings:
             print(f"  - {w}", file=sys.stderr)
         sys.exit(1)
 
 
-CONFIG_FILENAME = "zenith.db"
-
-
 def create_default_config(workspace_root: str = ".") -> Path:
-    db_path = Path(workspace_root) / "zenith.db"
+    db_path = Path(resolve_db_path())
+    if not db_path.parent.exists():
+        db_path.parent.mkdir(parents=True, exist_ok=True)
     if not db_path.exists():
         db_path.touch()
     return db_path
 
 
 def save_config(settings: AppSettings, workspace_root: str = ".") -> Path:
-    db_path = Path(workspace_root) / "zenith.db"
+    db_path = Path(resolve_db_path())
     return db_path

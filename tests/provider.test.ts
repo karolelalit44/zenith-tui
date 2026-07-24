@@ -8,7 +8,7 @@ describe('Provider Management Module', () => {
     expect(repo.getProviderMeta('openrouter').name).toBe('OpenRouter');
     expect(repo.getProviderMeta('openai').name).toBe('OpenAI');
     expect(repo.getProviderMeta('anthropic').name).toBe('Anthropic');
-    expect(repo.getProviderMeta('gemini').name).toBe('Google Gemini');
+    expect(repo.getProviderMeta('google').name).toBe('Google Gemini');
     expect(repo.getProviderMeta('groq').name).toBe('Groq');
     expect(repo.getProviderMeta('nvidia').name).toBe('NVIDIA AI');
     expect(repo.getProviderMeta('custom').name).toBe('Custom OpenAI-Compatible');

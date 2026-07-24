@@ -2,6 +2,8 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import React, { useCallback, useState } from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
+import { ASCII_SPINNER_FRAMES } from '../../constants/animation';
+import { useTickAnimation } from '../../hooks/useTickAnimation';
 import { startupService } from '../../services/data/StartupService';
 import { providerService } from '../../services/providers/ProviderService';
 import type { ProviderState } from '../../services/providers/types';
@@ -36,6 +38,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   const [errorMsg, setErrorMsg] = useState('');
   const [editingField, setEditingField] = useState(false);
   const [typingBuffer, setTypingBuffer] = useState('');
+  const tick = useTickAnimation(150, step === 'validating');
 
   const selectedProvider = providers[selectedIdx] || providers[0];
   const models = selectedProvider.meta.availableModels || [];
@@ -305,11 +308,105 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
                   {isSelected ? '▸' : ' '}
                 </Text>
               </Box>
-              <Box>
-                <Text color={isSelected ? theme.colors.text.bright : theme.colors.text.ethereal} bold={isSelected}>
-                  {m.name || m.id}
-                </Text>
-                {m.description && <Text color={theme.colors.text.dim}> — {m.description}</Text>}
+              <Box flexDirection="column" width="95%">
+                <Box flexDirection="row">
+                  <Text color={isSelected ? theme.colors.text.bright : theme.colors.text.ethereal} bold={isSelected}>
+                    {m.name || m.id}
+                  </Text>
+                  {m.parameters && <Text color={theme.colors.text.dim}> ({m.parameters})</Text>}
+                  {m.speed_tier && (
+                    <Text
+                      color={
+                        m.speed_tier === 'fast'
+                          ? theme.colors.status.success
+                          : m.speed_tier === 'moderate'
+                            ? theme.colors.status.warning
+                            : theme.colors.status.error
+                      }
+                    >
+                      {' '}
+                      {m.speed_tier === 'fast' ? '⚡' : m.speed_tier === 'moderate' ? '⏱' : '🐢'}
+                    </Text>
+                  )}
+                </Box>
+                {isSelected && m.description && (
+                  <Box marginTop={1} marginLeft={2}>
+                    <Text color={theme.colors.text.dim} italic>
+                      {m.description}
+                    </Text>
+                  </Box>
+                )}
+                {isSelected && (
+                  <Box flexDirection="row" flexWrap="wrap" marginTop={1} marginLeft={2} gap={1}>
+                    {m.context_window && (
+                      <Box flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.text.muted}>Context: </Text>
+                        <Text color={theme.colors.text.ethereal}>
+                          {m.context_window >= 1048576
+                            ? `${(m.context_window / 1048576).toFixed(0)}M`
+                            : m.context_window >= 1024
+                              ? `${(m.context_window / 1024).toFixed(0)}K`
+                              : m.context_window}
+                        </Text>
+                      </Box>
+                    )}
+                    {m.architecture && (
+                      <Box flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.text.muted}>Arch: </Text>
+                        <Text color={theme.colors.text.ethereal}>{m.architecture}</Text>
+                      </Box>
+                    )}
+                    {m.input_modalities && m.input_modalities.length > 0 && (
+                      <Box flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.text.muted}>Input: </Text>
+                        <Text color={theme.colors.text.ethereal}>{m.input_modalities.join(', ')}</Text>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+                {isSelected && m.tags && m.tags.length > 0 && (
+                  <Box flexDirection="row" flexWrap="wrap" marginTop={1} marginLeft={2} gap={1}>
+                    {m.tags.map((tag) => (
+                      <Box key={tag} flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.status.info}>#{tag}</Text>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+                {isSelected && m.model_capabilities && (
+                  <Box flexDirection="row" flexWrap="wrap" marginTop={1} marginLeft={2} gap={1}>
+                    {m.model_capabilities.function_calling && (
+                      <Box flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.status.success}>✓</Text>
+                        <Text color={theme.colors.text.dim}> Tools</Text>
+                      </Box>
+                    )}
+                    {m.model_capabilities.structured_output && (
+                      <Box flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.status.success}>✓</Text>
+                        <Text color={theme.colors.text.dim}> JSON</Text>
+                      </Box>
+                    )}
+                    {m.model_capabilities.reasoning && (
+                      <Box flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.status.success}>✓</Text>
+                        <Text color={theme.colors.text.dim}> Reasoning</Text>
+                      </Box>
+                    )}
+                    {m.model_capabilities.thinking && (
+                      <Box flexDirection="row" marginRight={1}>
+                        <Text color={theme.colors.status.success}>✓</Text>
+                        <Text color={theme.colors.text.dim}> Thinking</Text>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+                {isSelected && m.best_for && m.best_for.length > 0 && (
+                  <Box marginTop={1} marginLeft={2}>
+                    <Text color={theme.colors.text.muted}>Best for: </Text>
+                    <Text color={theme.colors.text.ethereal}>{m.best_for.join(', ')}</Text>
+                  </Box>
+                )}
               </Box>
             </Box>
           );
@@ -337,7 +434,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
 
   const renderValidating = () => (
     <Box flexDirection="column">
-      <Text color={theme.colors.status.info}>Validating configuration...</Text>
+      <Text color={theme.colors.status.info}>
+        {ASCII_SPINNER_FRAMES[tick % ASCII_SPINNER_FRAMES.length]} Validating configuration...
+      </Text>
       <Box marginTop={1}>
         <Text color={theme.colors.text.dim}>Provider: {selectedProvider.meta.name}</Text>
       </Box>

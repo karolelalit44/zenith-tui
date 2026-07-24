@@ -9,8 +9,6 @@ from zenith.core.events import Event, EventKind
 
 logger = logging.getLogger(__name__)
 
-FILE_MODIFY_TOOLS = {"file_write", "file_edit", "file_delete"}
-
 
 def event(kind: EventKind, data: dict, session_id: str) -> Event:
     return Event(kind=kind, data=data, session_id=session_id)
@@ -83,9 +81,33 @@ def message_event(text: str, session_id: str, partial: bool = False) -> Event:
     return event(EventKind.MESSAGE, {"text": text, "partial": partial}, session_id)
 
 
+def permission_request(
+    tool_name: str,
+    params: dict,
+    session_id: str,
+    request_id: str,
+) -> Event:
+    return event(EventKind.PERMISSION_REQUEST, {
+        "tool": tool_name,
+        "params": params,
+        "requestId": request_id,
+    }, session_id)
+
+
 async def stream_tokens(
-    token_stream: AsyncIterator[str],
+    token_stream: AsyncIterator[tuple[str, str | None]],
     session_id: str,
 ) -> AsyncIterator[Event]:
-    async for token in token_stream:
-        yield message_event(token, session_id, partial=True)
+    reasoning_buffer = ""
+    has_yielded_content = False
+    async for content, reasoning in token_stream:
+        if reasoning:
+            reasoning_buffer += reasoning
+        if content:
+            if reasoning_buffer and not has_yielded_content:
+                yield thinking(reasoning_buffer, session_id)
+                reasoning_buffer = ""
+            has_yielded_content = True
+            yield message_event(content, session_id, partial=True)
+    if reasoning_buffer:
+        yield thinking(reasoning_buffer, session_id)

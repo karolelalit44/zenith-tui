@@ -271,6 +271,15 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
         prompt: String(data.prompt || ''),
       } as ScenarioEvent;
 
+    case 'permission_request':
+      return {
+        kind: 'permission_request',
+        id: uid(),
+        tool: String(data.tool || ''),
+        params: (data.params as Record<string, unknown>) || {},
+        requestId: String(data.requestId || ''),
+      } as ScenarioEvent;
+
     default:
       return {
         kind: 'message',
