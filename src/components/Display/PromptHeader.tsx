@@ -13,17 +13,32 @@ export const PromptHeader: React.FC<PromptHeaderProps> = ({ prompt, mode, timest
   const { theme } = useTheme();
   const timeStr = timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
+  const modeBadge =
+    mode === 'plan'
+      ? { label: '[PLAN]', color: theme.colors.status.accent }
+      : { label: '[BUILD]', color: theme.colors.status.success };
+
   return (
-    <Box flexDirection="row" justifyContent="space-between" alignItems="center" width="100%" marginBottom={1}>
-      <Box flexDirection="row" alignItems="center">
-        <Text color={theme.colors.text.muted}>{'> '}</Text>
-        <Text color={theme.colors.text.ethereal} bold>
-          {prompt}
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+      <Box
+        flexDirection="row"
+        alignItems="center"
+        width="100%"
+        paddingX={1}
+        paddingY={0}
+        backgroundColor={theme.colors.bg.modal}
+      >
+        <Text color={modeBadge.color} bold>
+          {modeBadge.label}
         </Text>
         <Text color={theme.colors.text.muted}> </Text>
-        <Text color={theme.colors.text.muted}>[{mode}]</Text>
+        <Text color={theme.colors.text.bright} bold>
+          {prompt}
+        </Text>
       </Box>
-      <Text color={theme.colors.text.muted}>[ {timeStr} ]</Text>
+      <Box flexDirection="row" justifyContent="flex-end" marginTop={0}>
+        <Text color={theme.colors.text.dim}>{timeStr}</Text>
+      </Box>
     </Box>
   );
 };

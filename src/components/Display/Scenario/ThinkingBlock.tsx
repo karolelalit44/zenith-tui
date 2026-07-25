@@ -31,6 +31,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     }
 
     const thoughts = event.thoughts;
+    const timers: ReturnType<typeof setTimeout>[] = [];
     let cancelled = false;
     let cumulativeDelay = 0;
 
@@ -40,10 +41,12 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
       const _revealTimer = setTimeout(() => {
         if (!cancelled) setVisibleCount(idx + 1);
       }, cumulativeDelay);
+      timers.push(_revealTimer);
     });
 
     return () => {
       cancelled = true;
+      timers.forEach(clearTimeout);
     };
   }, [event.thoughts, isCollapsed, historical]);
 
@@ -53,11 +56,14 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
         <Text color={theme.colors.status.accent} bold>
-          {isCollapsed ? '▸' : '▾'} Thinking
+          [THINK] {isCollapsed ? '▸' : '▾'}
         </Text>
-        <Text color={theme.colors.text.muted}> ({event.thoughts.length} steps)</Text>
+        <Text color={theme.colors.text.muted}>
+          {' '}
+          ({event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'})
+        </Text>
         <Text color={theme.colors.text.muted}> · </Text>
-        <Text color={theme.colors.text.muted} bold underline>
+        <Text color={theme.colors.text.muted} underline>
           Shift+T to toggle
         </Text>
       </Box>

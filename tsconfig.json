@@ -5,13 +5,14 @@
     "moduleResolution": "bundler",
     "lib": ["es2022"],
     "jsx": "react",
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "outDir": "./dist-tsc",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "zenith/config/*.json"]
 }

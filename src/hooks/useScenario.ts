@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
-import { MockScenarioProvider } from '../services/scenario/providers/MockScenarioProvider';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { backendScenarioProvider } from '../services/backend/BackendScenarioProvider';
+import { wsClient } from '../services/backend/WebSocketClient';
 import type { ScenarioProvider, ScenarioRunner } from '../services/scenario/types';
 import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
 
@@ -10,40 +11,88 @@ export interface UseScenarioReturn {
   abort: () => void;
 }
 
-const createDefaultProvider = (): ScenarioProvider => new MockScenarioProvider();
-
-let _cachedDefault: ScenarioProvider | null = null;
-const getDefaultProvider = (): ScenarioProvider => {
-  if (!_cachedDefault) _cachedDefault = createDefaultProvider();
-  return _cachedDefault;
-};
-
 export function useScenario(provider?: ScenarioProvider): UseScenarioReturn {
-  const resolvedProvider = provider ?? getDefaultProvider();
+  const resolvedProvider = provider ?? backendScenarioProvider;
   const [events, setEvents] = useState<ScenarioEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [_currentPrompt, setCurrentPrompt] = useState('');
-  const [_mode, setMode] = useState<ScenarioMode | null>(null);
   const runnerRef = useRef<ScenarioRunner | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    wsClient.connect().catch(() => {});
+  }, []);
 
   const startScenario = useCallback(
-    (prompt: string, selectedMode: ScenarioMode) => {
-      setMode(selectedMode);
-      setCurrentPrompt(prompt);
+    async (prompt: string, selectedMode: ScenarioMode) => {
       setEvents([]);
       setIsRunning(true);
+
+      try {
+        await wsClient.connect();
+      } catch (err) {
+        const _reason = err instanceof Error ? err.message : String(err);
+        setEvents([
+          {
+            kind: 'error',
+            id: `evt_conn_${Date.now()}`,
+            message: 'Cannot connect to backend. Run: zenith serve',
+            code: 'CONNECTION_FAILED',
+          },
+        ]);
+        setIsRunning(false);
+        return;
+      }
+
+      let sessionId = sessionIdRef.current;
+      if (!sessionId) {
+        try {
+          const session = await wsClient.createSession(prompt.slice(0, 50));
+          sessionId = (session as { id: string }).id;
+          sessionIdRef.current = sessionId;
+        } catch {
+          setEvents([
+            {
+              kind: 'error',
+              id: `evt_sess_${Date.now()}`,
+              message: 'Failed to create session',
+            },
+          ]);
+          setIsRunning(false);
+          return;
+        }
+      }
 
       const scenario = resolvedProvider.resolve(prompt, selectedMode);
 
       runnerRef.current = resolvedProvider.execute(
         scenario,
-        (event) => {
-          setEvents((prev) => [...prev, event]);
+        (event, index) => {
+          setEvents((prev) => {
+            if (typeof index === 'number' && index < prev.length) {
+              const updated = [...prev];
+              updated[index] = event;
+              return updated;
+            }
+            return [...prev, event];
+          });
         },
         () => {
           setIsRunning(false);
         },
       );
+
+      wsClient.sendPrompt(prompt, selectedMode, sessionId).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setEvents((prev) => [
+          ...prev,
+          {
+            kind: 'error',
+            id: `evt_prompt_err_${Date.now()}`,
+            message: `Backend prompt error: ${message}`,
+          },
+        ]);
+        setIsRunning(false);
+      });
     },
     [resolvedProvider],
   );
@@ -51,14 +100,6 @@ export function useScenario(provider?: ScenarioProvider): UseScenarioReturn {
   const abort = useCallback(() => {
     runnerRef.current?.abort();
     setIsRunning(false);
-  }, []);
-
-  const _reset = useCallback(() => {
-    runnerRef.current?.abort();
-    setEvents([]);
-    setIsRunning(false);
-    setCurrentPrompt('');
-    setMode(null);
   }, []);
 
   return {

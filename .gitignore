@@ -1,2 +1,23 @@
 node_modules
 dist
+*.pyc
+.pytest_cache
+__pycache__
+.env
+.venv
+
+# Runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# User-specific runtime config
+user_profile.json
+
+# Reference repositories (large, not part of source)
+reference_repo/
+
+# Windows artifact prevention
+nul

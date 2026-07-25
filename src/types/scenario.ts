@@ -77,15 +77,16 @@ export interface ErrorEvent {
   kind: 'error';
   id: string;
   message: string;
-  command?: string;
-  stack?: string;
+  code?: string;
+  recoverable?: boolean;
+  provider?: string;
 }
 
 export interface WarningEvent {
   kind: 'warning';
   id: string;
   message: string;
-  details?: string;
+  code?: string;
 }
 
 export interface RetryEvent {
@@ -95,12 +96,29 @@ export interface RetryEvent {
   attempt: number;
 }
 
+export interface ToolResultData {
+  success: boolean;
+  output: string;
+  error: string;
+}
+
+export interface TokenInfo {
+  used: number;
+  remaining: number;
+  total: number;
+  percent: number;
+}
+
 export interface SuccessEvent {
   kind: 'success';
   id: string;
   message: string;
   filesCreated: string[];
   commandsExecuted: string[];
+  iterations?: number;
+  tokenInfo?: TokenInfo;
+  tool?: string;
+  result?: ToolResultData;
 }
 
 export interface SummaryEvent {
@@ -111,12 +129,14 @@ export interface SummaryEvent {
   filesCreated: string[];
   commandsExecuted: string[];
   verified?: string[];
+  action?: string;
 }
 
 export interface MessageEvent {
   kind: 'message';
   id: string;
   text: string;
+  partial?: boolean;
 }
 
 export interface ProgressEvent {
@@ -124,6 +144,8 @@ export interface ProgressEvent {
   id: string;
   label: string;
   steps: { label: string; status: 'pending' | 'active' | 'done' | 'error' }[];
+  percent?: number;
+  iteration?: number;
 }
 
 export interface WaitingEvent {

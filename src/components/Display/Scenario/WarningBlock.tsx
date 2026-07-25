@@ -29,18 +29,14 @@ export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event }) 
           </Text>
         </Box>
 
-        {event.details && (
+        {event.code && (
           <Box marginTop={0} paddingLeft={1}>
-            <Text color={theme.colors.text.muted} wrap="wrap">
-              {event.details}
-            </Text>
+            <Text color={theme.colors.text.muted}>Code: {event.code}</Text>
           </Box>
         )}
 
         <Box marginTop={1} flexDirection="row" justifyContent="flex-end">
-          <Text color={theme.colors.status.warning} dimColor>
-            [NON-FATAL · Execution Continuing]
-          </Text>
+          <Text color={theme.colors.text.dim}>[NON-FATAL - Execution Continuing]</Text>
         </Box>
       </Box>
     </Box>

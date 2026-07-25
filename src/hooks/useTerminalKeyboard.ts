@@ -1,5 +1,4 @@
 import { useInput } from 'ink';
-import { useEffect } from 'react';
 import { savePlanToFile } from '../services/export/markdownExport';
 import type { ConversationTurn } from './useConversation';
 import type { OverlayType } from './useOverlayManager';
@@ -15,9 +14,11 @@ interface UseTerminalKeyboardOptions {
   abortActiveTurn: () => void;
   markTurnSaved: (turnId: string) => void;
   onToggleThinking?: () => void;
+  onInsertNewline?: () => void;
   onScrollUp?: () => void;
   onScrollDown?: () => void;
-  onInsertNewline?: () => void;
+  onScrollToBottom?: () => void;
+  onScrollToTop?: () => void;
 }
 
 export function useTerminalKeyboard({
@@ -31,14 +32,12 @@ export function useTerminalKeyboard({
   abortActiveTurn,
   markTurnSaved,
   onToggleThinking,
+  onInsertNewline,
   onScrollUp,
   onScrollDown,
-  onInsertNewline,
+  onScrollToBottom,
+  onScrollToTop,
 }: UseTerminalKeyboardOptions): void {
-  useEffect(() => {
-    // Native terminal scrolling enabled for touchpad & mouse wheel
-  }, []);
-
   useInput(
     (char, key) => {
       if ((key.ctrl || key.meta) && (char === 's' || char === 'S')) {
@@ -55,18 +54,36 @@ export function useTerminalKeyboard({
         return;
       }
 
+      if (key.pageUp || (key.shift && key.upArrow)) {
+        if (overlay === 'none' && onScrollUp) {
+          onScrollUp();
+          return;
+        }
+      }
+
+      if (key.pageDown || (key.shift && key.downArrow)) {
+        if (overlay === 'none' && onScrollDown) {
+          onScrollDown();
+          return;
+        }
+      }
+
+      if (key.shift && key.end) {
+        if (overlay === 'none' && onScrollToBottom) {
+          onScrollToBottom();
+          return;
+        }
+      }
+
+      if (key.shift && key.home) {
+        if (overlay === 'none' && onScrollToTop) {
+          onScrollToTop();
+          return;
+        }
+      }
+
       if (key.shift && (char === 't' || char === 'T') && overlay === 'none' && onToggleThinking) {
         onToggleThinking();
-        return;
-      }
-
-      if (key.pageUp && overlay === 'none' && onScrollUp) {
-        onScrollUp();
-        return;
-      }
-
-      if (key.pageDown && overlay === 'none' && onScrollDown) {
-        onScrollDown();
         return;
       }
 
@@ -81,7 +98,6 @@ export function useTerminalKeyboard({
       }
 
       if (overlay !== 'none') {
-        // Active modal handles its own keyboard navigation & 1-step-back Esc key hierarchy
         return;
       }
 
@@ -93,3 +109,4 @@ export function useTerminalKeyboard({
     { isActive: true },
   );
 }
+

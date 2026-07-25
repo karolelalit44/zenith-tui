@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink';
-import TextInput from 'ink-text-input';
 import React from 'react';
 import { useTheme } from '../../theme/ThemeContext';
+import { MultiLineTextInput } from './MultiLineTextInput';
 
 export interface CommandInputProps {
   input: string;
@@ -25,17 +25,20 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
         marginTop={1}
       >
         {/* Primary Input Line */}
-        <Box flexDirection="row" alignItems="center">
+        <Box flexDirection="row" alignItems="flex-start">
           <Text color={theme.colors.text.emerald} bold>
             ❯{' '}
           </Text>
-          <TextInput
-            value={input}
-            onChange={onInputChange}
-            onSubmit={onSubmit}
-            placeholder="Ask anything or type / for commands..."
-            focus={true}
-          />
+          <Box flexDirection="column" flexGrow={1}>
+            <MultiLineTextInput
+              value={input}
+              onChange={onInputChange}
+              onSubmit={onSubmit}
+              placeholder="Ask anything or type / for commands..."
+              focus={true}
+              maxVisibleLines={12}
+            />
+          </Box>
         </Box>
 
         {/* Subtle Divider & Hints Bar */}

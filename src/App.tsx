@@ -6,39 +6,43 @@ import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
+import { ASCII_SPINNER_FRAMES } from './constants/animation';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
+import { useTickAnimation } from './hooks/useTickAnimation';
 import { AddDirModal } from './screens/AddDir/AddDirModal';
 import { ContextModal } from './screens/Context/ContextModal';
 import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
 import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
+import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
-import { loadUserProfile, saveUserProfile } from './services/data/userProfileService';
+import { loadUserProfile } from './services/data/userProfileService';
 import { useTheme } from './theme/ThemeContext';
+import type { AppStartupState } from './types/startup';
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
+  const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
+  const tick = useTickAnimation(150, startupState.phase === 'loading');
+  const [workspace, setWorkspace] = useState(() => process.cwd());
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
 
   useEffect(() => {
-    startupService.initialize();
+    startupService.initialize().then(setStartupState);
+    const unsub = startupService.subscribe(setStartupState);
+    return unsub;
   }, []);
-  const [workspace, setWorkspace] = useState(() => process.cwd());
-  const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().thinkingCollapsed);
 
   const toggleThinking = useCallback(() => {
-    setThinkingCollapsed((prev) => {
-      const next = !prev;
-      saveUserProfile({ thinkingCollapsed: next });
-      return next;
-    });
+    setThinkingCollapsed((prev: boolean) => !prev);
   }, []);
   const {
     turns,
@@ -65,8 +69,6 @@ export const App: React.FC = () => {
   } = useAutocomplete();
   const { events, isRunning, startScenario, abort } = useScenario();
 
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const prevTurnCountRef = useRef(turns.length);
   const suppressSubmitRef = useRef(false);
 
   const insertNewline = useCallback(() => {
@@ -74,20 +76,29 @@ export const App: React.FC = () => {
     handleInputChange(`${input}\n`);
   }, [input, handleInputChange]);
 
-  useEffect(() => {
-    if (turns.length > prevTurnCountRef.current) {
-      setScrollOffset(0);
-    }
-    prevTurnCountRef.current = turns.length;
-  }, [turns.length]);
+  const [scrollOffset, setScrollOffset] = useState(0);
 
-  const scrollUp = useCallback(() => {
+  const handleScrollUp = useCallback(() => {
     setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, turns.length - 1)));
   }, [turns.length]);
 
-  const scrollDown = useCallback(() => {
+  const handleScrollDown = useCallback(() => {
     setScrollOffset((prev) => Math.max(0, prev - 1));
   }, []);
+
+  const handleScrollToBottom = useCallback(() => {
+    setScrollOffset(0);
+  }, []);
+
+  const handleScrollToTop = useCallback(() => {
+    setScrollOffset(Math.max(0, turns.length - 1));
+  }, [turns.length]);
+
+  useEffect(() => {
+    if (isRunning) {
+      setScrollOffset(0);
+    }
+  }, [isRunning, turns.length]);
 
   const isIdle = !isRunning && !isOverlayOpen;
 
@@ -102,9 +113,11 @@ export const App: React.FC = () => {
     abortActiveTurn,
     markTurnSaved,
     onToggleThinking: toggleThinking,
-    onScrollUp: scrollUp,
-    onScrollDown: scrollDown,
     onInsertNewline: insertNewline,
+    onScrollUp: handleScrollUp,
+    onScrollDown: handleScrollDown,
+    onScrollToBottom: handleScrollToBottom,
+    onScrollToTop: handleScrollToTop,
   });
 
   useEffect(() => {
@@ -118,10 +131,10 @@ export const App: React.FC = () => {
     (cmd: string) => {
       clearInput();
       commandService.dispatchCommand(cmd, {
-        openOverlay: (target) => openOverlay(target as any),
+        openOverlay,
         clearTurns,
         compactTurns,
-        setMode: (mode) => handleModeSelect(mode as any),
+        setMode: handleModeSelect,
       });
     },
     [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect],
@@ -160,38 +173,72 @@ export const App: React.FC = () => {
     [dispatchCommand, handleAutocompleteSelect],
   );
 
+  if (startupState.phase === 'loading') {
+    return (
+      <Box
+        flexDirection="column"
+        paddingX={1}
+        paddingTop={1}
+        width="100%"
+        justifyContent="center"
+        alignItems="center"
+        minHeight={5}
+      >
+        <Text color={theme.colors.text.muted}>
+          {ASCII_SPINNER_FRAMES[tick % ASCII_SPINNER_FRAMES.length]} Initializing Zenith...
+        </Text>
+      </Box>
+    );
+  }
+
+  if (startupState.phase === 'setup' || startupState.phase === 'error') {
+    return (
+      <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+        <SetupWizard
+          startupState={startupState}
+          onComplete={() => {
+            setStartupState({ phase: 'ready', result: startupState.result, error: null });
+          }}
+        />
+      </Box>
+    );
+  }
+
+  const maxVisibleTurns = 2;
+  const totalTurns = turns.length;
+  const endIndex = Math.max(0, totalTurns - scrollOffset);
+  const startIndex = Math.max(0, endIndex - maxVisibleTurns);
+  const visibleTurns = turns.slice(startIndex, endIndex);
+
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-      {/* Welcome Screen - always visible */}
       <WelcomeScreen workspace={workspace} />
 
-      {/* Conversation turns */}
-      {turns.map((turn, idx) => {
-        const isHidden = idx < turns.length - 1 - scrollOffset;
-        if (isHidden) return null;
-        return (
-          <Box key={turn.id} flexDirection="column" marginTop={1}>
-            <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
-            {turn.events.length > 0 && (
-              <ScenarioRenderer
-                events={turn.events}
-                isRunning={false}
-                isHistorical={true}
-                thinkingCollapsed={thinkingCollapsed}
-              />
-            )}
-          </Box>
-        );
-      })}
-
-      {/* Scroll indicator */}
-      {scrollOffset > 0 && (
-        <Box marginTop={1}>
-          <Text color={theme.colors.text.muted} italic>
-            ↑ Scrolled up {scrollOffset} turn{scrollOffset > 1 ? 's' : ''} (PgDn to scroll down)
+      {totalTurns > maxVisibleTurns && (
+        <Box flexDirection="row" justifyContent="space-between" paddingX={1} marginTop={1}>
+          <Text color={theme.colors.status.info} bold>
+            [VIEWPORT SCROLL] Turns {startIndex + 1}-{endIndex} of {totalTurns}
+          </Text>
+          <Text color={theme.colors.text.muted}>
+            [PgUp/PgDn / Shift+↑/↓: Scroll | Shift+End: Bottom]
           </Text>
         </Box>
       )}
+
+      {/* Render visible turns within viewport scroll window */}
+      {visibleTurns.map((turn) => (
+        <Box key={turn.id} flexDirection="column" marginTop={1}>
+          <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
+          {turn.events.length > 0 && (
+            <ScenarioRenderer
+              events={turn.events}
+              isRunning={false}
+              isHistorical={true}
+              thinkingCollapsed={thinkingCollapsed}
+            />
+          )}
+        </Box>
+      ))}
 
       {/* Currently running scenario */}
       {isRunning && (
@@ -208,7 +255,8 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {/* Input box - visible when idle and no overlays */}
+
+      {/* Input box */}
       {isIdle && !showAutocomplete && !showFilePicker && (
         <CommandInput
           input={input}
@@ -232,7 +280,7 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {/* Session Status Bar - always visible when there are turns or running */}
+      {/* Session Status Bar */}
       {(turns.length > 0 || isRunning) && !showAutocomplete && !showFilePicker && (
         <SessionStatusBar
           mode={selectedMode}

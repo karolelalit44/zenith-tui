@@ -1,7 +1,8 @@
 import { Box, Text } from 'ink';
+import { render } from 'ink-testing-library';
+// biome-ignore lint/correctness/noUnusedImports: React is required for JSX transform (jsx: "react")
 import React from 'react';
 import { expect, test } from 'vitest';
-import { render } from 'ink-testing-library';
 import { useOverlayManager } from '../src/hooks/useOverlayManager';
 
 function TestHarness() {

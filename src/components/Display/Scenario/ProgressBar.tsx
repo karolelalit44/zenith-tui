@@ -13,18 +13,28 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
   const { theme } = useTheme();
   const tick = useTickAnimation(200);
 
-  const activeIdx = event.steps.findIndex((s) => s.status === 'active');
-  const doneCount = event.steps.filter((s) => s.status === 'done').length;
-  const progress = event.steps.length > 0 ? doneCount / event.steps.length : 0;
   const barWidth = 20;
+
+  let progress: number;
+  if (typeof event.percent === 'number') {
+    progress = event.percent / 100;
+  } else if (event.steps.length > 0) {
+    const doneCount = event.steps.filter((s) => s.status === 'done').length;
+    progress = doneCount / event.steps.length;
+  } else {
+    progress = 0;
+  }
+
   const filled = Math.round(barWidth * progress);
-  const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
+  const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barWidth - filled);
+
+  const activeIdx = event.steps.findIndex((s) => s.status === 'active');
 
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
         <Text color={theme.colors.text.emerald} bold>
-          ◆ {event.label}
+          [{event.label}]
         </Text>
         <Text color={theme.colors.text.muted}> </Text>
         <Text color={theme.colors.text.muted}>{bar}</Text>
@@ -32,40 +42,50 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
         <Text color={theme.colors.text.emerald} bold>
           {Math.round(progress * 100)}%
         </Text>
+        {event.iteration !== undefined && (
+          <>
+            <Text color={theme.colors.text.muted}> </Text>
+            <Text color={theme.colors.text.muted}>(iter {event.iteration})</Text>
+          </>
+        )}
       </Box>
 
-      <Box flexDirection="column" paddingLeft={2}>
-        {event.steps.map((step, idx) => {
-          let icon: string;
-          let color: string;
-          switch (step.status) {
-            case 'done':
-              icon = '✔';
-              color = theme.colors.text.emerald;
-              break;
-            case 'active':
-              icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
-              color = theme.colors.text.ethereal;
-              break;
-            case 'error':
-              icon = '✗';
-              color = theme.colors.text.error;
-              break;
-            default:
-              icon = '○';
-              color = theme.colors.text.muted;
-              break;
-          }
-          return (
-            <Box key={idx} flexDirection="row" alignItems="center">
-              <Box width={2}>
-                <Text color={color}>{icon}</Text>
+      {event.steps.length > 0 && (
+        <Box flexDirection="column" paddingLeft={2}>
+          {event.steps.map((step, idx) => {
+            let icon: string;
+            let color: string;
+            switch (step.status) {
+              case 'done':
+                icon = '✓';
+                color = theme.colors.text.emerald;
+                break;
+              case 'active':
+                icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
+                color = theme.colors.text.ethereal;
+                break;
+              case 'error':
+                icon = '✗';
+                color = theme.colors.text.error;
+                break;
+              default:
+                icon = '○';
+                color = theme.colors.text.muted;
+                break;
+            }
+            return (
+              <Box key={idx} flexDirection="row" alignItems="center">
+                <Box width={2}>
+                  <Text color={color}>{icon}</Text>
+                </Box>
+                <Text color={idx === activeIdx ? theme.colors.text.ethereal : theme.colors.text.muted}>
+                  {step.label}
+                </Text>
               </Box>
-              <Text color={idx === activeIdx ? theme.colors.text.ethereal : theme.colors.text.muted}>{step.label}</Text>
-            </Box>
-          );
-        })}
-      </Box>
+            );
+          })}
+        </Box>
+      )}
     </Box>
   );
 });

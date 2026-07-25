@@ -50,7 +50,6 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         {events.map((rawEvt) => {
           const event = parseJsonEvent(rawEvt);
           const Component = componentRegistry.getComponent(event.kind);
-
           return <Component key={event.id} event={event} context={renderContext} />;
         })}
 

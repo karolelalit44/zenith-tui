@@ -20,31 +20,40 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
         paddingX={1}
         paddingY={1}
       >
-        <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
+        <Box flexDirection="row" alignItems="center" marginBottom={0} flexWrap="wrap">
           <Text color={theme.colors.status.error} bold>
             [ERROR]{' '}
           </Text>
-          <Text color={theme.colors.text.bright} bold>
+          <Text color={theme.colors.text.bright} bold wrap="wrap">
             {event.message}
           </Text>
-          {event.command && <Text color={theme.colors.text.muted}> (command: {event.command})</Text>}
         </Box>
 
-        {event.stack && (
-          <Box flexDirection="column" marginBottom={1} paddingLeft={1} backgroundColor={theme.colors.bg.modal}>
-            <Text color={theme.colors.status.error} dimColor wrap="wrap">
-              {event.stack}
+        {event.code && (
+          <Box flexDirection="row" marginTop={0}>
+            <Text color={theme.colors.text.muted}>Code: </Text>
+            <Text color={theme.colors.status.warning} wrap="wrap">
+              {event.code}
             </Text>
           </Box>
         )}
 
-        <Box flexDirection="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" marginTop={1}>
+        {event.provider && (
+          <Box flexDirection="row" marginTop={0}>
+            <Text color={theme.colors.text.muted}>Provider: </Text>
+            <Text color={theme.colors.text.bright} wrap="wrap">
+              {event.provider}
+            </Text>
+          </Box>
+        )}
+
+        <Box flexDirection="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" marginTop={0}>
           <Text color={theme.colors.text.muted}>
-            Recommendation: Check credentials, permissions, or project config.
+            {event.recoverable ? 'Recoverable - ' : ''}Status: Execution halted due to error.
           </Text>
           <Box paddingX={1} backgroundColor={theme.colors.status.error}>
             <Text color={theme.colors.bg.app} bold>
-              [RETRY AVAILABLE]
+              [FAILED]
             </Text>
           </Box>
         </Box>

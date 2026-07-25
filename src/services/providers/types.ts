@@ -1,4 +1,4 @@
-export type ProviderId = 'openrouter' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'custom';
+export type ProviderId = 'openrouter' | 'openai' | 'anthropic' | 'google' | 'groq' | 'nvidia' | 'custom';
 
 export interface ProviderConfigField {
   key: string;
@@ -28,7 +28,27 @@ export interface ProviderMeta {
   defaultModel: string;
   swatch: string[];
   fields: ProviderConfigField[];
-  availableModels?: { id: string; name: string; description?: string }[];
+  availableModels?: ModelInfo[];
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description?: string;
+  context_window?: number;
+  parameters?: string;
+  architecture?: string;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  tags?: string[];
+  model_capabilities?: {
+    function_calling?: boolean;
+    structured_output?: boolean;
+    reasoning?: boolean;
+    thinking?: boolean;
+  };
+  speed_tier?: 'fast' | 'moderate' | 'slow';
+  best_for?: string[];
 }
 
 export interface ProviderState {

@@ -7,7 +7,7 @@ interface TestExecutionCardProps {
   event: TestExecutionEvent;
 }
 
-export const TestExecutionCard: React.FC<TestExecutionCardProps> = ({ event }) => {
+export const TestExecutionCard: React.FC<TestExecutionCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
   return (
@@ -39,20 +39,18 @@ export const TestExecutionCard: React.FC<TestExecutionCardProps> = ({ event }) =
         <Box flexDirection="column" marginBottom={1}>
           {event.results.map((result, idx) => (
             <Box key={idx} flexDirection="row" alignItems="center">
-              <Box width={3}>
-                <Text
-                  color={
-                    result.status === 'pass'
-                      ? theme.colors.status.success
-                      : result.status === 'fail'
-                        ? theme.colors.status.error
-                        : theme.colors.text.muted
-                  }
-                  bold
-                >
-                  {result.status === 'pass' ? '✔' : result.status === 'fail' ? '✗' : '○'}
-                </Text>
-              </Box>
+              <Text
+                color={
+                  result.status === 'pass'
+                    ? theme.colors.status.success
+                    : result.status === 'fail'
+                      ? theme.colors.status.error
+                      : theme.colors.text.muted
+                }
+                bold
+              >
+                {result.status === 'pass' ? '[PASS] ' : result.status === 'fail' ? '[FAIL] ' : '[SKIP] '}
+              </Text>
               <Text color={result.status === 'fail' ? theme.colors.status.error : theme.colors.text.ethereal}>
                 {result.name}
               </Text>
@@ -66,7 +64,7 @@ export const TestExecutionCard: React.FC<TestExecutionCardProps> = ({ event }) =
         <Box
           flexDirection="row"
           paddingTop={1}
-          borderStyle="single"
+          borderStyle="round"
           borderTop={true}
           borderColor={theme.colors.border.muted}
         >
@@ -92,4 +90,4 @@ export const TestExecutionCard: React.FC<TestExecutionCardProps> = ({ event }) =
       </Box>
     </Box>
   );
-};
+});
