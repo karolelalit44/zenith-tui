@@ -170,13 +170,19 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       }
       idx++; // skip closing ```
 
+      const MAX_CODE_LINES = 15;
+      const isTruncated = codeLines.length > MAX_CODE_LINES;
+      const visibleLines = isTruncated ? codeLines.slice(0, MAX_CODE_LINES) : codeLines;
+
       blocks.push(
         <Box key={`code_${idx}`} flexDirection="column" marginY={1} width="100%">
           <Box flexDirection="row" justifyContent="space-between" paddingX={1} backgroundColor={theme.colors.bg.modal}>
             <Text color={theme.colors.status.accent} bold>
               [{lang}]
             </Text>
-            <Text color={theme.colors.text.muted}>{codeLines.length} lines</Text>
+            <Text color={theme.colors.text.muted}>
+              {codeLines.length} lines{isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
+            </Text>
           </Box>
           <Box
             flexDirection="column"
@@ -185,14 +191,20 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
             borderStyle="round"
             borderColor={theme.colors.border.muted}
           >
-            {codeLines.map((cL, cIdx) => (
+            {visibleLines.map((cL, cIdx) => (
               <Text key={cIdx}>{highlightCode(cL, lang)}</Text>
             ))}
+            {isTruncated && (
+              <Text color={theme.colors.text.muted} italic>
+                ... [{codeLines.length - MAX_CODE_LINES} more lines collapsed]
+              </Text>
+            )}
           </Box>
         </Box>,
       );
       continue;
     }
+
 
     // Markdown Table
     if (line.trim().startsWith('|') && idx + 1 < rawLines.length && rawLines[idx + 1].includes('---')) {

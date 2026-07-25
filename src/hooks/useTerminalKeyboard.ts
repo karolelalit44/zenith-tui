@@ -15,6 +15,10 @@ interface UseTerminalKeyboardOptions {
   markTurnSaved: (turnId: string) => void;
   onToggleThinking?: () => void;
   onInsertNewline?: () => void;
+  onScrollUp?: () => void;
+  onScrollDown?: () => void;
+  onScrollToBottom?: () => void;
+  onScrollToTop?: () => void;
 }
 
 export function useTerminalKeyboard({
@@ -29,6 +33,10 @@ export function useTerminalKeyboard({
   markTurnSaved,
   onToggleThinking,
   onInsertNewline,
+  onScrollUp,
+  onScrollDown,
+  onScrollToBottom,
+  onScrollToTop,
 }: UseTerminalKeyboardOptions): void {
   useInput(
     (char, key) => {
@@ -44,6 +52,34 @@ export function useTerminalKeyboard({
           }
         }
         return;
+      }
+
+      if (key.pageUp || (key.shift && key.upArrow)) {
+        if (overlay === 'none' && onScrollUp) {
+          onScrollUp();
+          return;
+        }
+      }
+
+      if (key.pageDown || (key.shift && key.downArrow)) {
+        if (overlay === 'none' && onScrollDown) {
+          onScrollDown();
+          return;
+        }
+      }
+
+      if (key.shift && key.end) {
+        if (overlay === 'none' && onScrollToBottom) {
+          onScrollToBottom();
+          return;
+        }
+      }
+
+      if (key.shift && key.home) {
+        if (overlay === 'none' && onScrollToTop) {
+          onScrollToTop();
+          return;
+        }
       }
 
       if (key.shift && (char === 't' || char === 'T') && overlay === 'none' && onToggleThinking) {
@@ -73,3 +109,4 @@ export function useTerminalKeyboard({
     { isActive: true },
   );
 }
+

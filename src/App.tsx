@@ -76,6 +76,30 @@ export const App: React.FC = () => {
     handleInputChange(`${input}\n`);
   }, [input, handleInputChange]);
 
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  const handleScrollUp = useCallback(() => {
+    setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, turns.length - 1)));
+  }, [turns.length]);
+
+  const handleScrollDown = useCallback(() => {
+    setScrollOffset((prev) => Math.max(0, prev - 1));
+  }, []);
+
+  const handleScrollToBottom = useCallback(() => {
+    setScrollOffset(0);
+  }, []);
+
+  const handleScrollToTop = useCallback(() => {
+    setScrollOffset(Math.max(0, turns.length - 1));
+  }, [turns.length]);
+
+  useEffect(() => {
+    if (isRunning) {
+      setScrollOffset(0);
+    }
+  }, [isRunning, turns.length]);
+
   const isIdle = !isRunning && !isOverlayOpen;
 
   useTerminalKeyboard({
@@ -90,6 +114,10 @@ export const App: React.FC = () => {
     markTurnSaved,
     onToggleThinking: toggleThinking,
     onInsertNewline: insertNewline,
+    onScrollUp: handleScrollUp,
+    onScrollDown: handleScrollDown,
+    onScrollToBottom: handleScrollToBottom,
+    onScrollToTop: handleScrollToTop,
   });
 
   useEffect(() => {
@@ -176,12 +204,29 @@ export const App: React.FC = () => {
     );
   }
 
+  const maxVisibleTurns = 2;
+  const totalTurns = turns.length;
+  const endIndex = Math.max(0, totalTurns - scrollOffset);
+  const startIndex = Math.max(0, endIndex - maxVisibleTurns);
+  const visibleTurns = turns.slice(startIndex, endIndex);
+
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
       <WelcomeScreen workspace={workspace} />
 
-      {/* All completed turns — native terminal scroll handles overflow */}
-      {turns.map((turn) => (
+      {totalTurns > maxVisibleTurns && (
+        <Box flexDirection="row" justifyContent="space-between" paddingX={1} marginTop={1}>
+          <Text color={theme.colors.status.info} bold>
+            [VIEWPORT SCROLL] Turns {startIndex + 1}-{endIndex} of {totalTurns}
+          </Text>
+          <Text color={theme.colors.text.muted}>
+            [PgUp/PgDn / Shift+↑/↓: Scroll | Shift+End: Bottom]
+          </Text>
+        </Box>
+      )}
+
+      {/* Render visible turns within viewport scroll window */}
+      {visibleTurns.map((turn) => (
         <Box key={turn.id} flexDirection="column" marginTop={1}>
           <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
           {turn.events.length > 0 && (
@@ -209,6 +254,7 @@ export const App: React.FC = () => {
           />
         </Box>
       )}
+
 
       {/* Input box */}
       {isIdle && !showAutocomplete && !showFilePicker && (
