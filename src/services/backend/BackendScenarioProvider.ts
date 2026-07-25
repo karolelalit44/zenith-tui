@@ -4,7 +4,8 @@ import { mapEvent } from './EventMapper';
 import { wsClient } from './WebSocketClient';
 
 /** Timeout (ms) after which the frontend auto-finalizes if no events arrive. */
-const STALE_TIMEOUT_MS = 90_000;
+const STALE_TIMEOUT_MS = 300_000;
+
 
 export class BackendScenarioProvider implements ScenarioProvider {
   readonly name = 'backend';

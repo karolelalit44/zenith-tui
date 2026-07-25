@@ -70,10 +70,14 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
         tool_name = tool_match.group(1)
         params: dict = {}
 
-        # Extract filepath if present
-        fp_match = re.search(r'"(?:filepath|file_path|path)"\s*:\s*"([^"]+)"', candidate)
+        # Extract path if present
+        fp_match = re.search(
+            r'"(?:filePath|filepath|file_path|path|targetFile|target_file|filename|file_name|targetPath|target_path)"\s*:\s*"([^"]+)"',
+            candidate,
+            re.IGNORECASE,
+        )
         if fp_match:
-            params["filepath"] = fp_match.group(1)
+            params["path"] = fp_match.group(1)
 
         # Extract content if present
         content_match = re.search(r'"content"\s*:\s*"(.*)"\s*\}\s*\}?\s*$', candidate, re.DOTALL)
@@ -96,18 +100,29 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
 
 def parse_tool_calls(text: str) -> list[dict]:
     """Extract and parse all tool calls from a text response."""
+    from zenith.tools.param_normalizer import normalize_file_params
+
     calls: list[dict] = []
     seen: set[str] = set()
+    matched_spans: list[tuple[int, int]] = []
+
     for pattern in TOOL_PATTERNS:
         for match in pattern.finditer(text):
+            start, end = match.span()
+            if any(s <= start and end <= e for s, e in matched_spans):
+                continue
+
             candidate = match.group(1) if len(match.groups()) > 0 else match.group(0)
             candidate = candidate.strip()
             parsed = _repair_and_parse_json(candidate)
             if parsed:
+                if "params" in parsed and isinstance(parsed["params"], dict):
+                    parsed["params"] = normalize_file_params(parsed["params"])
                 sig = json.dumps(parsed, sort_keys=True)
                 if sig not in seen:
                     calls.append(parsed)
                     seen.add(sig)
+                    matched_spans.append((start, end))
 
     if not calls:
         match = UNCLOSED_PATTERN.search(text)
@@ -115,9 +130,12 @@ def parse_tool_calls(text: str) -> list[dict]:
             candidate = match.group(1).strip()
             parsed = _repair_and_parse_json(candidate)
             if parsed:
+                if "params" in parsed and isinstance(parsed["params"], dict):
+                    parsed["params"] = normalize_file_params(parsed["params"])
                 calls.append(parsed)
 
     return calls
+
 
 
 def clean_tool_text(text: str) -> str:

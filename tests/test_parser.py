@@ -5,7 +5,26 @@ def test_parse_tool_calls_clean_json():
     calls = parse_tool_calls(text)
     assert len(calls) == 1
     assert calls[0]["tool"] == "file_write"
-    assert calls[0]["params"]["filepath"] == "foo.py"
+    assert calls[0]["params"]["path"] == "foo.py"
+
+def test_parse_tool_calls_camelcase_filepath():
+    text = '```json\n{"tool": "file_write", "params": {"filePath": "stringCounter.ts", "content": "class StringCounter {}"}}\n```'
+    calls = parse_tool_calls(text)
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "file_write"
+    assert calls[0]["params"]["path"] == "stringCounter.ts"
+    assert calls[0]["params"]["content"] == "class StringCounter {}"
+
+def test_parse_tool_calls_no_duplicate_span():
+    text = '''Here is the tool call:
+
+```json
+{"tool": "file_write", "params": {"filePath": "D:/vdo/code/zenith/stringCounter.ts", "content": "test"}}
+```'''
+    calls = parse_tool_calls(text)
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "file_write"
+    assert calls[0]["params"]["path"] == "D:/vdo/code/zenith/stringCounter.ts"
 
 def test_parse_tool_calls_dirty_multiline_json():
     text = '''```tool
@@ -18,7 +37,7 @@ def count_vowels(text):
     calls = parse_tool_calls(text)
     assert len(calls) == 1
     assert calls[0]["tool"] == "file_write"
-    assert "filepath" in calls[0]["params"]
+    assert "path" in calls[0]["params"]
     assert "count_vowels" in calls[0]["params"]["content"]
 
 def test_unified_response_formatter():
@@ -28,3 +47,4 @@ def test_unified_response_formatter():
     assert "```tool" not in clean
     assert "Command:" not in clean
     assert "I will write the file." in clean
+
