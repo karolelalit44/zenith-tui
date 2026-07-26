@@ -100,13 +100,18 @@ class SessionExporter:
                 summaries.append(f"**Error:** {data.get('message', '')}")
             elif kind == "success":
                 summaries.append(f"**Success:** {data.get('message', '')}")
-            elif kind in ("file_create", "file_edit", "file_delete"):
-                path = data.get("path", "")
-                summaries.append(f"**{kind}:** `{path}`")
-            elif kind == "analysis":
+            elif kind == "tool_call":
                 tool = data.get("tool", "")
                 summaries.append(f"**Tool call:** `{tool}`")
-            elif kind == "summary":
-                summaries.append(f"**Summary:** {data.get('text', '')}")
+            elif kind == "tool_result":
+                tool = data.get("tool", "")
+                success = data.get("success", False)
+                path = data.get("metadata", {}).get("path", "")
+                if path:
+                    summaries.append(f"**Tool result:** `{tool}` → `{path}` ({'ok' if success else 'failed'})")
+                else:
+                    summaries.append(f"**Tool result:** `{tool}` ({'ok' if success else 'failed'})")
+            elif kind == "warning":
+                summaries.append(f"**Warning:** {data.get('message', '')}")
 
         return summaries

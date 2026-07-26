@@ -1,8 +1,8 @@
 import { Box, Text } from 'ink';
-import React, { Component, type ReactNode } from 'react';
+import React, { Component, useMemo, type ReactNode } from 'react';
 import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
+import { MAX_VISIBLE_EVENTS } from '../../../constants/layout';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
-import { parseJsonEvent } from '../../../services/data/jsonEventNormalizer';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ScenarioEvent } from '../../../types/scenario';
 import { componentRegistry } from './componentRegistry';
@@ -12,6 +12,8 @@ interface ScenarioRendererProps {
   isRunning: boolean;
   isHistorical?: boolean;
   thinkingCollapsed?: boolean;
+  onRetry?: () => void;
+  onDismiss?: () => void;
 }
 
 const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
@@ -25,7 +27,7 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
           [IN PROGRESS]{' '}
         </Text>
         <Text color={theme.colors.status.success} bold>
-          {ASCII_SPINNER_FRAMES[spinnerTick % 4]}{' '}
+          {ASCII_SPINNER_FRAMES[spinnerTick % ASCII_SPINNER_FRAMES.length]}{' '}
         </Text>
         <Text color={theme.colors.text.bright} bold>
           {label}
@@ -59,18 +61,31 @@ class EventErrorBoundary extends Component<
 }
 
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
-  ({ events, isRunning, isHistorical = false, thinkingCollapsed = false }) => {
+  ({ events, isRunning, isHistorical = false, thinkingCollapsed = false, onRetry, onDismiss }) => {
     const showLiveIndicator = isRunning && !isHistorical;
-    const renderContext = {
+
+    const renderContext = useMemo(() => ({
       thinkingCollapsed,
       isHistorical,
       isRunning,
-    };
+      onRetry,
+      onDismiss,
+    }), [thinkingCollapsed, isHistorical, isRunning, onRetry, onDismiss]);
+
+    const hasOverflow = events.length > MAX_VISIBLE_EVENTS;
+    const visibleEvents = hasOverflow ? events.slice(-MAX_VISIBLE_EVENTS) : events;
 
     return (
       <Box flexDirection="column" width="100%">
-        {events.map((rawEvt) => {
-          const event = parseJsonEvent(rawEvt);
+        {hasOverflow && (
+          <Box paddingX={1} marginBottom={1}>
+            <Text color="gray" italic>
+              ... {events.length - MAX_VISIBLE_EVENTS} earlier events hidden
+            </Text>
+          </Box>
+        )}
+
+        {visibleEvents.map((event) => {
           const Component = componentRegistry.getComponent(event.kind);
           return (
             <EventErrorBoundary key={event.id} eventKind={event.kind}>

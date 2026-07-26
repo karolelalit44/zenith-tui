@@ -3,9 +3,6 @@ from __future__ import annotations
 import json
 import re
 import logging
-from typing import AsyncIterator
-
-from .adapters import Chunk, ModelResponse
 
 logger = logging.getLogger(__name__)
 
@@ -307,24 +304,18 @@ def clean_tool_text(text: str) -> str:
 
 
 class UnifiedResponseFormatter:
-    """Unified response formatter standardizing output across all model provider adapters."""
+    """Unified response formatter — native FC only, no text-based parsing."""
 
     @staticmethod
     def process_response(raw_content: str, raw_tool_calls: list[dict] | None = None) -> tuple[str, list[dict]]:
         tool_calls = []
 
-        # Remap native tool_calls from OpenAI format to our internal format
+        # Only remap native tool_calls from OpenAI format to our internal format
         if raw_tool_calls:
             for tc in raw_tool_calls:
                 remapped = UnifiedResponseFormatter._remap_native_tool_call(tc)
                 if remapped:
                     tool_calls.append(remapped)
-
-        # Parse inline tool calls from raw content if present
-        text_tool_calls = parse_tool_calls(raw_content)
-        for tc in text_tool_calls:
-            if tc not in tool_calls:
-                tool_calls.append(tc)
 
         clean_text = clean_tool_text(raw_content)
         return clean_text, tool_calls
@@ -356,32 +347,4 @@ class UnifiedResponseFormatter:
             return {"tool": tc["tool"], "params": params}
 
         return None
-
-
-async def accumulate_stream(stream: AsyncIterator[Chunk]) -> ModelResponse:
-    content_parts: list[str] = []
-    reasoning_parts: list[str] = []
-    native_tool_calls: list[dict] = []
-    finish_reason: str | None = None
-
-    async for chunk in stream:
-        if chunk.content:
-            content_parts.append(chunk.content)
-        if chunk.reasoning:
-            reasoning_parts.append(chunk.reasoning)
-        if chunk.tool_calls:
-            native_tool_calls.extend(chunk.tool_calls)
-        if chunk.finish_reason:
-            finish_reason = chunk.finish_reason
-
-    raw_text = "".join(content_parts)
-    clean_text, tool_calls = UnifiedResponseFormatter.process_response(raw_text, native_tool_calls)
-    reasoning_text = "".join(reasoning_parts)
-
-    return ModelResponse(
-        content=clean_text,
-        reasoning=reasoning_text,
-        tool_calls=tool_calls,
-        finish_reason=finish_reason,
-    )
 

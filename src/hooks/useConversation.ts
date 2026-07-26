@@ -77,15 +77,7 @@ export function useConversation(): UseConversationReturn {
     });
   }, []);
 
-  const markTurnSaved = useCallback((turnId: string) => {
-    setTurns((prev) => {
-      const targetIdx = prev.findIndex((t) => t.id === turnId);
-      if (targetIdx === -1) return prev;
-      const updatedEvents = prev[targetIdx].events.map((ev) =>
-        ev.kind === 'planner_action_panel' ? { ...ev, saved: true } : ev,
-      );
-      return prev.map((t, i) => (i === targetIdx ? { ...t, events: updatedEvents } : t));
-    });
+  const markTurnSaved = useCallback((_turnId: string) => {
   }, []);
 
   const clearTurns = useCallback(() => {
@@ -105,14 +97,11 @@ export function useConversation(): UseConversationReturn {
         timestamp: timeStr,
         events: [
           {
-            kind: 'summary',
+            kind: 'message',
             id: `evt_summary_${Date.now()}`,
-            title: 'Context Compacted',
-            description: `Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
-            filesCreated: [],
-            commandsExecuted: ['/compact'],
-            verified: ['Conversation history summarized', 'Context window memory freed'],
-          },
+            text: `Context Compacted: Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
+            partial: false,
+          } as ScenarioEvent,
         ],
       };
       return [summaryTurn];

@@ -11,6 +11,7 @@ export interface UseScenarioReturn {
   abort: () => void;
   activeConfirmation: ConfirmationRequestEvent | null;
   respondConfirmation: (approved: boolean) => void;
+  lastSessionId: string | null;
 }
 
 export function useScenario(): UseScenarioReturn {
@@ -18,6 +19,7 @@ export function useScenario(): UseScenarioReturn {
   const [events, setEvents] = useState<ScenarioEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [activeConfirmation, setActiveConfirmation] = useState<ConfirmationRequestEvent | null>(null);
+  const [lastSessionId, setLastSessionId] = useState<string | null>(null);
   const runnerRef = useRef<ScenarioRunner | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
@@ -51,6 +53,7 @@ export function useScenario(): UseScenarioReturn {
           const session = await wsClient.createSession(prompt.slice(0, 50));
           sessionId = (session as { id: string }).id;
           sessionIdRef.current = sessionId;
+          setLastSessionId(sessionId);
         } catch {
           setEvents([
             {
@@ -77,7 +80,6 @@ export function useScenario(): UseScenarioReturn {
             }
             return [...prev, event];
           });
-          // Track active confirmation events
           if (event.kind === 'confirmation_request') {
             const conf = event as ConfirmationRequestEvent;
             if (!conf.answered) {
@@ -120,10 +122,8 @@ export function useScenario(): UseScenarioReturn {
       const conf = activeConfirmation;
       if (!conf || !conf.confirmationId) return;
 
-      // Send response to backend
       wsClient.sendConfirmation(conf.confirmationId, approved).catch(() => {});
 
-      // Update the event in the list to show answered state
       setEvents((prev) =>
         prev.map((e) =>
           e.kind === 'confirmation_request' &&
@@ -145,5 +145,6 @@ export function useScenario(): UseScenarioReturn {
     abort,
     activeConfirmation,
     respondConfirmation,
+    lastSessionId,
   };
 }

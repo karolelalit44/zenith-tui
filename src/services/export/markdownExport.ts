@@ -19,62 +19,6 @@ function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): strin
 
   for (const event of events) {
     switch (event.kind) {
-      case 'analysis':
-        lines.push(`## ${event.title}`);
-        lines.push('');
-        for (const section of event.sections) {
-          lines.push(`### ${section.title}`);
-          for (const item of section.items) {
-            lines.push(`- ${item}`);
-          }
-          lines.push('');
-        }
-        break;
-
-      case 'summary':
-        lines.push('## Executive Summary');
-        lines.push('');
-        lines.push(`**${event.title}**`);
-        if (event.description) {
-          lines.push('');
-          lines.push(event.description);
-        }
-        lines.push('');
-        if (event.filesCreated.length > 0) {
-          lines.push('### Files Created');
-          for (const f of event.filesCreated) {
-            lines.push(`- \`${f}\``);
-          }
-          lines.push('');
-        }
-        if (event.commandsExecuted.length > 0) {
-          lines.push('### Commands Executed');
-          for (const c of event.commandsExecuted) {
-            lines.push(`- \`${c}\``);
-          }
-          lines.push('');
-        }
-        if (event.verified && event.verified.length > 0) {
-          lines.push('### Verification Items');
-          for (const v of event.verified) {
-            lines.push(`- ✔ ${v}`);
-          }
-          lines.push('');
-        }
-        break;
-
-      case 'terminal':
-        lines.push('```bash');
-        lines.push(`# ${event.command}`);
-        if (event.output && event.output.length > 0) {
-          for (const out of event.output) {
-            lines.push(out);
-          }
-        }
-        lines.push('```');
-        lines.push('');
-        break;
-
       case 'thinking':
         lines.push('## Chain of Thought');
         lines.push('');
@@ -85,39 +29,35 @@ function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): strin
         }
         break;
 
-      case 'file_create':
-        lines.push(`### File Created: \`${event.filePath}\``);
+      case 'message':
+        lines.push(event.text);
         lines.push('');
-        if (event.lines.length > 0) {
-          lines.push(`\`\`\`${event.language}`);
-          for (const line of event.lines) {
-            lines.push(line.text);
-          }
+        break;
+
+      case 'tool_call':
+        lines.push(`### Tool Call: \`${event.tool}\``);
+        lines.push('');
+        if (Object.keys(event.params).length > 0) {
+          lines.push('```json');
+          lines.push(JSON.stringify(event.params, null, 2));
           lines.push('```');
           lines.push('');
         }
         break;
 
-      case 'file_edit':
-        lines.push(`### File Edited: \`${event.filePath}\``);
+      case 'tool_result':
+        lines.push(`### Tool Result: \`${event.tool}\` ${event.success ? '(success)' : '(failed)'}`);
         lines.push('');
-        if (event.removedLines.length > 0) {
-          lines.push('**Removed:**');
-          lines.push('```diff');
-          for (const line of event.removedLines) {
-            lines.push(`- ${line.text}`);
-          }
-          for (const line of event.addedLines) {
-            lines.push(`+ ${line.text}`);
-          }
+        if (event.output) {
+          lines.push('```');
+          lines.push(event.output);
           lines.push('```');
           lines.push('');
         }
-        break;
-
-      case 'file_delete':
-        lines.push(`### File Deleted: \`${event.filePath}\``);
-        lines.push('');
+        if (event.error) {
+          lines.push(`Error: ${event.error}`);
+          lines.push('');
+        }
         break;
 
       case 'error':
@@ -145,33 +85,17 @@ function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): strin
         lines.push('');
         break;
 
-      case 'retry':
-        lines.push(`> 🔄 Retry attempt #${event.attempt}: ${event.message}`);
-        lines.push('');
-        break;
-
       case 'success':
-        lines.push(`### ✅ ${event.message}`);
+        lines.push(`### ${event.message}`);
         lines.push('');
-        if (event.filesCreated.length > 0) {
-          lines.push('**Files Created:**');
-          for (const f of event.filesCreated) {
-            lines.push(`- \`${f}\``);
-          }
+        if (event.iterations !== undefined) {
+          lines.push(`Iterations: ${event.iterations}`);
           lines.push('');
         }
-        if (event.commandsExecuted.length > 0) {
-          lines.push('**Commands:**');
-          for (const c of event.commandsExecuted) {
-            lines.push(`- \`${c}\``);
-          }
+        if (event.tokenInfo) {
+          lines.push(`Tokens used: ${event.tokenInfo.used}`);
           lines.push('');
         }
-        break;
-
-      case 'message':
-        lines.push(event.text);
-        lines.push('');
         break;
 
       case 'progress':
@@ -185,75 +109,11 @@ function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): strin
         lines.push('');
         break;
 
-      case 'test_execution':
-        lines.push(`### Test Results: \`${event.command}\``);
+      case 'confirmation_request':
+        lines.push(`### Confirmation Required: \`${event.tool}\``);
         lines.push('');
-        lines.push(`Framework: ${event.framework}`);
+        lines.push(`${event.message}`);
         lines.push('');
-        lines.push(
-          `**${event.summary.passed}** passed, **${event.summary.failed}** failed, **${event.summary.skipped}** skipped (${event.summary.total} total)`,
-        );
-        lines.push('');
-        if (event.results.length > 0) {
-          lines.push('| Test | Status | Duration |');
-          lines.push('|------|--------|----------|');
-          for (const r of event.results) {
-            const status = r.status === 'pass' ? '✔ pass' : r.status === 'fail' ? '✖ fail' : '○ skip';
-            const duration = r.duration ? `${r.duration}ms` : '-';
-            lines.push(`| ${r.name} | ${status} | ${duration} |`);
-          }
-          lines.push('');
-        }
-        break;
-
-      case 'build_step':
-        lines.push(`### Build Step: ${event.step} [${event.status}]`);
-        lines.push('');
-        if (event.output && event.output.length > 0) {
-          lines.push('```');
-          for (const out of event.output) {
-            lines.push(out);
-          }
-          lines.push('```');
-          lines.push('');
-        }
-        break;
-
-      case 'deployment':
-        lines.push(`### Deployment: ${event.target} [${event.status}]`);
-        lines.push('');
-        if (event.url) {
-          lines.push(`URL: ${event.url}`);
-          lines.push('');
-        }
-        if (event.output && event.output.length > 0) {
-          lines.push('```');
-          for (const out of event.output) {
-            lines.push(out);
-          }
-          lines.push('```');
-          lines.push('');
-        }
-        break;
-
-      case 'planner_action_panel':
-        lines.push(`### Plan Export: \`${event.defaultFilename}\``);
-        lines.push('');
-        if (event.saved) {
-          lines.push('*Plan saved successfully.*');
-          lines.push('');
-        }
-        break;
-
-      case 'mode_mismatch':
-        lines.push(
-          `> ⚠️ Mode mismatch: Current mode is **${event.currentMode}**, but **${event.suggestedMode}** is recommended.`,
-        );
-        lines.push(`> ${event.reason}`);
-        lines.push('');
-        break;
-
-      case 'waiting':
         break;
     }
   }

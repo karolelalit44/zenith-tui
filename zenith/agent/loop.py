@@ -10,7 +10,7 @@ import time as _time
 from typing import AsyncIterator, Awaitable, Callable
 
 from zenith.config.settings import AppSettings
-from zenith.core.errors import ZenithError, MaxIterationsError
+from zenith.core.errors import ZenithError, MaxIterationsError, RateLimitError, ProviderError
 from zenith.core.events import Event, EventKind
 from zenith.core.message import Message
 from zenith.providers.base import BaseProvider
@@ -23,8 +23,6 @@ from .prompts import build_system_prompt
 from zenith.session.history import HistoryManager
 
 logger = logging.getLogger(__name__)
-
-FILE_MODIFY_TOOLS = {"file_write", "file_edit", "file_delete"}
 
 
 def _schemas_to_openai_tools(schemas: list[dict]) -> list[dict]:
@@ -54,8 +52,10 @@ _PLACEHOLDER_PATTERNS_RAW = [
 ]
 _PLACEHOLDER_RE = re.compile("|".join(p for p, _ in _PLACEHOLDER_PATTERNS_RAW), re.IGNORECASE)
 
-# Max consecutive tool failures before breaking the loop
-MAX_CONSECUTIVE_FAILURES = 4
+# Reflection loop: errors feed back to LLM via conversation context.
+# The LLM sees tool errors and retries with different approaches.
+# Max iterations is the only hard limit (set via config).
+REFLECTION_ERROR_LIMIT = 6
 
 # Patterns indicating interactive commands that will fail in non-interactive bash
 _INTERACTIVE_CMD_PATTERNS = re.compile(
@@ -175,6 +175,43 @@ def _format_tool_result(tool_name: str, result: ToolResult, max_output: int = 10
     return "\n".join(lines)
 
 
+def _build_tool_metadata(tool_name: str, tool_params: dict, result: ToolResult, duration_ms: int) -> dict:
+    """Build tool-specific metadata for tool_result events."""
+    if tool_name in ("bash", "terminal"):
+        cmd = str(tool_params.get("command") or "")
+        out_lines = result.output.split("\n") if result.output else []
+        exit_code = result.metadata.get("exit_code", 0) if result.metadata else 0
+        return {
+            "command": cmd,
+            "output_lines": out_lines,
+            "duration_ms": duration_ms,
+            "exit_code": exit_code,
+        }
+    elif tool_name == "file_write":
+        return {
+            "path": tool_params.get("filepath") or tool_params.get("path") or "",
+            "content": tool_params.get("content", ""),
+            "match": "exact",
+        }
+    elif tool_name == "file_edit":
+        return {
+            "path": tool_params.get("filepath") or tool_params.get("path") or "",
+            "old_content": tool_params.get("old_content", ""),
+            "new_content": tool_params.get("new_content", ""),
+            "match": "exact",
+        }
+    elif tool_name == "file_delete":
+        return {
+            "path": tool_params.get("filepath") or tool_params.get("path") or "",
+        }
+    elif tool_name == "file_read":
+        return {
+            "path": tool_params.get("filepath") or tool_params.get("path") or "",
+        }
+    else:
+        return {}
+
+
 class AgentLoop:
     """Core agent loop: prompt → context build → LLM stream → tool calls → repeat."""
 
@@ -242,7 +279,7 @@ class AgentLoop:
         # Check if summarization is needed
         if self.context_manager.should_summarize(messages, model):
             logger.info("SUMMARIZE starting for session=%s", session_id)
-            yield r.summary("summarize", "Context approaching limit, summarizing...", session_id)
+            yield r.warning("Context approaching limit, summarizing...", session_id)
             try:
                 history_mgr = HistoryManager(self.config, self.provider)
                 self._summary = await history_mgr.summarize(history, model)
@@ -250,7 +287,7 @@ class AgentLoop:
                 messages = self.context_manager.build_messages(
                     history, system_prompt, prompt, model, summary=self._summary
                 )
-                yield r.summary("complete", "Context summarized", session_id)
+                yield r.warning("Context summarized", session_id)
             except Exception as e:
                 logger.warning("SUMMARIZE failed for session=%s: %s", session_id, e)
                 yield r.warning(f"Summarization failed: {e}", session_id)
@@ -259,7 +296,7 @@ class AgentLoop:
         iteration = 0
         max_iterations = self.config.tools.max_iterations
         full_response = ""
-        consecutive_failures = 0
+        reflection_errors = 0
         recovery_hint_shown = False
         created_files: set[str] = set()  # Track files created this session for self-delete protection
         task_completed = False  # Track if model has signaled task completion
@@ -279,44 +316,69 @@ class AgentLoop:
                 recovery_hint_shown = False  # Reset per iteration
                 logger.info("Agent turn %d/%d for session %s (model=%s, provider=%s)", iteration, max_iterations, session_id, model, self.provider.name)
 
-                # Stream LLM response tokens as partial message events (buffering tool blocks)
+                # Stream LLM response tokens as partial message events
+                # On retryable errors, finalize the current partial message and retry
                 response_text = ""
-                suppress_stream = False
-                saw_tool_start = False
-                current_turn_text = ""
-                try:
-                    async for evt in r.stream_tokens(self.provider.stream(messages, tools=openai_tools), session_id):
-                        if evt.kind == EventKind.THINKING:
-                            yield evt
-                            continue
+                full_response_before_stream = full_response
+                max_stream_retries = 2
+                stream_succeeded = False
 
-                        if evt.kind == EventKind.MESSAGE and evt.data.get("partial"):
-                            token = evt.data.get("text", "")
-                            response_text += token
-                            current_turn_text += token
+                for stream_attempt in range(max_stream_retries + 1):
+                    reasoning_buffer = ""
+                    try:
+                        async for content, reasoning in self.provider.stream(messages, tools=openai_tools):
+                            if reasoning:
+                                reasoning_buffer += reasoning
+                            if content:
+                                if reasoning_buffer:
+                                    yield r.thinking(reasoning_buffer, session_id)
+                                    reasoning_buffer = ""
+                                response_text += content
+                                yield r.message_event(content, session_id, partial=True)
+                        if reasoning_buffer:
+                            yield r.thinking(reasoning_buffer, session_id)
+                        stream_succeeded = True
+                        break  # Stream completed successfully
 
-                            # Track ```tool block start/end for suppress
-                            # Unsuppress only when the CURRENT turn's text ends with ``` after a tool block
-                            if not suppress_stream:
-                                if "```tool" in current_turn_text or "```json" in current_turn_text:
-                                    suppress_stream = True
-                                    saw_tool_start = True
-                            else:
-                                # Check if we just saw the closing ``` of the tool block
-                                stripped = current_turn_text.rstrip()
-                                if stripped.endswith("```") and len(stripped) > 3 and saw_tool_start:
-                                    suppress_stream = False
+                    except ZenithError:
+                        raise
+                    except asyncio.CancelledError:
+                        raise
+                    except RateLimitError as e:
+                        if stream_attempt == max_stream_retries or not e.recoverable:
+                            logger.error("Stream rate limit (no more retries): %s", e)
+                            yield r.error(str(e), session_id, code=e.code, recoverable=False)
+                            return
+                        logger.warning("Stream retry %d/%d after rate limit: %s", stream_attempt + 1, max_stream_retries, e)
+                        # Finalize partial message before retry so frontend doesn't concatenate
+                        if response_text:
+                            yield r.message_event(response_text, session_id, partial=False)
+                            full_response += response_text
+                            response_text = ""
+                        yield r.thinking(f"Rate limited, retrying in {int(e.retry_after or 2)}s...", session_id)
+                        await asyncio.sleep(e.retry_after or (2 ** stream_attempt))
+                    except ProviderError as e:
+                        if not e.recoverable:
+                            logger.error("Stream provider error (non-recoverable): %s", e)
+                            yield r.error(str(e), session_id, code=e.code, recoverable=False)
+                            return
+                        if stream_attempt == max_stream_retries:
+                            logger.error("Stream provider error (exhausted retries): %s", e)
+                            yield r.error(str(e), session_id, code=e.code, recoverable=True)
+                            return
+                        logger.warning("Stream retry %d/%d after provider error: %s", stream_attempt + 1, max_stream_retries, e)
+                        if response_text:
+                            yield r.message_event(response_text, session_id, partial=False)
+                            full_response += response_text
+                            response_text = ""
+                        yield r.thinking("Retrying after provider error...", session_id)
+                        await asyncio.sleep(2 ** stream_attempt)
+                    except Exception as e:
+                        logger.error("LLM stream error on turn %d: %s", iteration, e, exc_info=True)
+                        yield r.error(str(e), session_id)
+                        return
 
-                        if not suppress_stream:
-                            yield evt
-                except ZenithError:
-                    raise
-                except asyncio.CancelledError:
-                    # Tools handle their own subprocess cleanup
-                    raise
-                except Exception as e:
-                    logger.error("LLM stream error on turn %d: %s", iteration, e, exc_info=True)
-                    yield r.error(str(e), session_id)
+                if not stream_succeeded:
                     return
 
                 full_response += response_text
@@ -371,12 +433,13 @@ class AgentLoop:
                     yield r.warning(feedback, session_id)
                     continue
 
-                # Emit progress
-                yield r.progress(
-                    int((iteration / max_iterations) * 100),
-                    f"Executing {len(valid_calls)} tool(s)...",
-                    session_id, iteration,
-                )
+                # Emit progress only for multi-step operations (3+ iterations)
+                if max_iterations >= 3:
+                    yield r.progress(
+                        int((iteration / max_iterations) * 100),
+                        f"Executing {len(valid_calls)} tool(s)...",
+                        session_id, iteration,
+                    )
 
                 # Add assistant message (with tool calls) to context
                 messages.append({"role": "assistant", "content": response_text})
@@ -390,11 +453,11 @@ class AgentLoop:
                     if placeholder_issue:
                         yield r.warning(f"Tool '{tool_name}' rejected: {placeholder_issue}", session_id)
                         messages.append({"role": "user", "content": f"[Tool rejected] {placeholder_issue} Please provide the actual content, not a placeholder."})
-                        consecutive_failures += 1
-                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        reflection_errors += 1
+                        if reflection_errors >= REFLECTION_ERROR_LIMIT:
                             yield r.error(
-                                f"Too many consecutive failures ({consecutive_failures}). Stopping to prevent repeating the same mistakes.",
-                                session_id, code="CONSECUTIVE_FAILURES", recoverable=True,
+                                f"Too many errors ({reflection_errors}). The model appears stuck.",
+                                session_id, code="REFLECTION_LIMIT", recoverable=True,
                             )
                             return
                         continue
@@ -403,11 +466,11 @@ class AgentLoop:
                     if tool_name == "file_edit" and not tool_params.get("old_content"):
                         yield r.warning(f"Tool 'file_edit' rejected: old_content cannot be empty. Use file_read first to get the current content.", session_id)
                         messages.append({"role": "user", "content": "[Tool rejected] old_content is empty. You MUST use file_read first to get the exact content of the file, then use file_edit with the actual old_content you want to replace."})
-                        consecutive_failures += 1
-                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        reflection_errors += 1
+                        if reflection_errors >= REFLECTION_ERROR_LIMIT:
                             yield r.error(
-                                f"Too many consecutive failures ({consecutive_failures}). Stopping to prevent repeating the same mistakes.",
-                                session_id, code="CONSECUTIVE_FAILURES", recoverable=True,
+                                f"Too many errors ({reflection_errors}). The model appears stuck.",
+                                session_id, code="REFLECTION_LIMIT", recoverable=True,
                             )
                             return
                         continue
@@ -444,7 +507,7 @@ class AgentLoop:
                         if syntax_err:
                             yield r.warning(syntax_err, session_id)
                             messages.append({"role": "user", "content": f"[Syntax error detected] {syntax_err}"})
-                            consecutive_failures += 1
+                            reflection_errors += 1
                             continue
 
                     # Pre-check: Detect interactive commands that will fail
@@ -454,7 +517,7 @@ class AgentLoop:
                         if interactive_err:
                             yield r.warning(interactive_err, session_id)
                             messages.append({"role": "user", "content": f"[Interactive command detected] {interactive_err}"})
-                            consecutive_failures += 1
+                            reflection_errors += 1
                             continue
 
                     # Self-delete protection: warn if model tries to delete a file it just created
@@ -471,14 +534,13 @@ class AgentLoop:
                                 "content": f"[Tool rejected] Cannot delete '{target}' — it was created during this session. "
                                            f"You just created this file. Deleting your own work is not allowed.",
                             })
-                            consecutive_failures += 1
+                            reflection_errors += 1
                             continue
 
                     logger.info("Executing tool '%s' with params: %s", tool_name, json.dumps(tool_params))
 
-                    # Emit analysis summary event only for non-file and non-terminal tools
-                    if tool_name not in FILE_MODIFY_TOOLS and tool_name not in ("bash", "terminal"):
-                        yield r.analysis(tool_name, session_id, tool_params)
+                    # Emit tool_call event before execution
+                    yield r.tool_call(tool_name, tool_params, session_id)
 
                     start_ts = _time.monotonic()
                     result = await self.tool_registry.execute(
@@ -500,91 +562,48 @@ class AgentLoop:
 
                     logger.info("Tool '%s' completed: success=%s, output_len=%d, error=%s", tool_name, result.success, len(result.output or ""), result.error)
 
-                    if result.success:
-                        consecutive_failures = 0  # Reset on success
-                        # Emit terminal event for shell command execution
-                        if tool_name in ("bash", "terminal"):
-                            cmd = str(tool_params.get("command") or "")
-                            out_lines = result.output.split("\n") if result.output else []
-                            exit_code = result.metadata.get("exit_code", 0) if result.metadata else 0
-                            yield r.terminal_event(cmd, out_lines, duration_ms, session_id, exit_code=exit_code)
+                    # Build metadata and emit tool_result event
+                    metadata = _build_tool_metadata(tool_name, tool_params, result, duration_ms)
+                    yield r.tool_result(
+                        tool_name, result.success, session_id,
+                        output=result.output or "",
+                        error=result.error or "",
+                        metadata=metadata,
+                    )
 
-                        # Emit file change events for file-modifying tools
-                        elif tool_name in FILE_MODIFY_TOOLS:
-                            file_kind = {
-                                "file_write": EventKind.FILE_CREATE,
-                                "file_edit": EventKind.FILE_EDIT,
-                                "file_delete": EventKind.FILE_DELETE,
-                            }.get(tool_name, EventKind.FILE_EDIT)
-
-                            target_path = tool_params.get("filepath") or tool_params.get("path") or tool_params.get("file_path") or ""
-
-                            # Track created files for self-delete protection
-                            if tool_name == "file_write" and target_path:
-                                created_files.add(target_path)
-                                logger.info("TRACKING file created: %s (total tracked: %d)", target_path, len(created_files))
-
-                            # For file_edit, include old and new content (#18)
-                            extra_data = {}
-                            if tool_name == "file_edit":
-                                extra_data = {
-                                    "old_content": tool_params.get("old_content", ""),
-                                    "new_content": tool_params.get("new_content", ""),
-                                }
-                                # Use new_content as the event content for frontend display
-                                file_content = tool_params.get("new_content", "")
-                            elif tool_name == "file_write":
-                                file_content = tool_params.get("content", "")
-                            elif tool_name == "file_delete":
-                                # Include the deleted file content from tool metadata
-                                file_content = result.metadata.get("content", "") if result.metadata else ""
-                            else:
-                                file_content = ""
-
-                            yield r.file_event(file_kind, target_path, file_content, session_id, extra=extra_data)
-
-                        else:
-                            yield r.tool_result(tool_name, True, session_id, result.output or "", "")
-                    else:
-                        # Emit structured error event for tool failure
-                        consecutive_failures += 1
+                    if not result.success:
+                        reflection_errors += 1
                         err_msg = result.error or f"Tool '{tool_name}' execution failed"
 
-                        # For bash failures, include stdout in the event so user can see output
-                        if tool_name in ("bash", "terminal"):
-                            cmd = str(tool_params.get("command") or "")
-                            out_lines = result.output.split("\n") if result.output else []
-                            exit_code = result.metadata.get("exit_code", 1) if result.metadata else 1
-                            # Emit terminal event (user sees output + exit code)
-                            yield r.terminal_event(cmd, out_lines, duration_ms, session_id, exit_code=exit_code)
-                            # Then emit the error with stderr
-                            if err_msg and err_msg.strip():
-                                yield r.error(err_msg, session_id, code=f"TOOL_ERROR_{tool_name.upper()}", recoverable=True)
-                        else:
-                            yield r.error(err_msg, session_id, code=f"TOOL_ERROR_{tool_name.upper()}", recoverable=True)
+                        # Emit error event for tool failure
+                        yield r.error(err_msg, session_id, code=f"TOOL_ERROR_{tool_name.upper()}", recoverable=True)
 
-                        # Check for empty old_content in file_edit
+                        # Reflection: feed error back to LLM so it can try a different approach
+                        messages.append({
+                            "role": "user",
+                            "content": f"[Tool error] {tool_name} failed: {err_msg}. Analyze what went wrong and try a different approach.",
+                        })
+
                         if tool_name == "file_edit" and "old_content cannot be empty" in (result.error or ""):
                             yield r.warning(
                                 "file_edit requires old_content. Use file_read first to get the current content of the file.",
                                 session_id,
                             )
-                        elif tool_name in ("bash", "terminal"):
-                            pass  # Error already emitted above
-                        elif not recovery_hint_shown:
-                            recovery_hint_shown = True
-                            yield r.warning(
-                                f"Tool '{tool_name}' failed. Consider trying a different approach or parameters.",
-                                session_id,
-                            )
 
-                        # Break loop on too many consecutive failures
-                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        # Hard limit on reflection errors
+                        if reflection_errors >= REFLECTION_ERROR_LIMIT:
                             yield r.error(
-                                f"Too many consecutive failures ({consecutive_failures}). The model appears stuck repeating the same mistakes.",
-                                session_id, code="CONSECUTIVE_FAILURES", recoverable=True,
+                                f"Too many errors ({reflection_errors}). The model appears stuck.",
+                                session_id, code="REFLECTION_LIMIT", recoverable=True,
                             )
                             return
+
+                    # Track created files for self-delete protection
+                    if tool_name == "file_write" and result.success:
+                        target_path = tool_params.get("filepath") or tool_params.get("path") or ""
+                        if target_path:
+                            created_files.add(target_path)
+                            logger.info("TRACKING file created: %s (total tracked: %d)", target_path, len(created_files))
 
                     # Add tool result to messages
                     tool_result_text = _format_tool_result(tool_name, result, self.config.tools.max_tool_output)

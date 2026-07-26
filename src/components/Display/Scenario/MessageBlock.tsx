@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React, { useEffect, useState } from 'react';
+import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { MessageEvent } from '../../../types/scenario';
 import { TerminalMarkdown } from './TerminalMarkdown';
@@ -10,11 +11,11 @@ interface MessageBlockProps {
 
 export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
-  const [showCursor, setShowCursor] = useState(true);
+  const [frameIdx, setFrameIdx] = useState(0);
 
   useEffect(() => {
     if (!event.partial) return;
-    const id = setInterval(() => setShowCursor((v) => !v), 500);
+    const id = setInterval(() => setFrameIdx((v) => (v + 1) % ASCII_SPINNER_FRAMES.length), 100);
     return () => clearInterval(id);
   }, [event.partial]);
 
@@ -22,7 +23,9 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) 
     return null;
   }
 
-  const cursor = event.partial && showCursor ? <Text color={theme.colors.status.accent}> ▌</Text> : null;
+  const cursor = event.partial ? (
+    <Text color={theme.colors.status.accent}> {ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]}</Text>
+  ) : null;
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>

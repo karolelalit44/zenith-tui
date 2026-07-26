@@ -117,7 +117,7 @@ class TestAgentWorkflow:
         # Should have thinking, tool analysis, tool result, then final message
         kinds = [e.kind for e in events]
         assert EventKind.THINKING in kinds
-        assert EventKind.ANALYSIS in kinds or EventKind.SUCCESS in kinds
+        assert EventKind.TOOL_CALL in kinds or EventKind.SUCCESS in kinds
 
     @pytest.mark.asyncio
     async def test_plan_mode_blocks_write_tools(self, test_config):
@@ -194,8 +194,8 @@ class TestErrorRecovery:
         error_events = [e for e in events if e.kind == EventKind.ERROR]
         warning_events = [e for e in events if e.kind == EventKind.WARNING]
         assert len(error_events) >= 1
-        assert len(warning_events) >= 1
-        assert any(e.data.get("code") == "RECOVERY_HINT" for e in warning_events)
+        # RECOVERY_HINT warnings removed — error event carries recoverable flag instead
+        assert any(e.data.get("recoverable") is True for e in error_events)
 
 
 # ── Session Export ──────────────────────────────────────────────────
@@ -230,7 +230,7 @@ class TestSessionExport:
         session = Session(title="Events Test")
         events = [
             Event(kind=EventKind.THINKING, data={"text": "Thinking..."}),
-            Event(kind=EventKind.FILE_CREATE, data={"path": "new.py"}),
+            Event(kind=EventKind.TOOL_RESULT, data={"tool": "file_write", "success": True, "metadata": {"path": "new.py"}}),
             Event(kind=EventKind.ERROR, data={"message": "Something failed"}),
         ]
         messages = [
@@ -243,7 +243,7 @@ class TestSessionExport:
         ]
         md = exporter.export_to_string(session, messages)
         assert "Thinking" in md
-        assert "file_create" in md or "new.py" in md
+        assert "tool_result" in md or "new.py" in md
 
 
 # ── SKILL.md Loader ────────────────────────────────────────────────

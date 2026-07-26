@@ -1,12 +1,13 @@
 import { Box, Text } from 'ink';
 import React, { useCallback, useEffect, useState } from 'react';
-import { PromptHeader } from './components/Display/PromptHeader';
+import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
 import { ASCII_SPINNER_FRAMES } from './constants/animation';
+import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
@@ -25,6 +26,7 @@ import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
 import { loadUserProfile } from './services/data/userProfileService';
+import { useProvider } from './hooks/useProvider';
 import { useTheme } from './theme/ThemeContext';
 import type { AppStartupState } from './types/startup';
 
@@ -55,7 +57,7 @@ export const App: React.FC = () => {
     clearTurns,
     compactTurns,
   } = useConversation();
-  const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, handleModeSelect } = useOverlayManager();
+  const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, closeAllOverlays, handleModeSelect } = useOverlayManager();
   const {
     input,
     showAutocomplete,
@@ -66,8 +68,13 @@ export const App: React.FC = () => {
     insertFilePath,
     closeFilePicker,
     addHistory,
+    historyUp,
+    historyDown,
+    attachments,
+    removeAttachment,
   } = useAutocomplete();
   const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation } = useScenario();
+  const { activeProvider } = useProvider();
 
   const handleSubmit = useCallback(
     (value: string) => {
@@ -99,9 +106,12 @@ export const App: React.FC = () => {
     events,
     overlay,
     openOverlay,
+    closeOverlay,
+    closeAllOverlays,
     abort,
     abortActiveTurn,
     markTurnSaved,
+    clearTurns,
     onToggleThinking: toggleThinking,
     activeConfirmation,
     respondConfirmation,
@@ -131,6 +141,20 @@ export const App: React.FC = () => {
     [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect, handleAutocompleteSelect],
   );
 
+  const handleRetry = useCallback(() => {
+    if (activeTurn && !isRunning) {
+      startScenario(activeTurn.prompt, activeTurn.mode);
+    }
+  }, [activeTurn, isRunning, startScenario]);
+
+  const handleSetupComplete = useCallback(() => {
+    setStartupState({ phase: 'ready', result: startupState.result, error: null });
+  }, [startupState]);
+
+  const handleSelectDir = useCallback((dir: string) => {
+    setWorkspace(dir);
+  }, []);
+
   if (startupState.phase === 'loading') {
     return (
       <Box
@@ -154,31 +178,71 @@ export const App: React.FC = () => {
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
         <SetupWizard
           startupState={startupState}
-          onComplete={() => {
-            setStartupState({ phase: 'ready', result: startupState.result, error: null });
-          }}
+          onComplete={handleSetupComplete}
         />
       </Box>
     );
   }
 
-  const isIdle = !isRunning && !isOverlayOpen;
-
   return (
+    <AppProvider
+      turns={turns}
+      activeTurn={activeTurn}
+      totalTokens={totalTokens}
+      events={events}
+      isRunning={isRunning}
+      overlay={overlay}
+      isOverlayOpen={isOverlayOpen}
+      selectedMode={selectedMode}
+      thinkingCollapsed={thinkingCollapsed}
+      activeConfirmation={activeConfirmation}
+    >
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-      <WelcomeScreen workspace={workspace} />
+      {turns.length === 0 && !isRunning ? (
+        <>
+          <WelcomeScreen workspace={workspace} />
+          <Box flexDirection="column" paddingX={2} marginTop={1} marginBottom={1}>
+            <Text color={theme.colors.text.muted} bold>Try asking:</Text>
+            <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+              {['Help me understand this codebase', 'Run the test suite and show results', 'Create a new module with proper structure'].map((suggestion, idx) => (
+                <Box key={idx} flexDirection="row" marginBottom={0}>
+                  <Text color={theme.colors.status.accent}>{idx + 1}. </Text>
+                  <Text color={theme.colors.text.ethereal}>{suggestion}</Text>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </>
+      ) : (
+        <Box flexDirection="row" alignItems="center" paddingX={1} marginBottom={1}>
+          <Text color={theme.colors.text.muted} bold>zenith</Text>
+          <Text color={theme.colors.text.muted}> · </Text>
+          <Text color={theme.colors.status.success}>{activeProvider.meta.name}</Text>
+          <Text color={theme.colors.text.muted}> · </Text>
+          <Text color={theme.colors.text.ethereal}>{activeProvider.config.model || activeProvider.meta.defaultModel}</Text>
+          <Text color={theme.colors.text.muted}> · </Text>
+          <Text color={theme.colors.text.dim}>{workspace}</Text>
+        </Box>
+      )}
 
-      {turns.map((turn) => (
-        <Box key={turn.id} flexDirection="column" marginTop={1} width="100%">
-          <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
-          {turn.events.length > 0 && (
-            <ScenarioRenderer
-              events={turn.events}
-              isRunning={false}
-              isHistorical={true}
-              thinkingCollapsed={thinkingCollapsed}
-            />
+      {turns.map((turn, idx) => (
+        <Box key={turn.id} flexDirection="column" width="100%">
+          {idx > 0 && (
+            <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
+              <Text color={theme.colors.border.muted}>{'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}</Text>
+            </Box>
           )}
+          <Box marginTop={1} flexDirection="column" width="100%">
+            <UserMessageBlock prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
+            {turn.events.length > 0 && (
+              <ScenarioRenderer
+                events={turn.events}
+                isRunning={false}
+                isHistorical={true}
+                thinkingCollapsed={thinkingCollapsed}
+              />
+            )}
+          </Box>
         </Box>
       ))}
 
@@ -186,23 +250,29 @@ export const App: React.FC = () => {
       {isRunning && (
         <Box flexDirection="column" marginTop={1} width="100%">
           {activeTurn && (
-            <PromptHeader prompt={activeTurn.prompt} mode={activeTurn.mode} timestamp={activeTurn.timestamp} />
+            <UserMessageBlock prompt={activeTurn.prompt} mode={activeTurn.mode} timestamp={activeTurn.timestamp} />
           )}
           <ScenarioRenderer
             events={events}
             isRunning={isRunning}
             isHistorical={false}
             thinkingCollapsed={thinkingCollapsed}
+            onRetry={handleRetry}
           />
         </Box>
       )}
 
       {/* Input box */}
-      {isIdle && !showAutocomplete && !showFilePicker && (
+      {!showAutocomplete && !showFilePicker && (
         <CommandInput
           input={input}
           onInputChange={handleInputChange}
           onSubmit={handleSubmit}
+          disabled={isRunning}
+          attachments={attachments}
+          onRemoveAttachment={removeAttachment}
+          historyUp={historyUp}
+          historyDown={historyDown}
         />
       )}
 
@@ -226,6 +296,8 @@ export const App: React.FC = () => {
           mode={selectedMode}
           totalTokens={totalTokens}
           isRunning={isRunning}
+          isOverlayOpen={isOverlayOpen}
+          hasEvents={turns.length > 0}
           workspaceName={workspace}
         />
       )}
@@ -257,7 +329,7 @@ export const App: React.FC = () => {
 
       {overlay === 'add-dir' && (
         <Box flexDirection="column" marginTop={1} width="100%">
-          <AddDirModal currentWorkspace={workspace} onSelectDir={(dir) => setWorkspace(dir)} onClose={closeOverlay} />
+          <AddDirModal currentWorkspace={workspace} onSelectDir={handleSelectDir} onClose={closeOverlay} />
         </Box>
       )}
 
@@ -267,5 +339,6 @@ export const App: React.FC = () => {
         </Box>
       )}
     </Box>
+    </AppProvider>
   );
 };

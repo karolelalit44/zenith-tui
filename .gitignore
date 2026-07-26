@@ -5,6 +5,7 @@ dist
 __pycache__
 .env
 .venv
+.keys
 
 # Runtime data
 data/
@@ -12,9 +13,11 @@ data/
 *.db-shm
 *.db-wal
 *.log
+zenith.db
 
 # User-specific runtime config
 user_profile.json
+~/.zenith/
 
 # Reference repositories (large, not part of source)
 reference_repo/

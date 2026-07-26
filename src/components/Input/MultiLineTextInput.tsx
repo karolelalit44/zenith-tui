@@ -1,6 +1,9 @@
-import { Box, Text, useInput } from 'ink';
-import React, { useCallback, useEffect, useState } from 'react';
+import { Box, Text, useInput, type Key } from 'ink';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTheme } from '../../theme/ThemeContext';
+
+const MIN_LINES = 1;
+const MAX_LINES = 15;
 
 interface MultiLineTextInputProps {
   value: string;
@@ -8,30 +11,36 @@ interface MultiLineTextInputProps {
   onSubmit: (value: string) => void;
   placeholder?: string;
   focus?: boolean;
+  historyUp?: () => string | undefined;
+  historyDown?: () => string | undefined;
 }
 
 export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
-  ({ value, onChange, onSubmit, placeholder = '', focus = true }) => {
+  ({ value, onChange, onSubmit, placeholder = '', focus = true, historyUp, historyDown }) => {
     const { theme } = useTheme();
     const [cursor, setCursor] = useState(value.length);
+    const [historyIndex, setHistoryIndex] = useState(-1);
 
     useEffect(() => {
       if (cursor > value.length) setCursor(value.length);
     }, [value.length, cursor]);
 
+    useEffect(() => {
+      setHistoryIndex(-1);
+    }, [value]);
+
+    const lines = useMemo(() => value.split('\n'), [value]);
+    const lineCount = Math.max(MIN_LINES, Math.min(MAX_LINES, lines.length));
+
     const handleInput = useCallback(
-      (_input: string, key: any) => {
+      (_input: string, key: Key) => {
         if (!focus) return;
 
-        // Pasted content is delivered as a multi-character chunk (_input.length > 1)
         if (_input.length > 1) {
-          // Normalize line breaks: CRLF (\r\n) and CR (\r) -> LF (\n)
-          // Convert tabs (\t) -> 2 spaces
           const cleanPaste = _input
             .replace(/\r\n/g, '\n')
             .replace(/\r/g, '\n')
             .replace(/\t/g, '  ');
-
           if (cleanPaste.length > 0) {
             const nextValue = value.slice(0, cursor) + cleanPaste + value.slice(cursor);
             onChange(nextValue);
@@ -40,10 +49,48 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           return;
         }
 
-        // Single key press handling:
-        // Submit on Enter key (key.return, '\n', or '\r')
         if (key.return || _input === '\n' || _input === '\r') {
-          onSubmit(value);
+          if (key.shift || key.ctrl) {
+            const nextValue = value.slice(0, cursor) + '\n' + value.slice(cursor);
+            onChange(nextValue);
+            setCursor((c) => c + 1);
+          } else {
+            onSubmit(value);
+          }
+          return;
+        }
+
+        if (key.upArrow) {
+          const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
+          if (currentLineIdx === 0 && historyUp) {
+            const prev = historyUp();
+            if (prev !== undefined) {
+              onChange(prev);
+              setCursor(prev.length);
+            }
+            return;
+          }
+          const prevNewline = value.lastIndexOf('\n', cursor - 1);
+          if (prevNewline >= 0) {
+            setCursor(prevNewline);
+          }
+          return;
+        }
+
+        if (key.downArrow) {
+          const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
+          if (currentLineIdx >= lines.length - 1 && historyDown) {
+            const next = historyDown();
+            if (next !== undefined) {
+              onChange(next);
+              setCursor(next.length);
+            }
+            return;
+          }
+          const nextNewline = value.indexOf('\n', cursor);
+          if (nextNewline >= 0 && nextNewline < value.length) {
+            setCursor(nextNewline + 1);
+          }
           return;
         }
 
@@ -57,6 +104,18 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           return;
         }
 
+        if (key.home) {
+          const lastNewline = value.lastIndexOf('\n', cursor - 1);
+          setCursor(lastNewline + 1);
+          return;
+        }
+
+        if (key.end) {
+          const nextNewline = value.indexOf('\n', cursor);
+          setCursor(nextNewline >= 0 ? nextNewline : value.length);
+          return;
+        }
+
         if (key.backspace || key.delete) {
           if (cursor > 0) {
             const nextValue = value.slice(0, cursor - 1) + value.slice(cursor);
@@ -66,7 +125,10 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           return;
         }
 
-        // Ignore meta/ctrl/escape keys except normal character inputs
+        if ((key.ctrl || key.meta) && (_input === 'o' || _input === 'O')) {
+          return;
+        }
+
         if (key.ctrl || key.meta || key.escape) return;
 
         if (_input.length > 0) {
@@ -78,7 +140,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           }
         }
       },
-      [focus, value, cursor, onChange, onSubmit],
+      [focus, value, cursor, onChange, onSubmit, lines, historyUp, historyDown],
     );
 
     useInput(handleInput, { isActive: focus });
@@ -94,28 +156,37 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
         </Text>
       );
     } else {
-      const before = value.slice(0, cursor);
-      const charAtCursor = value[cursor];
-      const after = cursor < value.length ? value.slice(cursor + 1) : '';
+      const cursorLineIdx = value.slice(0, cursor).split('\n').length - 1;
+      const cursorCol = cursor - (value.lastIndexOf('\n', cursor - 1) + 1);
 
       content = (
-        <Text wrap="wrap">
-          {before}
-          {charAtCursor === '\n' ? (
-            <>
-              <Text inverse> </Text>
-              {'\n'}
-            </>
-          ) : (
-            <Text inverse>{charAtCursor || ' '}</Text>
-          )}
-          {after}
-        </Text>
+        <>
+          {lines.map((line, lineIdx) => {
+            const isCursorLine = lineIdx === cursorLineIdx;
+            if (isCursorLine) {
+              const before = line.slice(0, cursorCol);
+              const charAtCursor = line[cursorCol];
+              const after = line.slice(cursorCol + 1);
+              return (
+                <Text key={lineIdx} wrap="wrap">
+                  {before}
+                  <Text inverse>{charAtCursor || ' '}</Text>
+                  {after}
+                </Text>
+              );
+            }
+            return (
+              <Text key={lineIdx} wrap="wrap">
+                {line || ' '}
+              </Text>
+            );
+          })}
+        </>
       );
     }
 
     return (
-      <Box width="100%">
+      <Box width="100%" height={lineCount}>
         {content}
       </Box>
     );

@@ -1,11 +1,11 @@
 import type { Scenario, ScenarioMode } from '../../types/scenario';
 import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scenario/types';
-import { mapEvent } from './EventMapper';
 import { wsClient } from './WebSocketClient';
 
-/** Timeout (ms) after which the frontend auto-finalizes if no events arrive. */
 const STALE_TIMEOUT_MS = 300_000;
 
+let idCounter = 0;
+const uid = () => `evt_${Date.now()}_${++idCounter}`;
 
 export class BackendScenarioProvider implements ScenarioProvider {
   readonly name = 'backend';
@@ -24,12 +24,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
     this.abortFlag = false;
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
-    /** Tracks the last slot used for a partial message — survives resets from non-message events. */
     let lastPartialMessageIndex: number | null = null;
     let accumulatedText = '';
     let completed = false;
     let timerHandle: ReturnType<typeof setTimeout> | null = null;
     let staleTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastEventKind: string | null = null;
+    let mergedThinkingThoughts: string[] = [];
 
     const resetStaleTimer = () => {
       if (staleTimer) clearTimeout(staleTimer);
@@ -38,7 +39,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
           onEvent(
             {
               kind: 'error',
-              id: `evt_stale_${Date.now()}`,
+              id: uid(),
               message: 'Backend response timed out. The backend may have disconnected.',
               code: 'STALE_TIMEOUT',
               recoverable: true,
@@ -66,16 +67,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
       statusUnsub();
     };
 
-    // Start the stale-event safety net
     resetStaleTimer();
 
     const unsubscribe = wsClient.onEvent((rpcEvent) => {
       if (this.abortFlag || completed) return;
 
-      // Any event resets the stale timer
       resetStaleTimer();
 
-      const { kind, data } = rpcEvent.params;
+      const { kind, data, id: rpcId } = rpcEvent.params;
 
       if (kind === 'message' && data?.partial === true) {
         const token = String(data.text || '');
@@ -87,33 +86,28 @@ export class BackendScenarioProvider implements ScenarioProvider {
           eventIndex++;
         }
 
-        const partialEvent = mapEvent({
-          ...rpcEvent,
-          params: {
-            ...rpcEvent.params,
-            data: {
-              ...data,
-              text: accumulatedText,
-            },
+        onEvent(
+          {
+            kind: 'message',
+            id: rpcId || uid(),
+            text: accumulatedText,
+            partial: true,
           },
-        });
-
-        onEvent(partialEvent, partialMessageIndex);
+          partialMessageIndex,
+        );
         return;
       }
 
-      // If a non-message event arrives while streaming a partial message, finalize the message item first
       if (kind !== 'message' && partialMessageIndex !== null) {
-        const finalEvent = mapEvent({
-          jsonrpc: '2.0' as const,
-          method: 'event' as const,
-          params: {
+        onEvent(
+          {
             kind: 'message',
-            id: `evt_final_${Date.now()}`,
-            data: { text: accumulatedText, partial: false },
+            id: uid(),
+            text: accumulatedText,
+            partial: false,
           },
-        });
-        onEvent(finalEvent, partialMessageIndex);
+          partialMessageIndex,
+        );
         partialMessageIndex = null;
         accumulatedText = '';
       }
@@ -121,49 +115,70 @@ export class BackendScenarioProvider implements ScenarioProvider {
       if (kind === 'message' && !data?.partial) {
         const fullText = String(data.text || accumulatedText);
 
-        // Determine target index: prefer active partial, then the last known partial slot,
-        // otherwise allocate a new slot.
         let targetIndex: number;
         if (partialMessageIndex !== null) {
           targetIndex = partialMessageIndex;
         } else if (lastPartialMessageIndex !== null && accumulatedText) {
-          // The partial was already finalized by a non-message event,
-          // but this is the cleaned replacement — reuse the same slot.
           targetIndex = lastPartialMessageIndex;
         } else {
           targetIndex = eventIndex++;
         }
 
-        const finalEvent = mapEvent({
-          ...rpcEvent,
-          params: {
-            ...rpcEvent.params,
-            data: {
-              ...data,
-              text: fullText,
-            },
+        onEvent(
+          {
+            kind: 'message',
+            id: rpcId || uid(),
+            text: fullText,
+            partial: false,
           },
-        });
-        onEvent(finalEvent, targetIndex);
+          targetIndex,
+        );
         partialMessageIndex = null;
         lastPartialMessageIndex = null;
         accumulatedText = '';
         return;
       }
 
-      const mapped = mapEvent(rpcEvent);
-      onEvent(mapped, eventIndex);
-      eventIndex++;
+      const mapped = mapRawEvent(kind, data, rpcId);
 
-      // Only complete on terminal events (final prompt success or fatal unrecoverable error)
+      // Merge consecutive thinking events into a single block
+      if (kind === 'thinking' && lastEventKind === 'thinking' && eventIndex > 0) {
+        // Accumulate thoughts from new event into the merged array
+        const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
+        for (const t of newThoughts) {
+          const text = typeof t === 'string' ? t : t.text;
+          if (text) mergedThinkingThoughts.push(text);
+        }
+        // Replace previous thinking event with merged version
+        onEvent(
+          {
+            kind: 'thinking',
+            id: uid(),
+            thoughts: [...mergedThinkingThoughts],
+            duration: 500,
+          },
+          eventIndex - 1, // Replace previous thinking event
+        );
+      } else {
+        // Reset merge tracking when a non-thinking event arrives
+        if (kind !== 'thinking') {
+          mergedThinkingThoughts = [];
+        } else {
+          // First thinking event in a new sequence
+          const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
+          mergedThinkingThoughts = newThoughts.map(t => typeof t === 'string' ? t : t.text).filter(Boolean) as string[];
+        }
+        onEvent(mapped, eventIndex);
+        eventIndex++;
+      }
+
+      lastEventKind = kind;
+
       let isTerminal = false;
       if (kind === 'success') {
-        // Intermediate tool results contain 'tool' and 'result' fields.
-        // Final prompt success contains 'iterations', 'tokenInfo', or 'message'.
-        const isToolResult = Boolean(data && typeof data === 'object' && data.tool && data.result);
-        isTerminal = !isToolResult;
+        const hasIterations = typeof data?.iterations === 'number';
+        isTerminal = hasIterations;
       } else if (kind === 'error') {
-        // Recoverable tool errors (recoverable: true) are intermediate — the backend agent loop continues to next turn.
         const isRecoverable = Boolean(data && typeof data === 'object' && data.recoverable === true);
         isTerminal = !isRecoverable;
       }
@@ -179,7 +194,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         onEvent(
           {
             kind: 'error',
-            id: `evt_ws_error_${Date.now()}`,
+            id: uid(),
             message: 'Connection to backend lost. Check that zenith serve is running.',
           },
           eventIndex++,
@@ -192,13 +207,12 @@ export class BackendScenarioProvider implements ScenarioProvider {
     timerHandle = setTimeout(() => {
       timerHandle = null;
       if (eventIndex === 0 && !completed) {
-        const waitingId = `evt_wait_${Date.now()}`;
         onEvent(
           {
-            kind: 'waiting',
-            id: waitingId,
-            message: 'Waiting for backend response...',
-            duration: 2000,
+            kind: 'message',
+            id: uid(),
+            text: 'Waiting for backend response...',
+            partial: false,
           },
           eventIndex++,
         );
@@ -211,6 +225,118 @@ export class BackendScenarioProvider implements ScenarioProvider {
         finalize();
       },
     };
+  }
+}
+
+function mapRawEvent(
+  kind: string,
+  data: Record<string, unknown> | undefined,
+  rpcId?: string,
+): import('../../types/scenario').ScenarioEvent {
+  const d = data || {};
+  const id = rpcId || uid();
+
+  switch (kind) {
+    case 'thinking':
+      return {
+        kind: 'thinking',
+        id,
+        thoughts: d.text ? [String(d.text)] : [],
+        duration: typeof d.duration === 'number' ? d.duration : 500,
+      };
+
+    case 'message':
+      return {
+        kind: 'message',
+        id,
+        text: String(d.text || ''),
+        partial: d.partial === true,
+      };
+
+    case 'tool_call':
+      return {
+        kind: 'tool_call',
+        id,
+        tool: String(d.tool || ''),
+        params: (d.params && typeof d.params === 'object' ? d.params : {}) as Record<string, unknown>,
+        text: d.text ? String(d.text) : undefined,
+      };
+
+    case 'tool_result':
+      return {
+        kind: 'tool_result',
+        id,
+        tool: String(d.tool || ''),
+        success: Boolean(d.success),
+        output: String(d.output || ''),
+        error: String(d.error || ''),
+        truncated: d.truncated === true,
+        metadata: (d.metadata && typeof d.metadata === 'object' ? d.metadata : {}) as Record<string, unknown>,
+      };
+
+    case 'error':
+      return {
+        kind: 'error',
+        id,
+        message: String(d.message || 'An error occurred'),
+        code: d.code ? String(d.code) : undefined,
+        recoverable: typeof d.recoverable === 'boolean' ? d.recoverable : undefined,
+        provider: d.provider ? String(d.provider) : undefined,
+      };
+
+    case 'warning':
+      return {
+        kind: 'warning',
+        id,
+        message: String(d.message || ''),
+        code: d.code ? String(d.code) : undefined,
+      };
+
+    case 'success':
+      return {
+        kind: 'success',
+        id,
+        message: String(d.message || 'Completed'),
+        iterations: typeof d.iterations === 'number' ? d.iterations : undefined,
+        tokenInfo:
+          d.tokenInfo && typeof d.tokenInfo === 'object'
+            ? {
+                used: Number((d.tokenInfo as Record<string, unknown>).used) || 0,
+                remaining: Number((d.tokenInfo as Record<string, unknown>).remaining) || 0,
+                total: Number((d.tokenInfo as Record<string, unknown>).total) || 0,
+                percent: Number((d.tokenInfo as Record<string, unknown>).percent) || 0,
+              }
+            : undefined,
+      };
+
+    case 'progress':
+      return {
+        kind: 'progress',
+        id,
+        label: String(d.label || d.status || 'Progress'),
+        percent: typeof d.percent === 'number' ? d.percent : undefined,
+        iteration: typeof d.iteration === 'number' ? d.iteration : undefined,
+        steps: Array.isArray(d.steps) ? d.steps as { label: string; status: 'pending' | 'active' | 'done' | 'error' }[] : [],
+      };
+
+    case 'confirmation_request':
+      return {
+        kind: 'confirmation_request',
+        id,
+        confirmationId: String(d.confirmation_id || ''),
+        tool: String(d.tool || ''),
+        reason: String(d.reason || ''),
+        riskLevel: String(d.risk_level || 'medium'),
+        message: String(d.message || 'Operation requires confirmation'),
+      };
+
+    default:
+      return {
+        kind: 'warning',
+        id,
+        message: `[Unknown event: ${kind}]`,
+        code: 'UNKNOWN_EVENT',
+      } as import('../../types/scenario').ScenarioEvent;
   }
 }
 
