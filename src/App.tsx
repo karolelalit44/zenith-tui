@@ -67,6 +67,7 @@ export const App: React.FC = () => {
     clearInput,
     insertFilePath,
     closeFilePicker,
+    closeAutocomplete,
     addHistory,
     historyUp,
     historyDown,
@@ -225,32 +226,37 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {turns.map((turn, idx) => (
-        <Box key={turn.id} flexDirection="column" width="100%">
-          {idx > 0 && (
-            <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
-              <Text color={theme.colors.border.muted}>{'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}</Text>
-            </Box>
-          )}
-          <Box marginTop={1} flexDirection="column" width="100%">
-            <UserMessageBlock prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
-            {turn.events.length > 0 && (
-              <ScenarioRenderer
-                events={turn.events}
-                isRunning={false}
-                isHistorical={true}
-                thinkingCollapsed={thinkingCollapsed}
-              />
+      {turns.map((turn, idx) => {
+        // Skip the active turn in the historical list — it renders separately below
+        const isActiveTurn = isRunning && activeTurn && turn.id === activeTurn.id;
+        if (isActiveTurn) return null;
+        return (
+          <Box key={turn.id} flexDirection="column" width="100%">
+            {idx > 0 && (
+              <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
+                <Text color={theme.colors.border.muted}>{'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}</Text>
+              </Box>
             )}
+            <Box marginTop={1} flexDirection="column" width="100%">
+              <UserMessageBlock prompt={turn.prompt} />
+              {turn.events.length > 0 && (
+                <ScenarioRenderer
+                  events={turn.events}
+                  isRunning={false}
+                  isHistorical={true}
+                  thinkingCollapsed={thinkingCollapsed}
+                />
+              )}
+            </Box>
           </Box>
-        </Box>
-      ))}
+        );
+      })}
 
       {/* Currently running scenario */}
       {isRunning && (
         <Box flexDirection="column" marginTop={1} width="100%">
           {activeTurn && (
-            <UserMessageBlock prompt={activeTurn.prompt} mode={activeTurn.mode} timestamp={activeTurn.timestamp} />
+            <UserMessageBlock prompt={activeTurn.prompt} />
           )}
           <ScenarioRenderer
             events={events}
@@ -279,7 +285,7 @@ export const App: React.FC = () => {
       {/* Slash Command Palette */}
       {showAutocomplete && (
         <Box marginTop={1} width="100%">
-          <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithRouter} />
+          <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithRouter} onClose={closeAutocomplete} />
         </Box>
       )}
 

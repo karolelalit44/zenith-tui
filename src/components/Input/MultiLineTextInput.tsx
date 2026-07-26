@@ -37,10 +37,22 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
         if (!focus) return;
 
         if (_input.length > 1) {
-          const cleanPaste = _input
+          let cleanPaste = _input
             .replace(/\r\n/g, '\n')
             .replace(/\r/g, '\n')
-            .replace(/\t/g, '  ');
+            .replace(/\t/g, '  ')
+            // Strip ANSI escape sequences
+            .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+            // Strip control chars (keep \n only)
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+          // Unescape JSON-encoded strings (e.g. \"key\": \"value\")
+          if (cleanPaste.includes('\\"') || cleanPaste.includes('\\n')) {
+            try {
+              cleanPaste = JSON.parse(`"${cleanPaste.replace(/"/g, '\\"')}"`);
+            } catch {
+              // Not valid JSON escape — use as-is
+            }
+          }
           if (cleanPaste.length > 0) {
             const nextValue = value.slice(0, cursor) + cleanPaste + value.slice(cursor);
             onChange(nextValue);
@@ -132,7 +144,10 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
         if (key.ctrl || key.meta || key.escape) return;
 
         if (_input.length > 0) {
-          const cleanInput = _input.replace(/\r/g, '').replace(/\t/g, '  ');
+          const cleanInput = _input
+            .replace(/\r/g, '')
+            .replace(/\t/g, '  ')
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
           if (cleanInput.length > 0) {
             const nextValue = value.slice(0, cursor) + cleanInput + value.slice(cursor);
             onChange(nextValue);

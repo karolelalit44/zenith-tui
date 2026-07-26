@@ -16,6 +16,15 @@ const getThoughtText = (thought: string | ThinkingThought): string =>
 const getThoughtDelay = (thought: string | ThinkingThought, index: number): number =>
   typeof thought === 'string' ? 0 : (thought.delay ?? index * 400);
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = (s % 60).toFixed(0);
+  return `${m}m ${rem}s`;
+}
+
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
   const isCollapsed = context?.thinkingCollapsed ?? false;
@@ -54,12 +63,20 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
         <Text color={theme.colors.status.accent} bold>
-          [THINK] {isCollapsed ? '▸' : '▾'}
+          ○ {isCollapsed ? '▸' : '▾'}
         </Text>
         <Text color={theme.colors.text.muted}>
           {' '}
-          ({event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'})
+          {event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'}
         </Text>
+        {event.duration > 0 && (
+          <>
+            <Text color={theme.colors.text.muted}> · </Text>
+            <Text color={theme.colors.text.muted}>
+              {formatDuration(event.duration)}
+            </Text>
+          </>
+        )}
         <Text color={theme.colors.text.muted}> · </Text>
         <Text color={theme.colors.text.muted} underline>
           Shift+T to toggle

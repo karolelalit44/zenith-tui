@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { estimateTokensForEvents } from '../services/data/tokenEstimationService';
-import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
+import type { ScenarioEvent, ScenarioMode, SuccessEvent } from '../types/scenario';
 
 export interface ConversationTurn {
   id: string;
@@ -29,7 +29,18 @@ export function useConversation(): UseConversationReturn {
   const activeTurn = turns.length > 0 ? turns[turns.length - 1] : null;
 
   const totalTokens = useMemo(() => {
-    return turns.reduce((sum, t) => sum + (t.isComplete ? estimateTokensForEvents(t.events) : 0), 0);
+    return turns.reduce((sum, t) => {
+      if (!t.isComplete) return sum;
+      // Prefer real token data from backend success event if available
+      const successEvent = t.events.find(
+        (e): e is SuccessEvent => e.kind === 'success' && 'tokenInfo' in e && Boolean((e as SuccessEvent).tokenInfo),
+      );
+      if (successEvent?.tokenInfo) {
+        return sum + successEvent.tokenInfo.used;
+      }
+      // Fall back to char÷4 estimation
+      return sum + estimateTokensForEvents(t.events);
+    }, 0);
   }, [turns]);
 
   const addTurn = useCallback((prompt: string, mode: ScenarioMode): string => {

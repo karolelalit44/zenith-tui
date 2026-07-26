@@ -1,6 +1,10 @@
 import type { ScenarioEvent } from '../../types/scenario';
 
 function estimateEventTokens(event: ScenarioEvent): number {
+  if (event.kind === 'success' && event.tokenInfo) {
+    return event.tokenInfo.used;
+  }
+
   let chars = 0;
 
   if ('text' in event && typeof event.text === 'string') {

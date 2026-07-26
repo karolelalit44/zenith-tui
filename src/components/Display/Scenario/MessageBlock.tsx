@@ -23,7 +23,7 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) 
     return null;
   }
 
-  const cursor = event.partial ? (
+  const icon = event.partial ? (
     <Text color={theme.colors.status.accent}> {ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]}</Text>
   ) : null;
 
@@ -31,9 +31,9 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) 
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={0}>
         <Text color={theme.colors.status.accent} bold>
-          [ASSISTANT]
+          ◇
         </Text>
-        {cursor}
+        {icon}
       </Box>
       <Box paddingLeft={1} flexDirection="column">
         <TerminalMarkdown content={event.text} />

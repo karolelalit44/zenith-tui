@@ -86,6 +86,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
           eventIndex++;
         }
 
+        lastEventKind = 'message';
         onEvent(
           {
             kind: 'message',
@@ -98,19 +99,11 @@ export class BackendScenarioProvider implements ScenarioProvider {
         return;
       }
 
-      if (kind !== 'message' && partialMessageIndex !== null) {
-        onEvent(
-          {
-            kind: 'message',
-            id: uid(),
-            text: accumulatedText,
-            partial: false,
-          },
-          partialMessageIndex,
-        );
-        partialMessageIndex = null;
-        accumulatedText = '';
-      }
+      // Non-message events: DON'T finalize partial here.
+      // The partial stays active and will be finalized when:
+      // (a) the final non-partial message arrives, or
+      // (b) a terminal event (success/error) arrives.
+      // This prevents duplicate messages when thinking events arrive mid-stream.
 
       if (kind === 'message' && !data?.partial) {
         const fullText = String(data.text || accumulatedText);
@@ -118,12 +111,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
         let targetIndex: number;
         if (partialMessageIndex !== null) {
           targetIndex = partialMessageIndex;
-        } else if (lastPartialMessageIndex !== null && accumulatedText) {
+        } else if (lastPartialMessageIndex !== null) {
           targetIndex = lastPartialMessageIndex;
         } else {
           targetIndex = eventIndex++;
         }
 
+        lastEventKind = 'message';
         onEvent(
           {
             kind: 'message',
@@ -137,6 +131,25 @@ export class BackendScenarioProvider implements ScenarioProvider {
         lastPartialMessageIndex = null;
         accumulatedText = '';
         return;
+      }
+
+      // Terminal events: finalize any pending partial before emitting
+      const isTerminalEvent =
+        (kind === 'success' && typeof data?.iterations === 'number') ||
+        (kind === 'error' && !(data && typeof data === 'object' && data.recoverable === true));
+
+      if (isTerminalEvent && partialMessageIndex !== null) {
+        onEvent(
+          {
+            kind: 'message',
+            id: uid(),
+            text: accumulatedText,
+            partial: false,
+          },
+          partialMessageIndex,
+        );
+        partialMessageIndex = null;
+        accumulatedText = '';
       }
 
       const mapped = mapRawEvent(kind, data, rpcId);

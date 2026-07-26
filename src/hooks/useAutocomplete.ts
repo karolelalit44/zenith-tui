@@ -43,6 +43,7 @@ export interface UseAutocompleteReturn {
   clearInput: () => void;
   insertFilePath: (relPath: string) => void;
   closeFilePicker: () => void;
+  closeAutocomplete: () => void;
   addHistory: (prompt: string) => void;
   historyUp: () => string | undefined;
   historyDown: () => string | undefined;
@@ -130,6 +131,10 @@ export function useAutocomplete(): UseAutocompleteReturn {
     setShowFilePicker(false);
   }, []);
 
+  const closeAutocomplete = useCallback(() => {
+    setShowAutocomplete(false);
+  }, []);
+
   const addAttachment = useCallback((attachment: FileAttachment) => {
     setAttachments((prev) => [...prev, attachment]);
   }, []);
@@ -151,6 +156,7 @@ export function useAutocomplete(): UseAutocompleteReturn {
     clearInput,
     insertFilePath,
     closeFilePicker,
+    closeAutocomplete,
     addHistory,
     historyUp,
     historyDown,

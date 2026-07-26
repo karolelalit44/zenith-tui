@@ -11,7 +11,7 @@ interface CommandEntry {
 
 const COMMAND_LIST: CommandEntry[] = optionsData.commands;
 
-export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ input, onSelect }) => {
+export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ input, onSelect, onClose }) => {
   const { theme } = useTheme();
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -20,7 +20,9 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ inpu
 
   useInput((_char, key) => {
     if (filtered.length === 0) return;
-    if (key.upArrow) {
+    if (key.escape) {
+      onClose();
+    } else if (key.upArrow) {
       setActiveIndex((prev) => Math.max(0, prev - 1));
     } else if (key.downArrow) {
       setActiveIndex((prev) => Math.min(filtered.length - 1, prev + 1));
@@ -51,7 +53,7 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ inpu
         <Text color={theme.colors.status.accent} bold>
           [SLASH COMMANDS]
         </Text>
-        <Text color={theme.colors.text.muted}> — Type to filter · ↑/↓ navigate · Enter select</Text>
+        <Text color={theme.colors.text.muted}> — Type to filter · ↑/↓ navigate · Enter select · Esc back</Text>
       </Box>
 
       {filtered.map((cmd, i) => {
