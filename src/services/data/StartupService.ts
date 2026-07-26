@@ -83,10 +83,6 @@ export class StartupService {
     return this._state;
   }
 
-  async retry(): Promise<AppStartupState> {
-    return this.initialize();
-  }
-
   async validateProvider(request: ProviderSetupRequest): Promise<ProviderSetupResult> {
     try {
       return await fetchJson<ProviderSetupResult>(backendUrl('/startup/validate-provider'), {

@@ -19,7 +19,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
   const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
 
   return (
-    <RoundedBox title={APP_VERSION} borderColor={theme.colors.border.active}>
+    <RoundedBox title={APP_VERSION} borderColor={theme.colors.border.active} hasShadow={true}>
       <Box
         flexGrow={1}
         width="100%"

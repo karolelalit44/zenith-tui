@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { PromptHeader } from './components/Display/PromptHeader';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
@@ -67,40 +67,31 @@ export const App: React.FC = () => {
     closeFilePicker,
     addHistory,
   } = useAutocomplete();
-  const { events, isRunning, startScenario, abort } = useScenario();
+  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation } = useScenario();
 
-  const suppressSubmitRef = useRef(false);
+  const handleSubmit = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
 
-  const insertNewline = useCallback(() => {
-    suppressSubmitRef.current = true;
-    handleInputChange(`${input}\n`);
-  }, [input, handleInputChange]);
+      if (trimmed.startsWith('/')) {
+        clearInput();
+        commandService.dispatchCommand(trimmed, {
+          openOverlay,
+          clearTurns,
+          compactTurns,
+          setMode: handleModeSelect,
+        });
+        return;
+      }
 
-  const [scrollOffset, setScrollOffset] = useState(0);
-
-  const handleScrollUp = useCallback(() => {
-    setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, turns.length - 1)));
-  }, [turns.length]);
-
-  const handleScrollDown = useCallback(() => {
-    setScrollOffset((prev) => Math.max(0, prev - 1));
-  }, []);
-
-  const handleScrollToBottom = useCallback(() => {
-    setScrollOffset(0);
-  }, []);
-
-  const handleScrollToTop = useCallback(() => {
-    setScrollOffset(Math.max(0, turns.length - 1));
-  }, [turns.length]);
-
-  useEffect(() => {
-    if (isRunning) {
-      setScrollOffset(0);
-    }
-  }, [isRunning, turns.length]);
-
-  const isIdle = !isRunning && !isOverlayOpen;
+      addHistory(trimmed);
+      addTurn(trimmed, selectedMode);
+      clearInput();
+      startScenario(trimmed, selectedMode);
+    },
+    [selectedMode, startScenario, addTurn, clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect, addHistory],
+  );
 
   useTerminalKeyboard({
     turns,
@@ -108,16 +99,12 @@ export const App: React.FC = () => {
     events,
     overlay,
     openOverlay,
-    closeOverlay,
     abort,
     abortActiveTurn,
     markTurnSaved,
     onToggleThinking: toggleThinking,
-    onInsertNewline: insertNewline,
-    onScrollUp: handleScrollUp,
-    onScrollDown: handleScrollDown,
-    onScrollToBottom: handleScrollToBottom,
-    onScrollToTop: handleScrollToTop,
+    activeConfirmation,
+    respondConfirmation,
   });
 
   useEffect(() => {
@@ -127,50 +114,21 @@ export const App: React.FC = () => {
     }
   }, [isRunning, events, activeTurn, completeActiveTurn]);
 
-  const dispatchCommand = useCallback(
-    (cmd: string) => {
-      clearInput();
-      commandService.dispatchCommand(cmd, {
-        openOverlay,
-        clearTurns,
-        compactTurns,
-        setMode: handleModeSelect,
-      });
-    },
-    [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect],
-  );
-
-  const handleSubmit = useCallback(
-    (value: string) => {
-      if (suppressSubmitRef.current) {
-        suppressSubmitRef.current = false;
-        return;
-      }
-      const trimmed = value.trim();
-      if (!trimmed) return;
-
-      if (trimmed.startsWith('/')) {
-        dispatchCommand(trimmed);
-        return;
-      }
-
-      addHistory(trimmed);
-      addTurn(trimmed, selectedMode);
-      clearInput();
-      startScenario(trimmed, selectedMode);
-    },
-    [selectedMode, startScenario, addTurn, clearInput, dispatchCommand, addHistory],
-  );
-
   const handleAutocompleteSelectWithRouter = useCallback(
     (cmd: string) => {
       if (cmd.startsWith('/')) {
-        dispatchCommand(cmd);
+        clearInput();
+        commandService.dispatchCommand(cmd, {
+          openOverlay,
+          clearTurns,
+          compactTurns,
+          setMode: handleModeSelect,
+        });
       } else {
         handleAutocompleteSelect(cmd);
       }
     },
-    [dispatchCommand, handleAutocompleteSelect],
+    [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect, handleAutocompleteSelect],
   );
 
   if (startupState.phase === 'loading') {
@@ -204,30 +162,14 @@ export const App: React.FC = () => {
     );
   }
 
-  const maxVisibleTurns = 2;
-  const totalTurns = turns.length;
-  const endIndex = Math.max(0, totalTurns - scrollOffset);
-  const startIndex = Math.max(0, endIndex - maxVisibleTurns);
-  const visibleTurns = turns.slice(startIndex, endIndex);
+  const isIdle = !isRunning && !isOverlayOpen;
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
       <WelcomeScreen workspace={workspace} />
 
-      {totalTurns > maxVisibleTurns && (
-        <Box flexDirection="row" justifyContent="space-between" paddingX={1} marginTop={1}>
-          <Text color={theme.colors.status.info} bold>
-            [VIEWPORT SCROLL] Turns {startIndex + 1}-{endIndex} of {totalTurns}
-          </Text>
-          <Text color={theme.colors.text.muted}>
-            [PgUp/PgDn / Shift+↑/↓: Scroll | Shift+End: Bottom]
-          </Text>
-        </Box>
-      )}
-
-      {/* Render visible turns within viewport scroll window */}
-      {visibleTurns.map((turn) => (
-        <Box key={turn.id} flexDirection="column" marginTop={1}>
+      {turns.map((turn) => (
+        <Box key={turn.id} flexDirection="column" marginTop={1} width="100%">
           <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
           {turn.events.length > 0 && (
             <ScenarioRenderer
@@ -242,7 +184,7 @@ export const App: React.FC = () => {
 
       {/* Currently running scenario */}
       {isRunning && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1} width="100%">
           {activeTurn && (
             <PromptHeader prompt={activeTurn.prompt} mode={activeTurn.mode} timestamp={activeTurn.timestamp} />
           )}
@@ -255,12 +197,10 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-
       {/* Input box */}
       {isIdle && !showAutocomplete && !showFilePicker && (
         <CommandInput
           input={input}
-          selectedMode={selectedMode}
           onInputChange={handleInputChange}
           onSubmit={handleSubmit}
         />
@@ -268,14 +208,14 @@ export const App: React.FC = () => {
 
       {/* Slash Command Palette */}
       {showAutocomplete && (
-        <Box marginTop={1}>
+        <Box marginTop={1} width="100%">
           <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithRouter} />
         </Box>
       )}
 
       {/* File Picker Modal */}
       {showFilePicker && (
-        <Box marginTop={1}>
+        <Box marginTop={1} width="100%">
           <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
         </Box>
       )}
@@ -292,37 +232,37 @@ export const App: React.FC = () => {
 
       {/* Overlays & Modals */}
       {overlay === 'mode' && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1} width="100%">
           <ModeSelectScreen currentMode={selectedMode} onSelect={handleModeSelect} onClose={closeOverlay} />
         </Box>
       )}
 
       {overlay === 'help' && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1} width="100%">
           <HelpModal onClose={closeOverlay} />
         </Box>
       )}
 
       {overlay === 'settings' && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1} width="100%">
           <SettingsModal onClose={closeOverlay} />
         </Box>
       )}
 
       {overlay === 'context' && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1} width="100%">
           <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={closeOverlay} />
         </Box>
       )}
 
       {overlay === 'add-dir' && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1} width="100%">
           <AddDirModal currentWorkspace={workspace} onSelectDir={(dir) => setWorkspace(dir)} onClose={closeOverlay} />
         </Box>
       )}
 
       {overlay === 'provider' && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1} width="100%">
           <ProvidersScreen onClose={closeOverlay} />
         </Box>
       )}

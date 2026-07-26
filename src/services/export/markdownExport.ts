@@ -2,14 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ScenarioEvent } from '../../types/scenario';
 
-export interface ExportResult {
+interface ExportResult {
   success: boolean;
   filePath: string;
   markdownContent: string;
   error?: string;
 }
 
-export function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): string {
+function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): string {
   const lines: string[] = [];
 
   lines.push(`# Implementation Plan: ${prompt}`);

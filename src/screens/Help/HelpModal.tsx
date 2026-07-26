@@ -138,6 +138,9 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
           paddingTop={1}
           borderStyle="single"
           borderTop={true}
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
           borderColor={theme.colors.border.muted}
           justifyContent="center"
         >

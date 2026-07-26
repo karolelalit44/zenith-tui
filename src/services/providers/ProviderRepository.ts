@@ -54,7 +54,7 @@ function backendUrl(path: string): string {
   return `${BACKEND_BASE.replace(/\/+$/, '')}${path}`;
 }
 
-export interface BackendProviderModel {
+interface BackendProviderModel {
   id: string;
   name: string;
   description?: string;
@@ -75,7 +75,7 @@ export interface BackendProviderModel {
   is_default?: number;
 }
 
-export interface BackendProviderEntry {
+interface BackendProviderEntry {
   id?: string;
   name?: string;
   description?: string;
@@ -89,7 +89,7 @@ export interface BackendProviderEntry {
   models?: BackendProviderModel[];
 }
 
-export interface BackendProvidersResponse {
+interface BackendProvidersResponse {
   active_provider: string;
   providers: Record<string, BackendProviderEntry>;
 }

@@ -28,6 +28,7 @@ export const FileDeleteCard: React.FC<FileDeleteCardProps> = React.memo(({ event
           borderStyle="round"
           borderColor={theme.colors.status.error}
           paddingX={1}
+          paddingY={1}
           flexWrap="wrap"
         >
           {event.lines.map((line, idx) => (

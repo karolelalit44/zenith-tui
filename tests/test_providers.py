@@ -115,10 +115,10 @@ class _MockProvider(BaseProvider):
     def __init__(self, name: str = "mock"):
         super().__init__(name, model="mock-model", max_tokens=100, temperature=0.7)
 
-    async def complete(self, messages: list[dict]) -> str:
+    async def complete(self, messages: list[dict], tools=None) -> str:
         return "mock response"
 
-    async def stream(self, messages: list[dict]):
+    async def stream(self, messages: list[dict], tools=None):
         yield ("mock ", None)
         yield ("stream", None)
 

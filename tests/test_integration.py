@@ -40,14 +40,14 @@ class EchoProvider(BaseProvider):
         self.respond_with_tool = respond_with_tool
         self.call_count = 0
 
-    async def complete(self, messages: list[dict]) -> str:
+    async def complete(self, messages: list[dict], tools=None) -> str:
         self.call_count += 1
         user_msg = messages[-1]["content"] if messages else ""
         if self.respond_with_tool and self.call_count == 1:
             return '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
         return f"Echo: {user_msg}"
 
-    async def stream(self, messages: list[dict]):
+    async def stream(self, messages: list[dict], tools=None):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)
@@ -143,10 +143,10 @@ class TestErrorRecovery:
             def __init__(self):
                 super().__init__("fail", "fail-model")
 
-            async def complete(self, messages):
+            async def complete(self, messages, tools=None):
                 raise Exception("API down")
 
-            async def stream(self, messages):
+            async def stream(self, messages, tools=None):
                 yield ("should not reach", None)
                 raise Exception("API down")
 
@@ -173,10 +173,10 @@ class TestErrorRecovery:
             def __init__(self):
                 super().__init__("rate", "rate-model")
 
-            async def complete(self, messages):
+            async def complete(self, messages, tools=None):
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 
-            async def stream(self, messages):
+            async def stream(self, messages, tools=None):
                 yield ("should not reach", None)
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 

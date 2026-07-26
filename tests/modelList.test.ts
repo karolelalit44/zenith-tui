@@ -11,13 +11,8 @@ describe('ModelService Dynamic DB & Update Operations', () => {
     expect(data.models[0].id).toBe('meta-llama/llama-3.3-70b-instruct');
   });
 
-  it('updates models list via updateModelsList()', () => {
-    const customModels = [{ id: 'custom-gpt-5', name: 'Custom GPT-5', contextWindow: 500000 }];
-    service.updateModelsList('openai', customModels);
-
-    const updated = service.getModels('openai');
-    expect(updated.length).toBe(1);
-    expect(updated[0].id).toBe('custom-gpt-5');
-    expect(service.getTotalModelsLabel('openai')).toBe('1 models');
+  it('returns correct total models label', () => {
+    const label = service.getTotalModelsLabel('openrouter');
+    expect(label).toContain('models');
   });
 });

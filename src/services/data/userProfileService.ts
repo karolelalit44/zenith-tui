@@ -1,11 +1,11 @@
 let profileCache: UserProfile | null = null;
 
-export interface UserProviderSection {
+interface UserProviderSection {
   activeProvider: string;
   activeModel: string;
 }
 
-export interface UserSettingsSection {
+interface UserSettingsSection {
   theme: string;
   thinkingCollapsed: boolean;
   autoApproveTools: boolean;
@@ -68,20 +68,4 @@ export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
 
   profileCache = updatedProfile;
   return updatedProfile;
-};
-
-export const loadSavedTheme = (): string => {
-  return loadUserProfile().settings.theme;
-};
-
-export const saveTheme = (themeId: string): void => {
-  saveUserProfile({ settings: { ...loadUserProfile().settings, theme: themeId } });
-};
-
-export const loadAutoApprove = (): boolean => {
-  return loadUserProfile().settings.autoApproveTools;
-};
-
-export const saveAutoApprove = (autoApprove: boolean): void => {
-  saveUserProfile({ settings: { ...loadUserProfile().settings, autoApproveTools: autoApprove } });
 };

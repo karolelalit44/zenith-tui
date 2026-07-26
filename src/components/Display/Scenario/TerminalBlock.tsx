@@ -68,8 +68,8 @@ export const TerminalBlock: React.FC<TerminalBlockProps> = React.memo(({ event, 
         {/* Exit status + bottom border */}
         <Box flexDirection="row" width="100%">
           <Text color={theme.colors.border.muted}>{'├─'}</Text>
-          <Text color={isLive ? theme.colors.status.info : theme.colors.status.success} bold>
-            {isLive ? ' running ' : ` exit ${event.command.includes('&&') ? '(chained)' : '0'} `}
+          <Text color={isLive ? theme.colors.status.info : (event.exitCode === 0 ? theme.colors.status.success : theme.colors.status.error)} bold>
+            {isLive ? ' running ' : ` exit ${event.exitCode ?? 0} (code ${event.exitCode ?? 0}) `}
           </Text>
           <Text color={theme.colors.text.dim}>{(event.duration / 1000).toFixed(1)}s</Text>
           <Text color={theme.colors.border.muted}>{'─'.repeat(Math.max(0, width - 20))}</Text>

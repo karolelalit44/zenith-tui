@@ -10,11 +10,11 @@ class BaseProvider(ABC):
         self.temperature = temperature
 
     @abstractmethod
-    async def complete(self, messages: list[dict]) -> str:
+    async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str:
         ...
 
     @abstractmethod
-    async def stream(self, messages: list[dict]) -> AsyncIterator[str]:
+    async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[str]:
         ...
 
     @abstractmethod

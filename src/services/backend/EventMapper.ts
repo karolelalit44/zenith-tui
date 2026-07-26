@@ -4,13 +4,23 @@ import type { JsonRpcEvent } from './WebSocketClient';
 let idCounter = Date.now();
 const uid = () => `evt_${++idCounter}`;
 
-export function cleanMessageText(rawText: string): string {
+function cleanMessageText(rawText: string): string {
   let cleaned = rawText;
+  // Fenced single tool blocks
   cleaned = cleaned.replace(/```(?:tool|json)?\s*\n?\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?\}\s*\n?```/gi, '');
+  // Inline single tool JSON
   cleaned = cleaned.replace(/\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?"params"\s*:\s*\{[\s\S]*?\}\s*\}/gi, '');
+  // Fenced JSON arrays of tool calls
+  cleaned = cleaned.replace(/```(?:tool|json)?\s*\n?\[[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?\]\s*\n?```/gi, '');
+  // Inline JSON arrays of tool calls
+  cleaned = cleaned.replace(/\[[\s\S]*?\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?\}[\s\S]*?\]/gi, '');
+  // Unclosed tool blocks
   cleaned = cleaned.replace(/```(?:tool|json)?\s*\n?\{[\s\S]*$/gi, '');
   cleaned = cleaned.replace(/Command:\s*cd\s+.*?\nOutput:[\s\S]*?(?=\n\n|Z)/gi, '');
   cleaned = cleaned.replace(/Successfully created new file:\s*[^\n]+/gi, '');
+  // Strip placeholder patterns the model might output as text
+  cleaned = cleaned.replace(/\[(?:PASTE|INSERT|TODO|HTML|UPDATED|ACTUAL|CURRENT|DESIRED)[^\]]{0,50}\]/gi, '');
+  cleaned = cleaned.replace(/\bYOUR_[\w_]+_HERE\b/g, '');
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
   return cleaned.trim();
 }
@@ -63,8 +73,9 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
       const parts = path.split('/');
       const fileName = parts.pop() || path;
       const directory = parts.join('/') || '/';
-      const oldStr = String(data.old_string || '');
-      const newStr = String(data.new_string || '');
+      // Prefer old_content/new_content from backend, fall back to old_string/new_string
+      const oldStr = String(data.old_content || data.old_string || data.content || '');
+      const newStr = String(data.new_content || data.new_string || data.content || '');
       const removedLines = oldStr ? oldStr.split('\n').map((line) => ({ text: line, type: 'remove' as const })) : [];
       const addedLines = newStr ? newStr.split('\n').map((line) => ({ text: line, type: 'add' as const })) : [];
       return {
@@ -83,12 +94,14 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
       const parts = path.split('/');
       const fileName = parts.pop() || path;
       const directory = parts.join('/') || '/';
+      const content = String(data.content || '');
+      const lines = content ? content.split('\n').map((line) => ({ text: line, type: 'remove' as const })) : [];
       return {
         kind: 'file_delete',
         id: uid(),
         filePath: path,
         directory,
-        lines: [],
+        lines,
         language: String(data.language || detectLanguage(fileName)),
       } as ScenarioEvent;
     }
@@ -100,6 +113,7 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
         command: String(data.command || ''),
         output: Array.isArray(data.output) ? data.output.map(String) : [],
         duration: typeof data.duration === 'number' ? data.duration : 1000,
+        exitCode: typeof data.exitCode === 'number' ? data.exitCode : undefined,
       } as ScenarioEvent;
 
     case 'error':
@@ -271,6 +285,17 @@ export function mapEvent(rpcEvent: JsonRpcEvent): ScenarioEvent {
         suggestedMode: (data.suggestedMode as 'plan' | 'build') || 'build',
         reason: String(data.reason || ''),
         prompt: String(data.prompt || ''),
+      } as ScenarioEvent;
+
+    case 'confirmation_request':
+      return {
+        kind: 'confirmation_request',
+        id: uid(),
+        confirmationId: String(data.confirmation_id || ''),
+        tool: String(data.tool || ''),
+        reason: String(data.reason || ''),
+        riskLevel: String(data.risk_level || 'medium'),
+        message: String(data.message || 'Risky operation requires confirmation'),
       } as ScenarioEvent;
 
     default:

@@ -1,4 +1,3 @@
-import { useInput } from 'ink';
 import { useCallback, useState } from 'react';
 
 export interface UseAutocompleteReturn {
@@ -17,8 +16,7 @@ export function useAutocomplete(): UseAutocompleteReturn {
   const [input, setInput] = useState('');
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [history] = useState<string[]>([]);
 
   const handleInputChange = useCallback((val: string) => {
     setInput(val);
@@ -43,13 +41,11 @@ export function useAutocomplete(): UseAutocompleteReturn {
     setInput('');
     setShowAutocomplete(false);
     setShowFilePicker(false);
-    setHistoryIndex(-1);
   }, []);
 
   const addHistory = useCallback((prompt: string) => {
     if (!prompt.trim() || prompt.startsWith('/')) return;
-    setHistory((prev) => [prompt, ...prev.filter((p) => p !== prompt)]);
-    setHistoryIndex(-1);
+    // History is stored but not navigable via arrows (Enter = newline, not submit)
   }, []);
 
   const insertFilePath = useCallback((relPath: string) => {
@@ -63,26 +59,6 @@ export function useAutocomplete(): UseAutocompleteReturn {
   const closeFilePicker = useCallback(() => {
     setShowFilePicker(false);
   }, []);
-
-  useInput((_char, key) => {
-    if (showAutocomplete || showFilePicker) return;
-
-    if (key.upArrow) {
-      if (history.length === 0) return;
-      const nextIdx = Math.min(history.length - 1, historyIndex + 1);
-      setHistoryIndex(nextIdx);
-      setInput(history[nextIdx]);
-    } else if (key.downArrow) {
-      if (historyIndex <= 0) {
-        setHistoryIndex(-1);
-        setInput('');
-      } else {
-        const nextIdx = historyIndex - 1;
-        setHistoryIndex(nextIdx);
-        setInput(history[nextIdx]);
-      }
-    }
-  });
 
   return {
     input,

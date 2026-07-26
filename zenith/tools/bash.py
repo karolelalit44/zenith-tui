@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import platform
 from typing import Any
 
 from .base import BaseTool, ToolResult
@@ -40,8 +39,7 @@ class BashTool(BaseTool):
         if not command.strip():
             return ToolResult(success=False, error="No command provided")
 
-        shell = "cmd" if platform.system() == "Windows" else "bash"
-
+        process = None
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -56,12 +54,21 @@ class BashTool(BaseTool):
                     process.communicate(), timeout=timeout
                 )
             except asyncio.TimeoutError:
-                process.kill()
-                await process.communicate()
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
                 return ToolResult(
                     success=False,
                     error=f"Command timed out after {timeout}s",
                 )
+            except asyncio.CancelledError:
+                if process.returncode is None:
+                    process.kill()
+                    try:
+                        await process.wait()
+                    except Exception:
+                        pass
+                raise
 
             output = stdout.decode("utf-8", errors="replace")
             error = stderr.decode("utf-8", errors="replace")
@@ -81,5 +88,20 @@ class BashTool(BaseTool):
                     metadata={"exit_code": exit_code},
                 )
 
+        except asyncio.CancelledError:
+            # Ensure process is killed on cancellation
+            if process and process.returncode is None:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
+            raise
         except Exception as e:
+            if process and process.returncode is None:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
             return ToolResult(success=False, error=str(e))

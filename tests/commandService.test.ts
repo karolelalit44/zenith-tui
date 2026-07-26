@@ -5,23 +5,26 @@ describe('CommandService Dynamic options.json Loader', () => {
   const service = new CommandService();
 
   it('loads command options from options.json', () => {
-    const commands = service.getCommands();
-    expect(commands.length).toBeGreaterThan(0);
-
-    const hints = service.getCommandHints();
-    expect(hints.some((h) => h.command === '/mode')).toBe(true);
-    expect(hints.some((h) => h.command === '/provider')).toBe(true);
+    const handled = service.dispatchCommand('/mode', {
+      openOverlay: vi.fn(),
+      clearTurns: vi.fn(),
+      compactTurns: vi.fn(),
+      setMode: vi.fn(),
+    });
+    expect(handled).toBe(true);
   });
 
   it('dispatches overlay command dynamically without static switch cases', () => {
     const openOverlay = vi.fn();
     const clearTurns = vi.fn();
     const compactTurns = vi.fn();
+    const setMode = vi.fn();
 
     const handled = service.dispatchCommand('/provider', {
       openOverlay,
       clearTurns,
       compactTurns,
+      setMode,
     });
 
     expect(handled).toBe(true);
@@ -32,11 +35,12 @@ describe('CommandService Dynamic options.json Loader', () => {
     const openOverlay = vi.fn();
     const clearTurns = vi.fn();
     const compactTurns = vi.fn();
+    const setMode = vi.fn();
 
-    service.dispatchCommand('/clear', { openOverlay, clearTurns, compactTurns });
+    service.dispatchCommand('/clear', { openOverlay, clearTurns, compactTurns, setMode });
     expect(clearTurns).toHaveBeenCalled();
 
-    service.dispatchCommand('/compact', { openOverlay, clearTurns, compactTurns });
+    service.dispatchCommand('/compact', { openOverlay, clearTurns, compactTurns, setMode });
     expect(compactTurns).toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@ import type React from 'react';
 import type { ScenarioEvent } from '../../../types/scenario';
 import { AnalysisCard } from './AnalysisCard';
 import { BuildStepCard } from './BuildStepCard';
+import { ConfirmationCard } from './ConfirmationCard';
 import { DeploymentCard } from './DeploymentCard';
 import { ErrorBlock } from './ErrorBlock';
 import { FileDeleteCard } from './FileDeleteCard';
@@ -31,12 +32,7 @@ export interface EventRenderContext {
   isRunning?: boolean;
 }
 
-export interface EventComponentProps<T extends ScenarioEvent = ScenarioEvent> {
-  event: T;
-  context?: EventRenderContext;
-}
-
-export type EventComponentType = React.ComponentType<EventComponentProps<any>>;
+export type EventComponentType = React.ComponentType<{ event: ScenarioEvent; context?: EventRenderContext }>;
 
 class ComponentRegistry {
   private registry: Map<string, EventComponentType> = new Map();
@@ -65,6 +61,7 @@ class ComponentRegistry {
     this.register('analysis', AnalysisCard as EventComponentType);
     this.register('planner_action_panel', PlannerActionPanel as EventComponentType);
     this.register('mode_mismatch', ModeMismatchView as EventComponentType);
+    this.register('confirmation_request', ConfirmationCard as EventComponentType);
   }
 
   public register(kind: string, component: EventComponentType): void {

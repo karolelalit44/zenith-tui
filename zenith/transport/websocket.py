@@ -81,6 +81,7 @@ class ZenithHandler:
         self.skill_loader = SkillLoader(config.workspace_root)
         self.exporter = SessionExporter()
         self._active_prompt_task: asyncio.Task | None = None
+        self._pending_confirmations: dict[str, asyncio.Future[bool]] = {}
 
     def _reload_config(self) -> None:
         """Reload configuration from SQLite database after setup wizard saves to zenith.db."""
@@ -101,7 +102,7 @@ class ZenithHandler:
     async def handle(self, websocket: WebSocket) -> None:
         session_id = None
         try:
-            await websocket.accept()
+            # Accept is already called by the websocket_endpoint, don't double-accept
             while True:
                 raw = await websocket.receive_text()
                 try:
@@ -185,6 +186,10 @@ class ZenithHandler:
 
         elif method == "health":
             await websocket.send_text(make_response(rid, {"status": "ok"}))
+            return current_session_id
+
+        elif method == "confirmation.response":
+            await self._handle_confirmation_response(params)
             return current_session_id
 
         else:
@@ -290,10 +295,14 @@ class ZenithHandler:
             collected_events: list[Event] = []
             response_text = ""
 
+            async def _confirm(tool_name: str, reason: str, risk_level: str) -> bool:
+                return await self._request_confirmation(session_id, tool_name, reason, risk_level)
+
             try:
                 async for event in agent.process_prompt(
                     content, session_id, history, mode,
                     skills_section=skills_section,
+                    confirm_callback=_confirm,
                 ):
                     collected_events.append(event)
                     await self.manager.send_event(session_id, event)
@@ -387,3 +396,42 @@ class ZenithHandler:
                 "keyFiles": key_files,
             })
         )
+
+    async def _handle_confirmation_response(self, params) -> None:
+        """Handle confirmation response from client for risky operations."""
+        confirmation_id = params.get("confirmation_id", "")
+        approved = params.get("approved", False)
+        future = self._pending_confirmations.pop(confirmation_id, None)
+        if future and not future.done():
+            future.set_result(approved)
+
+    async def _request_confirmation(
+        self, session_id: str, tool_name: str, reason: str, risk_level: str
+    ) -> bool:
+        """Send confirmation request to client and wait for response."""
+        import uuid
+        confirmation_id = f"confirm_{uuid.uuid4().hex[:8]}"
+
+        future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
+        self._pending_confirmations[confirmation_id] = future
+
+        event = Event(
+            kind=EventKind.CONFIRMATION_REQUEST,
+            data={
+                "confirmation_id": confirmation_id,
+                "tool": tool_name,
+                "reason": reason,
+                "risk_level": risk_level,
+                "message": f"Tool '{tool_name}' wants to execute a {risk_level}-risk operation: {reason}",
+            },
+            session_id=session_id,
+        )
+        await self.manager.send_event(session_id, event)
+
+        try:
+            approved = await asyncio.wait_for(future, timeout=120)
+            return approved
+        except asyncio.TimeoutError:
+            self._pending_confirmations.pop(confirmation_id, None)
+            logger.warning("Confirmation timed out for %s", confirmation_id)
+            return False

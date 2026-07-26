@@ -7,7 +7,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env at import time — before any require_* calls at module level.
-# find_dotenv walks up directories to locate the nearest .env file.
 def _init_dotenv() -> None:
     try:
         from dotenv import find_dotenv
@@ -51,3 +50,30 @@ def require_float(key: str) -> float:
         raise RuntimeError(
             f"Environment variable '{key}' must be a float, got: {val!r}"
         ) from None
+
+
+def optional_int(key: str, default: int) -> int:
+    """Read an optional integer env var, returning default if missing or invalid."""
+    val = os.environ.get(key, "").strip()
+    if not val:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+def optional_float(key: str, default: float) -> float:
+    """Read an optional float env var, returning default if missing or invalid."""
+    val = os.environ.get(key, "").strip()
+    if not val:
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def optional_env(key: str, default: str = "") -> str:
+    """Read an optional string env var, returning default if missing."""
+    return os.environ.get(key, default).strip() or default

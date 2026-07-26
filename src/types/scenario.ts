@@ -17,7 +17,8 @@ export type EventKind =
   | 'deployment'
   | 'analysis'
   | 'planner_action_panel'
-  | 'mode_mismatch';
+  | 'mode_mismatch'
+  | 'confirmation_request';
 
 export interface ThinkingThought {
   text: string;
@@ -71,6 +72,7 @@ export interface TerminalEvent {
   command: string;
   output: string[];
   duration: number;
+  exitCode?: number;
 }
 
 export interface ErrorEvent {
@@ -217,6 +219,18 @@ export interface ModeMismatchEvent {
   prompt: string;
 }
 
+export interface ConfirmationRequestEvent {
+  kind: 'confirmation_request';
+  id: string;
+  confirmationId: string;
+  tool: string;
+  reason: string;
+  riskLevel: string;
+  message: string;
+  answered?: boolean;
+  approved?: boolean;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | FileCreateEvent
@@ -236,7 +250,8 @@ export type ScenarioEvent =
   | DeploymentEvent
   | AnalysisEvent
   | PlannerActionPanelEvent
-  | ModeMismatchEvent;
+  | ModeMismatchEvent
+  | ConfirmationRequestEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 

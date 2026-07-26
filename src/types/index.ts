@@ -1,4 +1,3 @@
-export type { CommandHint } from './common';
 export type {
   AnalysisEvent,
   AnalysisSection,

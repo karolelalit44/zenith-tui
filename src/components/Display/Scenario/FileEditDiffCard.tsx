@@ -24,56 +24,7 @@ export const FileEditDiffCard: React.FC<FileEditDiffCardProps> = React.memo(({ e
   const hasDiff = event.removedLines.length > 0 || event.addedLines.length > 0;
 
   if (!hasDiff) {
-    const displayLines = event.addedLines.slice(0, MAX_VISIBLE_LINES);
-    const truncated = event.addedLines.length > MAX_VISIBLE_LINES;
-
-    return (
-      <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-        <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
-          <Text color={isLive ? theme.colors.status.info : theme.colors.status.warning} bold>
-            {isLive ? `[EDITING FILE] ${ASCII_SPINNER_FRAMES[spinnerTick % 4]}` : '[MODIFY]'}
-          </Text>
-          <Text color={theme.colors.text.muted}> </Text>
-          <Text color={theme.colors.text.bright} bold>
-            {displayPath}
-          </Text>
-        </Box>
-
-        <Box
-          flexDirection="column"
-          width="100%"
-          borderStyle="round"
-          borderColor={theme.colors.border.muted}
-          paddingX={1}
-        >
-          {displayLines.length > 0 ? (
-            displayLines.map((line, idx) => (
-              <Box key={idx} flexDirection="row" width="100%">
-                <Box width={4} flexShrink={0}>
-                  <Text color={theme.colors.code.lineNum}>{idx + 1}</Text>
-                </Box>
-                <Box width={2} flexShrink={0}>
-                  <Text color={theme.colors.diff.addFg}>+</Text>
-                </Box>
-                <Box flexShrink={1}>
-                  <Text wrap="wrap">{highlightCode(line.text, ext)}</Text>
-                </Box>
-              </Box>
-            ))
-          ) : (
-            <Box flexDirection="row">
-              <Text color={theme.colors.text.muted}>Edit completed</Text>
-            </Box>
-          )}
-
-          {truncated && (
-            <Box flexDirection="row" marginTop={1}>
-              <Text color={theme.colors.text.muted}> ... {event.addedLines.length - MAX_VISIBLE_LINES} more lines</Text>
-            </Box>
-          )}
-        </Box>
-      </Box>
-    );
+    return null;
   }
 
   const totalLines = event.removedLines.length + event.addedLines.length;
@@ -98,7 +49,7 @@ export const FileEditDiffCard: React.FC<FileEditDiffCardProps> = React.memo(({ e
         </Text>
       </Box>
 
-      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1}>
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1} paddingY={1}>
         {visibleRemoved.map((line, idx) => (
           <Box key={`rm-${idx}`} flexDirection="row" width="100%">
             <Box width={4} flexShrink={0}>

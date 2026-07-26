@@ -15,13 +15,14 @@ interface ProvidersScreenProps {
 export const ProvidersScreen: React.FC<ProvidersScreenProps> = ({ onClose }) => {
   const { theme } = useTheme();
   const [providers, setProviders] = useState<ProviderState[]>(() => providerService.getAllProviders());
-  const activeId = providerService.getActiveProviderId();
-  const initialIdx = providers.findIndex((p) => p.id === activeId);
-
-  const [selectedIndex, setSelectedIndex] = useState(initialIdx >= 0 ? initialIdx : 0);
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    const activeId = providerService.getActiveProviderId();
+    const idx = providers.findIndex((p) => p.id === activeId);
+    return idx >= 0 ? idx : 0;
+  });
   const [viewMode, setViewMode] = useState<'list' | 'config'>('list');
 
-  const selectedProvider = providers[selectedIndex] || providers[0];
+  const selectedProvider = providers[selectedIndex] ?? providers[0];
 
   const refreshState = () => {
     setProviders(providerService.getAllProviders());
@@ -40,7 +41,11 @@ export const ProvidersScreen: React.FC<ProvidersScreenProps> = ({ onClose }) => 
       // Activate provider: Space or 'a' or 'A'
       if (char === ' ' || char === 'a' || char === 'A') {
         providerService.setActiveProvider(selectedProvider.id);
-        refreshState();
+        const freshProviders = providerService.getAllProviders();
+        setProviders(freshProviders);
+        const newActiveId = providerService.getActiveProviderId();
+        const newIdx = freshProviders.findIndex((p) => p.id === newActiveId);
+        if (newIdx >= 0) setSelectedIndex(newIdx);
       }
 
       // Open Config Form: Enter or Right Arrow
@@ -60,6 +65,19 @@ export const ProvidersScreen: React.FC<ProvidersScreenProps> = ({ onClose }) => 
     }
   });
 
+  // Guard: crash if no providers at all
+  if (providers.length === 0 || !selectedProvider) {
+    return (
+      <RoundedBox title="AI PROVIDER MANAGEMENT" borderColor={theme.colors.border.active} hasShadow={true}>
+        <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
+          <Text color={theme.colors.status.error} bold>
+            No providers registered.
+          </Text>
+        </Box>
+      </RoundedBox>
+    );
+  }
+
   return (
     <RoundedBox title="AI PROVIDER MANAGEMENT" borderColor={theme.colors.border.active} hasShadow={true}>
       <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
@@ -69,6 +87,9 @@ export const ProvidersScreen: React.FC<ProvidersScreenProps> = ({ onClose }) => 
           paddingBottom={1}
           borderStyle="single"
           borderBottom={true}
+          borderTop={false}
+          borderLeft={false}
+          borderRight={false}
           borderColor={theme.colors.border.muted}
           flexDirection="row"
           justifyContent="space-between"
@@ -84,7 +105,7 @@ export const ProvidersScreen: React.FC<ProvidersScreenProps> = ({ onClose }) => 
           <Box flexDirection="row">
             <Text color={theme.colors.text.muted}>Active: </Text>
             <Text color={theme.colors.status.success} bold>
-              {providerService.getActiveProvider().meta.name} ({providerService.getActiveProvider().config.model})
+              {(() => { const p = providerService.getActiveProvider(); return `${p.meta.name} (${p.config.model})`; })()}
             </Text>
           </Box>
         </Box>
@@ -103,7 +124,7 @@ export const ProvidersScreen: React.FC<ProvidersScreenProps> = ({ onClose }) => 
           </Box>
         )}
 
-        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
+        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
           <Text color={theme.colors.text.muted}>
             {viewMode === 'list' ? (
               <ModalFooter

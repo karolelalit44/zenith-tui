@@ -155,8 +155,20 @@ export class BackendScenarioProvider implements ScenarioProvider {
       onEvent(mapped, eventIndex);
       eventIndex++;
 
-      // Only complete on terminal events: success, error, or thinking (stream start)
-      if (kind === 'success' || kind === 'error') {
+      // Only complete on terminal events (final prompt success or fatal unrecoverable error)
+      let isTerminal = false;
+      if (kind === 'success') {
+        // Intermediate tool results contain 'tool' and 'result' fields.
+        // Final prompt success contains 'iterations', 'tokenInfo', or 'message'.
+        const isToolResult = Boolean(data && typeof data === 'object' && data.tool && data.result);
+        isTerminal = !isToolResult;
+      } else if (kind === 'error') {
+        // Recoverable tool errors (recoverable: true) are intermediate — the backend agent loop continues to next turn.
+        const isRecoverable = Boolean(data && typeof data === 'object' && data.recoverable === true);
+        isTerminal = !isRecoverable;
+      }
+
+      if (isTerminal) {
         finalize();
         onComplete();
       }

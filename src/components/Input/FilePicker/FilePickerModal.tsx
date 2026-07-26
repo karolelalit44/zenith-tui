@@ -107,28 +107,28 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
       )}
 
       <Box flexDirection="row" marginBottom={1} borderStyle="single" borderColor={theme.colors.code.border}>
-        <Box width={9}>
+        <Box width={2} flexShrink={0} />
+        <Box width={7} flexShrink={0}>
           <Text color={theme.colors.text.muted} bold>
-            {' '}
             TYPE
           </Text>
         </Box>
-        <Box width={24}>
+        <Box width={24} flexShrink={0}>
           <Text color={theme.colors.text.muted} bold>
             NAME
           </Text>
         </Box>
-        <Box width={10}>
+        <Box width={10} flexShrink={0}>
           <Text color={theme.colors.text.muted} bold>
             SIZE
           </Text>
         </Box>
-        <Box width={14}>
+        <Box width={14} flexShrink={0}>
           <Text color={theme.colors.text.muted} bold>
             MODIFIED
           </Text>
         </Box>
-        <Box>
+        <Box flexShrink={1}>
           <Text color={theme.colors.text.muted} bold>
             KIND
           </Text>

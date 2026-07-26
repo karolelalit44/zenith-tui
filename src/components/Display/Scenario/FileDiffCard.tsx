@@ -36,7 +36,7 @@ export const FileDiffCard: React.FC<FileDiffCardProps> = React.memo(({ event, co
         <Text color={theme.colors.text.muted}> ({event.lines.length} lines)</Text>
       </Box>
 
-      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1}>
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1} paddingY={1}>
         <Box flexDirection="row" marginBottom={1}>
           <Text color={theme.colors.text.muted}>@@ 0, {event.lines.length} @@ </Text>
           <Text color={theme.colors.status.info}>+{event.filePath.split('.').pop() || event.language}</Text>

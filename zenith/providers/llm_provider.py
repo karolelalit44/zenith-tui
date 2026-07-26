@@ -71,6 +71,7 @@ class LLMProvider(BaseProvider):
         self.base_url = base_url.strip() if base_url else None
         self.enable_thinking = enable_thinking
         self.reasoning_budget = reasoning_budget
+        self._last_native_tool_calls: list[dict] = []
 
     def _build_adapter(self):
         adapter_cls = get_adapter(self.name)
@@ -94,11 +95,16 @@ class LLMProvider(BaseProvider):
         elif extra_headers:
             kwargs["extra_headers"] = extra_headers
 
-        return adapter_cls(**kwargs)
-
-    async def complete(self, messages: list[dict]) -> str:
         try:
-            return await retry_with_backoff(self._complete_impl, messages)
+            return adapter_cls(**kwargs)
+        except TypeError:
+            kwargs.pop("enable_thinking", None)
+            kwargs.pop("reasoning_budget", None)
+            return adapter_cls(**kwargs)
+
+    async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str:
+        try:
+            return await retry_with_backoff(self._complete_impl, messages, tools)
         except ProviderError:
             raise
         except ImportError as e:
@@ -112,14 +118,15 @@ class LLMProvider(BaseProvider):
         except Exception as e:
             raise _classify_provider_error(e, self.name) from e
 
-    async def _complete_impl(self, messages: list[dict]) -> str:
+    async def _complete_impl(self, messages: list[dict], tools: list[dict] | None = None) -> str:
         adapter = self._build_adapter()
-        return await adapter.complete(messages)
+        return await adapter.complete(messages, tools=tools)
 
-    async def stream(self, messages: list[dict]) -> AsyncIterator[tuple[str, str | None]]:
+    async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[tuple[str, str | None]]:
+        self._last_native_tool_calls = []
         try:
             async for chunk in retry_stream(
-                self._stream_impl, messages
+                self._stream_impl, messages, tools
             ):
                 yield chunk
         except ProviderError:
@@ -135,12 +142,14 @@ class LLMProvider(BaseProvider):
         except Exception as e:
             raise _classify_provider_error(e, self.name) from e
 
-    async def _stream_impl(self, messages: list[dict]) -> AsyncIterator[tuple[str, str | None]]:
+    async def _stream_impl(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[tuple[str, str | None]]:
         adapter = self._build_adapter()
-        async for chunk in adapter.stream(messages):
+        async for chunk in adapter.stream(messages, tools=tools):
             reasoning = chunk.reasoning if chunk.reasoning else None
             if reasoning:
                 logger.debug("Thinking content from %s: %s...", self.name, reasoning[:100])
+            if chunk.tool_calls:
+                self._last_native_tool_calls.extend(chunk.tool_calls)
             if chunk.content:
                 yield (chunk.content, reasoning)
             elif reasoning:

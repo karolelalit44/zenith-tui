@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import BaseTool, ToolResult
-from .param_normalizer import normalize_file_params
+from .path_validator import validate_path
 
 
 class FileReadTool(BaseTool):
@@ -37,20 +37,27 @@ class FileReadTool(BaseTool):
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        params = normalize_file_params(params)
+        # Note: params are pre-normalized by the agent loop
         rel_path = params.get("path") or ""
-        path = Path(workspace_root) / rel_path
+
+        resolved = validate_path(rel_path, workspace_root)
+        if resolved is None:
+            return ToolResult(
+                success=False,
+                error=f"Path escapes workspace boundary: {rel_path}",
+            )
+
         offset = params.get("offset", 0)
         limit = params.get("limit", 2000)
 
-        if not path.exists():
-            return ToolResult(success=False, error=f"File not found: {path}")
+        if not resolved.exists():
+            return ToolResult(success=False, error=f"File not found: {rel_path}")
 
-        if path.is_dir():
-            return ToolResult(success=False, error=f"Path is a directory: {path}")
+        if resolved.is_dir():
+            return ToolResult(success=False, error=f"Path is a directory: {rel_path}")
 
         try:
-            content = path.read_text(encoding="utf-8", errors="replace")
+            content = resolved.read_text(encoding="utf-8", errors="replace")
             lines = content.split("\n")
             selected = lines[offset : offset + limit]
             numbered = "\n".join(
@@ -62,7 +69,7 @@ class FileReadTool(BaseTool):
                 metadata={
                     "total_lines": len(lines),
                     "showing": len(selected),
-                    "path": str(path),
+                    "path": str(resolved),
                 },
             )
         except Exception as e:

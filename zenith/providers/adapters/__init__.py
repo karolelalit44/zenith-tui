@@ -1,10 +1,16 @@
 from .base import AdapterCapabilities, Chunk, ModelAdapter, ModelResponse
 from .openai_compat import OpenAICompatAdapter
 from .nvidia import NVIDIAAdapter
+from .groq import GroqAdapter
+from .openrouter import OpenRouterAdapter
+from .gemini import GeminiAdapter
 
 ADAPTER_CLASSES: dict[str, type[ModelAdapter]] = {
     "openai_compat": OpenAICompatAdapter,
     "nvidia": NVIDIAAdapter,
+    "groq": GroqAdapter,
+    "openrouter": OpenRouterAdapter,
+    "gemini": GeminiAdapter,
 }
 
 _catalog_cache: dict[str, str] | None = None
@@ -34,6 +40,6 @@ def get_adapter(provider_name: str) -> type[ModelAdapter]:
 
 __all__ = [
     "AdapterCapabilities", "Chunk", "ModelAdapter", "ModelResponse",
-    "OpenAICompatAdapter", "NVIDIAAdapter",
+    "OpenAICompatAdapter", "NVIDIAAdapter", "GroqAdapter", "OpenRouterAdapter", "GeminiAdapter",
     "get_adapter", "ADAPTER_CLASSES",
 ]

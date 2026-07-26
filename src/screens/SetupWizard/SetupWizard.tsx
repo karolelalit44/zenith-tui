@@ -33,7 +33,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   const [providers] = useState<ProviderState[]>(() => providerService.getAllProviders());
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [apiKeyInput, setApiKeyInput] = useState('');
-  const [_apiKeyCursor, _setApiKeyCursor] = useState(0);
   const [modelIdx, setModelIdx] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [editingField, setEditingField] = useState(false);
@@ -518,6 +517,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
           paddingBottom={1}
           borderStyle="single"
           borderBottom={true}
+          borderTop={false}
+          borderLeft={false}
+          borderRight={false}
           borderColor={theme.colors.border.muted}
         >
           {renderStepIndicator()}
@@ -525,7 +527,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
         <Box flexDirection="column" minHeight={6}>
           {renderStepContent()}
         </Box>
-        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderColor={theme.colors.border.muted}>
+        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
           <Text color={theme.colors.text.muted}>{renderHotkeys()}</Text>
         </Box>
       </Box>

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from zenith.config.settings import AppSettings
 from zenith.core.errors import ZenithError, ProviderError
@@ -50,6 +50,7 @@ class RecoverableAgentLoop:
         history: list[Message],
         mode: str = "build",
         skills_section: str = "",
+        confirm_callback: Callable | None = None,
     ) -> AsyncIterator[Event]:
         """Process prompt with error recovery.
 
@@ -61,7 +62,9 @@ class RecoverableAgentLoop:
 
         try:
             async for event in self.agent.process_prompt(
-                prompt, session_id, history, mode, skills_section=skills_section
+                prompt, session_id, history, mode,
+                skills_section=skills_section,
+                confirm_callback=confirm_callback,
             ):
                 if event.kind == EventKind.ERROR:
                     self._last_error = event.data.get("message", "Unknown error")

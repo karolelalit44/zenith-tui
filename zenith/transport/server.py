@@ -146,6 +146,7 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
     logger.info("WebSocket connecting from %s", websocket.client)
+    await websocket.accept()
     try:
         await _handler.handle(websocket)
     except Exception as e:

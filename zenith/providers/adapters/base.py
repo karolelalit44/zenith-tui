@@ -34,11 +34,11 @@ class ModelAdapter(ABC):
     capabilities: AdapterCapabilities = AdapterCapabilities()
 
     @abstractmethod
-    async def stream(self, messages: list[dict]) -> AsyncIterator[Chunk]:
+    async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[Chunk]:
         ...
 
     @abstractmethod
-    async def complete(self, messages: list[dict]) -> str:
+    async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str:
         ...
 
     def parse_response(self, raw_content: str, raw_tool_calls: list[dict] | None = None) -> ModelResponse:

@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import React from 'react';
+import React, { Component, type ReactNode } from 'react';
 import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { parseJsonEvent } from '../../../services/data/jsonEventNormalizer';
@@ -36,6 +36,28 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
   );
 });
 
+class EventErrorBoundary extends Component<
+  { children: ReactNode; eventKind: string },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Box paddingX={1} marginBottom={1}>
+          <Text color="yellow">[Render error in {this.props.eventKind} event — skipped]</Text>
+        </Box>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
   ({ events, isRunning, isHistorical = false, thinkingCollapsed = false }) => {
     const showLiveIndicator = isRunning && !isHistorical;
@@ -50,7 +72,11 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         {events.map((rawEvt) => {
           const event = parseJsonEvent(rawEvt);
           const Component = componentRegistry.getComponent(event.kind);
-          return <Component key={event.id} event={event} context={renderContext} />;
+          return (
+            <EventErrorBoundary key={event.id} eventKind={event.kind}>
+              <Component event={event} context={renderContext} />
+            </EventErrorBoundary>
+          );
         })}
 
         {showLiveIndicator && <LiveSpinner label="Processing event stream..." />}

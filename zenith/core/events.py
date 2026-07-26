@@ -2,10 +2,10 @@ import time
 import uuid
 from pydantic import BaseModel, Field
 from typing import Any, Optional
-from enum import Enum
+from enum import StrEnum
 
 
-class EventKind(str, Enum):
+class EventKind(StrEnum):
     THINKING = "thinking"
     FILE_CREATE = "file_create"
     FILE_EDIT = "file_edit"
@@ -25,6 +25,7 @@ class EventKind(str, Enum):
     ANALYSIS = "analysis"
     PLANNER_ACTION_PANEL = "planner_action_panel"
     MODE_MISMATCH = "mode_mismatch"
+    CONFIRMATION_REQUEST = "confirmation_request"
 
 
 class Event(BaseModel):

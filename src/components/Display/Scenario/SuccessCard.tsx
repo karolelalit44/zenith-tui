@@ -24,25 +24,58 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event }) =>
     details.push(`${event.commandsExecuted.length} cmd${event.commandsExecuted.length === 1 ? '' : 's'}`);
   }
 
+  // For file_read and similar tools, show the result output
+  const toolOutput = event.result?.output || '';
+  const toolName = event.tool || '';
+  const isFileRead = toolName === 'file_read';
+  const hasOutput = toolOutput.length > 0;
+
   return (
-    <Box
-      flexDirection="row"
-      width="100%"
-      alignItems="center"
-      justifyContent="space-between"
-      marginBottom={1}
-      paddingX={1}
-    >
-      <Box flexDirection="row" alignItems="center" flexShrink={1}>
-        <Text color={theme.colors.status.success} bold>
-          ✔ [SUCCESS]{' '}
-        </Text>
-        <Text color={theme.colors.text.bright}>{event.message || 'Completed successfully'}</Text>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+      <Box
+        flexDirection="row"
+        width="100%"
+        borderStyle="round"
+        borderColor={theme.colors.status.success}
+        alignItems="center"
+        justifyContent="space-between"
+        paddingX={1}
+        paddingY={0}
+      >
+        <Box flexDirection="row" alignItems="center" flexShrink={1}>
+          <Text color={theme.colors.status.success} bold>
+            ✓ [SUCCESS]{' '}
+          </Text>
+          <Text color={theme.colors.text.bright}>{event.message || 'Completed successfully'}</Text>
+        </Box>
+
+        {details.length > 0 && (
+          <Box flexDirection="row" alignItems="center" flexShrink={0} paddingLeft={2}>
+            <Text color={theme.colors.text.muted}>{details.join(' · ')}</Text>
+          </Box>
+        )}
       </Box>
 
-      {details.length > 0 && (
-        <Box flexDirection="row" alignItems="center" flexShrink={0} paddingLeft={2}>
-          <Text color={theme.colors.text.muted}>{details.join(' · ')}</Text>
+      {/* Show file content for file_read and other tools with output */}
+      {isFileRead && hasOutput && (
+        <Box
+          flexDirection="column"
+          width="100%"
+          borderStyle="round"
+          borderColor={theme.colors.text.muted}
+          paddingX={1}
+          marginTop={1}
+        >
+          {toolOutput.split('\n').slice(0, 50).map((line, i) => (
+            <Text key={i} color={theme.colors.text.bright} wrap="wrap">
+              {line}
+            </Text>
+          ))}
+          {toolOutput.split('\n').length > 50 && (
+            <Text color={theme.colors.text.muted}>
+              ... ({toolOutput.split('\n').length - 50} more lines)
+            </Text>
+          )}
         </Box>
       )}
     </Box>

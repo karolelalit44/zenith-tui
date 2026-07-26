@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import AsyncIterator
 
@@ -11,27 +10,23 @@ from .base import AdapterCapabilities, Chunk, ModelAdapter
 logger = logging.getLogger(__name__)
 
 
-class NVIDIAAdapter(ModelAdapter):
-    name = "nvidia"
-    capabilities = AdapterCapabilities(streaming=True, thinking=True, function_calling=True, max_output_tokens=16384)
+class GroqAdapter(ModelAdapter):
+    name = "groq"
+    capabilities = AdapterCapabilities(streaming=True, thinking=False, function_calling=True, max_output_tokens=2048)
 
     def __init__(
         self,
         model: str,
         api_key: str | None = None,
         base_url: str | None = None,
-        max_tokens: int = 16384,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
-        enable_thinking: bool = False,
-        reasoning_budget: int | None = None,
     ):
         self.model = model
         self.api_key = api_key
-        self.base_url = (base_url or "https://integrate.api.nvidia.com/v1").rstrip("/")
+        self.base_url = (base_url or "https://api.groq.com/openai/v1").rstrip("/")
         self.max_tokens = max_tokens
         self.temperature = temperature
-        self.enable_thinking = enable_thinking
-        self.reasoning_budget = reasoning_budget
         self._client = None
 
     def _get_client(self):
@@ -43,26 +38,12 @@ class NVIDIAAdapter(ModelAdapter):
     async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[Chunk]:
         client = self._get_client()
 
-        # Mistral models reject chat_template_kwargs — skip extra_body entirely
-        is_mistral = "mistral" in self.model.lower()
-
-        extra_body: dict | None = None
-        if not is_mistral:
-            extra_body = {"chat_template_kwargs": {}}
-            if self.enable_thinking:
-                extra_body["chat_template_kwargs"]["enable_thinking"] = True
-                if self.reasoning_budget:
-                    extra_body["reasoning_budget"] = self.reasoning_budget
-            else:
-                extra_body["chat_template_kwargs"]["thinking"] = False
-
         logger.info(
-            "NVIDIA stream START model=%s messages=%d tools=%s enable_thinking=%s extra_body=%s",
-            self.model, len(messages), len(tools) if tools else 0, self.enable_thinking, "skip_mistral" if is_mistral else "yes",
+            "Groq stream START model=%s messages=%d tools=%s",
+            self.model, len(messages), len(tools) if tools else 0,
         )
         start_ts = _time.monotonic()
         token_count = 0
-        reasoning_token_count = 0
 
         clean_messages = self._strip_image_content(messages)
 
@@ -73,8 +54,6 @@ class NVIDIAAdapter(ModelAdapter):
             max_tokens=self.max_tokens,
             stream=True,
         )
-        if extra_body is not None:
-            create_kwargs["extra_body"] = extra_body
         if tools:
             create_kwargs["tools"] = tools
 
@@ -93,7 +72,6 @@ class NVIDIAAdapter(ModelAdapter):
                 continue
 
             content = delta.content or None
-            reasoning = getattr(delta, "reasoning_content", None) or None
             raw_tool_calls = getattr(delta, "tool_calls", None)
 
             if raw_tool_calls:
@@ -119,37 +97,21 @@ class NVIDIAAdapter(ModelAdapter):
 
             if content:
                 token_count += 1
-            if reasoning:
-                reasoning_token_count += 1
 
-            yield Chunk(content=content, reasoning=reasoning, finish_reason=finish)
+            yield Chunk(content=content, finish_reason=finish)
 
         # Yield assembled tool calls as a final chunk (if any)
         if _tc_accum:
             assembled = [_tc_accum[i] for i in sorted(_tc_accum.keys())]
-            logger.info("NVIDIA stream assembled %d native tool_call(s): %s", len(assembled),
+            logger.info("Groq stream assembled %d native tool_call(s): %s", len(assembled),
                         [tc["function"]["name"] for tc in assembled])
             yield Chunk(tool_calls=assembled)
 
         elapsed = _time.monotonic() - start_ts
-        logger.info(
-            "NVIDIA stream END content_tokens=%d reasoning_tokens=%d elapsed=%.2fs",
-            token_count, reasoning_token_count, elapsed,
-        )
+        logger.info("Groq stream END content_tokens=%d elapsed=%.2fs", token_count, elapsed)
 
     async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str:
         client = self._get_client()
-
-        is_mistral = "mistral" in self.model.lower()
-        extra_body: dict | None = None
-        if not is_mistral:
-            extra_body = {"chat_template_kwargs": {}}
-            if self.enable_thinking:
-                extra_body["chat_template_kwargs"]["enable_thinking"] = True
-                if self.reasoning_budget:
-                    extra_body["reasoning_budget"] = self.reasoning_budget
-            else:
-                extra_body["chat_template_kwargs"]["thinking"] = False
 
         create_kwargs = dict(
             model=self.model,
@@ -158,17 +120,14 @@ class NVIDIAAdapter(ModelAdapter):
             max_tokens=self.max_tokens,
             stream=False,
         )
-        if extra_body is not None:
-            create_kwargs["extra_body"] = extra_body
         if tools:
             create_kwargs["tools"] = tools
 
         response = await client.chat.completions.create(**create_kwargs)
-
         return response.choices[0].message.content or ""
 
     def _strip_image_content(self, messages: list[dict]) -> list[dict]:
-        """Strip image content from messages to prevent API errors."""
+        """Strip image content from messages — Groq does not support multimodal."""
         clean = []
         for msg in messages:
             content = msg.get("content", "")

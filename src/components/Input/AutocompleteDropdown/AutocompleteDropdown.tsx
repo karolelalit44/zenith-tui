@@ -1,8 +1,15 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import { COMMAND_LIST } from '../data/commands';
+import optionsData from '../../../services/data/options.json';
 import type { AutocompleteDropdownProps } from './types';
+
+interface CommandEntry {
+  command: string;
+  description: string;
+}
+
+const COMMAND_LIST: CommandEntry[] = optionsData.commands;
 
 export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ input, onSelect }) => {
   const { theme } = useTheme();

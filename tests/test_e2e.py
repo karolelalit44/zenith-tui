@@ -20,11 +20,11 @@ class EchoProvider(BaseProvider):
     def __init__(self):
         super().__init__("test", "test-model")
 
-    async def complete(self, messages: list[dict]) -> str:
+    async def complete(self, messages: list[dict], tools=None) -> str:
         user_msg = messages[-1]["content"] if messages else ""
         return f"Echo: {user_msg}"
 
-    async def stream(self, messages: list[dict]):
+    async def stream(self, messages: list[dict], tools=None):
         response = await self.complete(messages)
         for word in response.split():
             yield (word + " ", None)

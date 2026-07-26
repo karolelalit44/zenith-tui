@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import BaseTool, ToolResult
-from .param_normalizer import normalize_file_params
+from .path_validator import validate_path
 
 
 class FileEditTool(BaseTool):
@@ -35,20 +35,27 @@ class FileEditTool(BaseTool):
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        params = normalize_file_params(params)
+        # Note: params are pre-normalized by the agent loop
         rel_path = params.get("path") or ""
-        path = Path(workspace_root) / rel_path
+
+        resolved = validate_path(rel_path, workspace_root)
+        if resolved is None:
+            return ToolResult(
+                success=False,
+                error=f"Path escapes workspace boundary: {rel_path}",
+            )
+
         old = params.get("old_content", "")
         new = params.get("new_content", "")
 
-        if not path.exists():
-            return ToolResult(success=False, error=f"File not found: {path}")
+        if not resolved.exists():
+            return ToolResult(success=False, error=f"File not found: {rel_path}")
 
         if not old:
             return ToolResult(success=False, error="old_content cannot be empty")
 
         try:
-            content = path.read_text(encoding="utf-8")
+            content = resolved.read_text(encoding="utf-8")
 
             if old not in content:
                 preview = old[:80] + ("..." if len(old) > 80 else "")
@@ -65,11 +72,11 @@ class FileEditTool(BaseTool):
                 )
 
             new_content = content.replace(old, new, 1)
-            path.write_text(new_content, encoding="utf-8")
+            resolved.write_text(new_content, encoding="utf-8")
             return ToolResult(
                 success=True,
-                output=f"Edited {path}",
-                metadata={"path": str(path), "changes": 1},
+                output=f"Edited {rel_path}",
+                metadata={"path": str(resolved), "changes": 1},
             )
         except Exception as e:
             return ToolResult(success=False, error=str(e))

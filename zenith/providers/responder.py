@@ -46,24 +46,33 @@ def analysis(tool_name: str, session_id: str, params: dict | None = None) -> Eve
 
 
 def tool_result(tool_name: str, success: bool, session_id: str, output: str = "", error: str = "") -> Event:
+    # Truncate for the event stream but keep full output for LLM context
+    max_event_output = 5000
     return event(
         EventKind.SUCCESS if success else EventKind.ERROR,
         {"tool": tool_name, "result": {
-            "success": success, "output": output[:500] if output else "", "error": error,
+            "success": success,
+            "output": output[:max_event_output] if output else "",
+            "error": error,
+            "truncated": len(output) > max_event_output if output else False,
         }},
         session_id,
     )
 
 
-def file_event(kind: EventKind, path: str, content: str, session_id: str) -> Event:
-    return event(kind, {"path": path, "filepath": path, "content": content}, session_id)
+def file_event(kind: EventKind, path: str, content: str, session_id: str, extra: dict | None = None) -> Event:
+    data = {"path": path, "filepath": path, "content": content}
+    if extra:
+        data.update(extra)
+    return event(kind, data, session_id)
 
 
-def terminal_event(command: str, output: list[str], duration: int, session_id: str) -> Event:
+def terminal_event(command: str, output: list[str], duration: int, session_id: str, exit_code: int = 0) -> Event:
     return event(EventKind.TERMINAL, {
         "command": command,
         "output": output,
         "duration": duration,
+        "exitCode": exit_code,
     }, session_id)
 
 
