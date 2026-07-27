@@ -5,19 +5,29 @@ export const WELCOME_DATA = {
   },
 } as const;
 
-function getTimeOfDay(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Morning';
-  if (hour < 18) return 'Afternoon';
-  return 'Evening';
+function getSystemUsername(): string {
+  return process.env.USERNAME || process.env.USER || 'User';
 }
 
-function getSystemUsername(): string {
-  return process.env.USERNAME || process.env.USER || 'Operator';
-}
+export const GREETINGS = {
+  morning: 'Compiling coffee...',
+  afternoon: 'Midday grind.',
+  evening: 'Sun is down, screens are bright.',
+  night: (user: string) => `Burning the midnight oil, ${user}?`,
+};
 
 export const getGreeting = (): string => {
   const username = getSystemUsername();
-  const timeOfDay = getTimeOfDay();
-  return `Good ${timeOfDay}, ${username}`;
+  const hour = new Date().getHours();
+
+  if (hour >= 5 && hour < 12) {
+    return GREETINGS.morning;
+  }
+  if (hour >= 12 && hour < 17) {
+    return GREETINGS.afternoon;
+  }
+  if (hour >= 17 && hour < 22) {
+    return GREETINGS.evening;
+  }
+  return GREETINGS.night(username);
 };
