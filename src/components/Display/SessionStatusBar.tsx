@@ -41,8 +41,8 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
 
   const modeBadge =
     mode === 'plan'
-      ? { label: '[PLAN]', color: theme.colors.status.accent }
-      : { label: '[BUILD]', color: theme.colors.status.success };
+      ? { label: '[PLAN]', color: theme.colors.text.emerald }
+      : { label: '[BUILD]', color: theme.colors.text.emerald };
 
   const totalBlocks = 10;
   const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
@@ -77,12 +77,15 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
         </Box>
 
         <Box flexDirection="row" alignItems="center">
-          <Text color={theme.colors.text.muted}>dir:</Text>
-          <Text color={theme.colors.text.ethereal}> {shortDir}</Text>
-          <Text color={theme.colors.text.muted}> </Text>
-          <Text color={theme.colors.text.muted}>git:(</Text>
-          <Text color={theme.colors.status.success}>{activeBranch}</Text>
-          <Text color={theme.colors.text.muted}>)</Text>
+          <Text color={theme.colors.text.ethereal}>{shortDir}</Text>
+          {activeBranch ? (
+            <>
+              <Text color={theme.colors.text.muted}> </Text>
+              <Text color={theme.colors.text.emerald}>(</Text>
+              <Text color={theme.colors.text.emerald}>{activeBranch}</Text>
+              <Text color={theme.colors.text.emerald}>)</Text>
+            </>
+          ) : null}
           <Text color={theme.colors.text.muted}> | </Text>
           <Text color={theme.colors.text.muted}>{formatTokenCount(totalTokens)} tokens</Text>
           <Text color={theme.colors.text.muted}> </Text>

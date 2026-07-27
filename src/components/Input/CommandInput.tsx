@@ -1,6 +1,11 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
+import { useProvider } from '../../hooks/useProvider';
+import { formatTokenCount } from '../../services/data/tokenEstimationService';
+import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
+import type { ScenarioMode } from '../../types';
 import type { FileAttachment } from '../../types/scenario';
 import { MultiLineTextInput } from './MultiLineTextInput';
 
@@ -13,11 +18,38 @@ interface CommandInputProps {
   onRemoveAttachment?: (index: number) => void;
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
+  totalTokens?: number;
+  maxTokens?: number;
+  mode?: ScenarioMode;
 }
 
 export const CommandInput: React.FC<CommandInputProps> = React.memo(
-  ({ input, onInputChange, onSubmit, disabled = false, attachments, onRemoveAttachment, historyUp, historyDown }) => {
+  ({
+    input,
+    onInputChange,
+    onSubmit,
+    disabled = false,
+    attachments,
+    onRemoveAttachment,
+    historyUp,
+    historyDown,
+    totalTokens = 0,
+    maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
+    mode = 'build',
+  }) => {
     const { theme } = useTheme();
+    const { activeProvider } = useProvider();
+    const branch = getActiveGitBranch();
+    const modelShort = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
+    const providerName = activeProvider.meta.name || 'Unknown';
+    const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
+
+    const cwd = process.cwd();
+    const dirParts = cwd.replace(/\\/g, '/').split('/');
+    const shortDir = dirParts.length > 2 ? `.../${dirParts.slice(-2).join('/')}` : cwd;
+
+    const modeLabel = mode === 'plan' ? '[PLAN]' : '[BUILD]';
+    const modeColor = theme.colors.text.emerald;
 
     return (
       <Box
@@ -53,32 +85,42 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
                 </Text>
               </Box>
             ) : (
-              <MultiLineTextInput
-                value={input}
-                onChange={onInputChange}
-                onSubmit={onSubmit}
-                placeholder="Ask anything..."
-                focus={!disabled}
-                historyUp={historyUp}
-                historyDown={historyDown}
-              />
+              <>
+                <MultiLineTextInput
+                  value={input}
+                  onChange={onInputChange}
+                  onSubmit={onSubmit}
+                  placeholder="Ask anything..."
+                  focus={!disabled}
+                  historyUp={historyUp}
+                  historyDown={historyDown}
+                />
+                <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
+                  <Box flexDirection="row">
+                    <Text color={modeColor}>{modeLabel} </Text>
+                    <Text color={theme.colors.status.accent}>◇ </Text>
+                    <Text color={theme.colors.text.muted}>
+                      {modelShort} · {providerName}
+                    </Text>
+                  </Box>
+                  <Box flexDirection="row">
+                    <Text color={theme.colors.text.dim}>
+                      {shortDir}
+                      {branch ? (
+                        <>
+                          {' '}
+                          <Text color={theme.colors.text.emerald}>(</Text>
+                          <Text color={theme.colors.text.emerald}>{branch}</Text>
+                          <Text color={theme.colors.text.emerald}>)</Text>
+                        </>
+                      ) : null}{' '}
+                      {formatTokenCount(totalTokens)} tok {contextPercent}%
+                    </Text>
+                  </Box>
+                </Box>
+              </>
             )}
           </Box>
-        </Box>
-        <Box flexDirection="row" justifyContent="flex-end" marginTop={0}>
-          {disabled ? (
-            <Text color={theme.colors.text.muted}>
-              Esc to cancel
-            </Text>
-          ) : input.trim() ? (
-            <Text color={theme.colors.text.dim}>
-              Enter ⏎ send
-            </Text>
-          ) : (
-            <Text color={theme.colors.text.dim}>
-              Enter ⏎ send · Shift+Enter ↵ newline · / commands
-            </Text>
-          )}
         </Box>
       </Box>
     );

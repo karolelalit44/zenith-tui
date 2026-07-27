@@ -8,6 +8,7 @@ Config-driven: litellm_prefix and api_key env var read from provider_catalog.jso
 import json
 import logging
 import os
+import re
 from typing import AsyncIterator
 
 from .base import BaseProvider
@@ -18,6 +19,14 @@ from zenith.core.errors import ProviderError, AuthenticationError, RateLimitErro
 logger = logging.getLogger(__name__)
 
 _catalog: dict | None = None
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return _ANSI_RE.sub("", text)
 
 
 def _get_catalog() -> dict:
@@ -61,8 +70,8 @@ def _set_api_key(provider_name: str, api_key: str | None) -> None:
 
 
 def _extract_clean_message(exc: Exception) -> str:
-    """Extract a human-readable error message from LiteLLM/provider exceptions."""
-    raw = str(exc)
+    """Extract a clean error message from litellm/provider exceptions."""
+    raw = _strip_ansi(str(exc))
     # Try to extract JSON error body from LiteLLM error chains
     # Format: "litellm.XxxError: XxxError: ProviderException - {"error":{"message":"..."}}"
     try:
@@ -89,7 +98,7 @@ def _extract_clean_message(exc: Exception) -> str:
 
 
 def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderError:
-    msg = str(exc).lower()
+    msg = _strip_ansi(str(exc)).lower()
     clean = _extract_clean_message(exc)
     if "401" in msg or "unauthorized" in msg or "invalid api key" in msg or "authentication" in msg:
         return AuthenticationError(f"Authentication failed for provider '{provider_name}': {clean}", provider=provider_name)
@@ -164,11 +173,17 @@ class LLMProvider(BaseProvider):
 
     def _build_completion_kwargs(self, messages: list[dict], tools: list[dict] | None = None, stream: bool = False) -> dict:
         """Build kwargs for litellm.acompletion()."""
+        temp = self.temperature
+        if self._litellm_model.startswith("gemini/"):
+            model_part = self._litellm_model.split("/", 1)[1]
+            if model_part.startswith("gemini-3") or model_part.startswith("gemini-2.5"):
+                temp = 1.0
+
         kwargs: dict = {
             "model": self._litellm_model,
             "messages": messages,
             "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
+            "temperature": temp,
             "stream": stream,
         }
 

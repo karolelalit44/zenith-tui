@@ -17,10 +17,10 @@ export function getActiveGitBranch(cwd: string = process.cwd()): string {
       timeout: GIT_TIMEOUT,
     });
     const trimmed = branch.trim();
-    const result = trimmed || 'main';
+    const result = trimmed || '';
     branchCache = { branch: result, timestamp: now };
     return result;
   } catch (_err) {
-    return 'main';
+    return '';
   }
 }
