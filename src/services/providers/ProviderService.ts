@@ -1,7 +1,7 @@
 import { ProviderRepository, providerRepository } from './ProviderRepository';
 import type { ProviderConfig, ProviderId, ProviderState } from './types';
 
-export type ProviderListener = (activeProvider: ProviderState) => void;
+type ProviderListener = (activeProvider: ProviderState) => void;
 
 export class ProviderService {
   private repo: ProviderRepository;

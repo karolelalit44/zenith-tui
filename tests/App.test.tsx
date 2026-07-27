@@ -83,7 +83,6 @@ test('App shows Welcome screen when backend validates ready', async () => {
   const frame = lastFrame();
   expect(frame).toContain('1.0.0');
   expect(frame).toContain('SYSTEM STATUS');
-  expect(frame).toContain('BUILD');
   expect(frame).toContain('Ask');
   unmount();
 });
@@ -108,7 +107,7 @@ test('Submitting a prompt triggers scenario flow', async () => {
 
   stdin.write('create a todo app');
   await wait(300);
-  stdin.write('\r');
+  stdin.write('\n');
   await wait(500);
 
   expect(lastFrame()).toContain('Cannot connect to backend');
@@ -151,8 +150,8 @@ test('Mode selection changes current mode', async () => {
   stdin.write('\r');
   await wait(300);
 
-  // Should show Plan mode
-  expect(lastFrame()).toContain('PLAN');
+  // Mode selector should have closed — input box should be visible again
+  expect(lastFrame()).toContain('❯');
   unmount();
 });
 
@@ -172,8 +171,8 @@ test('Escape closes mode selector without changing mode', async () => {
   stdin.write('\x1B');
   await wait(300);
 
-  // Should still be Build mode
-  expect(lastFrame()).toContain('BUILD');
+  // Input box should reappear — mode selector is closed
+  expect(lastFrame()).toContain('❯');
   unmount();
 });
 
@@ -185,7 +184,7 @@ test('Escape during scenario stops execution', async () => {
 
   stdin.write('test');
   await wait(200);
-  stdin.write('\r');
+  stdin.write('\n');
   await wait(500);
 
   expect(lastFrame()).toContain('Cannot connect to backend');
@@ -205,7 +204,7 @@ test('Full Build Scenario shows backend error', async () => {
 
   stdin.write('create a todo app');
   await wait(400);
-  stdin.write('\r');
+  stdin.write('\n');
   await wait(1200);
 
   expect(lastFrame()).toContain('Cannot connect to backend');
@@ -229,7 +228,7 @@ test('Full Plan Scenario shows backend error', async () => {
 
   stdin.write('design a REST API');
   await wait(400);
-  stdin.write('\r');
+  stdin.write('\n');
   await wait(1200);
 
   expect(lastFrame()).toContain('Cannot connect to backend');

@@ -1,6 +1,6 @@
 export type ProviderId = 'openrouter' | 'openai' | 'anthropic' | 'google' | 'groq' | 'nvidia' | 'custom';
 
-export interface ProviderConfigField {
+interface ProviderConfigField {
   key: string;
   label: string;
   type: 'text' | 'password' | 'select' | 'number';
@@ -31,7 +31,7 @@ export interface ProviderMeta {
   availableModels?: ModelInfo[];
 }
 
-export interface ModelInfo {
+interface ModelInfo {
   id: string;
   name: string;
   description?: string;

@@ -1,16 +1,15 @@
-import type { CommandHint } from '../../types';
 import type { OverlayType } from '../../hooks/useOverlayManager';
 import type { ScenarioMode } from '../../types/scenario';
 import optionsData from './options.json';
 
-export interface CommandOption {
+interface CommandOption {
   command: string;
   action: 'overlay' | 'clear' | 'compact' | 'mode' | string;
   target?: string;
   description: string;
 }
 
-export interface CommandHandlers {
+interface CommandHandlers {
   openOverlay: (target: OverlayType) => void;
   clearTurns: () => void;
   compactTurns: () => void;
@@ -22,24 +21,6 @@ export class CommandService {
 
   constructor() {
     this.commands = (optionsData.commands || []) as CommandOption[];
-  }
-
-  public getCommands(): CommandOption[] {
-    return this.commands;
-  }
-
-  public getCommandHints(): CommandHint[] {
-    const seen = new Set<string>();
-    const hints: CommandHint[] = [];
-
-    this.commands.forEach((cmd) => {
-      if (!seen.has(cmd.command)) {
-        seen.add(cmd.command);
-        hints.push({ command: cmd.command, description: cmd.description });
-      }
-    });
-
-    return hints;
   }
 
   public dispatchCommand(rawInput: string, handlers: CommandHandlers): boolean {

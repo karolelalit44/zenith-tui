@@ -1,14 +1,14 @@
 import { providerRepository } from './ProviderRepository';
 import type { ProviderId } from './types';
 
-export interface ProviderModelItem {
+interface ProviderModelItem {
   id: string;
   name: string;
   contextWindow: number;
   description?: string;
 }
 
-export interface ProviderModelsData {
+interface ProviderModelsData {
   provider: string;
   totalModelsLabel: string;
   models: ProviderModelItem[];
@@ -41,24 +41,8 @@ export class ModelService {
     return this.getModelsData(providerId).models;
   }
 
-  public updateModelsList(providerId: ProviderId, newModels: ProviderModelItem[]): ProviderModelsData {
-    const updated: ProviderModelsData = {
-      provider: providerId,
-      totalModelsLabel: `${newModels.length} models`,
-      models: newModels,
-    };
-    this._customCache[providerId] = updated;
-    return updated;
-  }
-
   public getTotalModelsLabel(providerId: ProviderId): string {
     return this.getModelsData(providerId).totalModelsLabel;
-  }
-
-  public getContextWindow(providerId: ProviderId, modelId: string): number {
-    const models = this.getModels(providerId);
-    const found = models.find((m) => m.id === modelId);
-    return found ? found.contextWindow : 128000;
   }
 }
 

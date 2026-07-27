@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from zenith.config.settings import AppSettings
 from zenith.core.errors import ZenithError, ProviderError
@@ -50,32 +50,23 @@ class RecoverableAgentLoop:
         history: list[Message],
         mode: str = "build",
         skills_section: str = "",
+        confirm_callback: Callable | None = None,
     ) -> AsyncIterator[Event]:
         """Process prompt with error recovery.
 
-        Catches errors from the inner agent loop and augments them with
-        recovery hints. If the inner loop yields ERROR events, we track
-        them and add recovery guidance.
+        Catches errors from the inner agent loop and tracks them.
+        Error events already contain recoverable flag for UI retry buttons.
         """
         self._last_error = None
 
         try:
             async for event in self.agent.process_prompt(
-                prompt, session_id, history, mode, skills_section=skills_section
+                prompt, session_id, history, mode,
+                skills_section=skills_section,
+                confirm_callback=confirm_callback,
             ):
                 if event.kind == EventKind.ERROR:
                     self._last_error = event.data.get("message", "Unknown error")
-                    # Check if the error is recoverable
-                    recoverable = event.data.get("recoverable", False)
-                    if recoverable:
-                        yield Event(
-                            kind=EventKind.WARNING,
-                            data={
-                                "message": "You can retry your request or switch providers.",
-                                "code": "RECOVERY_HINT",
-                            },
-                            session_id=session_id,
-                        )
                 yield event
 
         except ProviderError as e:
@@ -92,16 +83,6 @@ class RecoverableAgentLoop:
                 },
                 session_id=session_id,
             )
-
-            if e.recoverable:
-                yield Event(
-                    kind=EventKind.WARNING,
-                    data={
-                        "message": "You can retry your request or switch providers.",
-                        "code": "RECOVERY_HINT",
-                    },
-                    session_id=session_id,
-                )
 
         except ZenithError as e:
             self._last_error = str(e)

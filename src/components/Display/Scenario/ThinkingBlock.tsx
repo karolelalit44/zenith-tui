@@ -7,8 +7,6 @@ import type { EventRenderContext } from './componentRegistry';
 
 interface ThinkingBlockProps {
   event: ThinkingEvent;
-  collapsed?: boolean;
-  isHistorical?: boolean;
   context?: EventRenderContext;
 }
 
@@ -18,10 +16,19 @@ const getThoughtText = (thought: string | ThinkingThought): string =>
 const getThoughtDelay = (thought: string | ThinkingThought, index: number): number =>
   typeof thought === 'string' ? 0 : (thought.delay ?? index * 400);
 
-export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, collapsed, isHistorical, context }) => {
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = (s % 60).toFixed(0);
+  return `${m}m ${rem}s`;
+}
+
+export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
-  const isCollapsed = context?.thinkingCollapsed ?? collapsed ?? false;
-  const historical = context?.isHistorical ?? isHistorical ?? false;
+  const isCollapsed = context?.thinkingCollapsed ?? false;
+  const historical = context?.isHistorical ?? false;
   const [visibleCount, setVisibleCount] = useState(historical ? event.thoughts.length : 0);
 
   useEffect(() => {
@@ -56,22 +63,30 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
         <Text color={theme.colors.status.accent} bold>
-          [THINK] {isCollapsed ? '▸' : '▾'}
+          ○ {isCollapsed ? '▸' : '▾'}
         </Text>
         <Text color={theme.colors.text.muted}>
           {' '}
-          ({event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'})
+          {event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'}
         </Text>
+        {event.duration > 0 && (
+          <>
+            <Text color={theme.colors.text.muted}> · </Text>
+            <Text color={theme.colors.text.muted}>
+              {formatDuration(event.duration)}
+            </Text>
+          </>
+        )}
         <Text color={theme.colors.text.muted}> · </Text>
         <Text color={theme.colors.text.muted} underline>
-          Shift+T to toggle
+          Ctrl+T to toggle
         </Text>
       </Box>
 
       {!isCollapsed && (
         <Box flexDirection="column" paddingLeft={2} width="100%">
           {displayedThoughts.map((thought, idx) => {
-            const isLatest = !isHistorical && idx === visibleCount - 1 && visibleCount < event.thoughts.length;
+            const isLatest = !historical && idx === visibleCount - 1 && visibleCount < event.thoughts.length;
             return (
               <Box key={idx} flexDirection="row" alignItems="center" width="100%">
                 <Box width={2} flexShrink={0}>

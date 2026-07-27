@@ -26,7 +26,6 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
   }
 
   const filled = Math.round(barWidth * progress);
-  const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barWidth - filled);
 
   const activeIdx = event.steps.findIndex((s) => s.status === 'active');
 
@@ -37,7 +36,8 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
           [{event.label}]
         </Text>
         <Text color={theme.colors.text.muted}> </Text>
-        <Text color={theme.colors.text.muted}>{bar}</Text>
+        <Text color={theme.colors.status.success}>{'\u2588'.repeat(filled)}</Text>
+        <Text color={theme.colors.text.muted}>{'\u2591'.repeat(barWidth - filled)}</Text>
         <Text color={theme.colors.text.muted}> </Text>
         <Text color={theme.colors.text.emerald} bold>
           {Math.round(progress * 100)}%

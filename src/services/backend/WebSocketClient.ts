@@ -11,16 +11,16 @@ if (typeof WebSocket === 'undefined') {
   }
 }
 
-export type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
-export interface JsonRpcRequest {
+interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: string;
   method: string;
   params?: Record<string, unknown>;
 }
 
-export interface JsonRpcResponse {
+interface JsonRpcResponse {
   jsonrpc: '2.0';
   id: string;
   result?: unknown;
@@ -111,15 +111,6 @@ export class WebSocketClient {
     });
   }
 
-  disconnect(): void {
-    this.reconnectAttempts = this.maxReconnectAttempts;
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.setStatus('disconnected');
-  }
-
   async send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
@@ -158,14 +149,6 @@ export class WebSocketClient {
     return this.send('session.create', { title });
   }
 
-  listSessions(): Promise<Array<{ id: string; title: string; created_at: string }>> {
-    return this.send('session.list');
-  }
-
-  resumeSession(sessionId: string): Promise<{ session: Record<string, unknown>; messages: unknown[] }> {
-    return this.send('session.resume', { session_id: sessionId });
-  }
-
   sendPrompt(
     content: string,
     mode: string = 'build',
@@ -174,24 +157,8 @@ export class WebSocketClient {
     return this.send('prompt.send', { content, mode, session_id: sessionId });
   }
 
-  validateProvider(provider?: string): Promise<{ valid: boolean; error?: string }> {
-    return this.send('provider.validate', { provider });
-  }
-
-  listModels(provider?: string): Promise<{ models: string[] }> {
-    return this.send('provider.models', { provider });
-  }
-
-  listTools(mode?: string): Promise<{ tools: unknown[] }> {
-    return this.send('tools.list', { mode });
-  }
-
-  workspaceStatus(): Promise<Record<string, unknown>> {
-    return this.send('workspace.status');
-  }
-
-  health(): Promise<{ status: string }> {
-    return this.send('health');
+  sendConfirmation(confirmationId: string, approved: boolean): Promise<void> {
+    return this.send('confirmation.response', { confirmation_id: confirmationId, approved }) as Promise<void>;
   }
 
   private handleMessage(data: JsonRpcResponse | JsonRpcEvent): void {

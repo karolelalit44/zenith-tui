@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { estimateTokensForEvents } from '../services/data/tokenEstimationService';
-import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
+import type { ScenarioEvent, ScenarioMode, SuccessEvent } from '../types/scenario';
 
 export interface ConversationTurn {
   id: string;
@@ -13,8 +13,10 @@ export interface ConversationTurn {
 
 export interface UseConversationReturn {
   turns: ConversationTurn[];
+  completedTurns: ConversationTurn[];
   activeTurn: ConversationTurn | null;
   totalTokens: number;
+  staticKey: number;
   addTurn: (prompt: string, mode: ScenarioMode) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: () => void;
@@ -25,11 +27,28 @@ export interface UseConversationReturn {
 
 export function useConversation(): UseConversationReturn {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  const [staticKey, setStaticKey] = useState(0);
 
-  const activeTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+  const activeTurn = turns.length > 0 && !turns[turns.length - 1].isComplete
+    ? turns[turns.length - 1]
+    : null;
+  const completedTurns = activeTurn
+    ? turns.filter((t) => t.isComplete)
+    : turns;
 
   const totalTokens = useMemo(() => {
-    return turns.reduce((sum, t) => sum + (t.isComplete ? estimateTokensForEvents(t.events) : 0), 0);
+    return turns.reduce((sum, t) => {
+      if (!t.isComplete) return sum;
+      // Prefer real token data from backend success event if available
+      const successEvent = t.events.find(
+        (e): e is SuccessEvent => e.kind === 'success' && 'tokenInfo' in e && Boolean((e as SuccessEvent).tokenInfo),
+      );
+      if (successEvent?.tokenInfo) {
+        return sum + successEvent.tokenInfo.used;
+      }
+      // Fall back to char÷4 estimation
+      return sum + estimateTokensForEvents(t.events);
+    }, 0);
   }, [turns]);
 
   const addTurn = useCallback((prompt: string, mode: ScenarioMode): string => {
@@ -77,19 +96,12 @@ export function useConversation(): UseConversationReturn {
     });
   }, []);
 
-  const markTurnSaved = useCallback((turnId: string) => {
-    setTurns((prev) => {
-      const targetIdx = prev.findIndex((t) => t.id === turnId);
-      if (targetIdx === -1) return prev;
-      const updatedEvents = prev[targetIdx].events.map((ev) =>
-        ev.kind === 'planner_action_panel' ? { ...ev, saved: true } : ev,
-      );
-      return prev.map((t, i) => (i === targetIdx ? { ...t, events: updatedEvents } : t));
-    });
+  const markTurnSaved = useCallback((_turnId: string) => {
   }, []);
 
   const clearTurns = useCallback(() => {
     setTurns([]);
+    setStaticKey((k) => k + 1);
   }, []);
 
   const compactTurns = useCallback(() => {
@@ -105,24 +117,24 @@ export function useConversation(): UseConversationReturn {
         timestamp: timeStr,
         events: [
           {
-            kind: 'summary',
+            kind: 'message',
             id: `evt_summary_${Date.now()}`,
-            title: 'Context Compacted',
-            description: `Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
-            filesCreated: [],
-            commandsExecuted: ['/compact'],
-            verified: ['Conversation history summarized', 'Context window memory freed'],
-          },
+            text: `Context Compacted: Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
+            partial: false,
+          } as ScenarioEvent,
         ],
       };
       return [summaryTurn];
     });
+    setStaticKey((k) => k + 1);
   }, []);
 
   return {
     turns,
+    completedTurns,
     activeTurn,
     totalTokens,
+    staticKey,
     addTurn,
     completeActiveTurn,
     abortActiveTurn,

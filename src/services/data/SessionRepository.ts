@@ -1,4 +1,4 @@
-export interface SessionItem {
+interface SessionItem {
   time: string;
   title: string;
 }

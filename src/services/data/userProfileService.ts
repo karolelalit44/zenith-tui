@@ -1,11 +1,18 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
 let profileCache: UserProfile | null = null;
 
-export interface UserProviderSection {
+const PROFILE_DIR = path.join(os.homedir(), '.zenith');
+const PROFILE_PATH = path.join(PROFILE_DIR, 'profile.json');
+
+interface UserProviderSection {
   activeProvider: string;
   activeModel: string;
 }
 
-export interface UserSettingsSection {
+interface UserSettingsSection {
   theme: string;
   thinkingCollapsed: boolean;
   autoApproveTools: boolean;
@@ -45,9 +52,51 @@ function getInitialProfile(): UserProfile {
   };
 }
 
+function ensureDir(): void {
+  try {
+    if (!fs.existsSync(PROFILE_DIR)) {
+      fs.mkdirSync(PROFILE_DIR, { recursive: true });
+    }
+  } catch {
+    // Ignore mkdir errors (permissions, etc.)
+  }
+}
+
+function readFromDisk(): UserProfile | null {
+  try {
+    ensureDir();
+    if (fs.existsSync(PROFILE_PATH)) {
+      const raw = fs.readFileSync(PROFILE_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && parsed.settings) {
+        return parsed as UserProfile;
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
+  return null;
+}
+
+function writeToDisk(profile: UserProfile): void {
+  try {
+    ensureDir();
+    fs.writeFileSync(PROFILE_PATH, JSON.stringify(profile, null, 2), 'utf-8');
+  } catch {
+    // Ignore write errors
+  }
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedSave(profile: UserProfile): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => writeToDisk(profile), 500);
+}
+
 export const loadUserProfile = (): UserProfile => {
   if (profileCache) return profileCache;
-  profileCache = getInitialProfile();
+  profileCache = readFromDisk() || getInitialProfile();
   return profileCache;
 };
 
@@ -67,21 +116,6 @@ export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
   };
 
   profileCache = updatedProfile;
+  debouncedSave(updatedProfile);
   return updatedProfile;
-};
-
-export const loadSavedTheme = (): string => {
-  return loadUserProfile().settings.theme;
-};
-
-export const saveTheme = (themeId: string): void => {
-  saveUserProfile({ settings: { ...loadUserProfile().settings, theme: themeId } });
-};
-
-export const loadAutoApprove = (): boolean => {
-  return loadUserProfile().settings.autoApproveTools;
-};
-
-export const saveAutoApprove = (autoApprove: boolean): void => {
-  saveUserProfile({ settings: { ...loadUserProfile().settings, autoApproveTools: autoApprove } });
 };

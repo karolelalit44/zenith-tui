@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from .base import BaseTool, ToolResult
-from .param_normalizer import normalize_file_params
+from .path_validator import validate_path
+
+# Patterns indicating placeholder content instead of real content
+_PLACEHOLDER_RE = re.compile(
+    r"\[[\w\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\w\s]*\]"
+    r"|\bYOUR_[\w_]+_HERE\b"
+    r"|\b(?:PLACEHOLDER|TODO|FIXME|XXX|TBD)\b"
+    r"|\[HTML\]"
+    r"|\[ACTUAL_"
+    r"|\[Current "
+    r"|\[UPDATED_",
+    re.IGNORECASE,
+)
 
 
 class FileWriteTool(BaseTool):
@@ -26,33 +39,52 @@ class FileWriteTool(BaseTool):
                     "type": "string",
                     "description": "Content to write to the file",
                 },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Overwrite if file exists (default: false)",
+                    "default": False,
+                },
             },
             "required": ["path", "content"],
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        params = normalize_file_params(params)
+        # Note: params are pre-normalized by the agent loop
         rel_path = params.get("path") or ""
         if not rel_path:
             return ToolResult(success=False, error="Missing file path parameter")
 
-        path = Path(workspace_root) / rel_path
+        resolved = validate_path(rel_path, workspace_root)
+        if resolved is None:
+            return ToolResult(
+                success=False,
+                error=f"Path escapes workspace boundary: {rel_path}. Use relative paths within the project.",
+            )
+
         content = params.get("content", "")
         overwrite = params.get("overwrite", False)
 
-        if path.exists() and not overwrite:
+        # Reject placeholder content
+        if content and _PLACEHOLDER_RE.search(content):
+            m = _PLACEHOLDER_RE.search(content)
             return ToolResult(
                 success=False,
-                error=f"File already exists: {path}. Use file_edit to modify or set overwrite: true.",
+                error=f"Content contains placeholder ({m.group(0)}). Write the actual content, not a placeholder.",
+            )
+
+        if resolved.exists() and not overwrite:
+            return ToolResult(
+                success=False,
+                error=f"File already exists: {rel_path}. Use overwrite: true to replace it.",
             )
 
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(content, encoding="utf-8")
             return ToolResult(
                 success=True,
-                output=f"Created {path}",
-                metadata={"path": str(path)},
+                output=f"Created {rel_path}",
+                metadata={"path": str(resolved)},
             )
         except Exception as e:
             return ToolResult(success=False, error=str(e))

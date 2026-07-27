@@ -1,6 +1,9 @@
-import { Box, Text, useInput } from 'ink';
-import chalk from 'chalk';
-import React, { useCallback, useEffect, useState } from 'react';
+import { Box, Text, useInput, type Key } from 'ink';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTheme } from '../../theme/ThemeContext';
+
+const MIN_LINES = 1;
+const MAX_LINES = 15;
 
 interface MultiLineTextInputProps {
   value: string;
@@ -8,172 +11,198 @@ interface MultiLineTextInputProps {
   onSubmit: (value: string) => void;
   placeholder?: string;
   focus?: boolean;
-  maxVisibleLines?: number;
+  historyUp?: () => string | undefined;
+  historyDown?: () => string | undefined;
 }
 
-/**
- * Custom multi-line text input that handles long prompts and pasted content.
- * Replaces ink-text-input which renders everything as a single line.
- */
 export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
-  ({
-    value,
-    onChange,
-    onSubmit,
-    placeholder = '',
-    focus = true,
-    maxVisibleLines = 12,
-  }) => {
-    const [cursorOffset, setCursorOffset] = useState(value.length);
+  ({ value, onChange, onSubmit, placeholder = '', focus = true, historyUp, historyDown }) => {
+    const { theme } = useTheme();
+    const [cursor, setCursor] = useState(value.length);
+    const [historyIndex, setHistoryIndex] = useState(-1);
 
-    // Keep cursor at end when value changes externally
     useEffect(() => {
-      if (cursorOffset > value.length) {
-        setCursorOffset(value.length);
-      }
-    }, [value.length, cursorOffset]);
+      if (cursor > value.length) setCursor(value.length);
+    }, [value.length, cursor]);
 
-    // Split value into lines for display
-    const lines = value.length > 0 ? value.split('\n') : [];
-    const cursorLine = value.slice(0, cursorOffset).split('\n').length - 1;
-    const cursorCol = cursorOffset - value.lastIndexOf('\n', cursorOffset - 1) - 1;
+    useEffect(() => {
+      setHistoryIndex(-1);
+    }, [value]);
 
-    // Calculate which lines are visible (scroll window)
-    const totalLines = Math.max(lines.length, 1);
-    const visibleEnd = totalLines;
-    const visibleStart = Math.max(0, visibleEnd - maxVisibleLines);
-    const visibleLines = lines.slice(visibleStart, visibleEnd);
+    const lines = useMemo(() => value.split('\n'), [value]);
+    const lineCount = Math.max(MIN_LINES, Math.min(MAX_LINES, lines.length));
 
     const handleInput = useCallback(
-      (_input: string, key: any) => {
+      (_input: string, key: Key) => {
         if (!focus) return;
 
-        if (key.return && !key.shift) {
-          onSubmit(value);
+        if (_input.length > 1) {
+          let cleanPaste = _input
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n')
+            .replace(/\t/g, '  ')
+            // Strip ANSI escape sequences
+            .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+            // Strip control chars (keep \n only)
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+          // Unescape JSON-encoded strings (e.g. \"key\": \"value\")
+          if (cleanPaste.includes('\\"') || cleanPaste.includes('\\n')) {
+            try {
+              cleanPaste = JSON.parse(`"${cleanPaste.replace(/"/g, '\\"')}"`);
+            } catch {
+              // Not valid JSON escape — use as-is
+            }
+          }
+          if (cleanPaste.length > 0) {
+            const nextValue = value.slice(0, cursor) + cleanPaste + value.slice(cursor);
+            onChange(nextValue);
+            setCursor((c) => c + cleanPaste.length);
+          }
+          return;
+        }
+
+        if (key.return || _input === '\n' || _input === '\r') {
+          if (key.shift || key.ctrl) {
+            const nextValue = value.slice(0, cursor) + '\n' + value.slice(cursor);
+            onChange(nextValue);
+            setCursor((c) => c + 1);
+          } else {
+            onSubmit(value);
+          }
           return;
         }
 
         if (key.upArrow) {
-          if (cursorLine > 0) {
-            const prevLineLen = lines[cursorLine - 1]?.length || 0;
-            const newCol = Math.min(cursorCol, prevLineLen);
-            let offset = 0;
-            for (let i = 0; i < cursorLine - 1; i++) offset += (lines[i]?.length || 0) + 1;
-            setCursorOffset(offset + newCol);
+          const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
+          if (currentLineIdx === 0 && historyUp) {
+            const prev = historyUp();
+            if (prev !== undefined) {
+              onChange(prev);
+              setCursor(prev.length);
+            }
+            return;
+          }
+          const prevNewline = value.lastIndexOf('\n', cursor - 1);
+          if (prevNewline >= 0) {
+            setCursor(prevNewline);
           }
           return;
         }
 
         if (key.downArrow) {
-          if (cursorLine < lines.length - 1) {
-            const nextLineLen = lines[cursorLine + 1]?.length || 0;
-            const newCol = Math.min(cursorCol, nextLineLen);
-            let offset = 0;
-            for (let i = 0; i <= cursorLine; i++) offset += (lines[i]?.length || 0) + 1;
-            setCursorOffset(offset + newCol);
+          const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
+          if (currentLineIdx >= lines.length - 1 && historyDown) {
+            const next = historyDown();
+            if (next !== undefined) {
+              onChange(next);
+              setCursor(next.length);
+            }
+            return;
+          }
+          const nextNewline = value.indexOf('\n', cursor);
+          if (nextNewline >= 0 && nextNewline < value.length) {
+            setCursor(nextNewline + 1);
           }
           return;
         }
 
         if (key.leftArrow) {
-          if (cursorOffset > 0) setCursorOffset((c) => c - 1);
+          if (cursor > 0) setCursor((c) => c - 1);
           return;
         }
 
         if (key.rightArrow) {
-          if (cursorOffset < value.length) setCursorOffset((c) => c + 1);
+          if (cursor < value.length) setCursor((c) => c + 1);
+          return;
+        }
+
+        if (key.home) {
+          const lastNewline = value.lastIndexOf('\n', cursor - 1);
+          setCursor(lastNewline + 1);
+          return;
+        }
+
+        if (key.end) {
+          const nextNewline = value.indexOf('\n', cursor);
+          setCursor(nextNewline >= 0 ? nextNewline : value.length);
           return;
         }
 
         if (key.backspace || key.delete) {
-          if (cursorOffset > 0) {
-            const next = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
-            setCursorOffset((c) => c - 1);
-            onChange(next);
+          if (cursor > 0) {
+            const nextValue = value.slice(0, cursor - 1) + value.slice(cursor);
+            onChange(nextValue);
+            setCursor((c) => c - 1);
           }
           return;
         }
 
-        // Skip special keys
-        if (key.ctrl || key.meta || key.tab || key.escape) return;
+        if ((key.ctrl || key.meta) && (_input === 'o' || _input === 'O')) {
+          return;
+        }
 
-        // Insert character(s) at cursor — handles paste (multi-char _input)
+        if (key.ctrl || key.meta || key.escape) return;
+
         if (_input.length > 0) {
-          const next =
-            value.slice(0, cursorOffset) + _input + value.slice(cursorOffset);
-          setCursorOffset((c) => c + _input.length);
-          onChange(next);
+          const cleanInput = _input
+            .replace(/\r/g, '')
+            .replace(/\t/g, '  ')
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+          if (cleanInput.length > 0) {
+            const nextValue = value.slice(0, cursor) + cleanInput + value.slice(cursor);
+            onChange(nextValue);
+            setCursor((c) => c + cleanInput.length);
+          }
         }
       },
-      [focus, value, cursorOffset, cursorLine, cursorCol, lines, onChange, onSubmit],
+      [focus, value, cursor, onChange, onSubmit, lines, historyUp, historyDown],
     );
 
     useInput(handleInput, { isActive: focus });
 
-    // Build rendered lines with cursor
-    const renderedLines: React.ReactNode[] = [];
-
+    let content: React.ReactNode;
     if (value.length === 0) {
-      // Show placeholder with cursor
-      renderedLines.push(
-        <Text key="ph">
-          {placeholder
-            ? chalk.inverse(placeholder[0]) + chalk.grey(placeholder.slice(1))
-            : chalk.inverse(' ')}
-        </Text>,
+      content = (
+        <Text>
+          <Text inverse color={theme.colors.text.bright}>
+            {placeholder ? placeholder[0] : ' '}
+          </Text>
+          <Text color={theme.colors.text.dim}>{placeholder ? placeholder.slice(1) : ''}</Text>
+        </Text>
       );
     } else {
-      for (let i = 0; i < visibleLines.length; i++) {
-        const lineIdx = visibleStart + i;
-        const line = visibleLines[i];
-        const isCursorLine = lineIdx === cursorLine;
-        const isLastLine = lineIdx === lines.length - 1 && value.endsWith('\n') === false;
+      const cursorLineIdx = value.slice(0, cursor).split('\n').length - 1;
+      const cursorCol = cursor - (value.lastIndexOf('\n', cursor - 1) + 1);
 
-        if (!isCursorLine) {
-          // Non-cursor lines render as plain text
-          renderedLines.push(
-            <Text key={`l${lineIdx}`}>
-              {line || ' '}
-            </Text>,
-          );
-        } else {
-          // Cursor line: render with cursor highlight
-          const before = line.slice(0, cursorCol);
-          const atCursor = line[cursorCol] || ' ';
-          const after = line.slice(cursorCol + 1);
-
-          // If cursor is at end of line, show inverse space after
-          const cursorElement =
-            cursorCol >= line.length ? (
-              <Text key={`c${lineIdx}`}>
-                {before}
-                {chalk.inverse(' ')}
-              </Text>
-            ) : (
-              <Text key={`c${lineIdx}`}>
-                {before}
-                {chalk.inverse(atCursor)}
-                {after}
+      content = (
+        <>
+          {lines.map((line, lineIdx) => {
+            const isCursorLine = lineIdx === cursorLineIdx;
+            if (isCursorLine) {
+              const before = line.slice(0, cursorCol);
+              const charAtCursor = line[cursorCol];
+              const after = line.slice(cursorCol + 1);
+              return (
+                <Text key={lineIdx} wrap="wrap">
+                  {before}
+                  <Text inverse>{charAtCursor || ' '}</Text>
+                  {after}
+                </Text>
+              );
+            }
+            return (
+              <Text key={lineIdx} wrap="wrap">
+                {line || ' '}
               </Text>
             );
-
-          renderedLines.push(cursorElement);
-
-          // If this is the last line and cursor is at end, add trailing inverse space
-          if (isLastLine && cursorCol >= line.length) {
-            // Already handled above
-          }
-        }
-      }
+          })}
+        </>
+      );
     }
 
     return (
-      <Box flexDirection="column" width="100%">
-        {renderedLines.map((node, idx) => (
-          <Box key={idx} flexDirection="row" width="100%">
-            {node}
-          </Box>
-        ))}
+      <Box width="100%" height={lineCount}>
+        {content}
       </Box>
     );
   },

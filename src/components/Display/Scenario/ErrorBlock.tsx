@@ -2,37 +2,47 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ErrorEvent } from '../../../types/scenario';
+import type { EventRenderContext } from './componentRegistry';
 
 interface ErrorBlockProps {
   event: ErrorEvent;
+  context?: EventRenderContext;
 }
 
-export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
+const MAX_MESSAGE_LENGTH = 200;
+
+export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
+
+  const displayMessage = event.message.trim();
+
+  const badge = event.recoverable ? '[ERROR]' : '[FAILED]';
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box
         flexDirection="column"
         width="100%"
-        borderStyle="round"
+        borderStyle="single"
+        borderTop={false}
+        borderRight={false}
+        borderBottom={false}
         borderColor={theme.colors.status.error}
-        paddingX={1}
-        paddingY={1}
+        paddingLeft={1}
       >
-        <Box flexDirection="row" alignItems="center" marginBottom={0} flexWrap="wrap">
+        <Box flexDirection="row" alignItems="flex-start" marginBottom={0} flexWrap="wrap">
           <Text color={theme.colors.status.error} bold>
-            [ERROR]{' '}
+            {badge}{' '}
           </Text>
-          <Text color={theme.colors.text.bright} bold wrap="wrap">
-            {event.message}
+          <Text color={theme.colors.text.bright} wrap="wrap">
+            {displayMessage}
           </Text>
         </Box>
 
         {event.code && (
           <Box flexDirection="row" marginTop={0}>
             <Text color={theme.colors.text.muted}>Code: </Text>
-            <Text color={theme.colors.status.warning} wrap="wrap">
+            <Text color={theme.colors.status.warning}>
               {event.code}
             </Text>
           </Box>
@@ -41,22 +51,32 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
         {event.provider && (
           <Box flexDirection="row" marginTop={0}>
             <Text color={theme.colors.text.muted}>Provider: </Text>
-            <Text color={theme.colors.text.bright} wrap="wrap">
+            <Text color={theme.colors.text.bright}>
               {event.provider}
             </Text>
           </Box>
         )}
 
-        <Box flexDirection="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" marginTop={0}>
+        <Box flexDirection="row" alignItems="center" flexWrap="wrap" marginTop={0}>
           <Text color={theme.colors.text.muted}>
-            {event.recoverable ? 'Recoverable - ' : ''}Status: Execution halted due to error.
+            {event.recoverable ? 'Recoverable' : 'Execution halted'}
           </Text>
-          <Box paddingX={1} backgroundColor={theme.colors.status.error}>
-            <Text color={theme.colors.bg.app} bold>
-              [FAILED]
-            </Text>
-          </Box>
         </Box>
+
+        {event.recoverable && (context?.onRetry || context?.onDismiss) && (
+          <Box flexDirection="row" marginTop={1} paddingX={1}>
+            {context?.onRetry && (
+              <Box marginRight={2}>
+                <Text color={theme.colors.status.success} bold>[R] Retry</Text>
+              </Box>
+            )}
+            {context?.onDismiss && (
+              <Box>
+                <Text color={theme.colors.text.muted} bold>[D] Dismiss</Text>
+              </Box>
+            )}
+          </Box>
+        )}
       </Box>
     </Box>
   );

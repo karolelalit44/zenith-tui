@@ -12,6 +12,8 @@ interface SessionStatusBarProps {
   totalTokens: number;
   maxTokens?: number;
   isRunning?: boolean;
+  isOverlayOpen?: boolean;
+  hasEvents?: boolean;
   modelName?: string;
   workspaceName?: string;
   gitBranch?: string;
@@ -22,6 +24,8 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   totalTokens,
   maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
   isRunning = false,
+  isOverlayOpen = false,
+  hasEvents = false,
   modelName,
   workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
   gitBranch,
@@ -37,8 +41,8 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
 
   const modeBadge =
     mode === 'plan'
-      ? { label: '[PLAN]', color: theme.colors.status.accent }
-      : { label: '[BUILD]', color: theme.colors.status.success };
+      ? { label: '[PLAN]', color: theme.colors.text.emerald }
+      : { label: '[BUILD]', color: theme.colors.text.emerald };
 
   const totalBlocks = 10;
   const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
@@ -61,26 +65,27 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
             </Text>
           </Box>
           <Text color={theme.colors.text.muted}> </Text>
-          <Text color={theme.colors.text.muted}>Provider:</Text>
-          <Text color={theme.colors.text.bright} bold>
-            {' '}
-            {providerName}
-          </Text>
-          <Text color={theme.colors.text.muted}> | </Text>
-          <Text color={theme.colors.text.muted}>Model:</Text>
-          <Text color={theme.colors.text.ethereal} bold>
-            {' '}
-            {modelShort}
-          </Text>
+          {isRunning ? (
+            <Text color={theme.colors.text.dim}>Ctrl+C cancel · Shift+T thinking</Text>
+          ) : isOverlayOpen ? (
+            <Text color={theme.colors.text.dim}>Esc close</Text>
+          ) : hasEvents ? (
+            <Text color={theme.colors.text.dim}>Ctrl+S save · Ctrl+L clear · Ctrl+P help</Text>
+          ) : (
+            <Text color={theme.colors.text.dim}>Enter send · / commands</Text>
+          )}
         </Box>
 
         <Box flexDirection="row" alignItems="center">
-          <Text color={theme.colors.text.muted}>dir:</Text>
-          <Text color={theme.colors.text.ethereal}> {shortDir}</Text>
-          <Text color={theme.colors.text.muted}> </Text>
-          <Text color={theme.colors.text.muted}>git:(</Text>
-          <Text color={theme.colors.status.success}>{activeBranch}</Text>
-          <Text color={theme.colors.text.muted}>)</Text>
+          <Text color={theme.colors.text.ethereal}>{shortDir}</Text>
+          {activeBranch ? (
+            <>
+              <Text color={theme.colors.text.muted}> </Text>
+              <Text color={theme.colors.text.emerald}>(</Text>
+              <Text color={theme.colors.text.emerald}>{activeBranch}</Text>
+              <Text color={theme.colors.text.emerald}>)</Text>
+            </>
+          ) : null}
           <Text color={theme.colors.text.muted}> | </Text>
           <Text color={theme.colors.text.muted}>{formatTokenCount(totalTokens)} tokens</Text>
           <Text color={theme.colors.text.muted}> </Text>

@@ -1,4 +1,4 @@
-export interface ModeOption {
+interface ModeOption {
   id: string;
   label: string;
   icon: string;

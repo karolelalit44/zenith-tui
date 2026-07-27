@@ -61,12 +61,8 @@ export class StartupService {
     try {
       const result = await fetchJson<StartupResult>(backendUrl('/startup/validate'));
 
-      if (result.status === 'ready') {
-        await providerRepository.refreshFromBackend();
-        this._state = { phase: 'ready', result, error: null };
-      } else {
-        this._state = { phase: 'setup', result, error: null };
-      }
+      await providerRepository.refreshFromBackend();
+      this._state = { phase: result.status === 'ready' ? 'ready' : 'setup', result, error: null };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this._state = {
@@ -81,10 +77,6 @@ export class StartupService {
 
     this._notify();
     return this._state;
-  }
-
-  async retry(): Promise<AppStartupState> {
-    return this.initialize();
   }
 
   async validateProvider(request: ProviderSetupRequest): Promise<ProviderSetupResult> {

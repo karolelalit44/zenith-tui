@@ -40,14 +40,14 @@ class EchoProvider(BaseProvider):
         self.respond_with_tool = respond_with_tool
         self.call_count = 0
 
-    async def complete(self, messages: list[dict]) -> str:
+    async def complete(self, messages: list[dict], tools=None) -> str:
         self.call_count += 1
         user_msg = messages[-1]["content"] if messages else ""
         if self.respond_with_tool and self.call_count == 1:
             return '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
         return f"Echo: {user_msg}"
 
-    async def stream(self, messages: list[dict]):
+    async def stream(self, messages: list[dict], tools=None):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)
@@ -117,7 +117,7 @@ class TestAgentWorkflow:
         # Should have thinking, tool analysis, tool result, then final message
         kinds = [e.kind for e in events]
         assert EventKind.THINKING in kinds
-        assert EventKind.ANALYSIS in kinds or EventKind.SUCCESS in kinds
+        assert EventKind.TOOL_CALL in kinds or EventKind.SUCCESS in kinds
 
     @pytest.mark.asyncio
     async def test_plan_mode_blocks_write_tools(self, test_config):
@@ -143,10 +143,10 @@ class TestErrorRecovery:
             def __init__(self):
                 super().__init__("fail", "fail-model")
 
-            async def complete(self, messages):
+            async def complete(self, messages, tools=None):
                 raise Exception("API down")
 
-            async def stream(self, messages):
+            async def stream(self, messages, tools=None):
                 yield ("should not reach", None)
                 raise Exception("API down")
 
@@ -173,10 +173,10 @@ class TestErrorRecovery:
             def __init__(self):
                 super().__init__("rate", "rate-model")
 
-            async def complete(self, messages):
+            async def complete(self, messages, tools=None):
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 
-            async def stream(self, messages):
+            async def stream(self, messages, tools=None):
                 yield ("should not reach", None)
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 
@@ -194,8 +194,8 @@ class TestErrorRecovery:
         error_events = [e for e in events if e.kind == EventKind.ERROR]
         warning_events = [e for e in events if e.kind == EventKind.WARNING]
         assert len(error_events) >= 1
-        assert len(warning_events) >= 1
-        assert any(e.data.get("code") == "RECOVERY_HINT" for e in warning_events)
+        # RECOVERY_HINT warnings removed — error event carries recoverable flag instead
+        assert any(e.data.get("recoverable") is True for e in error_events)
 
 
 # ── Session Export ──────────────────────────────────────────────────
@@ -230,7 +230,7 @@ class TestSessionExport:
         session = Session(title="Events Test")
         events = [
             Event(kind=EventKind.THINKING, data={"text": "Thinking..."}),
-            Event(kind=EventKind.FILE_CREATE, data={"path": "new.py"}),
+            Event(kind=EventKind.TOOL_RESULT, data={"tool": "file_write", "success": True, "metadata": {"path": "new.py"}}),
             Event(kind=EventKind.ERROR, data={"message": "Something failed"}),
         ]
         messages = [
@@ -243,7 +243,7 @@ class TestSessionExport:
         ]
         md = exporter.export_to_string(session, messages)
         assert "Thinking" in md
-        assert "file_create" in md or "new.py" in md
+        assert "tool_result" in md or "new.py" in md
 
 
 # ── SKILL.md Loader ────────────────────────────────────────────────

@@ -39,10 +39,10 @@ from zenith.providers.base import BaseProvider
 class EchoProvider(BaseProvider):
     def __init__(self):
         super().__init__("echo", "echo-v1")
-    async def complete(self, messages):
+    async def complete(self, messages, tools=None):
         user_msg = messages[-1]["content"] if messages else ""
         return f"Echo: {user_msg}"
-    async def stream(self, messages):
+    async def stream(self, messages, tools=None):
         response = await self.complete(messages)
         for word in response.split():
             yield (word + " ", None)
@@ -180,9 +180,9 @@ async def test_http_health():
     class _HP(BaseProvider):
         def __init__(self):
             super().__init__("echo", "echo-v1")
-        async def complete(self, messages):
+        async def complete(self, messages, tools=None):
             return "ok"
-        async def stream(self, messages):
+        async def stream(self, messages, tools=None):
             yield ("ok", None)
         async def validate(self):
             return True
@@ -233,9 +233,9 @@ async def test_http_status():
     class _SP(BaseProvider):
         def __init__(self):
             super().__init__("echo", "echo-v1")
-        async def complete(self, messages):
+        async def complete(self, messages, tools=None):
             return "ok"
-        async def stream(self, messages):
+        async def stream(self, messages, tools=None):
             yield ("ok", None)
         async def validate(self):
             return True

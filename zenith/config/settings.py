@@ -3,7 +3,7 @@ from typing import Optional
 import os
 from pydantic import BaseModel, Field, field_validator
 from .providers import ProviderConfig
-from .env import require_env, require_int, require_float
+from .env import optional_env, optional_int, optional_float
 
 
 class ToolConfig(BaseModel):
@@ -12,46 +12,46 @@ class ToolConfig(BaseModel):
     file_edit_enabled: bool = True
     file_delete_enabled: bool = True
     max_bash_timeout: int = Field(
-        default=require_int("ZENITH_BASH_TIMEOUT"), ge=1, le=300
+        default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300
     )
     max_iterations: int = Field(
-        default=require_int("ZENITH_MAX_ITERATIONS"), ge=1, le=100
+        default=optional_int("ZENITH_MAX_ITERATIONS", 10), ge=1, le=50
     )
     max_tool_output: int = Field(
-        default=require_int("ZENITH_MAX_TOOL_OUTPUT"), ge=1000
+        default=optional_int("ZENITH_MAX_TOOL_OUTPUT", 10000), ge=1000
     )
     max_retries: int = Field(
-        default=require_int("ZENITH_MAX_RETRIES"), ge=0, le=10
+        default=optional_int("ZENITH_MAX_RETRIES", 3), ge=0, le=10
     )
     stream_max_retries: int = Field(
-        default=require_int("ZENITH_STREAM_MAX_RETRIES"), ge=0, le=10
+        default=optional_int("ZENITH_STREAM_MAX_RETRIES", 3), ge=0, le=10
     )
     retry_base_delay: float = Field(
-        default=require_float("ZENITH_RETRY_BASE_DELAY"), ge=0.1, le=30.0
+        default=optional_float("ZENITH_RETRY_BASE_DELAY", 0.5), ge=0.1, le=30.0
     )
     retry_max_delay: float = Field(
-        default=require_float("ZENITH_RETRY_MAX_DELAY"), ge=1.0, le=300.0
+        default=optional_float("ZENITH_RETRY_MAX_DELAY", 10.0), ge=1.0, le=300.0
     )
     webfetch_timeout: int = Field(
-        default=require_int("ZENITH_WEBFETCH_TIMEOUT"), ge=5, le=120
+        default=optional_int("ZENITH_WEBFETCH_TIMEOUT", 30), ge=5, le=120
     )
     webfetch_max_bytes: int = Field(
-        default=require_int("ZENITH_WEBFETCH_MAX_BYTES"), ge=1000, le=1000000
+        default=optional_int("ZENITH_WEBFETCH_MAX_BYTES", 100000), ge=1000, le=1000000
     )
     git_timeout: int = Field(
-        default=require_int("ZENITH_GIT_TIMEOUT"), ge=5, le=120
+        default=optional_int("ZENITH_GIT_TIMEOUT", 30), ge=5, le=120
     )
 
 
 class BootstrapDefaults(BaseModel):
-    active_provider: str = require_env("ZENITH_ACTIVE_PROVIDER")
-    db_path: str = require_env("ZENITH_DB_PATH")
-    log_level: str = require_env("ZENITH_LOG_LEVEL")
+    active_provider: str = optional_env("ZENITH_ACTIVE_PROVIDER", "nvidia")
+    db_path: str = optional_env("ZENITH_DB_PATH", "zenith.db")
+    log_level: str = optional_env("ZENITH_LOG_LEVEL", "INFO")
     max_context_tokens: int = Field(
-        default=require_int("ZENITH_MAX_CONTEXT_TOKENS"), ge=1000
+        default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", 128000), ge=1000
     )
     summary_threshold: float = Field(
-        default=require_float("ZENITH_SUMMARY_THRESHOLD"), ge=0.1, le=1.0
+        default=optional_float("ZENITH_SUMMARY_THRESHOLD", 0.8), ge=0.1, le=1.0
     )
     tools: ToolConfig = Field(default_factory=ToolConfig)
 

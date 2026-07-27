@@ -24,13 +24,7 @@
       "target": "context",
       "description": "View the current file context window"
     },
-    {
-      "command": "/add-dir",
-      "action": "overlay",
-      "target": "add-dir",
-      "description": "Add a new working directory"
-    },
-    {
+{
       "command": "/provider",
       "action": "overlay",
       "target": "provider",

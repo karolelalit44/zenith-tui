@@ -1,23 +1,23 @@
-import { Box, Text } from 'ink';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { PromptHeader } from './components/Display/PromptHeader';
+import { Box, Static, Text } from 'ink';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ScenarioRenderer } from './components/Display/Scenario';
+import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
 import { ASCII_SPINNER_FRAMES } from './constants/animation';
+import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
+import { useProvider } from './hooks/useProvider';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { useTickAnimation } from './hooks/useTickAnimation';
-import { AddDirModal } from './screens/AddDir/AddDirModal';
 import { ContextModal } from './screens/Context/ContextModal';
 import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
-import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
@@ -46,8 +46,10 @@ export const App: React.FC = () => {
   }, []);
   const {
     turns,
+    completedTurns,
     activeTurn,
     totalTokens,
+    staticKey,
     addTurn,
     completeActiveTurn,
     abortActiveTurn,
@@ -55,7 +57,8 @@ export const App: React.FC = () => {
     clearTurns,
     compactTurns,
   } = useConversation();
-  const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, handleModeSelect } = useOverlayManager();
+  const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, closeAllOverlays, handleModeSelect } =
+    useOverlayManager();
   const {
     input,
     showAutocomplete,
@@ -65,42 +68,49 @@ export const App: React.FC = () => {
     clearInput,
     insertFilePath,
     closeFilePicker,
+    closeAutocomplete,
     addHistory,
+    historyUp,
+    historyDown,
+    attachments,
+    removeAttachment,
   } = useAutocomplete();
-  const { events, isRunning, startScenario, abort } = useScenario();
+  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation } = useScenario();
+  const { activeProvider } = useProvider();
 
-  const suppressSubmitRef = useRef(false);
+  const handleSubmit = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
 
-  const insertNewline = useCallback(() => {
-    suppressSubmitRef.current = true;
-    handleInputChange(`${input}\n`);
-  }, [input, handleInputChange]);
+      if (trimmed.startsWith('/')) {
+        clearInput();
+        commandService.dispatchCommand(trimmed, {
+          openOverlay,
+          clearTurns,
+          compactTurns,
+          setMode: handleModeSelect,
+        });
+        return;
+      }
 
-  const [scrollOffset, setScrollOffset] = useState(0);
-
-  const handleScrollUp = useCallback(() => {
-    setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, turns.length - 1)));
-  }, [turns.length]);
-
-  const handleScrollDown = useCallback(() => {
-    setScrollOffset((prev) => Math.max(0, prev - 1));
-  }, []);
-
-  const handleScrollToBottom = useCallback(() => {
-    setScrollOffset(0);
-  }, []);
-
-  const handleScrollToTop = useCallback(() => {
-    setScrollOffset(Math.max(0, turns.length - 1));
-  }, [turns.length]);
-
-  useEffect(() => {
-    if (isRunning) {
-      setScrollOffset(0);
-    }
-  }, [isRunning, turns.length]);
-
-  const isIdle = !isRunning && !isOverlayOpen;
+      addHistory(trimmed);
+      addTurn(trimmed, selectedMode);
+      clearInput();
+      startScenario(trimmed, selectedMode);
+    },
+    [
+      selectedMode,
+      startScenario,
+      addTurn,
+      clearInput,
+      openOverlay,
+      clearTurns,
+      compactTurns,
+      handleModeSelect,
+      addHistory,
+    ],
+  );
 
   useTerminalKeyboard({
     turns,
@@ -109,15 +119,14 @@ export const App: React.FC = () => {
     overlay,
     openOverlay,
     closeOverlay,
+    closeAllOverlays,
     abort,
     abortActiveTurn,
     markTurnSaved,
+    clearTurns,
     onToggleThinking: toggleThinking,
-    onInsertNewline: insertNewline,
-    onScrollUp: handleScrollUp,
-    onScrollDown: handleScrollDown,
-    onScrollToBottom: handleScrollToBottom,
-    onScrollToTop: handleScrollToTop,
+    activeConfirmation,
+    respondConfirmation,
   });
 
   useEffect(() => {
@@ -127,51 +136,32 @@ export const App: React.FC = () => {
     }
   }, [isRunning, events, activeTurn, completeActiveTurn]);
 
-  const dispatchCommand = useCallback(
-    (cmd: string) => {
-      clearInput();
-      commandService.dispatchCommand(cmd, {
-        openOverlay,
-        clearTurns,
-        compactTurns,
-        setMode: handleModeSelect,
-      });
-    },
-    [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect],
-  );
-
-  const handleSubmit = useCallback(
-    (value: string) => {
-      if (suppressSubmitRef.current) {
-        suppressSubmitRef.current = false;
-        return;
-      }
-      const trimmed = value.trim();
-      if (!trimmed) return;
-
-      if (trimmed.startsWith('/')) {
-        dispatchCommand(trimmed);
-        return;
-      }
-
-      addHistory(trimmed);
-      addTurn(trimmed, selectedMode);
-      clearInput();
-      startScenario(trimmed, selectedMode);
-    },
-    [selectedMode, startScenario, addTurn, clearInput, dispatchCommand, addHistory],
-  );
-
   const handleAutocompleteSelectWithRouter = useCallback(
     (cmd: string) => {
       if (cmd.startsWith('/')) {
-        dispatchCommand(cmd);
+        clearInput();
+        commandService.dispatchCommand(cmd, {
+          openOverlay,
+          clearTurns,
+          compactTurns,
+          setMode: handleModeSelect,
+        });
       } else {
         handleAutocompleteSelect(cmd);
       }
     },
-    [dispatchCommand, handleAutocompleteSelect],
+    [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect, handleAutocompleteSelect],
   );
+
+  const handleRetry = useCallback(() => {
+    if (activeTurn && !isRunning) {
+      startScenario(activeTurn.prompt, activeTurn.mode);
+    }
+  }, [activeTurn, isRunning, startScenario]);
+
+  const handleSetupComplete = useCallback(() => {
+    setStartupState({ phase: 'ready', result: startupState.result, error: null });
+  }, [startupState]);
 
   if (startupState.phase === 'loading') {
     return (
@@ -194,138 +184,153 @@ export const App: React.FC = () => {
   if (startupState.phase === 'setup' || startupState.phase === 'error') {
     return (
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-        <SetupWizard
-          startupState={startupState}
-          onComplete={() => {
-            setStartupState({ phase: 'ready', result: startupState.result, error: null });
-          }}
-        />
+        <SetupWizard startupState={startupState} onComplete={handleSetupComplete} />
       </Box>
     );
   }
 
-  const maxVisibleTurns = 2;
-  const totalTurns = turns.length;
-  const endIndex = Math.max(0, totalTurns - scrollOffset);
-  const startIndex = Math.max(0, endIndex - maxVisibleTurns);
-  const visibleTurns = turns.slice(startIndex, endIndex);
-
   return (
-    <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-      <WelcomeScreen workspace={workspace} />
+    <AppProvider
+      turns={turns}
+      activeTurn={activeTurn}
+      totalTokens={totalTokens}
+      events={events}
+      isRunning={isRunning}
+      overlay={overlay}
+      isOverlayOpen={isOverlayOpen}
+      selectedMode={selectedMode}
+      thinkingCollapsed={thinkingCollapsed}
+      activeConfirmation={activeConfirmation}
+    >
+      <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+        {turns.length === 0 && !isRunning && (
+          <>
+            <WelcomeScreen workspace={workspace} />
+            <Box flexDirection="column" paddingX={2} marginTop={1} marginBottom={1}>
+              <Text color={theme.colors.text.muted} bold>
+                Try asking:
+              </Text>
+              <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+                {[
+                  'Help me understand this codebase',
+                  'Run the test suite and show results',
+                  'Create a new module with proper structure',
+                ].map((suggestion, idx) => (
+                  <Box key={idx} flexDirection="row" marginBottom={0}>
+                    <Text color={theme.colors.status.accent}>{idx + 1}. </Text>
+                    <Text color={theme.colors.text.ethereal}>{suggestion}</Text>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </>
+        )}
 
-      {totalTurns > maxVisibleTurns && (
-        <Box flexDirection="row" justifyContent="space-between" paddingX={1} marginTop={1}>
-          <Text color={theme.colors.status.info} bold>
-            [VIEWPORT SCROLL] Turns {startIndex + 1}-{endIndex} of {totalTurns}
-          </Text>
-          <Text color={theme.colors.text.muted}>
-            [PgUp/PgDn / Shift+↑/↓: Scroll | Shift+End: Bottom]
-          </Text>
-        </Box>
-      )}
+        {/* Completed turns — rendered once via Static, immune to live event re-renders */}
+        <Static key={staticKey} items={completedTurns}>
+          {(turn, idx) => (
+            <Box key={turn.id} flexDirection="column" width="100%">
+              {idx > 0 && (
+                <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
+                  <Text color={theme.colors.border.muted}>
+                    {'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}
+                  </Text>
+                </Box>
+              )}
+              <Box marginTop={1} flexDirection="column" width="100%">
+                <UserMessageBlock prompt={turn.prompt} />
+                {turn.events.length > 0 && (
+                  <ScenarioRenderer
+                    events={turn.events}
+                    isRunning={false}
+                    isHistorical={true}
+                    thinkingCollapsed={thinkingCollapsed}
+                  />
+                )}
+              </Box>
+            </Box>
+          )}
+        </Static>
 
-      {/* Render visible turns within viewport scroll window */}
-      {visibleTurns.map((turn) => (
-        <Box key={turn.id} flexDirection="column" marginTop={1}>
-          <PromptHeader prompt={turn.prompt} mode={turn.mode} timestamp={turn.timestamp} />
-          {turn.events.length > 0 && (
+        {/* Currently running scenario */}
+        {isRunning && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
             <ScenarioRenderer
-              events={turn.events}
-              isRunning={false}
-              isHistorical={true}
+              events={events}
+              isRunning={isRunning}
+              isHistorical={false}
               thinkingCollapsed={thinkingCollapsed}
+              onRetry={handleRetry}
             />
-          )}
-        </Box>
-      ))}
+          </Box>
+        )}
 
-      {/* Currently running scenario */}
-      {isRunning && (
-        <Box flexDirection="column" marginTop={1}>
-          {activeTurn && (
-            <PromptHeader prompt={activeTurn.prompt} mode={activeTurn.mode} timestamp={activeTurn.timestamp} />
-          )}
-          <ScenarioRenderer
-            events={events}
-            isRunning={isRunning}
-            isHistorical={false}
-            thinkingCollapsed={thinkingCollapsed}
+        {/* Input box — hidden while any overlay/modal is active to prevent keypress leakage */}
+        {!showAutocomplete && !showFilePicker && !isOverlayOpen && (
+          <CommandInput
+            input={input}
+            onInputChange={handleInputChange}
+            onSubmit={handleSubmit}
+            disabled={isRunning}
+            attachments={attachments}
+            onRemoveAttachment={removeAttachment}
+            historyUp={historyUp}
+            historyDown={historyDown}
           />
-        </Box>
-      )}
+        )}
 
+        {/* Slash Command Palette */}
+        {showAutocomplete && (
+          <Box marginTop={1} width="100%">
+            <AutocompleteDropdown
+              input={input}
+              onSelect={handleAutocompleteSelectWithRouter}
+              onClose={closeAutocomplete}
+            />
+          </Box>
+        )}
 
-      {/* Input box */}
-      {isIdle && !showAutocomplete && !showFilePicker && (
-        <CommandInput
-          input={input}
-          selectedMode={selectedMode}
-          onInputChange={handleInputChange}
-          onSubmit={handleSubmit}
-        />
-      )}
+        {/* File Picker Modal */}
+        {showFilePicker && (
+          <Box marginTop={1} width="100%">
+            <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
+          </Box>
+        )}
 
-      {/* Slash Command Palette */}
-      {showAutocomplete && (
-        <Box marginTop={1}>
-          <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithRouter} />
-        </Box>
-      )}
+        {/* Session Status Bar removed as details are in CommandInput */}
 
-      {/* File Picker Modal */}
-      {showFilePicker && (
-        <Box marginTop={1}>
-          <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
-        </Box>
-      )}
+        {/* Overlays & Modals */}
+        {overlay === 'mode' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <ModeSelectScreen currentMode={selectedMode} onSelect={handleModeSelect} onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {/* Session Status Bar */}
-      {(turns.length > 0 || isRunning) && !showAutocomplete && !showFilePicker && (
-        <SessionStatusBar
-          mode={selectedMode}
-          totalTokens={totalTokens}
-          isRunning={isRunning}
-          workspaceName={workspace}
-        />
-      )}
+        {overlay === 'help' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <HelpModal onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {/* Overlays & Modals */}
-      {overlay === 'mode' && (
-        <Box flexDirection="column" marginTop={1}>
-          <ModeSelectScreen currentMode={selectedMode} onSelect={handleModeSelect} onClose={closeOverlay} />
-        </Box>
-      )}
+        {overlay === 'settings' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <SettingsModal onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {overlay === 'help' && (
-        <Box flexDirection="column" marginTop={1}>
-          <HelpModal onClose={closeOverlay} />
-        </Box>
-      )}
+        {overlay === 'context' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {overlay === 'settings' && (
-        <Box flexDirection="column" marginTop={1}>
-          <SettingsModal onClose={closeOverlay} />
-        </Box>
-      )}
-
-      {overlay === 'context' && (
-        <Box flexDirection="column" marginTop={1}>
-          <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={closeOverlay} />
-        </Box>
-      )}
-
-      {overlay === 'add-dir' && (
-        <Box flexDirection="column" marginTop={1}>
-          <AddDirModal currentWorkspace={workspace} onSelectDir={(dir) => setWorkspace(dir)} onClose={closeOverlay} />
-        </Box>
-      )}
-
-      {overlay === 'provider' && (
-        <Box flexDirection="column" marginTop={1}>
-          <ProvidersScreen onClose={closeOverlay} />
-        </Box>
-      )}
-    </Box>
+        {overlay === 'provider' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <SetupWizard startupState={startupState} onComplete={closeOverlay} mode="reconfigure" />
+          </Box>
+        )}
+      </Box>
+    </AppProvider>
   );
 };

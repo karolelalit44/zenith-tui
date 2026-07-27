@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { SuccessEvent } from '../../../types/scenario';
+import { formatTokenCount } from '../../../services/data/tokenEstimationService';
 
 interface SuccessCardProps {
   event: SuccessEvent;
@@ -10,41 +11,24 @@ interface SuccessCardProps {
 export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
-  const details: string[] = [];
+  const parts: string[] = [];
   if (event.iterations !== undefined) {
-    details.push(`${event.iterations} iter${event.iterations === 1 ? '' : 's'}`);
+    parts.push(`${event.iterations} iter${event.iterations === 1 ? '' : 's'}`);
   }
   if (event.tokenInfo) {
-    details.push(`${event.tokenInfo.used} tokens (${Math.round(event.tokenInfo.percent * 100)}%)`);
-  }
-  if (event.filesCreated && event.filesCreated.length > 0) {
-    details.push(`${event.filesCreated.length} file${event.filesCreated.length === 1 ? '' : 's'} created`);
-  }
-  if (event.commandsExecuted && event.commandsExecuted.length > 0) {
-    details.push(`${event.commandsExecuted.length} cmd${event.commandsExecuted.length === 1 ? '' : 's'}`);
+    parts.push(`${formatTokenCount(event.tokenInfo.used)} tokens`);
   }
 
   return (
-    <Box
-      flexDirection="row"
-      width="100%"
-      alignItems="center"
-      justifyContent="space-between"
-      marginBottom={1}
-      paddingX={1}
-    >
-      <Box flexDirection="row" alignItems="center" flexShrink={1}>
-        <Text color={theme.colors.status.success} bold>
-          ✔ [SUCCESS]{' '}
-        </Text>
-        <Text color={theme.colors.text.bright}>{event.message || 'Completed successfully'}</Text>
+    <Box flexDirection="column" width="100%" paddingX={1} marginBottom={1}>
+      <Box flexDirection="row" alignItems="center">
+        <Text color={theme.colors.status.success}>✓ </Text>
+        {parts.length > 0 ? (
+          <Text color={theme.colors.text.muted}>{parts.join(' · ')}</Text>
+        ) : (
+          <Text color={theme.colors.text.muted}>done</Text>
+        )}
       </Box>
-
-      {details.length > 0 && (
-        <Box flexDirection="row" alignItems="center" flexShrink={0} paddingLeft={2}>
-          <Text color={theme.colors.text.muted}>{details.join(' · ')}</Text>
-        </Box>
-      )}
     </Box>
   );
 });
