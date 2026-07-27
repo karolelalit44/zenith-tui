@@ -42,6 +42,13 @@ async def _startup() -> None:
     config = load_config()
     logger.info("Config loaded: provider=%s, db=%s", config.active_provider, config.db_path)
 
+    # Log the active provider's model from DB
+    active_prov = config.providers.get(config.active_provider) if config.providers else None
+    if active_prov:
+        logger.info("Active provider: %s, model=%s", config.active_provider, active_prov.model)
+    else:
+        logger.warning("Active provider '%s' not found in DB providers", config.active_provider)
+
     registry = ProviderRegistry.from_config(config.providers, config.active_provider)
     logger.info("Providers registered: %s", registry.list_providers())
 

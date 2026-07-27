@@ -13,8 +13,10 @@ export interface ConversationTurn {
 
 export interface UseConversationReturn {
   turns: ConversationTurn[];
+  completedTurns: ConversationTurn[];
   activeTurn: ConversationTurn | null;
   totalTokens: number;
+  staticKey: number;
   addTurn: (prompt: string, mode: ScenarioMode) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: () => void;
@@ -25,8 +27,14 @@ export interface UseConversationReturn {
 
 export function useConversation(): UseConversationReturn {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  const [staticKey, setStaticKey] = useState(0);
 
-  const activeTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+  const activeTurn = turns.length > 0 && !turns[turns.length - 1].isComplete
+    ? turns[turns.length - 1]
+    : null;
+  const completedTurns = activeTurn
+    ? turns.filter((t) => t.isComplete)
+    : turns;
 
   const totalTokens = useMemo(() => {
     return turns.reduce((sum, t) => {
@@ -93,6 +101,7 @@ export function useConversation(): UseConversationReturn {
 
   const clearTurns = useCallback(() => {
     setTurns([]);
+    setStaticKey((k) => k + 1);
   }, []);
 
   const compactTurns = useCallback(() => {
@@ -117,12 +126,15 @@ export function useConversation(): UseConversationReturn {
       };
       return [summaryTurn];
     });
+    setStaticKey((k) => k + 1);
   }, []);
 
   return {
     turns,
+    completedTurns,
     activeTurn,
     totalTokens,
+    staticKey,
     addTurn,
     completeActiveTurn,
     abortActiveTurn,

@@ -13,6 +13,8 @@ import type { AppStartupState, ProviderSetupRequest } from '../../types/startup'
 interface SetupWizardProps {
   startupState: AppStartupState;
   onComplete: () => void;
+  /** 'setup' = first-run wizard; 'reconfigure' = invoked from /provider command */
+  mode?: 'setup' | 'reconfigure';
 }
 
 type WizardStep = 'intro' | 'select_provider' | 'enter_key' | 'select_model' | 'validating' | 'done' | 'error';
@@ -27,13 +29,13 @@ const STEP_LABELS: Record<WizardStep, string> = {
   error: 'Error',
 };
 
-export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComplete }) => {
+export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComplete, mode = 'setup' }) => {
   const { theme } = useTheme();
-  const [step, setStep] = useState<WizardStep>('intro');
+  const isReconfigure = mode === 'reconfigure';
+  const [step, setStep] = useState<WizardStep>(isReconfigure ? 'select_provider' : 'intro');
   const [providers] = useState<ProviderState[]>(() => providerService.getAllProviders());
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [apiKeyInput, setApiKeyInput] = useState('');
-  const [modelIdx, setModelIdx] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [editingField, setEditingField] = useState(false);
   const [typingBuffer, setTypingBuffer] = useState('');
@@ -41,26 +43,41 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
 
   const selectedProvider = providers[selectedIdx] || providers[0];
   const models = selectedProvider.meta.availableModels || [];
+  const defaultModelIndex = Math.max(0, models.findIndex((m) => m.id === selectedProvider.meta.defaultModel));
+
+  const [modelIdx, setModelIdx] = useState(0);
+  // Re-sync modelIdx when selectedProvider changes
+  React.useEffect(() => {
+    setModelIdx(defaultModelIndex);
+  }, [selectedProvider.id]);
 
   const handleValidateAndSave = useCallback(async () => {
     setStep('validating');
-    const request: ProviderSetupRequest = {
+    const userSelectedModel = models[modelIdx]?.id || selectedProvider.meta.defaultModel;
+    const validationModel = selectedProvider.meta.defaultModel;
+
+    const validationRequest: ProviderSetupRequest = {
       provider: selectedProvider.id,
       api_key: apiKeyInput,
-      model: models[modelIdx]?.id || selectedProvider.meta.defaultModel,
+      model: validationModel,
       base_url: selectedProvider.config.baseUrl || '',
       max_tokens: 4096,
       temperature: 0.7,
     };
 
-    const validation = await startupService.validateProvider(request);
+    const validation = await startupService.validateProvider(validationRequest);
     if (!validation.valid) {
       setErrorMsg(validation.message);
       setStep('error');
       return;
     }
 
-    const saveResult = await startupService.saveProviderConfig(request);
+    const saveRequest: ProviderSetupRequest = {
+      ...validationRequest,
+      model: userSelectedModel,
+    };
+
+    const saveResult = await startupService.saveProviderConfig(saveRequest);
     if (!saveResult.valid) {
       setErrorMsg(saveResult.message);
       setStep('error');
@@ -68,14 +85,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
     }
 
     setStep('done');
-    const revalidated = await startupService.revalidateAfterSetup();
-    if (revalidated.phase === 'ready') {
+    if (isReconfigure) {
       onComplete();
     } else {
-      setErrorMsg('Validation still failing after setup. Check configuration.');
-      setStep('error');
+      const revalidated = await startupService.revalidateAfterSetup();
+      if (revalidated.phase === 'ready') {
+        onComplete();
+      } else {
+        setErrorMsg('Validation still failing after setup. Check configuration.');
+        setStep('error');
+      }
     }
-  }, [selectedProvider, apiKeyInput, modelIdx, models, onComplete]);
+  }, [selectedProvider, apiKeyInput, modelIdx, models, onComplete, isReconfigure]);
 
   useInput((char, key) => {
     if (step === 'intro') {
@@ -150,7 +171,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   });
 
   const renderMissingSummary = () => {
-    if (!startupState.result) return null;
+    if (isReconfigure || !startupState.result) return null;
     const labels: Record<string, string> = {
       provider: 'AI Provider',
       model: 'Model Selection',
@@ -418,10 +439,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
     <Box flexDirection="column">
       <Box marginBottom={1}>
         <Text color={theme.colors.status.warning} bold>
-          ⚙ Setup Required
+          ⚙ {isReconfigure ? 'Provider Configuration' : 'Setup Required'}
         </Text>
       </Box>
-      <Text color={theme.colors.text.ethereal}>Before you can start using Zenith, some configuration is needed.</Text>
+      <Text color={theme.colors.text.ethereal}>
+        {isReconfigure
+          ? 'Select and configure an AI provider.'
+          : 'Before you can start using Zenith, some configuration is needed.'}
+      </Text>
       {renderMissingSummary()}
       <Box marginTop={1}>
         <Text color={theme.colors.text.dim} italic>

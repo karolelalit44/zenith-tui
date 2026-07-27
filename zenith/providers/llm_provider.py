@@ -39,10 +39,14 @@ _PROVIDER_KEY_ENV: dict[str, str] = {
 
 
 def _to_litellm_model(prefix: str, model_id: str) -> str:
-    """Convert a model ID to LiteLLM format using catalog-driven prefix."""
+    """Convert a model ID to LiteLLM format using catalog-driven prefix.
+
+    Always prepends the prefix. LiteLLM strips one level of provider prefix,
+    so for OpenRouter model ``openrouter/free`` with prefix ``openrouter/``
+    the result ``openrouter/openrouter/free`` correctly resolves — LiteLLM
+    strips the first ``openrouter/`` and sends ``openrouter/free`` to the API.
+    """
     if not prefix:
-        return model_id
-    if model_id.startswith(prefix):
         return model_id
     return f"{prefix}{model_id}"
 
@@ -141,6 +145,10 @@ class LLMProvider(BaseProvider):
         # Set API key for LiteLLM
         _set_api_key(name, self.api_key)
 
+        # Auto-drop unsupported params (e.g. temperature for O-series reasoning models)
+        import litellm
+        litellm.drop_params = True
+
         # Read litellm_prefix from catalog (config-driven, not hardcoded)
         litellm_prefix = provider_entry.get("litellm_prefix", "")
         self._litellm_model = _to_litellm_model(litellm_prefix, self.model)
@@ -164,7 +172,7 @@ class LLMProvider(BaseProvider):
             "stream": stream,
         }
 
-        if self.base_url:
+        if self.base_url and not self._litellm_model.startswith("gemini/"):
             kwargs["api_base"] = self.base_url
 
         if self.api_key:

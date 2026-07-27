@@ -26,14 +26,14 @@
       "models": [
         {
           "id": "openrouter/free",
-          "name": "OpenRouter Free Router",
-          "description": "Meta router that randomly selects from available free models. Supports tool calling, structured output, and reasoning. Model varies per request. Verified: connects, FC works. Rate limited to 50 RPD without credits.",
+          "name": "Free Models Router",
+          "description": "Meta router that randomly selects from available free models. Supports tool calling, structured output, and reasoning. Model varies per request.",
           "context_window": 131072,
           "parameters": "varies",
           "architecture": "Router (meta)",
           "input_modalities": ["text"],
           "output_modalities": ["text"],
-          "tags": ["router", "free", "meta"],
+          "tags": ["router", "free", "meta", "default"],
           "model_capabilities": {
             "function_calling": true,
             "structured_output": true,
@@ -46,8 +46,7 @@
             "method": "openrouter-smoke-v1",
             "date": "2026-07-26",
             "connectivity": "confirmed",
-            "fc": "confirmed",
-            "note": "Full 10-test benchmark pending (50 RPD limit hit)"
+            "fc": "confirmed"
           },
           "is_default": true
         },
@@ -104,32 +103,6 @@
           }
         },
         {
-          "id": "inclusionai/ling-3.0-flash:free",
-          "name": "Inclusion AI Ling 3.0 Flash",
-          "description": "Inclusion AI flash model. Free on OpenRouter. Supports tools and reasoning. Verified: connects, FC works.",
-          "context_window": 131072,
-          "parameters": "unknown",
-          "architecture": "Dense Transformer",
-          "input_modalities": ["text"],
-          "output_modalities": ["text"],
-          "tags": ["free", "flash", "coding"],
-          "model_capabilities": {
-            "function_calling": true,
-            "structured_output": true,
-            "reasoning": true,
-            "thinking": false
-          },
-          "speed_tier": "fast",
-          "best_for": ["quick responses", "simple coding", "free tier"],
-          "benchmark": {
-            "method": "openrouter-smoke-v1",
-            "date": "2026-07-26",
-            "connectivity": "confirmed",
-            "fc": "confirmed",
-            "avg_latency_s": 2.0
-          }
-        },
-        {
           "id": "cohere/north-mini-code:free",
           "name": "Cohere North Mini Code",
           "description": "Cohere code-focused mini model. Free on OpenRouter. Supports tools and reasoning. Verified: connects, FC works.",
@@ -181,6 +154,9 @@
       "models": [
         { "id": "gpt-4o-mini", "name": "GPT-4o Mini", "context_window": 128000, "is_default": true },
         { "id": "gpt-4o", "name": "GPT-4o", "context_window": 128000 },
+        { "id": "o3-mini", "name": "o3-mini", "context_window": 200000 },
+        { "id": "o3", "name": "o3", "context_window": 200000 },
+        { "id": "o4-mini", "name": "o4-mini", "context_window": 200000 },
         { "id": "gpt-4-turbo", "name": "GPT-4 Turbo", "context_window": 128000 },
         { "id": "gpt-4", "name": "GPT-4", "context_window": 8192 },
         { "id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo", "context_window": 16385 }
@@ -597,7 +573,7 @@
       "description": "Google Gemini AI models via AI Studio. Free tier with generous quotas. Supports thinking, function calling, multimodal.",
       "adapter": "gemini",
       "litellm_prefix": "gemini/",
-      "default_model": "gemini-2.0-flash",
+      "default_model": "gemini-3.5-flash-lite",
       "base_url": "https://generativelanguage.googleapis.com",
       "api_key_prefix": "AQ.",
       "requires_api_key": true,
@@ -638,8 +614,7 @@
             "fc": "confirmed",
             "fc_latency_s": 32.3,
             "note": "rate-limited on free tier, may be slow"
-          },
-          "is_default": true
+          }
         },
         {
           "id": "gemini-2.0-flash-lite",
@@ -929,63 +904,6 @@
             "fc": "rate-limited",
             "note": "429 on free tier"
           }
-        },
-        {
-          "id": "gemini-3.1-flash-lite",
-          "name": "Gemini 3.1 Flash-Lite",
-          "description": "Lightweight 3.1 flash. Ultra-fast with decent quality.",
-          "context_window": 1048576,
-          "parameters": "unknown",
-          "architecture": "Dense Transformer",
-          "input_modalities": ["text", "image"],
-          "output_modalities": ["text"],
-          "tags": ["ultra-fast", "lightweight"],
-          "model_capabilities": {
-            "function_calling": true,
-            "structured_output": true,
-            "reasoning": false,
-            "thinking": false
-          },
-          "speed_tier": "fast",
-          "best_for": ["quick responses", "simple coding"]
-        },
-        {
-          "id": "gemma-4-26b-a4b-it",
-          "name": "Gemma 4 26B A4B IT",
-          "description": "Google's open-source 26B model (A4B active). Thinking support. Good for on-device and fine-tuning.",
-          "context_window": 131072,
-          "parameters": "26B (A4B active)",
-          "architecture": "Mixture of Experts",
-          "input_modalities": ["text"],
-          "output_modalities": ["text"],
-          "tags": ["open-source", "thinking", "lightweight"],
-          "model_capabilities": {
-            "function_calling": true,
-            "structured_output": true,
-            "reasoning": true,
-            "thinking": true
-          },
-          "speed_tier": "fast",
-          "best_for": ["on-device", "fine-tuning", "lightweight reasoning"]
-        },
-        {
-          "id": "gemma-4-31b-it",
-          "name": "Gemma 4 31B IT",
-          "description": "Google's open-source 31B model. Thinking support. Strong for its size.",
-          "context_window": 131072,
-          "parameters": "31B",
-          "architecture": "Dense Transformer",
-          "input_modalities": ["text"],
-          "output_modalities": ["text"],
-          "tags": ["open-source", "thinking", "coding"],
-          "model_capabilities": {
-            "function_calling": true,
-            "structured_output": true,
-            "reasoning": true,
-            "thinking": true
-          },
-          "speed_tier": "fast",
-          "best_for": ["code generation", "reasoning", "on-device"]
         }
       ]
     },

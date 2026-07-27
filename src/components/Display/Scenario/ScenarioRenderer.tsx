@@ -39,7 +39,7 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
 });
 
 class EventErrorBoundary extends Component<
-  { children: ReactNode; eventKind: string },
+  { children: ReactNode; eventKind: string; errorColor: string },
   { hasError: boolean }
 > {
   state = { hasError: false };
@@ -52,7 +52,7 @@ class EventErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <Box paddingX={1} marginBottom={1}>
-          <Text color="yellow">[Render error in {this.props.eventKind} event — skipped]</Text>
+          <Text color={this.props.errorColor}>[Render error in {this.props.eventKind} event — skipped]</Text>
         </Box>
       );
     }
@@ -62,6 +62,7 @@ class EventErrorBoundary extends Component<
 
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
   ({ events, isRunning, isHistorical = false, thinkingCollapsed = false, onRetry, onDismiss }) => {
+    const { theme } = useTheme();
     const showLiveIndicator = isRunning && !isHistorical;
 
     const renderContext = useMemo(() => ({
@@ -79,7 +80,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       <Box flexDirection="column" width="100%">
         {hasOverflow && (
           <Box paddingX={1} marginBottom={1}>
-            <Text color="gray" italic>
+            <Text color={theme.colors.text.muted} italic>
               ... {events.length - MAX_VISIBLE_EVENTS} earlier events hidden
             </Text>
           </Box>
@@ -88,7 +89,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         {visibleEvents.map((event) => {
           const Component = componentRegistry.getComponent(event.kind);
           return (
-            <EventErrorBoundary key={event.id} eventKind={event.kind}>
+            <EventErrorBoundary key={event.id} eventKind={event.kind} errorColor={theme.colors.status.warning}>
               <Component event={event} context={renderContext} />
             </EventErrorBoundary>
           );

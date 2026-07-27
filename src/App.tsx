@@ -1,4 +1,4 @@
-import { Box, Text } from 'ink';
+import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useState } from 'react';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScenarioRenderer } from './components/Display/Scenario';
@@ -14,11 +14,10 @@ import { useOverlayManager } from './hooks/useOverlayManager';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { useTickAnimation } from './hooks/useTickAnimation';
-import { AddDirModal } from './screens/AddDir/AddDirModal';
 import { ContextModal } from './screens/Context/ContextModal';
 import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
-import { ProvidersScreen } from './screens/Providers/ProvidersScreen';
+
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
@@ -48,8 +47,10 @@ export const App: React.FC = () => {
   }, []);
   const {
     turns,
+    completedTurns,
     activeTurn,
     totalTokens,
+    staticKey,
     addTurn,
     completeActiveTurn,
     abortActiveTurn,
@@ -152,10 +153,6 @@ export const App: React.FC = () => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });
   }, [startupState]);
 
-  const handleSelectDir = useCallback((dir: string) => {
-    setWorkspace(dir);
-  }, []);
-
   if (startupState.phase === 'loading') {
     return (
       <Box
@@ -226,11 +223,9 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {turns.map((turn, idx) => {
-        // Skip the active turn in the historical list — it renders separately below
-        const isActiveTurn = isRunning && activeTurn && turn.id === activeTurn.id;
-        if (isActiveTurn) return null;
-        return (
+      {/* Completed turns — rendered once via Static, immune to live event re-renders */}
+      <Static key={staticKey} items={completedTurns}>
+        {(turn, idx) => (
           <Box key={turn.id} flexDirection="column" width="100%">
             {idx > 0 && (
               <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
@@ -249,8 +244,8 @@ export const App: React.FC = () => {
               )}
             </Box>
           </Box>
-        );
-      })}
+        )}
+      </Static>
 
       {/* Currently running scenario */}
       {isRunning && (
@@ -333,15 +328,13 @@ export const App: React.FC = () => {
         </Box>
       )}
 
-      {overlay === 'add-dir' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <AddDirModal currentWorkspace={workspace} onSelectDir={handleSelectDir} onClose={closeOverlay} />
-        </Box>
-      )}
-
       {overlay === 'provider' && (
         <Box flexDirection="column" marginTop={1} width="100%">
-          <ProvidersScreen onClose={closeOverlay} />
+          <SetupWizard
+            startupState={startupState}
+            onComplete={closeOverlay}
+            mode="reconfigure"
+          />
         </Box>
       )}
     </Box>
