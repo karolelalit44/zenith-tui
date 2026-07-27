@@ -17,10 +17,8 @@ zenith.db
 
 # User-specific runtime config
 user_profile.json
-~/.zenith/
 
 # Reference repositories (large, not part of source)
 reference_repo/
 
-# Windows artifact prevention
-nul
+

@@ -1,7 +1,7 @@
 import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useState } from 'react';
-import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScenarioRenderer } from './components/Display/Scenario';
+import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
@@ -11,13 +11,13 @@ import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
+import { useProvider } from './hooks/useProvider';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { useTickAnimation } from './hooks/useTickAnimation';
 import { ContextModal } from './screens/Context/ContextModal';
 import { HelpModal } from './screens/Help/HelpModal';
 import { ModeSelectScreen } from './screens/ModeSelect';
-
 import { SettingsModal } from './screens/Settings/SettingsModal';
 import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
@@ -25,7 +25,6 @@ import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
 import { loadUserProfile } from './services/data/userProfileService';
-import { useProvider } from './hooks/useProvider';
 import { useTheme } from './theme/ThemeContext';
 import type { AppStartupState } from './types/startup';
 
@@ -58,7 +57,8 @@ export const App: React.FC = () => {
     clearTurns,
     compactTurns,
   } = useConversation();
-  const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, closeAllOverlays, handleModeSelect } = useOverlayManager();
+  const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, closeAllOverlays, handleModeSelect } =
+    useOverlayManager();
   const {
     input,
     showAutocomplete,
@@ -99,7 +99,17 @@ export const App: React.FC = () => {
       clearInput();
       startScenario(trimmed, selectedMode);
     },
-    [selectedMode, startScenario, addTurn, clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect, addHistory],
+    [
+      selectedMode,
+      startScenario,
+      addTurn,
+      clearInput,
+      openOverlay,
+      clearTurns,
+      compactTurns,
+      handleModeSelect,
+      addHistory,
+    ],
   );
 
   useTerminalKeyboard({
@@ -174,10 +184,7 @@ export const App: React.FC = () => {
   if (startupState.phase === 'setup' || startupState.phase === 'error') {
     return (
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-        <SetupWizard
-          startupState={startupState}
-          onComplete={handleSetupComplete}
-        />
+        <SetupWizard startupState={startupState} onComplete={handleSetupComplete} />
       </Box>
     );
   }
@@ -195,149 +202,135 @@ export const App: React.FC = () => {
       thinkingCollapsed={thinkingCollapsed}
       activeConfirmation={activeConfirmation}
     >
-    <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-      {turns.length === 0 && !isRunning ? (
-        <>
-          <WelcomeScreen workspace={workspace} />
-          <Box flexDirection="column" paddingX={2} marginTop={1} marginBottom={1}>
-            <Text color={theme.colors.text.muted} bold>Try asking:</Text>
-            <Box flexDirection="column" marginTop={1} paddingLeft={1}>
-              {['Help me understand this codebase', 'Run the test suite and show results', 'Create a new module with proper structure'].map((suggestion, idx) => (
-                <Box key={idx} flexDirection="row" marginBottom={0}>
-                  <Text color={theme.colors.status.accent}>{idx + 1}. </Text>
-                  <Text color={theme.colors.text.ethereal}>{suggestion}</Text>
-                </Box>
-              ))}
-            </Box>
-          </Box>
-        </>
-      ) : (
-        <Box flexDirection="row" alignItems="center" paddingX={1} marginBottom={1}>
-          <Text color={theme.colors.text.muted} bold>zenith</Text>
-          <Text color={theme.colors.text.muted}> · </Text>
-          <Text color={theme.colors.status.success}>{activeProvider.meta.name}</Text>
-          <Text color={theme.colors.text.muted}> · </Text>
-          <Text color={theme.colors.text.ethereal}>{activeProvider.config.model || activeProvider.meta.defaultModel}</Text>
-          <Text color={theme.colors.text.muted}> · </Text>
-          <Text color={theme.colors.text.dim}>{workspace}</Text>
-        </Box>
-      )}
-
-      {/* Completed turns — rendered once via Static, immune to live event re-renders */}
-      <Static key={staticKey} items={completedTurns}>
-        {(turn, idx) => (
-          <Box key={turn.id} flexDirection="column" width="100%">
-            {idx > 0 && (
-              <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
-                <Text color={theme.colors.border.muted}>{'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}</Text>
+      <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+        {turns.length === 0 && !isRunning && (
+          <>
+            <WelcomeScreen workspace={workspace} />
+            <Box flexDirection="column" paddingX={2} marginTop={1} marginBottom={1}>
+              <Text color={theme.colors.text.muted} bold>
+                Try asking:
+              </Text>
+              <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+                {[
+                  'Help me understand this codebase',
+                  'Run the test suite and show results',
+                  'Create a new module with proper structure',
+                ].map((suggestion, idx) => (
+                  <Box key={idx} flexDirection="row" marginBottom={0}>
+                    <Text color={theme.colors.status.accent}>{idx + 1}. </Text>
+                    <Text color={theme.colors.text.ethereal}>{suggestion}</Text>
+                  </Box>
+                ))}
               </Box>
-            )}
-            <Box marginTop={1} flexDirection="column" width="100%">
-              <UserMessageBlock prompt={turn.prompt} />
-              {turn.events.length > 0 && (
-                <ScenarioRenderer
-                  events={turn.events}
-                  isRunning={false}
-                  isHistorical={true}
-                  thinkingCollapsed={thinkingCollapsed}
-                />
-              )}
             </Box>
+          </>
+        )}
+
+        {/* Completed turns — rendered once via Static, immune to live event re-renders */}
+        <Static key={staticKey} items={completedTurns}>
+          {(turn, idx) => (
+            <Box key={turn.id} flexDirection="column" width="100%">
+              {idx > 0 && (
+                <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
+                  <Text color={theme.colors.border.muted}>
+                    {'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}
+                  </Text>
+                </Box>
+              )}
+              <Box marginTop={1} flexDirection="column" width="100%">
+                <UserMessageBlock prompt={turn.prompt} />
+                {turn.events.length > 0 && (
+                  <ScenarioRenderer
+                    events={turn.events}
+                    isRunning={false}
+                    isHistorical={true}
+                    thinkingCollapsed={thinkingCollapsed}
+                  />
+                )}
+              </Box>
+            </Box>
+          )}
+        </Static>
+
+        {/* Currently running scenario */}
+        {isRunning && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
+            <ScenarioRenderer
+              events={events}
+              isRunning={isRunning}
+              isHistorical={false}
+              thinkingCollapsed={thinkingCollapsed}
+              onRetry={handleRetry}
+            />
           </Box>
         )}
-      </Static>
 
-      {/* Currently running scenario */}
-      {isRunning && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          {activeTurn && (
-            <UserMessageBlock prompt={activeTurn.prompt} />
-          )}
-          <ScenarioRenderer
-            events={events}
-            isRunning={isRunning}
-            isHistorical={false}
-            thinkingCollapsed={thinkingCollapsed}
-            onRetry={handleRetry}
+        {/* Input box — hidden while any overlay/modal is active to prevent keypress leakage */}
+        {!showAutocomplete && !showFilePicker && !isOverlayOpen && (
+          <CommandInput
+            input={input}
+            onInputChange={handleInputChange}
+            onSubmit={handleSubmit}
+            disabled={isRunning}
+            attachments={attachments}
+            onRemoveAttachment={removeAttachment}
+            historyUp={historyUp}
+            historyDown={historyDown}
           />
-        </Box>
-      )}
+        )}
 
-      {/* Input box */}
-      {!showAutocomplete && !showFilePicker && (
-        <CommandInput
-          input={input}
-          onInputChange={handleInputChange}
-          onSubmit={handleSubmit}
-          disabled={isRunning}
-          attachments={attachments}
-          onRemoveAttachment={removeAttachment}
-          historyUp={historyUp}
-          historyDown={historyDown}
-        />
-      )}
+        {/* Slash Command Palette */}
+        {showAutocomplete && (
+          <Box marginTop={1} width="100%">
+            <AutocompleteDropdown
+              input={input}
+              onSelect={handleAutocompleteSelectWithRouter}
+              onClose={closeAutocomplete}
+            />
+          </Box>
+        )}
 
-      {/* Slash Command Palette */}
-      {showAutocomplete && (
-        <Box marginTop={1} width="100%">
-          <AutocompleteDropdown input={input} onSelect={handleAutocompleteSelectWithRouter} onClose={closeAutocomplete} />
-        </Box>
-      )}
+        {/* File Picker Modal */}
+        {showFilePicker && (
+          <Box marginTop={1} width="100%">
+            <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
+          </Box>
+        )}
 
-      {/* File Picker Modal */}
-      {showFilePicker && (
-        <Box marginTop={1} width="100%">
-          <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
-        </Box>
-      )}
+        {/* Session Status Bar removed as details are in CommandInput */}
 
-      {/* Session Status Bar */}
-      {(turns.length > 0 || isRunning) && !showAutocomplete && !showFilePicker && (
-        <SessionStatusBar
-          mode={selectedMode}
-          totalTokens={totalTokens}
-          isRunning={isRunning}
-          isOverlayOpen={isOverlayOpen}
-          hasEvents={turns.length > 0}
-          workspaceName={workspace}
-        />
-      )}
+        {/* Overlays & Modals */}
+        {overlay === 'mode' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <ModeSelectScreen currentMode={selectedMode} onSelect={handleModeSelect} onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {/* Overlays & Modals */}
-      {overlay === 'mode' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <ModeSelectScreen currentMode={selectedMode} onSelect={handleModeSelect} onClose={closeOverlay} />
-        </Box>
-      )}
+        {overlay === 'help' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <HelpModal onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {overlay === 'help' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <HelpModal onClose={closeOverlay} />
-        </Box>
-      )}
+        {overlay === 'settings' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <SettingsModal onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {overlay === 'settings' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <SettingsModal onClose={closeOverlay} />
-        </Box>
-      )}
+        {overlay === 'context' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={closeOverlay} />
+          </Box>
+        )}
 
-      {overlay === 'context' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={closeOverlay} />
-        </Box>
-      )}
-
-      {overlay === 'provider' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <SetupWizard
-            startupState={startupState}
-            onComplete={closeOverlay}
-            mode="reconfigure"
-          />
-        </Box>
-      )}
-    </Box>
+        {overlay === 'provider' && (
+          <Box flexDirection="column" marginTop={1} width="100%">
+            <SetupWizard startupState={startupState} onComplete={closeOverlay} mode="reconfigure" />
+          </Box>
+        )}
+      </Box>
     </AppProvider>
   );
 };

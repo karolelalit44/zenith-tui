@@ -14,10 +14,7 @@ const MAX_MESSAGE_LENGTH = 200;
 export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
 
-  const isLong = event.message.length > MAX_MESSAGE_LENGTH;
-  const displayMessage = isLong
-    ? event.message.slice(0, MAX_MESSAGE_LENGTH - 3) + '...'
-    : event.message;
+  const displayMessage = event.message.trim();
 
   const badge = event.recoverable ? '[ERROR]' : '[FAILED]';
 
@@ -26,16 +23,18 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, contex
       <Box
         flexDirection="column"
         width="100%"
-        borderStyle="round"
+        borderStyle="single"
+        borderTop={false}
+        borderRight={false}
+        borderBottom={false}
         borderColor={theme.colors.status.error}
-        paddingX={1}
-        paddingY={1}
+        paddingLeft={1}
       >
-        <Box flexDirection="row" alignItems="center" marginBottom={0} flexWrap="wrap">
+        <Box flexDirection="row" alignItems="flex-start" marginBottom={0} flexWrap="wrap">
           <Text color={theme.colors.status.error} bold>
             {badge}{' '}
           </Text>
-          <Text color={theme.colors.text.bright} bold wrap="wrap">
+          <Text color={theme.colors.text.bright} wrap="wrap">
             {displayMessage}
           </Text>
         </Box>
@@ -43,7 +42,7 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, contex
         {event.code && (
           <Box flexDirection="row" marginTop={0}>
             <Text color={theme.colors.text.muted}>Code: </Text>
-            <Text color={theme.colors.status.warning} wrap="wrap">
+            <Text color={theme.colors.status.warning}>
               {event.code}
             </Text>
           </Box>
@@ -52,13 +51,13 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, contex
         {event.provider && (
           <Box flexDirection="row" marginTop={0}>
             <Text color={theme.colors.text.muted}>Provider: </Text>
-            <Text color={theme.colors.text.bright} wrap="wrap">
+            <Text color={theme.colors.text.bright}>
               {event.provider}
             </Text>
           </Box>
         )}
 
-        <Box flexDirection="row" alignItems="center" justifyContent="flex-end" flexWrap="wrap" marginTop={0}>
+        <Box flexDirection="row" alignItems="center" flexWrap="wrap" marginTop={0}>
           <Text color={theme.colors.text.muted}>
             {event.recoverable ? 'Recoverable' : 'Execution halted'}
           </Text>

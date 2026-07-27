@@ -33,7 +33,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   const { theme } = useTheme();
   const isReconfigure = mode === 'reconfigure';
   const [step, setStep] = useState<WizardStep>(isReconfigure ? 'select_provider' : 'intro');
-  const [providers] = useState<ProviderState[]>(() => providerService.getAllProviders());
+  const [providers, setProviders] = useState<ProviderState[]>(() => providerService.getAllProviders());
+
+  React.useEffect(() => {
+    providerService.refreshFromBackend().then(() => {
+      setProviders(providerService.getAllProviders());
+    });
+  }, []);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -43,7 +49,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
 
   const selectedProvider = providers[selectedIdx] || providers[0];
   const models = selectedProvider.meta.availableModels || [];
-  const defaultModelIndex = Math.max(0, models.findIndex((m) => m.id === selectedProvider.meta.defaultModel));
+  const defaultModelIndex = Math.max(
+    0,
+    models.findIndex((m) => m.id === selectedProvider.meta.defaultModel),
+  );
 
   const [modelIdx, setModelIdx] = useState(0);
   // Re-sync modelIdx when selectedProvider changes
@@ -85,18 +94,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
     }
 
     setStep('done');
-    if (isReconfigure) {
-      onComplete();
-    } else {
-      const revalidated = await startupService.revalidateAfterSetup();
-      if (revalidated.phase === 'ready') {
-        onComplete();
-      } else {
-        setErrorMsg('Validation still failing after setup. Check configuration.');
-        setStep('error');
-      }
-    }
-  }, [selectedProvider, apiKeyInput, modelIdx, models, onComplete, isReconfigure]);
+    await startupService.revalidateAfterSetup();
+    onComplete();
+  }, [selectedProvider, apiKeyInput, modelIdx, models, onComplete]);
 
   useInput((char, key) => {
     if (step === 'intro') {
@@ -552,7 +552,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
         <Box flexDirection="column" minHeight={6}>
           {renderStepContent()}
         </Box>
-        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderTop={true}
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
+          borderColor={theme.colors.border.muted}
+        >
           <Text color={theme.colors.text.muted}>{renderHotkeys()}</Text>
         </Box>
       </Box>

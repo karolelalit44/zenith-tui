@@ -79,7 +79,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         )}
         <Text color={theme.colors.text.muted}> · </Text>
         <Text color={theme.colors.text.muted} underline>
-          Shift+T to toggle
+          Ctrl+T to toggle
         </Text>
       </Box>
 

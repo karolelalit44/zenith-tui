@@ -192,8 +192,9 @@ export class BackendScenarioProvider implements ScenarioProvider {
         const hasIterations = typeof data?.iterations === 'number';
         isTerminal = hasIterations;
       } else if (kind === 'error') {
-        const isRecoverable = Boolean(data && typeof data === 'object' && data.recoverable === true);
-        isTerminal = !isRecoverable;
+        // All errors (even recoverable ones) terminate the current execution run
+        // so the UI unlocks and the user can hit Retry or type a new command.
+        isTerminal = true;
       }
 
       if (isTerminal) {

@@ -73,15 +73,18 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       onDismiss,
     }), [thinkingCollapsed, isHistorical, isRunning, onRetry, onDismiss]);
 
-    const hasOverflow = events.length > MAX_VISIBLE_EVENTS;
-    const visibleEvents = hasOverflow ? events.slice(-MAX_VISIBLE_EVENTS) : events;
+    // Use a small limit for dynamic rendering to avoid Ink scrolling bugs.
+    // For historical (Static) renders, show all events.
+    const dynamicLimit = 8;
+    const hasOverflow = !isHistorical && events.length > dynamicLimit;
+    const visibleEvents = hasOverflow ? events.slice(-dynamicLimit) : events;
 
     return (
       <Box flexDirection="column" width="100%">
         {hasOverflow && (
           <Box paddingX={1} marginBottom={1}>
             <Text color={theme.colors.text.muted} italic>
-              ... {events.length - MAX_VISIBLE_EVENTS} earlier events hidden
+              ... {events.length - dynamicLimit} earlier events hidden
             </Text>
           </Box>
         )}

@@ -51,6 +51,10 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const modeLabel = mode === 'plan' ? '[PLAN]' : '[BUILD]';
     const modeColor = theme.colors.text.emerald;
 
+    const columns = process.stdout.columns ?? 80;
+    const isSmall = columns < 65;
+    const isMedium = columns < 90;
+
     return (
       <Box
         flexDirection="column"
@@ -79,47 +83,46 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           </Text>
           <Box flexDirection="column" flexGrow={1}>
             {disabled ? (
-              <Box flexDirection="row" alignItems="center">
+              <Box flexDirection="row" alignItems="center" minHeight={1}>
                 <Text color={theme.colors.text.muted} italic>
                   Processing... (Esc to cancel)
                 </Text>
               </Box>
             ) : (
-              <>
-                <MultiLineTextInput
-                  value={input}
-                  onChange={onInputChange}
-                  onSubmit={onSubmit}
-                  placeholder="Ask anything..."
-                  focus={!disabled}
-                  historyUp={historyUp}
-                  historyDown={historyDown}
-                />
-                <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
-                  <Box flexDirection="row">
-                    <Text color={modeColor}>{modeLabel} </Text>
-                    <Text color={theme.colors.status.accent}>◇ </Text>
-                    <Text color={theme.colors.text.muted}>
-                      {modelShort} · {providerName}
-                    </Text>
-                  </Box>
-                  <Box flexDirection="row">
-                    <Text color={theme.colors.text.dim}>
-                      {shortDir}
-                      {branch ? (
-                        <>
-                          {' '}
-                          <Text color={theme.colors.text.emerald}>(</Text>
-                          <Text color={theme.colors.text.emerald}>{branch}</Text>
-                          <Text color={theme.colors.text.emerald}>)</Text>
-                        </>
-                      ) : null}{' '}
-                      {formatTokenCount(totalTokens)} tok {contextPercent}%
-                    </Text>
-                  </Box>
-                </Box>
-              </>
+              <MultiLineTextInput
+                value={input}
+                onChange={onInputChange}
+                onSubmit={onSubmit}
+                placeholder="Ask anything..."
+                focus={!disabled}
+                historyUp={historyUp}
+                historyDown={historyDown}
+              />
             )}
+
+            {/* Secondary status row — ALWAYS rendered to keep height stable */}
+            <Box flexDirection="row" justifyContent="space-between" marginTop={1} width="100%">
+              <Box flexDirection="row" flexShrink={1}>
+                <Text color={modeColor}>{modeLabel} </Text>
+                <Text color={theme.colors.status.accent}>◇ </Text>
+                <Text color={theme.colors.text.muted} wrap="truncate-end">
+                  {modelShort}
+                  {!isSmall ? ` · ${providerName}` : ''}
+                </Text>
+              </Box>
+
+              <Box flexDirection="row" flexShrink={0} paddingLeft={1}>
+                <Text color={theme.colors.text.dim} wrap="truncate-end">
+                  {!isMedium ? `${shortDir} ` : ''}
+                  {branch && !isSmall ? (
+                    <>
+                      <Text color={theme.colors.text.emerald}>({branch})</Text>{' '}
+                    </>
+                  ) : null}
+                  {formatTokenCount(totalTokens)} tok {contextPercent}%
+                </Text>
+              </Box>
+            </Box>
           </Box>
         </Box>
       </Box>
