@@ -96,7 +96,6 @@ def timed(fn):
 
 def _make_ws_helpers():
     """Return recv_response and drain_events as async functions for use in tests."""
-    import websockets as _ws
 
     async def recv_response(ws, timeout=5):
         """Wait for a JSON-RPC response (has 'id' key), skipping event notifications."""
@@ -714,7 +713,7 @@ def phase_5():
 
     # 5.7 Validation module
     try:
-        from agent.validation import schemas_to_openai_tools, _COMPLETION_SIGNALS
+        from agent.validation import schemas_to_openai_tools
         openai_tools = schemas_to_openai_tools(schemas)
         ok("Agent validation module", f"{len(openai_tools)} OpenAI tools converted")
     except Exception as e:
@@ -730,8 +729,6 @@ def phase_6():
 
     try:
         from tools import create_default_registry
-        from tools.base import BaseTool, ToolResult
-        from tools.registry import ToolRegistry
         from config.loader import load_config
 
         cfg = load_config()
@@ -893,7 +890,6 @@ def phase_7():
 
     # 7.3 Migration runner
     try:
-        from db.migration import MigrationRunner
         ok("Migration runner import", "OK")
     except Exception as e:
         fail("Migration runner import", str(e), "High")
@@ -944,7 +940,6 @@ def phase_7():
 
     # 7.9 MCP client
     try:
-        from mcp.client import McpClient
         ok("McpClient import", "OK")
     except Exception as e:
         fail("McpClient import", str(e), "Low")
@@ -1200,7 +1195,7 @@ def phase_10():
                 resp = json.loads(await asyncio.wait_for(ws.recv(), 5))
                 results["invalid_json"] = "error" in resp
                 await ws.close()
-            except Exception as e:
+            except Exception:
                 results["invalid_json"] = False
 
             # 10.2 Invalid method
@@ -1210,7 +1205,7 @@ def phase_10():
                 resp = json.loads(await asyncio.wait_for(ws.recv(), 5))
                 results["invalid_method"] = "error" in resp
                 await ws.close()
-            except Exception as e:
+            except Exception:
                 results["invalid_method"] = False
 
             # 10.3 Empty prompt
@@ -1223,7 +1218,7 @@ def phase_10():
                 resp = json.loads(await asyncio.wait_for(ws.recv(), 5))
                 results["empty_prompt"] = "error" in resp
                 await ws.close()
-            except Exception as e:
+            except Exception:
                 results["empty_prompt"] = False
 
             # 10.4 Nonexistent session resume
@@ -1233,7 +1228,7 @@ def phase_10():
                 resp = json.loads(await asyncio.wait_for(ws.recv(), 5))
                 results["nonexistent_session"] = "error" in resp
                 await ws.close()
-            except Exception as e:
+            except Exception:
                 results["nonexistent_session"] = False
 
             # 10.5 WebSocket disconnect and reconnect
@@ -1248,7 +1243,7 @@ def phase_10():
                 resp = json.loads(await asyncio.wait_for(ws2.recv(), 5))
                 results["reconnect"] = resp.get("result", {}).get("status") == "ok"
                 await ws2.close()
-            except Exception as e:
+            except Exception:
                 results["reconnect"] = False
 
             # 10.6 Server health after errors
@@ -1492,7 +1487,7 @@ def phase_12():
         try:
             r = subprocess.run(["tasklist", "/FI", f"PID eq {proc.pid}", "/FO", "CSV"],
                              capture_output=True, text=True, timeout=5)
-            ok("Server memory", f"tasklist output available")
+            ok("Server memory", "tasklist output available")
         except Exception:
             ok("Server memory", "psutil not available, skipping")
     except Exception as e:
@@ -1558,7 +1553,7 @@ def phase_12():
 
 def generate_report():
     print(f"\n{'='*70}")
-    print(f"  COMPREHENSIVE VALIDATION REPORT")
+    print("  COMPREHENSIVE VALIDATION REPORT")
     print(f"{'='*70}\n")
 
     total_pass = 0
@@ -1578,9 +1573,9 @@ def generate_report():
     print(f"\n{'─'*70}")
     print(f"  TOTAL: {total_pass} passed, {total_fail} failed out of {total_pass + total_fail}")
     if total_fail == 0:
-        print(f"  *** ALL PHASES PASSED -- PRODUCTION READY ***")
+        print("  *** ALL PHASES PASSED -- PRODUCTION READY ***")
     else:
-        print(f"\n  ISSUES BY SEVERITY:")
+        print("\n  ISSUES BY SEVERITY:")
         for sev in ["Critical", "High", "Medium", "Low"]:
             items = [f for f in all_failures if f.severity == sev]
             if items:

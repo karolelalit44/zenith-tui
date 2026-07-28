@@ -13,11 +13,11 @@ import json
 import logging
 import os
 import re
+import time
 from typing import AsyncIterator
 
 from .base import (
     BaseProvider,
-    ProviderService,
     ProviderResponse,
     ProviderChunk,
     TokenUsage,
@@ -178,6 +178,16 @@ class LLMProvider(BaseProvider):
         import litellm
         litellm.drop_params = True
 
+        # Log litellm success/failure callbacks
+        def _litellm_success(model, messages, response, **kwargs):
+            logger.info("LITELLM SUCCESS model=%s provider=%s", self._litellm_model, name)
+
+        def _litellm_failure(model, messages, original_exception, **kwargs):
+            logger.error("LITELLM FAILURE model=%s provider=%s error=%s", self._litellm_model, name, str(original_exception)[:500])
+
+        litellm.success_callback = [_litellm_success] if not litellm.success_callback else [*litellm.success_callback, _litellm_success]
+        litellm.failure_callback = [_litellm_failure] if not litellm.failure_callback else [*litellm.failure_callback, _litellm_failure]
+
         # Read litellm_prefix from catalog
         litellm_prefix = provider_entry.get("litellm_prefix", "")
         self._litellm_model = _to_litellm_model(litellm_prefix, self.model)
@@ -229,31 +239,52 @@ class LLMProvider(BaseProvider):
         except ProviderError:
             raise
         except Exception as e:
+            logger.error("COMPLETE ERROR model=%s error=%s", self._litellm_model, str(e)[:500])
             raise _classify_provider_error(e, self.name) from e
 
     async def _complete_impl(self, messages: list[dict], tools: list[dict] | None = None) -> str:
         import litellm
 
         kwargs = self._build_completion_kwargs(messages, tools, stream=False)
-        response = await litellm.acompletion(**kwargs)
+        safe_kwargs = {k: v for k, v in kwargs.items() if k != "api_key"}
+        safe_kwargs["messages_count"] = len(messages)
+        if tools:
+            safe_kwargs["tools_count"] = len(tools)
+        logger.info("API CALL (complete) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False)[:2000])
+        t0 = time.monotonic()
+        try:
+            response = await litellm.acompletion(**kwargs)
+            elapsed = (time.monotonic() - t0) * 1000
+            content = response.choices[0].message.content or ""
+            raw_finish = getattr(response.choices[0], "finish_reason", None)
+            usage = getattr(response, "usage", None)
+            logger.info(
+                "API RESPONSE (complete) model=%s elapsed=%.0fms finish=%s content_len=%d usage=%s",
+                self._litellm_model, elapsed, raw_finish, len(content),
+                f"prompt={getattr(usage, 'prompt_tokens', '?')} completion={getattr(usage, 'completion_tokens', '?')}" if usage else "none",
+            )
+            logger.info("API RESPONSE CONTENT (first 500): %r", content[:500])
 
-        content = response.choices[0].message.content or ""
+            tool_calls = response.choices[0].message.tool_calls
+            if tool_calls:
+                self._last_native_tool_calls = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in tool_calls
+                ]
+                logger.info("API TOOL_CALLS: %s", [(tc.function.name, tc.function.arguments[:200]) for tc in tool_calls])
 
-        tool_calls = response.choices[0].message.tool_calls
-        if tool_calls:
-            self._last_native_tool_calls = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in tool_calls
-            ]
-
-        return content
+            return content
+        except Exception as e:
+            elapsed = (time.monotonic() - t0) * 1000
+            logger.error("API ERROR (complete) model=%s elapsed=%.0fms error=%s", self._litellm_model, elapsed, str(e)[:500])
+            raise
 
     async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[tuple[str, str | None]]:
         """Stream LLM response tokens. (content, reasoning) tuples."""
@@ -264,26 +295,44 @@ class LLMProvider(BaseProvider):
         except ProviderError:
             raise
         except Exception as e:
+            logger.error("STREAM ERROR model=%s error=%s", self._litellm_model, str(e)[:500])
             raise _classify_provider_error(e, self.name) from e
 
     async def _stream_impl(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[tuple[str, str | None]]:
         import litellm
 
         kwargs = self._build_completion_kwargs(messages, tools, stream=True)
+        safe_kwargs = {k: v for k, v in kwargs.items() if k != "api_key"}
+        safe_kwargs["messages_count"] = len(messages)
+        if tools:
+            safe_kwargs["tools_count"] = len(tools)
+        logger.info("API CALL (stream) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False)[:2000])
+        t0 = time.monotonic()
         stream = await litellm.acompletion(**kwargs)
+        logger.info("API STREAM OPENED model=%s latency=%.0fms", self._litellm_model, (time.monotonic() - t0) * 1000)
 
         accumulated_tool_calls: dict[int, dict] = {}
+        chunk_count = 0
+        content_chars = 0
+        reasoning_chars = 0
+        first_chunk_time: float | None = None
 
         async for chunk in stream:
+            if first_chunk_time is None:
+                first_chunk_time = time.monotonic()
+                logger.info("API FIRST CHUNK model=%s time_to_first_chunk=%.0fms", self._litellm_model, (first_chunk_time - t0) * 1000)
+            chunk_count += 1
             delta = chunk.choices[0].delta if chunk.choices else None
             if not delta:
                 continue
 
             if delta.content:
+                content_chars += len(delta.content)
                 yield (delta.content, None)
 
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
+                reasoning_chars += len(reasoning)
                 yield ("", reasoning)
 
             if delta.tool_calls:
@@ -304,9 +353,17 @@ class LLMProvider(BaseProvider):
                         if tc_delta.function.arguments:
                             tc["function"]["arguments"] += tc_delta.function.arguments
 
+        elapsed = (time.monotonic() - t0) * 1000
+        finish = None
         if accumulated_tool_calls:
             tool_calls = [accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls.keys())]
             self._last_native_tool_calls.extend(tool_calls)
+            finish = "tool_calls"
+        logger.info(
+            "API STREAM DONE model=%s elapsed=%.0fms chunks=%d content=%d reasoning=%d tools=%d finish=%s",
+            self._litellm_model, elapsed, chunk_count, content_chars, reasoning_chars,
+            len(accumulated_tool_calls), finish,
+        )
 
     async def validate(self) -> bool:
         try:

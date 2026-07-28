@@ -2,16 +2,13 @@
 
 import pytest
 from core.domain import (
-    ScenarioMode, RiskLevel, AgentRole, AgentState,
-    SessionState, PermissionDecision, DeliveryMode, FinishReason,
+    ScenarioMode, RiskLevel, AgentRole, SessionState, DeliveryMode,
 )
-from core.events import Event, EventKind, AsyncEventBus, Subscription, make_event
-from core.message import Message, ToolCall, ToolResult
+from core.events import Event, EventKind, AsyncEventBus
+from core.message import Message, ToolCall
 from core.session import Session
 from core.errors import (
-    ZenithError, ConfigError, ProviderError, ToolError,
-    SessionNotFound, SessionTransitionError, MaxIterationsError,
-    RateLimitError, TransportError, AgentError,
+    ZenithError, ConfigError, ProviderError, SessionNotFound, SessionTransitionError, RateLimitError,
 )
 
 

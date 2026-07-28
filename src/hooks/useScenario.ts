@@ -8,7 +8,7 @@ import type { ConfirmationRequestEvent, ScenarioEvent, ScenarioMode } from '../t
 export interface UseScenarioReturn {
   events: ScenarioEvent[];
   isRunning: boolean;
-  startScenario: (prompt: string, mode: ScenarioMode) => void;
+  startScenario: (prompt: string, mode: ScenarioMode, provider?: string) => void;
   abort: () => void;
   activeConfirmation: ConfirmationRequestEvent | null;
   respondConfirmation: (approved: boolean) => void;
@@ -68,7 +68,7 @@ export function useScenario(): UseScenarioReturn {
   }, []);
 
   const startScenario = useCallback(
-    async (prompt: string, selectedMode: ScenarioMode) => {
+    async (prompt: string, selectedMode: ScenarioMode, provider?: string) => {
       setEvents([]);
       setIsRunning(true);
 
@@ -89,7 +89,7 @@ export function useScenario(): UseScenarioReturn {
       const scenario = backendScenarioProvider.resolve(prompt, selectedMode);
       runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
 
-      wsClient.sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined).catch((err) => {
+      wsClient.sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         reportError('prompt_err', `Backend prompt error: ${message}`);
       });

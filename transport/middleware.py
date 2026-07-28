@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 from functools import wraps
-from typing import Any, Callable
+from typing import Callable
 
-from config.loader import load_config
 from config.settings import AppSettings
 from core.errors import ConfigError
 
@@ -21,7 +20,7 @@ PROVIDER_METHODS = {
 
 def validate_provider_config(config: AppSettings) -> None:
     """Validate that the active provider is properly configured.
-    
+
     Raises ConfigError if validation fails.
     """
     active = config.active_provider

@@ -9,9 +9,7 @@ import asyncio
 import json
 import os
 import sys
-import subprocess
 import time
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -154,7 +152,6 @@ async def test_workspace_status() -> None:
 
 async def run_all_tests() -> bool:
     """Run all e2e tests, return True if all pass."""
-    import httpx
 
     tests = [
         ("REST /health", test_health_rest),
@@ -210,9 +207,9 @@ async def run_all_tests() -> bool:
 
         results.append(("Prompt submission", prompt_ok, events))
         if prompt_ok:
-            log(f"  ✓ Prompt submission succeeded")
+            log("  ✓ Prompt submission succeeded")
         else:
-            log(f"  ✗ All prompt models failed")
+            log("  ✗ All prompt models failed")
     else:
         results.append(("Prompt submission (skipped)", True, "no session"))
 
@@ -220,7 +217,7 @@ async def run_all_tests() -> bool:
     try:
         await test_workspace_status()
         results.append(("Workspace status", True, None))
-        log(f"  ✓ Workspace status")
+        log("  ✓ Workspace status")
     except Exception as e:
         results.append(("Workspace status", False, str(e)))
         log(f"  ✗ Workspace status: {e}")

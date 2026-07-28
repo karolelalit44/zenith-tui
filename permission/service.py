@@ -17,7 +17,6 @@ from typing import Any, Callable, Optional
 from pydantic import BaseModel, Field
 
 from core.domain import RiskLevel, PermissionDecision
-from core.errors import PermissionDenied
 
 logger = logging.getLogger(__name__)
 

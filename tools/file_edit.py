@@ -7,7 +7,6 @@ This handles LLMs that slightly modify whitespace or formatting.
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-from pathlib import Path
 from typing import Any
 
 from .base import BaseTool, ToolResult

@@ -1,7 +1,6 @@
 """Quick WS protocol debug test."""
 import asyncio
 import json
-import sys
 import websockets
 
 WS_URL = "ws://127.0.0.1:8765/ws"

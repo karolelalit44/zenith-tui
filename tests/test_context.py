@@ -1,11 +1,9 @@
 """Tests for context window manager and history manager."""
 
-import pytest
 from agent.context import ContextManager, TokenInfo
 from session.history import HistoryManager
 from config.settings import AppSettings
 from core.message import Message
-from providers.base import BaseProvider
 
 
 class TestContextManager:

@@ -10,12 +10,10 @@ from typing import Awaitable, Callable
 from core.events import Event
 from tools.base import ToolResult
 from tools.command_safety import assess_command
-from tools.param_normalizer import normalize_file_params
 from tools.registry import ToolRegistry
 from providers import responder as r
 from workspace.git import GitOps
 from .validation import (
-    REFLECTION_ERROR_LIMIT,
     detect_placeholders,
     check_python_syntax,
     detect_interactive_command,

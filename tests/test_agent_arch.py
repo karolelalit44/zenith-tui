@@ -1,10 +1,8 @@
 """Tests for agent architecture — templates, runtime, coordinator."""
 
 import pytest
-from pathlib import Path
 from agent.templates import PromptTemplate, PromptBuilder
-from agent.runtime import AgentRuntime, DefaultAgentRuntime
-from agent.coordinator import CoordinatorService, DefaultCoordinator
+from agent.runtime import AgentRuntime
 from agent.loop_detection import LoopDetector
 
 

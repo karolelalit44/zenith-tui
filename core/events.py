@@ -19,9 +19,8 @@ import asyncio
 import logging
 import time
 import uuid
-from collections import defaultdict
 from pydantic import BaseModel, Field
-from typing import Any, AsyncIterator, Callable, Optional
+from typing import Any, AsyncIterator, Optional
 from enum import StrEnum
 
 from .domain import DeliveryMode

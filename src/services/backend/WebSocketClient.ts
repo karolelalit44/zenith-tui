@@ -153,8 +153,9 @@ export class WebSocketClient {
     content: string,
     mode: string = 'build',
     sessionId?: string,
+    provider?: string,
   ): Promise<{ session_id: string; status: string }> {
-    return this.send('prompt.send', { content, mode, session_id: sessionId });
+    return this.send('prompt.send', { content, mode, session_id: sessionId, provider });
   }
 
   sendConfirmation(confirmationId: string, approved: boolean): Promise<void> {

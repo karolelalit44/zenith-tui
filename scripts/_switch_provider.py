@@ -1,5 +1,7 @@
 """Switch active provider to openrouter with a specific model."""
-import asyncio, sys, os
+import asyncio
+import sys
+import os
 sys.path.insert(0, r"D:\vdo\code\zenith-frontend-tui")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

@@ -88,11 +88,12 @@ export const App: React.FC = () => {
       addHistory(trimmed);
       addTurn(trimmed, selectedMode);
       clearInput();
-      startScenario(trimmed, selectedMode);
+      startScenario(trimmed, selectedMode, activeProvider.id);
     },
     [
       selectedMode,
       startScenario,
+      activeProvider.id,
       addTurn,
       clearInput,
       openOverlay,
@@ -140,8 +141,8 @@ export const App: React.FC = () => {
   );
 
   const handleRetry = useCallback(() => {
-    if (activeTurn && !isRunning) startScenario(activeTurn.prompt, activeTurn.mode);
-  }, [activeTurn, isRunning, startScenario]);
+    if (activeTurn && !isRunning) startScenario(activeTurn.prompt, activeTurn.mode, activeProvider.id);
+  }, [activeTurn, isRunning, startScenario, activeProvider.id]);
 
   const handleSetupComplete = useCallback(() => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });

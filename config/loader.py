@@ -1,11 +1,9 @@
-import json
 import os
 import sys
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from .settings import AppSettings
-from .providers import ProviderConfig
 from db.connection import resolve_db_path
 from db.provider_config_repo import read_active_provider, read_providers
 
@@ -82,7 +80,7 @@ def load_config(workspace_root: str = ".") -> AppSettings:
                 "temperature": 0.7,
                 "is_active": True if pid == data.get("active_provider", catalog.get("default_active_provider")) else False,
             }
-        
+
         # Inject API key from environment if current api_key is empty
         if not providers_dict[pid].get("api_key"):
             for env_var in env_key_map.get(pid, []):
@@ -100,7 +98,7 @@ def load_config(workspace_root: str = ".") -> AppSettings:
 
 def _validate_config(settings: AppSettings) -> None:
     """Run startup validation checks and log warnings for misconfigurations.
-    
+
     Only runs once to avoid spamming logs on every load_config() call.
     """
     global _validated_once

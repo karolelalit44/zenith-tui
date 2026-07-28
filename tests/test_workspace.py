@@ -2,7 +2,6 @@
 
 import subprocess
 import pytest
-from pathlib import Path
 from workspace.git import GitOps
 from workspace.tracker import FileTracker
 from workspace.repo_map import RepoMap

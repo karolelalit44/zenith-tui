@@ -6,7 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator
 
-from core.domain import AgentRole, AgentState
+from core.domain import AgentState
 from core.events import Event
 from core.message import Message
 from providers.base import BaseProvider

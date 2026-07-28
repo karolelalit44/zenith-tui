@@ -1,8 +1,7 @@
 """Tests for tool framework: base, registry, all tools."""
 
 import pytest
-from pathlib import Path
-from tools.base import BaseTool, ToolResult
+from tools.base import ToolResult
 from tools.registry import ToolRegistry
 from tools.bash import BashTool
 from tools.file_read import FileReadTool

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import AsyncIterator
 
-from core.errors import ZenithError, RateLimitError, ProviderError
+from core.errors import RateLimitError, ProviderError
 from core.events import Event
 from providers import responder as r
 from providers.base import BaseProvider
@@ -52,15 +52,13 @@ async def stream_with_retries(
                 stream_chunk_count += 1
                 if reasoning:
                     reasoning_buffer += reasoning
-                    logger.info("  Stream chunk #%d: REASONING len=%d total_reasoning=%d",
-                                stream_chunk_count, len(reasoning), len(reasoning_buffer))
+                    # logger.info("  Stream chunk #%d: REASONING len=%d total_reasoning=%d",stream_chunk_count, len(reasoning), len(reasoning_buffer))
                 if content:
                     if reasoning_buffer:
                         yield r.thinking(reasoning_buffer, session_id)
                         reasoning_buffer = ""
                     state.response_text += content
-                    logger.info("  Stream chunk #%d: CONTENT len=%d total_content=%d preview=%r",
-                                stream_chunk_count, len(content), len(state.response_text), content[:100])
+                    # logger.info("  Stream chunk #%d: CONTENT len=%d total_content=%d preview=%r",stream_chunk_count, len(content), len(state.response_text), content[:100])
                     yield r.message_event(content, session_id, partial=True)
             if reasoning_buffer:
                 yield r.thinking(reasoning_buffer, session_id)

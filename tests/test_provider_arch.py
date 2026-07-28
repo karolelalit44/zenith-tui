@@ -2,7 +2,7 @@
 
 import pytest
 from providers.base import (
-    BaseProvider, ProviderService, ProviderResponse, ProviderChunk,
+    BaseProvider, ProviderResponse, ProviderChunk,
     TokenUsage, ToolCall, ToolCallDelta, ModelInfo,
 )
 from providers.registry import ProviderRegistry

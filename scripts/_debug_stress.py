@@ -1,4 +1,7 @@
-import asyncio, json, time, websockets
+import asyncio
+import json
+import time
+import websockets
 
 WS_URL = "ws://127.0.0.1:8765/ws"
 

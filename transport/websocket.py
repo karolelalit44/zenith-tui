@@ -9,7 +9,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from .protocol import (
     JsonRpcRequest, Connection, TransportService,
-    make_response, make_error_response, make_event,
+    make_error_response, make_event,
 )
 from core.events import Event
 from db.connection import Database

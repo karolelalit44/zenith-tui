@@ -7,7 +7,6 @@ Uses a real uvicorn server with a mock EchoProvider to avoid needing API keys.
 import asyncio
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys

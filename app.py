@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from config.settings import AppSettings
 from core.events import AsyncEventBus, EventBus

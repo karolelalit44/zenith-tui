@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-from typing import Callable, Awaitable, Any
+from typing import Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 

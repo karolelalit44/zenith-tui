@@ -10,16 +10,15 @@ and HistoryManager, adding:
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from core.domain import SessionState, ScenarioMode
 from core.session import Session
 from core.message import Message
-from core.errors import SessionNotFound, SessionTransitionError
-from core.events import EventBus, Event, EventKind, make_event
+from core.errors import SessionNotFound
+from core.events import EventBus, EventKind, make_event
 
 logger = logging.getLogger(__name__)
 

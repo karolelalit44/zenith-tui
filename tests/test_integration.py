@@ -1,28 +1,21 @@
 """Integration tests — full workflow tests across all modules."""
 
 import pytest
-import asyncio
-import json
-import tempfile
 from pathlib import Path
-from datetime import datetime
 
 from config.settings import AppSettings
 from config.providers import ProviderConfig
 from db.connection import Database
-from db.repository import SessionRepository, MessageRepository
 from providers.registry import ProviderRegistry
 from providers.base import BaseProvider
 from core.session import Session
 from core.message import Message
 from core.events import Event, EventKind
 from tools import create_default_registry
-from tools.base import ToolResult
-from agent.loop import AgentLoop, _format_tool_result
+from agent.loop import AgentLoop
 from agent.recovery import RecoverableAgentLoop
 from agent.context import ContextManager
 from session.export import SessionExporter
-from session.history import HistoryManager
 from workspace.tracker import FileTracker
 from workspace.repo_map import RepoMap
 from skills.loader import SkillLoader

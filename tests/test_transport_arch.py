@@ -2,8 +2,7 @@
 
 import pytest
 from transport.protocol import (
-    JsonRpcMethod, JsonRpcRequest, JsonRpcResponse, JsonRpcNotification,
-    Connection, TransportService,
+    JsonRpcMethod, JsonRpcRequest, JsonRpcResponse, Connection, TransportService,
     make_response, make_error_response, make_event,
 )
 from transport.websocket import ConnectionManager

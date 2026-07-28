@@ -7,8 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator
 
 from core.domain import AgentRole, ScenarioMode
-from core.errors import SessionNotFound
-from core.events import Event, EventKind, make_event
+from core.events import Event
 from core.message import Message
 from core.session import Session
 from session.service import SessionService
@@ -74,7 +73,7 @@ class DefaultCoordinator(CoordinatorService):
         mode: ScenarioMode,
         role: AgentRole = AgentRole.CODER,
     ) -> AsyncIterator[Event]:
-        session = await self._sessions.require(session_id)
+        await self._sessions.require(session_id)
 
         # Persist user message
         user_msg = Message(role="user", content=prompt, session_id=session_id)

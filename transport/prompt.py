@@ -47,9 +47,23 @@ class PromptExecutor:
             self._active_task.cancel()
 
     def run(self, session_id: str, content: str, mode: str = "build", handlers: MethodHandlers | None = None, manager=None) -> None:
+        import functools
         self._active_task = asyncio.create_task(
             self._execute(session_id, content, mode, handlers, manager)
         )
+        self._active_task.add_done_callback(
+            functools.partial(self._on_task_done, session_id)
+        )
+
+    def _on_task_done(self, session_id: str, task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(
+                "BACKGROUND TASK FAILED session=%s error=%s",
+                session_id, exc, exc_info=exc,
+            )
 
     async def _execute(
         self,
@@ -59,7 +73,7 @@ class PromptExecutor:
         handlers: MethodHandlers | None,
         manager,
     ) -> None:
-        logger.info("=" .repeat(60))
+        logger.info("=" * 60)
         logger.info("_execute START session=%s mode=%s prompt=%r", session_id, mode, content[:200])
         collected_events: list[Event] = []
         response_text = ""
@@ -121,7 +135,7 @@ class PromptExecutor:
                 if event.kind == EventKind.MESSAGE and not event.data.get("partial"):
                     response_text += event.data.get("text", "")
 
-            logger.info("=" .repeat(60))
+            logger.info("=" * 60)
             logger.info("_execute COMPLETE: events=%d response_text_len=%d", event_count, len(response_text))
         except Exception as e:
             logger.exception("PromptExecutor._execute FAILED for session %s after %d events", session_id, event_count)

@@ -1,8 +1,4 @@
 import pytest
-import asyncio
-import json
-import tempfile
-from pathlib import Path
 from httpx import AsyncClient, ASGITransport
 from transport.server import create_app
 from config.settings import AppSettings
@@ -178,7 +174,7 @@ async def test_e2e_config_bootstrap(temp_dir):
 
 @pytest.mark.asyncio
 async def test_e2e_error_handling():
-    from core.errors import ProviderError, ToolError, ConfigError
+    from core.errors import ProviderError, ConfigError
     try:
         raise ProviderError("test error", provider="openai")
     except ProviderError as e:

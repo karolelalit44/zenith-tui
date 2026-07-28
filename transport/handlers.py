@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 
-from .protocol import make_response, make_error_response, make_event
+from .protocol import make_response, make_error_response
 from core.session import Session
 from core.message import Message
 from core.events import Event, EventKind
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from config.settings import AppSettings
     from providers.registry import ProviderRegistry
     from tools.registry import ToolRegistry
+    from .prompt import PromptExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,11 @@ class MethodHandlers:
     async def _prompt(self, ws, rid, params, session_id) -> str | None:
         from .prompt import PromptExecutor
         content = params.get("content", "") or params.get("prompt", "")
+        provider_name = params.get("provider", "") or self.config.active_provider
+        logger.info(
+            "PROMPT.RECEIVED provider=%s mode=%s session=%s content_len=%d content_preview=%r",
+            provider_name, params.get("mode", "build"), session_id, len(content), content[:200],
+        )
         if not content.strip():
             await ws.send_text(make_error_response(rid, -32602, "Empty prompt"))
             return session_id
@@ -131,11 +137,25 @@ class MethodHandlers:
         user_msg = Message(session_id=session_id, role="user", content=content)
         await self.message_repo.create(user_msg)
 
-        provider_name = params.get("provider", self.config.active_provider)
         provider = self.registry.get(provider_name)
         if not provider:
-            await ws.send_text(make_error_response(rid, -32602, f"Provider '{provider_name}' not available"))
+            logger.warning(
+                "Provider '%s' not in registry (available=%s), attempting hot-reload",
+                provider_name, self.registry.list_providers(),
+            )
+            self.reload_config()
+            provider = self.registry.get(provider_name)
+
+        if not provider:
+            available = list((self.config.providers or {}).keys())
+            await ws.send_text(make_error_response(
+                rid, -32602,
+                f"Provider '{provider_name}' not available. Configured: {available}",
+            ))
             return session_id
+
+        model = getattr(provider, 'model', '?')
+        logger.info("PROMPT.RESOLVED provider=%s model=%s", provider_name, model)
 
         await ws.send_text(make_response(rid, {"session_id": session_id, "status": "processing"}))
 

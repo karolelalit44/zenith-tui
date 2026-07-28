@@ -2127,5 +2127,169 @@ Implement a service-oriented architecture with:
 ---
 
 **Document Version**: 2.0
-**Last Updated**: 2026-07-27
+**Last Updated**: 2026-07-28
 **Status**: Repository Consolidation + Architecture Audit In Progress
+
+---
+
+## 16. Phase 5: Model Interaction Maturity — 52 Work Items
+
+Comprehensive audit of static/hardcoded values in the model interaction layer.
+Each item compares Our App vs Aider vs Crush with a recommended fix.
+
+### 16.1 Model Parameters
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 1 | Static temperature `0.7` | Hardcoded in `LLMProvider.__init__` | Per-model `use_temperature` in `model-settings.yml` — `True`/`False`/`float` | User override > catalog default via `cmp.Or` | Per-model in catalog + user override. Reasoning models = 0, creative = 1.0 | `providers/llm_provider.py:152` |
+| 2 | Gemini temperature hack | `if model.startswith("gemini-3") or "gemini-2.5": temp = 1.0` | No provider-specific hacks | No provider-specific hacks | Remove hack. Add `temperature` per model in catalog | `providers/llm_provider.py:197-200` |
+| 3 | Static max_tokens output `4096` | Hardcoded in `LLMProvider.__init__` | Fetched from litellm's `model_prices_and_context_window.json` | `model.CatwalkCfg.DefaultMaxTokens` from catalog, user override via `model.ModelCfg.MaxTokens` | Per-model in catalog. 4096 is way too low for 16K/32K/64K models | `providers/llm_provider.py:151` |
+| 4 | Static max_tokens fallback `128000` | Hardcoded in `list_models_typed()` | N/A — always fetched | N/A — always from catalog | Read from catalog `context_window` field | `providers/llm_provider.py:503-504` |
+| 5 | Static enable_thinking `False` | Hardcoded in `LLMProvider.__init__` | Per-model `reasoning_tag` in `model-settings.yml` | `model.CanReason` + `model.ReasoningLevels` from catalog | Per-model in catalog | `providers/llm_provider.py:155` |
+| 6 | Static reasoning_budget `None` | Hardcoded in `LLMProvider.__init__` | N/A — uses `reasoning_tag` to strip reasoning output | `model.DefaultReasoningEffort` from catalog | Per-model in catalog | `providers/llm_provider.py:156` |
+
+### 16.2 Context Window
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 7 | Static max_context_tokens `128000` | Static in `BootstrapDefaults` | Fetched from litellm JSON DB + OpenRouter API, cached 24h | `catwalk.Model.ContextWindow` from catalog + auto-discovery enrichers | Per-model from catalog. 128K is wrong for GPT-4 (8K), Gemini (1M), Groq (128K) | `config/settings.py:101-103` |
+| 8 | Static response reserve ratio `0.7` | Hardcoded | `max_chat_history_tokens = min(max(max_input_tokens / 16, 1024), 8192)` | Adaptive: 20K buffer for 200K+ models, 20% ratio for smaller | Adaptive based on model size | `agent/context.py:11` |
+| 9 | Static prompt buffer tokens `500` | Hardcoded | N/A — uses token counting directly | N/A | Could be dynamic based on system prompt size | `agent/context.py:12` |
+| 10 | Static summary framing tokens `4` | Hardcoded | N/A | N/A | Minor — keep as-is | `agent/context.py:13` |
+
+### 16.3 Context Management
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 11 | Static summary threshold `0.8` | Static in `BootstrapDefaults` | Runtime `ContextWindowExceededError` detection | Adaptive: 20K buffer for 200K+ models, 20% for smaller | Adaptive based on model context window size | `config/settings.py:104-106` |
+| 12 | No runtime context detection | Only checks before LLM call | Pre-check + runtime `ContextWindowExceededError` + `FinishReasonLength` | `StopWhen` condition checked after every step | Add runtime context exhaustion detection | `agent/loop.py` |
+| 13 | No FinishReasonLength handling | Not handled | Catches `FinishReasonLength`, tries assistant prefill continuation | N/A | Handle output length limits gracefully | `agent/llm_stream.py` |
+
+### 16.4 Retry & Rate Limits
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 14 | Count-based retries (not time-based) | `3` env var, stream `2` hardcoded | Time-based: retry until `RETRY_TIMEOUT = 60s` | Delegated to `fantasy` library | Switch to time-based (60s) like Aider | `providers/retry.py:50`, `agent/llm_stream.py:17` |
+| 15 | Base delay too high `0.5s` | `0.5s` env var | Starts at `0.125s` | Delegated to `fantasy` | 0.125s start is better for fast providers | `providers/retry.py:52` |
+| 16 | Max delay too low `10s` | `10s` env var | `60s` (`RETRY_TIMEOUT`) | Delegated to `fantasy` | Increase to 60s — free tier needs longer waits | `providers/retry.py:53` |
+| 17 | Stream retry count `2` | Hardcoded | Time-based (same 60s) | Delegated to `fantasy` | Time-based like Aider | `agent/llm_stream.py:17` |
+| 18 | String-based error classification | `"429" in msg or "rate limit" in msg` | litellm's `LiteLLMExceptions` classifies automatically | `fantasy.ProviderError` with `StatusCode` field | Use litellm's error classification | `providers/llm_provider.py:111` |
+| 19 | Retry-After header parsing incomplete | Parsed from `exc.response.headers` | litellm handles internally | Delegated to `fantasy` | Also parse from litellm error response | `providers/llm_provider.py:113-119` |
+| 20 | Rate limit fallback uses count-based delay | `e.retry_after or (2 ** attempt)` | `retry_delay *= 2` starting at 0.125s | Delegated | Use provider's retry-after when available | `agent/llm_stream.py:86` |
+
+### 16.5 Token Counting
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 21 | Token counter model mismatch | `tiktoken` with `cl100k_base` fallback | `tiktoken` via `model.token_count()` | Heuristic: `(len(s) + 3) / 4` | tiktoken is fine, but need model-specific encodings | `providers/token_counter.py:30-35` |
+| 22 | Message framing tokens | `+4` per message, `+2` for reply priming | Uses litellm's accurate framing | Heuristic only | Minor — keep as-is | `providers/token_counter.py:61-62` |
+| 23 | No usage fallback for zero-usage providers | If tiktoken fails, uses `len(text) // 4` heuristic | N/A — tiktoken always available | `fallbackStepUsage()` when provider returns zero usage | Add fallback when provider returns zero usage | `providers/token_counter.py:66-68` |
+
+### 16.6 Model Capabilities
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 24 | Static FC support detection | `function_calling: true/false` in catalog per model | `edit_format` per model (whole/diff/udiff/tool etc.) | `catwalk.Model` capabilities auto-discovered | Auto-detect via litellm or provider API | `config/provider_catalog.json` |
+| 25 | Static thinking/reasoning support | `thinking: true/false` in catalog | `reasoning_tag` per model | `catwalk.Model.CanReason` + `ReasoningLevels` | Per-model in catalog (already done, but static) | `config/provider_catalog.json` |
+| 26 | No image/vision support tracking | Not tracked | Not explicitly tracked | `catwalk.Model.SupportsImages` auto-discovered from Ollama/LMStudio | Add to catalog + auto-discovery | `config/provider_catalog.json` |
+| 27 | No auto-discovery of model capabilities | Manual `provider_catalog.json` maintenance | Fetched from BerriAI's GitHub JSON DB + OpenRouter API | Per-provider `Enricher` interface: Ollama, LMStudio, litellm, oMLX, llama.cpp | Add enricher pattern for auto-discovery | `config/provider_catalog.json` |
+
+### 16.7 Per-Model Behavior
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 28 | No edit_format per model | All models use same prompt format | `edit_format` per model: whole/diff/udiff/editor-diff/editor-whole/tool/tool-interleaved | N/A (different architecture) | Add per-model prompt format adaptation | `agent/prompts.py` |
+| 29 | No weak/editor model strategy | Single model for everything (expensive model for commit messages, summaries) | `weak_model` for cheap tasks, `editor_model` for file editing | `largeModel` + `smallModel` two-tier strategy | Two-tier: cheap model for summaries/commits | `providers/llm_provider.py` |
+| 30 | No extra_params per model | Not supported | `extra_params` per model in `model-settings.yml` | `ProviderOptions` map | Add per-model extra params | `providers/llm_provider.py` |
+| 31 | No system_prompt_prefix per model | Not supported | `system_prompt_prefix` per model | `SystemPromptPrefix` in `ProviderConfig` | Add per-model system prompt prefix | `agent/prompts.py` |
+| 32 | No use_system_prompt flag | Always uses system prompt | `use_system_prompt: bool` per model | N/A | Add per-model flag | `agent/prompts.py` |
+| 33 | No streaming flag per model | Always streams | `streaming: bool` per model | N/A | Add per-model flag | `providers/llm_provider.py` |
+
+### 16.8 Provider-Specific
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 34 | Global litellm.drop_params | `True` globally | N/A — litellm handles | N/A | Per-model instead of global | `providers/llm_provider.py:179` |
+| 35 | No provider-specific adapters | Single `LLMProvider` via litellm | Single `Coder` class with `edit_format` variations | `Enricher` interface per provider for auto-discovery | Add enricher pattern | `providers/llm_provider.py` |
+| 36 | No API key template refresh | Static API key | Static API key | `refreshApiKeyTemplate()` for dynamic keys | Low priority — add if needed | `providers/llm_provider.py` |
+
+### 16.9 Agent Loop
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 37 | Safety net iterations `100` | Hardcoded | No max — runs until LLM stops or context exhausted | No max — `StopWhen` conditions | Keep as safety net only (already done) | `agent/loop.py` |
+| 38 | Reflection error limit `6` | Hardcoded | `max_reflections = 3` for lint/test retry | N/A | Dynamic based on task complexity | `agent/validation.py:9` |
+| 39 | Post-completion iterations `2` | Hardcoded | N/A — single pass | N/A | Keep as-is | `agent/loop.py:179` |
+| 40 | Loop detection window `10`/`5` | `10` steps, `5` max repeats | N/A | `loopDetectionWindowSize = 10`, `loopDetectionMaxRepeats = 5` | Match Crush (already done) | `agent/loop_detection.py:16-17` |
+| 41 | Static task completion signals | Static regex `COMPLETION_SIGNALS` | N/A | N/A | Dynamic based on mode | `agent/validation.py:22` |
+
+### 16.10 Tool Execution
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 42 | Static max tool output `10000` | Configurable but static default | N/A — full output | N/A | Dynamic based on model context | `config/settings.py:71-73` |
+| 43 | Static tool result truncation `200` | Hardcoded for metadata | N/A | N/A | Dynamic | `agent/tool_executor.py:50` |
+| 44 | Static bash timeout `30s` | Default in ToolConfig | N/A | N/A | Keep configurable | `config/settings.py:65-67` |
+| 45 | Static auto-background `60s` | Hardcoded | N/A | N/A | Keep configurable | `tools/bash.py:32` |
+
+### 16.11 Transport
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 46 | Static WS keepalive `30s` | Hardcoded | N/A (CLI) | SSE reconnect: 250ms initial, 10s max with exponential backoff | Keep as-is | `transport/websocket.py:115` |
+| 47 | Static stale timeout `600_000ms` | Hardcoded | N/A (CLI) | N/A | Keep configurable | `src/services/backend/BackendScenarioProvider.ts:5` |
+| 48 | No WS reconnect exponential backoff | `2000ms` hardcoded | N/A | `sseReconnectMaxBackoff = 10s` with exponential backoff | Add exponential backoff | `src/services/backend/BackendScenarioProvider.ts:239` |
+
+### 16.12 Error Handling
+
+| # | Issue | Our App | Aider | Crush | Recommended | File |
+|---|---|---|---|---|---|---|
+| 49 | String-based error classification | String matching on error message | litellm's `LiteLLMExceptions` automatic classification | `fantasy.ProviderError` with `StatusCode` | Use litellm's classification | `providers/llm_provider.py:106-123` |
+| 50 | 401 handling is basic | Just raises `AuthenticationError` | litellm handles + URL opening for API key | OAuth refresh + API key template refresh | Add user-friendly 401 guidance | `providers/llm_provider.py:109-110` |
+| 51 | No context window error handling | Not specifically handled | `ContextWindowExceededError` → auto-truncate + retry | `StopWhen` condition prevents reaching limit | Add runtime detection | `agent/loop.py` |
+| 52 | No FinishReasonLength recovery | Not handled | Catches `FinishReasonLength`, tries assistant prefill continuation | N/A | Handle output length limits gracefully | `agent/llm_stream.py` |
+
+### Priority Grouping
+
+**P0 — Critical (models output wrong/truncated results):**
+- #3: Static max_tokens `4096` — truncates outputs
+- #7: Static max_context_tokens `128000` — wrong for most models
+- #1: Static temperature `0.7` — wrong for reasoning/creative models
+- #12: No runtime context detection
+- #13: No FinishReasonLength handling
+
+**P1 — High (immature retry/rate-limit behavior):**
+- #14: Count-based retries → time-based
+- #16: Max delay `10s` → `60s`
+- #18: String-based error classification → litellm classification
+- #20: Rate limit fallback
+- #49: Error classification
+- #51: Context window error handling
+- #52: FinishReasonLength recovery
+
+**P2 — Medium (missing per-model intelligence):**
+- #2: Gemini temp hack removal
+- #4: Static max_tokens fallback
+- #5: Static enable_thinking
+- #6: Static reasoning_budget
+- #8: Static response reserve ratio
+- #11: Static summary threshold
+- #24-27: Model capabilities auto-discovery
+- #28-33: Per-model behavior (edit_format, weak model, extra_params, etc.)
+- #34-35: Provider-specific adapters
+- #38: Dynamic reflection error limit
+
+**P3 — Low (nice-to-have improvements):**
+- #9: Dynamic prompt buffer
+- #10: Summary framing tokens (keep as-is)
+- #15: Base delay adjustment
+- #17: Stream retry count
+- #19: Retry-After header parsing
+- #21-23: Token counting improvements
+- #36: API key template refresh
+- #37: Safety net iterations (keep as-is)
+- #39: Post-completion iterations (keep as-is)
+- #40-41: Loop detection (already done)
+- #42-45: Tool execution tuning
+- #46-48: Transport improvements
+- #50: 401 handling

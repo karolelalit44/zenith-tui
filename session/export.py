@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from datetime import datetime
-from typing import Any
 
 from core.session import Session
 from core.message import Message
