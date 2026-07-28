@@ -16,11 +16,6 @@ PLAN_READ_ONLY_TOOLS = [
     "file_read",       # Read file contents
     "glob",            # Find files by pattern
     "grep",            # Search file contents
-    "bash",            # Read-only commands (ls, cat, find, tree, Get-ChildItem, etc.)
-    "lsp_definition",  # Go-to-definition (language-aware)
-    "lsp_diagnostics", # Lint/typecheck (read-only analysis)
-    "webfetch",        # Fetch web content for research
-    "job_output",      # Read background job output
 ]
 
 @dataclass(frozen=True)

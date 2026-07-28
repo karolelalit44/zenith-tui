@@ -241,6 +241,7 @@ export const App: React.FC = () => {
             historyUp={historyUp}
             historyDown={historyDown}
             mode={selectedMode}
+            totalTokens={totalTokens}
           />
         )}
 

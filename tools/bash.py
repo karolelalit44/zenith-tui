@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import platform
 import shutil
 from typing import Any
 
 from .base import BaseTool, ToolResult
 from .background import get_background_manager
+
+logger = logging.getLogger(__name__)
 
 _OS_NAME = platform.system()
 _IS_WINDOWS = _OS_NAME == "Windows"

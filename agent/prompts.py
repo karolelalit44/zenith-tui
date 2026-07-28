@@ -138,7 +138,7 @@ TOOL_USAGE = """\
 - Briefly explain what non-trivial commands do and why you're running them
 - Use `&` for background processes that won't stop on their own
 - Avoid interactive commands — use non-interactive versions
-- Combine related commands to save time (e.g., `git status && git diff HEAD`)
+- Run related commands separately instead of chaining with `&&` (works across all shells)
 """
 
 PROACTIVENESS = """\
@@ -370,6 +370,10 @@ def build_system_prompt(
     # --- Role ---
     sections.append("You are Zenith, a powerful AI coding assistant that runs in the CLI.")
 
+    # --- Environment block (FIRST — platform-awareness must precede all instructions) ---
+    env_section = _build_env_section(workspace_root, mode)
+    sections.append(f"<env>\n{env_section}</env>")
+
     # --- Provider-specific prefix (#23) ---
     if provider_name and provider_name in PROVIDER_PREFIXES:
         sections.append(f"<provider_instructions>\n{PROVIDER_PREFIXES[provider_name]}\n</provider_instructions>")
@@ -423,10 +427,6 @@ def build_system_prompt(
     if skills_section:
         sections.append(skills_section)
 
-    # --- Environment block ---
-    env_section = _build_env_section(workspace_root, mode)
-    sections.append(f"<env>\n{env_section}</env>")
-
     # --- Git context ---
     git_section = _build_git_section(workspace_root)
     if git_section:
@@ -457,8 +457,6 @@ def build_system_prompt(
 
 def build_plan_system_prompt(
     workspace_root: str,
-    tool_schemas: list[dict[str, Any]] | None = None,
-    skills_section: str = "",
     provider_name: str = "",
 ) -> str:
     """Build a focused, lightweight system prompt for plan mode.
@@ -469,30 +467,33 @@ def build_plan_system_prompt(
     """
     sections: list[str] = []
 
-    # --- Role (Aider-style: "expert architect engineer") ---
+    # --- Role ---
     sections.append(
-        "You are Zenith in PLAN mode — an expert software architect and systems analyst.\n"
-        "You analyze codebases, understand requirements, and produce structured\n"
-        "implementation plans. You do NOT write code, edit files, or make changes."
+        "You are Zenith in PLAN mode — an expert software architect.\n"
+        "Analyze codebases and produce structured implementation plans.\n"
+        "You do NOT write code, edit files, or make changes."
     )
+
+    # --- Environment block (FIRST — platform-awareness must precede all instructions) ---
+    env_section = _build_env_section(workspace_root, mode="plan")
+    sections.append(f"<env>\n{env_section}</env>")
 
     # --- Provider-specific prefix ---
     if provider_name and provider_name in PROVIDER_PREFIXES:
         sections.append(f"<provider_instructions>\n{PROVIDER_PREFIXES[provider_name]}\n</provider_instructions>")
 
-    # --- Critical Rules (Crush-style: minimal, focused) ---
+    # --- Critical Rules ---
     sections.append("""<critical_rules>
 1. NEVER edit files, NEVER create files, NEVER delete files
-2. NEVER run bash commands that modify the filesystem (no mkdir, touch, rm, cp, mv, echo >, etc.)
-3. You MAY use file_read, glob, grep, and read-only bash commands (ls, cat, head, find, tree, pwd)
-4. Search the codebase before planning — understand existing patterns, conventions, and constraints
+2. NEVER run commands that modify the filesystem
+3. Use `glob` for file patterns, `grep` for content search, `file_read` for file contents
+4. Search the codebase before planning — understand existing patterns
 5. Read files to understand current state before proposing changes
 6. Be specific: name exact files, functions, types, and line numbers
-7. Use `file_path:line_number` references when pointing to code
-8. If the task is ambiguous, state your assumptions and proceed with the most reasonable interpretation
+7. If ambiguous, state assumptions and proceed with the most reasonable interpretation
 </critical_rules>""")
 
-    # --- Output Format (Aider-style: structured sections) ---
+    # --- Output Format ---
     sections.append("""<output_format>
 Structure every plan with these Markdown sections:
 
@@ -500,57 +501,26 @@ Structure every plan with these Markdown sections:
 One paragraph: what we're building and why.
 
 ## Architecture
-Services, modules, data flow, communication patterns.
-Reference existing code: "Extending the existing AuthService in src/auth/service.py:42"
+Services, modules, data flow. Reference existing code paths.
 
 ## File Structure
-Exact paths and their purpose:
-- `src/services/user_service.py` — User CRUD + auth logic
-- `src/models/user.py` — Pydantic schemas
+Exact paths and their purpose.
 
 ## Implementation Steps
-Numbered list, each step referencing specific files/lines:
-1. Add `UserRepository` class to `src/repos/user.py:15` following the pattern in `src/repos/base.py`
-2. Extend `UserService.authenticate()` in `src/services/user.py:67` to call the new repository
+Numbered list, each step referencing specific files/lines.
 
 ## Data Models
-Schemas, types, interfaces (as code fences):
-```python
-class UserCreate(BaseModel):
-    email: str
-    name: str
-```
+Schemas as code fences.
 
 ## API Design
-Endpoints, request/response shapes:
-- `POST /api/users` — Create user, returns `UserResponse`
+Endpoints, request/response shapes.
 
 ## Testing Strategy
-What to test and how:
-- Unit test `UserRepository` in `tests/test_user_repo.py`
-- Integration test auth flow in `tests/test_auth.py`
+What to test and how.
 
-Keep the plan under 40 lines unless the task is very complex.
-Use code fences for any code snippets (types, schemas, signatures).
+Keep the plan under 40 lines (code fences don't count). Use code fences for code.
+End with: "Ready to implement? Switch to build mode with `/build`"
 </output_format>""")
-
-    # --- Communication Style (Crush-style: concise) ---
-    sections.append("""<communication_style>
-- Under 40 lines of text (code fences don't count toward the limit)
-- No preamble ("Here's...", "I'll...")
-- No postamble ("Let me know...", "Hope this helps...")
-- Use Markdown formatting: headers, lists, code fences
-- When the plan is complete, end with:
-  "Ready to implement? Switch to build mode with `/build`"
-</communication_style>""")
-
-    # --- Skills (if provided) ---
-    if skills_section:
-        sections.append(skills_section)
-
-    # --- Environment block ---
-    env_section = _build_env_section(workspace_root, "plan")
-    sections.append(f"<env>\n{env_section}</env>")
 
     # --- Git context ---
     git_section = _build_git_section(workspace_root)
@@ -566,11 +536,6 @@ Use code fences for any code snippets (types, schemas, signatures).
             "Follow the instructions in the context below.\n"
             f"<project_context>\n{formatted}\n</project_context>"
         )
-
-    # --- Tool schemas (read-only reference) ---
-    if tool_schemas:
-        tool_block = _format_tool_schemas(tool_schemas)
-        sections.append(f"<available_tools>\n{tool_block}\n</available_tools>")
 
     return "\n\n".join(sections)
 
@@ -603,7 +568,42 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
         except Exception:
             shell_version = "unknown"
 
-    parts = [
+    parts: list[str] = []
+
+    # Platform prefix (CRITICAL: this must come first so the model knows which OS)
+    if is_windows:
+        parts.append(
+            "PLATFORM: Windows\n"
+            "SHELL: PowerShell\n"
+            "CRITICAL: Every command you run MUST use PowerShell syntax.\n"
+            "PowerShell equivalents:\n"
+            "  ls / dir       → Get-ChildItem\n"
+            "  cat            → Get-Content\n"
+            "  grep pattern   → Select-String -Pattern 'pattern'\n"
+            "  head -N        → Select-Object -First N\n"
+            "  tail -N        → Select-Object -Last N\n"
+            "  find . -name   → Get-ChildItem -Recurse -Filter\n"
+            "  wc -l          → Measure-Object -Line\n"
+            "  cp             → Copy-Item\n"
+            "  mv             → Move-Item\n"
+            "  rm             → Remove-Item\n"
+            "  mkdir          → New-Item -ItemType Directory\n"
+            "  echo > file    → Set-Content file\n"
+            "  which / where  → Get-Command\n"
+            "  env vars       → $env:VARIABLE_NAME\n"
+            "  path separator → \\ (backslash)\n"
+            "DO NOT use: ls, cat, grep, find, head, tail, chmod, curl, wget, sed, awk, tee, wc, touch, cp, mv, rm\n"
+            "These are Linux commands and WILL fail.\n"
+        )
+    else:
+        parts.append(
+            "PLATFORM: Unix-like\n"
+            "SHELL: bash\n"
+            "Use standard bash/sh commands.\n"
+        )
+
+    # Metadata
+    parts.extend([
         f"Working directory: {workspace_root}",
         f"Agent mode: {mode}",
         f"Platform: {sys.platform}",
@@ -612,11 +612,12 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
         f"Shell version: {shell_version}",
         f"Python: {platform.python_version()}",
         f"Today's date: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
-    ]
+    ])
 
+    # Windows-specific reminders (reinforce the top-level prefix)
     if is_windows:
         parts.append(
-            "\nCRITICAL: You are on Windows. Use PowerShell-compatible commands only.\n"
+            "\nREMEMBER: You are on Windows. Use PowerShell-compatible commands only.\n"
             "- Use: Get-ChildItem, Select-String, Get-Content, Set-Content\n"
             "- Use: Get-Process, Get-Service, Test-Path, Copy-Item, Remove-Item\n"
             "- Use: Select-Object -First N (instead of head), Select-Object -Last N\n"
@@ -625,10 +626,6 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
             "- Do NOT use: ls, cat, grep, find, head, tail, chmod, curl, wget, sed, awk, tee, wc\n"
             "- Pipeline: pipe | works the same way\n"
             "- File paths: use forward slashes or backslashes, both work in PowerShell\n"
-        )
-    else:
-        parts.append(
-            "\nYou are on a Unix-like system. Use standard bash/sh commands.\n"
         )
 
     return "\n".join(parts)

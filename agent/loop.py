@@ -90,10 +90,9 @@ class AgentLoop:
         # --- Mode-specific prompt and tool selection (Crush-style config-driven agents) ---
         if mode == "plan":
             logger.info("PLAN MODE: using focused plan prompt, read-only tools")
+            # Plan mode: minimal prompt, no skills, no tool schemas
             system_prompt = build_plan_system_prompt(
                 self.config.workspace_root,
-                tool_schemas=self._get_tool_schemas(),
-                skills_section=skills_section,
                 provider_name=provider_name,
             )
             # Plan mode: only read-only tools (file_read, glob, grep, bash)
@@ -271,7 +270,6 @@ class AgentLoop:
                     if not result.success:
                         reflection_errors += 1
                         err_msg = result.error or f"Tool '{tool_name}' execution failed"
-                        yield r.error(err_msg, session_id, code=f"TOOL_ERROR_{tool_name.upper()}", recoverable=True)
                         messages.append({"role": "user", "content": f"[Tool error] {tool_name} failed: {err_msg}. Try a different approach."})
                         if reflection_errors >= REFLECTION_ERROR_LIMIT:
                             yield r.error(f"Too many errors ({reflection_errors}).", session_id, code="REFLECTION_LIMIT", recoverable=True)
