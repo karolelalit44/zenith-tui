@@ -10,6 +10,7 @@ from .base import BaseTool, ToolResult
 class LspRenameTool(BaseTool):
     name = "lsp_rename"
     description = "Perform a semantic rename of a symbol across all files using the LSP. Handles imports, scopes, and overloads automatically."
+    requires_mode = "build"
 
     @property
     def risk_level(self) -> str:

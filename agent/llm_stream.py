@@ -44,21 +44,31 @@ async def stream_with_retries(
 
     for attempt in range(MAX_STREAM_RETRIES + 1):
         reasoning_buffer = ""
+        stream_chunk_count = 0
+        logger.info("LLM stream start: attempt=%d/%d, tools=%d, messages=%d",
+                     attempt + 1, MAX_STREAM_RETRIES + 1, len(tools), len(messages))
         try:
             async for content, reasoning in provider.stream(messages, tools=tools):
+                stream_chunk_count += 1
                 if reasoning:
                     reasoning_buffer += reasoning
+                    logger.info("  Stream chunk #%d: REASONING len=%d total_reasoning=%d",
+                                stream_chunk_count, len(reasoning), len(reasoning_buffer))
                 if content:
                     if reasoning_buffer:
                         yield r.thinking(reasoning_buffer, session_id)
                         reasoning_buffer = ""
                     state.response_text += content
+                    logger.info("  Stream chunk #%d: CONTENT len=%d total_content=%d preview=%r",
+                                stream_chunk_count, len(content), len(state.response_text), content[:100])
                     yield r.message_event(content, session_id, partial=True)
             if reasoning_buffer:
                 yield r.thinking(reasoning_buffer, session_id)
             # Stream completed — finalize the message
             if state.response_text:
                 state.full_response += state.response_text
+                logger.info("LLM stream complete: chunks=%d content_len=%d full_response_len=%d",
+                            stream_chunk_count, len(state.response_text), len(state.full_response))
             return
 
         except asyncio.CancelledError:

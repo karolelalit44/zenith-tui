@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class MultiEditTool(BaseTool):
     name = "multi_edit"
     description = "Apply multiple find/replace edits to a single file atomically. All edits succeed or none do."
+    requires_mode = "build"
 
     def get_schema(self) -> dict:
         return {

@@ -19,9 +19,7 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) 
     return () => clearInterval(id);
   }, [event.partial]);
 
-  if (!event.text && !event.partial) {
-    return null;
-  }
+  const hasContent = event.text && event.text.trim().length > 0;
 
   const icon = event.partial ? (
     <Text color={theme.colors.status.accent}> {ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]}</Text>
@@ -29,15 +27,27 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) 
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      <Box flexDirection="row" alignItems="center" marginBottom={0}>
+      <Box flexDirection="row" alignItems="center" marginBottom={hasContent ? 1 : 0}>
         <Text color={theme.colors.status.accent} bold>
           ◇
         </Text>
+        <Text color={theme.colors.text.muted}>
+          {' '}Assistant
+        </Text>
         {icon}
       </Box>
-      <Box paddingLeft={1} flexDirection="column">
-        <TerminalMarkdown content={event.text} />
-      </Box>
+      {hasContent && (
+        <Box paddingLeft={1} flexDirection="column">
+          <TerminalMarkdown content={event.text} />
+        </Box>
+      )}
+      {!hasContent && !event.partial && (
+        <Box paddingLeft={1} flexDirection="column">
+          <Text color={theme.colors.text.muted} italic>
+            (empty response)
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 });

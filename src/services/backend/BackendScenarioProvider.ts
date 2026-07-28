@@ -75,10 +75,12 @@ export class BackendScenarioProvider implements ScenarioProvider {
       resetStaleTimer();
 
       const { kind, data, id: rpcId } = rpcEvent.params;
+      console.log(`[WS EVENT] kind=${kind} id=${rpcId} data_keys=${Object.keys(data || {})} full=`, JSON.stringify(data).slice(0, 300));
 
       if (kind === 'message' && data?.partial === true) {
         const token = String(data.text || '');
         accumulatedText += token;
+        console.log(`[WS PARTIAL] token_len=${token.length} accumulated_len=${accumulatedText.length} preview=${token.slice(0, 100)}`);
 
         if (partialMessageIndex === null) {
           partialMessageIndex = eventIndex;
@@ -107,6 +109,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       if (kind === 'message' && !data?.partial) {
         const fullText = String(data.text || accumulatedText);
+        console.log(`[WS FINAL MSG] fullText_len=${fullText.length} preview=${fullText.slice(0, 200)}`);
 
         let targetIndex: number;
         if (partialMessageIndex !== null) {
@@ -153,6 +156,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
       }
 
       const mapped = mapRawEvent(kind, data, rpcId);
+      console.log(`[WS MAPPED] kind=${kind} mapped_kind=${mapped.kind} id=${mapped.id}`);
 
       // Merge consecutive thinking events into a single block
       if (kind === 'thinking' && lastEventKind === 'thinking' && eventIndex > 0) {
@@ -198,6 +202,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
       }
 
       if (isTerminal) {
+        console.log(`[WS TERMINAL] kind=${kind} - finalizing and calling onComplete`);
         finalize();
         onComplete();
       }

@@ -6,7 +6,7 @@ import json
 import logging
 from typing import AsyncIterator, Awaitable, Callable
 
-from config.settings import AppSettings
+from config.settings import AppSettings, AGENT_MODES
 from core.errors import ZenithError
 from core.events import Event
 from core.message import Message
@@ -16,7 +16,7 @@ from providers import responder as r
 from tools.param_normalizer import normalize_file_params
 from tools.registry import ToolRegistry
 from .context import ContextManager
-from .prompts import build_system_prompt
+from .prompts import build_system_prompt, build_plan_system_prompt
 from .loop_detection import LoopDetector
 from .llm_stream import stream_with_retries, StreamState
 from .validation import (
@@ -84,17 +84,44 @@ class AgentLoop:
     ) -> AsyncIterator[Event]:
         sequence = self.accept()
         provider_name = getattr(self.provider, 'name', '')
-        system_prompt = build_system_prompt(
-            self.config.workspace_root, mode, self._get_tool_schemas(),
-            skills_section=skills_section,
-            max_context_tokens=self.config.max_context_tokens,
-            provider_name=provider_name,
-        )
         model = self.provider.model
         ws = self.config.workspace_root
-        registered_tools = set(self.tool_registry.list_tools()) if self.tool_registry else set()
-        openai_tools = schemas_to_openai_tools(self._get_tool_schemas())
+        mode_config = AGENT_MODES.get(mode)
 
+        # --- Mode-specific prompt and tool selection (Crush-style config-driven agents) ---
+        if mode == "plan":
+            logger.info("PLAN MODE: using focused plan prompt, read-only tools")
+            system_prompt = build_plan_system_prompt(
+                self.config.workspace_root,
+                tool_schemas=self._get_tool_schemas(),
+                skills_section=skills_section,
+                provider_name=provider_name,
+            )
+            # Plan mode: only read-only tools (file_read, glob, grep, bash)
+            if self.tool_registry and mode_config and mode_config.allowed_tools:
+                plan_tool_names = self.tool_registry.list_tools_for_mode("plan")
+                registered_tools = set(plan_tool_names)
+                plan_schemas = [
+                    s for s in self._get_tool_schemas()
+                    if s["name"] in registered_tools
+                ]
+                openai_tools = schemas_to_openai_tools(plan_schemas)
+                logger.info("Plan mode tools: %s", sorted(registered_tools))
+            else:
+                registered_tools = set()
+                openai_tools = []
+        else:
+            # Build mode: full prompt, all tools
+            system_prompt = build_system_prompt(
+                self.config.workspace_root, mode, self._get_tool_schemas(),
+                skills_section=skills_section,
+                max_context_tokens=self.config.max_context_tokens,
+                provider_name=provider_name,
+            )
+            registered_tools = set(self.tool_registry.list_tools()) if self.tool_registry else set()
+            openai_tools = schemas_to_openai_tools(self._get_tool_schemas())
+
+        # --- Model capability check ---
         model_supports_tools = True
         try:
             from db.repository import load_catalog
@@ -112,7 +139,11 @@ class AgentLoop:
             openai_tools = []
             logger.info("Model '%s' does not support tool calling — sending without tools", model)
 
+        # Safety net — dynamic stopping is the primary mechanism
+        SAFETY_NET_MAX_ITERATIONS = 100
+
         messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
+        logger.info("Context built: %d messages, system_prompt=%d chars", len(messages), len(system_prompt))
         yield r.thinking(f"Processing your request in {mode} mode...", session_id)
 
         if self.context_manager.should_summarize(messages, model):
@@ -125,9 +156,13 @@ class AgentLoop:
             return
 
         messages = self._apply_prompt_caching(messages)
+        logger.info("Messages ready for LLM: %d messages", len(messages))
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            logger.info("  msg[%d] role=%s content_len=%d preview=%r", i, role, len(str(content)), str(content)[:150])
 
         iteration = 0
-        max_iter = self.config.tools.max_iterations
         reflection_errors = 0
         created_files: set[str] = set()
         task_completed = False
@@ -135,7 +170,7 @@ class AgentLoop:
         files_edited: list[str] = []
 
         try:
-            while iteration < max_iter:
+            while iteration < SAFETY_NET_MAX_ITERATIONS:
                 if self.is_cancelled(sequence):
                     yield r.warning("Request cancelled", session_id)
                     return
@@ -145,7 +180,20 @@ class AgentLoop:
                 iteration += 1
                 if task_completed:
                     post_comp_iterations += 1
-                logger.info("Agent turn %d/%d session=%s", iteration, max_iter, session_id)
+
+                # --- Dynamic stop: context window exhaustion ---
+                token_info = self.context_manager.get_token_info(messages, model)
+                if token_info.percent > 0.85:
+                    logger.warning("Context window %.1f%% full — summarizing", token_info.percent * 100)
+                    async for ev in self._maybe_summarize(history, session_id):
+                        yield ev
+                    messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
+                    token_info = self.context_manager.get_token_info(messages, model)
+                    if token_info.percent > 0.95:
+                        yield r.error("Context window exhausted even after summarization", session_id, code="CONTEXT_EXHAUSTED")
+                        return
+
+                logger.info("Agent turn %d (dynamic stop) session=%s tokens=%.1f%%", iteration, session_id, token_info.percent * 100)
 
                 stream_state = StreamState()
                 try:
@@ -183,6 +231,7 @@ class AgentLoop:
 
                 messages.append({"role": "assistant", "content": response_text})
 
+                stop_turn = False
                 for tc in valid_calls:
                     tool_name = tc["tool"]
                     tool_params = normalize_file_params(tc.get("params", {}))
@@ -215,6 +264,11 @@ class AgentLoop:
                         output=result.output or "", error=result.error or "",
                         metadata=build_tool_metadata(tool_name, tool_params, result, duration_ms))
 
+                    # --- Dynamic stop: tool requested turn end ---
+                    if result.stop_turn:
+                        logger.info("Tool '%s' requested stop_turn", tool_name)
+                        stop_turn = True
+
                     if not result.success:
                         reflection_errors += 1
                         err_msg = result.error or f"Tool '{tool_name}' execution failed"
@@ -238,10 +292,20 @@ class AgentLoop:
 
                     messages.append({"role": "user", "content": format_tool_result(tool_name, result, self.config.tools.max_tool_output)})
                     self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
-                    if self._loop_detector.is_loop_detected():
-                        yield r.error("Loop detected: the same tool calls are repeating without progress.", session_id, code="LOOP_DETECTED", recoverable=True)
-                        return
 
+                # --- Dynamic stop conditions (checked after each full tool-call batch) ---
+
+                # 1. Tool requested turn end
+                if stop_turn:
+                    logger.info("Stopping turn: tool requested stop_turn")
+                    break
+
+                # 2. Loop detection (Crush-style SHA-256 signature matching)
+                if self._loop_detector.is_loop_detected():
+                    yield r.error("Loop detected: the same tool calls are repeating without progress.", session_id, code="LOOP_DETECTED", recoverable=True)
+                    return
+
+                # 3. Task completion signal
                 if not task_completed and clean_response and COMPLETION_SIGNALS.search(clean_response):
                     task_completed = True
 
@@ -249,7 +313,7 @@ class AgentLoop:
                     auto_commit(ws, files_edited)
                     files_edited.clear()
             else:
-                yield r.error(f"Max iterations ({max_iter}) exceeded", session_id, code="MAX_ITERATIONS")
+                yield r.error(f"Safety net exceeded ({SAFETY_NET_MAX_ITERATIONS} iterations)", session_id, code="MAX_ITERATIONS")
                 return
         finally:
             pass

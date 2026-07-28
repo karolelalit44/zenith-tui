@@ -1,9 +1,66 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 import os
 from pydantic import BaseModel, Field, field_validator
 from .providers import ProviderConfig
 from .env import optional_env, optional_int, optional_float
+
+
+# ---------------------------------------------------------------------------
+# Agent mode configurations (inspired by Crush's Agent struct + Aider's
+# architect/editor separation)
+# ---------------------------------------------------------------------------
+
+# Read-only tools for plan mode — comprehensive set matching the device.
+# These tools NEVER modify the filesystem or system state.
+PLAN_READ_ONLY_TOOLS = [
+    "file_read",       # Read file contents
+    "glob",            # Find files by pattern
+    "grep",            # Search file contents
+    "bash",            # Read-only commands (ls, cat, find, tree, Get-ChildItem, etc.)
+    "lsp_definition",  # Go-to-definition (language-aware)
+    "lsp_diagnostics", # Lint/typecheck (read-only analysis)
+    "webfetch",        # Fetch web content for research
+    "job_output",      # Read background job output
+]
+
+@dataclass(frozen=True)
+class AgentModeConfig:
+    """Configuration for an agent mode (plan or build).
+
+    Inspired by Crush's Agent{Model, AllowedTools, AllowedMCP} and
+    Aider's architect/editor separation.
+
+    Stopping is dynamic — controlled by:
+      1. Loop detection (Crush-style SHA-256 signature matching)
+      2. Context window exhaustion (auto-summarize when >85% full)
+      3. Tool-level stop_turn (tools can end the turn)
+      4. Task completion signals
+
+    max_iterations is ONLY a safety net (default 100). Do NOT rely on it
+    for normal operation — the agent should stop via the above mechanisms.
+    """
+    name: str
+    allowed_tools: list[str] | None = None  # None = all tools
+    description: str = ""
+
+PLAN_MODE_CONFIG = AgentModeConfig(
+    name="plan",
+    allowed_tools=PLAN_READ_ONLY_TOOLS,
+    description="Read-only analysis and planning. No file modifications.",
+)
+
+BUILD_MODE_CONFIG = AgentModeConfig(
+    name="build",
+    allowed_tools=None,  # All tools
+    description="Full execution with all tools.",
+)
+
+AGENT_MODES: dict[str, AgentModeConfig] = {
+    "plan": PLAN_MODE_CONFIG,
+    "build": BUILD_MODE_CONFIG,
+}
 
 
 class ToolConfig(BaseModel):
@@ -13,9 +70,6 @@ class ToolConfig(BaseModel):
     file_delete_enabled: bool = True
     max_bash_timeout: int = Field(
         default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300
-    )
-    max_iterations: int = Field(
-        default=optional_int("ZENITH_MAX_ITERATIONS", 10), ge=1, le=50
     )
     max_tool_output: int = Field(
         default=optional_int("ZENITH_MAX_TOOL_OUTPUT", 10000), ge=1000

@@ -197,6 +197,67 @@ Adapt verbosity to match the work completed:
 """
 
 # ---------------------------------------------------------------------------
+# Plan mode instructions (inspired by Crush's task.md.tpl)
+# ---------------------------------------------------------------------------
+
+PLAN_MODE_INSTRUCTIONS = """\
+## PLAN MODE — Read-Only Analysis & Architecture
+
+You are in **PLAN mode**. Your job is to think, analyze, and produce structured plans. You do NOT execute changes.
+
+### What to do in PLAN mode:
+- **Analyze** the request and break it into concrete, actionable steps
+- **Search** the codebase to understand existing patterns and constraints
+- **Read** files to understand current state before proposing changes
+- **Propose** a clear architecture with file paths, function names, and data flow
+- **Structure** your plan with numbered steps, each referencing specific files/lines
+- **Be specific** — say exactly which files to create/modify, what functions to add, what patterns to follow
+
+### What NOT to do in PLAN mode:
+- Do NOT use file_edit, file_write, or file_delete
+- Do NOT run bash commands that modify files
+- Do NOT create directories or write any code
+- Do NOT auto-commit anything
+
+### Plan output format:
+Use Markdown with clear sections:
+1. **Overview** — what we're building and why
+2. **Architecture** — services, modules, data flow
+3. **File Structure** — exact paths and their purpose
+4. **Implementation Steps** — numbered list with file:line references
+5. **Data Models** — schemas, types, interfaces
+6. **API Design** — endpoints, request/response shapes
+7. **Testing Strategy** — what to test and how
+
+### When to transition to build mode:
+After presenting the plan, ask the user: "Ready to implement? Switch to build mode with /build"
+"""
+
+# ---------------------------------------------------------------------------
+# Build mode instructions
+# ---------------------------------------------------------------------------
+
+BUILD_MODE_INSTRUCTIONS = """\
+## BUILD MODE — Full Execution
+
+You are in **BUILD mode**. Your job is to execute the task completely using tools.
+
+### What to do in BUILD mode:
+- Use all available tools to implement the changes
+- Be autonomous — search, read, edit, test, commit
+- Make all changes, run all tests, verify everything works
+- Don't ask questions — just do it
+
+### Workflow:
+1. Search for relevant files
+2. Read files to understand current state
+3. Make changes (file_edit, file_write, bash)
+4. Run tests after each change
+5. Fix any failures immediately
+6. Continue until task is complete
+"""
+
+# ---------------------------------------------------------------------------
 # Provider-specific prompt prefixes (#23)
 # ---------------------------------------------------------------------------
 
@@ -313,6 +374,12 @@ def build_system_prompt(
     if provider_name and provider_name in PROVIDER_PREFIXES:
         sections.append(f"<provider_instructions>\n{PROVIDER_PREFIXES[provider_name]}\n</provider_instructions>")
 
+    # --- Mode-specific instructions ---
+    if mode == "plan":
+        sections.append(f"<plan_mode>\n{PLAN_MODE_INSTRUCTIONS}</plan_mode>")
+    else:
+        sections.append(f"<build_mode>\n{BUILD_MODE_INSTRUCTIONS}</build_mode>")
+
     # --- Critical Rules ---
     sections.append(f"<critical_rules>\n{CRITICAL_RULES}</critical_rules>")
 
@@ -376,6 +443,131 @@ def build_system_prompt(
         )
 
     # --- Tool schemas (for reference) ---
+    if tool_schemas:
+        tool_block = _format_tool_schemas(tool_schemas)
+        sections.append(f"<available_tools>\n{tool_block}\n</available_tools>")
+
+    return "\n\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
+# Standalone plan mode prompt (inspired by Crush's task.md.tpl + Aider's
+# architect_prompts.py — lightweight, focused, read-only)
+# ---------------------------------------------------------------------------
+
+def build_plan_system_prompt(
+    workspace_root: str,
+    tool_schemas: list[dict[str, Any]] | None = None,
+    skills_section: str = "",
+    provider_name: str = "",
+) -> str:
+    """Build a focused, lightweight system prompt for plan mode.
+
+    Inspired by Crush's 15-line task.md.tpl and Aider's architect_prompts.py.
+    The plan agent is a read-only analyst that produces structured
+    implementation plans — it does NOT write code or modify files.
+    """
+    sections: list[str] = []
+
+    # --- Role (Aider-style: "expert architect engineer") ---
+    sections.append(
+        "You are Zenith in PLAN mode — an expert software architect and systems analyst.\n"
+        "You analyze codebases, understand requirements, and produce structured\n"
+        "implementation plans. You do NOT write code, edit files, or make changes."
+    )
+
+    # --- Provider-specific prefix ---
+    if provider_name and provider_name in PROVIDER_PREFIXES:
+        sections.append(f"<provider_instructions>\n{PROVIDER_PREFIXES[provider_name]}\n</provider_instructions>")
+
+    # --- Critical Rules (Crush-style: minimal, focused) ---
+    sections.append("""<critical_rules>
+1. NEVER edit files, NEVER create files, NEVER delete files
+2. NEVER run bash commands that modify the filesystem (no mkdir, touch, rm, cp, mv, echo >, etc.)
+3. You MAY use file_read, glob, grep, and read-only bash commands (ls, cat, head, find, tree, pwd)
+4. Search the codebase before planning — understand existing patterns, conventions, and constraints
+5. Read files to understand current state before proposing changes
+6. Be specific: name exact files, functions, types, and line numbers
+7. Use `file_path:line_number` references when pointing to code
+8. If the task is ambiguous, state your assumptions and proceed with the most reasonable interpretation
+</critical_rules>""")
+
+    # --- Output Format (Aider-style: structured sections) ---
+    sections.append("""<output_format>
+Structure every plan with these Markdown sections:
+
+## Overview
+One paragraph: what we're building and why.
+
+## Architecture
+Services, modules, data flow, communication patterns.
+Reference existing code: "Extending the existing AuthService in src/auth/service.py:42"
+
+## File Structure
+Exact paths and their purpose:
+- `src/services/user_service.py` — User CRUD + auth logic
+- `src/models/user.py` — Pydantic schemas
+
+## Implementation Steps
+Numbered list, each step referencing specific files/lines:
+1. Add `UserRepository` class to `src/repos/user.py:15` following the pattern in `src/repos/base.py`
+2. Extend `UserService.authenticate()` in `src/services/user.py:67` to call the new repository
+
+## Data Models
+Schemas, types, interfaces (as code fences):
+```python
+class UserCreate(BaseModel):
+    email: str
+    name: str
+```
+
+## API Design
+Endpoints, request/response shapes:
+- `POST /api/users` — Create user, returns `UserResponse`
+
+## Testing Strategy
+What to test and how:
+- Unit test `UserRepository` in `tests/test_user_repo.py`
+- Integration test auth flow in `tests/test_auth.py`
+
+Keep the plan under 40 lines unless the task is very complex.
+Use code fences for any code snippets (types, schemas, signatures).
+</output_format>""")
+
+    # --- Communication Style (Crush-style: concise) ---
+    sections.append("""<communication_style>
+- Under 40 lines of text (code fences don't count toward the limit)
+- No preamble ("Here's...", "I'll...")
+- No postamble ("Let me know...", "Hope this helps...")
+- Use Markdown formatting: headers, lists, code fences
+- When the plan is complete, end with:
+  "Ready to implement? Switch to build mode with `/build`"
+</communication_style>""")
+
+    # --- Skills (if provided) ---
+    if skills_section:
+        sections.append(skills_section)
+
+    # --- Environment block ---
+    env_section = _build_env_section(workspace_root, "plan")
+    sections.append(f"<env>\n{env_section}</env>")
+
+    # --- Git context ---
+    git_section = _build_git_section(workspace_root)
+    if git_section:
+        sections.append(f"<git_context>\n{git_section}</git_context>")
+
+    # --- Project context files ---
+    context_files = load_context_files(workspace_root)
+    if context_files:
+        formatted = format_context_files(context_files)
+        sections.append(
+            "# Project-Specific Context\n"
+            "Follow the instructions in the context below.\n"
+            f"<project_context>\n{formatted}\n</project_context>"
+        )
+
+    # --- Tool schemas (read-only reference) ---
     if tool_schemas:
         tool_block = _format_tool_schemas(tool_schemas)
         sections.append(f"<available_tools>\n{tool_block}\n</available_tools>")

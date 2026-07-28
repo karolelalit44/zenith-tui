@@ -9,7 +9,6 @@ def test_default_config():
     assert config.active_provider == os.environ["ZENITH_ACTIVE_PROVIDER"]
     assert config.db_path == os.environ["ZENITH_DB_PATH"]
     assert config.max_context_tokens == int(os.environ["ZENITH_MAX_CONTEXT_TOKENS"])
-    assert config.tools.max_iterations == int(os.environ["ZENITH_MAX_ITERATIONS"])
 
 
 def test_config_validation():

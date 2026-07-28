@@ -33,6 +33,10 @@ class ToolRegistry:
     def list_tools(self) -> list[str]:
         return list(self._tools.keys())
 
+    def list_tools_for_mode(self, mode: str) -> list[str]:
+        """Return tool names available in the given mode."""
+        return [name for name in self._tools if self._is_available_in_mode(name, mode)]
+
     # ── schema queries ────────────────────────────────────────────────────
 
     def get_schemas(self) -> list[dict]:

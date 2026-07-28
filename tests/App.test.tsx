@@ -81,8 +81,8 @@ test('App shows Welcome screen when backend validates ready', async () => {
   await wait(500);
 
   const frame = lastFrame();
-  expect(frame).toContain('Try asking:');
-  expect(frame).toContain('Help me understand this codebase');
+  expect(frame).toContain('SYSTEM STATUS');
+  expect(frame).toContain('RECENT SESSIONS');
   unmount();
 });
 

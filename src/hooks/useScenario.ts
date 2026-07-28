@@ -28,12 +28,15 @@ export function useScenario(): UseScenarioReturn {
   }, []);
 
   const handleEvent = useCallback((event: ScenarioEvent, index: number) => {
+    console.log(`[SCENARIO EVENT] kind=${event.kind} id=${event.id} index=${index}`);
     setEvents((prev) => {
       if (typeof index === 'number' && index < prev.length) {
+        console.log(`[SCENARIO UPDATE] replacing event at index ${index} (prev_kind=${prev[index]?.kind})`);
         const updated = [...prev];
         updated[index] = event;
         return updated;
       }
+      console.log(`[SCENARIO APPEND] adding new event (total=${prev.length + 1})`);
       return [...prev, event];
     });
     if (event.kind === 'confirmation_request') {

@@ -12,6 +12,7 @@ class ToolResult(BaseModel):
     success: bool
     output: str = ""
     error: str = ""
+    stop_turn: bool = False  # If True, the agent loop should end this turn
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
