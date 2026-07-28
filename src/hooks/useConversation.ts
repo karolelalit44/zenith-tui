@@ -97,6 +97,7 @@ export function useConversation(): UseConversationReturn {
   const clearTurns = useCallback(() => {
     setTurns([]);
     setStaticKey((k) => k + 1);
+    process.stdout.write('\x1B[2J\x1B[H');
   }, []);
 
   const compactTurns = useCallback(() => {

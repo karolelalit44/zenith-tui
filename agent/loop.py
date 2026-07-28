@@ -95,6 +95,23 @@ class AgentLoop:
         registered_tools = set(self.tool_registry.list_tools()) if self.tool_registry else set()
         openai_tools = schemas_to_openai_tools(self._get_tool_schemas())
 
+        model_supports_tools = True
+        try:
+            from db.repository import load_catalog
+            cat = load_catalog()
+            provider_entry = cat.get("providers", {}).get(provider_name, {})
+            for m in provider_entry.get("models", []):
+                if m.get("id") == model:
+                    caps = m.get("model_capabilities", {})
+                    model_supports_tools = caps.get("function_calling", True)
+                    break
+        except Exception:
+            pass
+
+        if not model_supports_tools:
+            openai_tools = []
+            logger.info("Model '%s' does not support tool calling — sending without tools", model)
+
         messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
         yield r.thinking(f"Processing your request in {mode} mode...", session_id)
 

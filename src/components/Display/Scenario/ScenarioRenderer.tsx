@@ -100,7 +100,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           );
         })}
 
-        {showLiveIndicator && <LiveSpinner label="Processing event stream..." />}
+        {showLiveIndicator && <LiveSpinner label={''}/>}
       </Box>
     );
   },

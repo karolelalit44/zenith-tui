@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from fastapi import WebSocket, WebSocketDisconnect
@@ -106,7 +107,18 @@ class ZenithHandler:
 
     async def handle(self, websocket: WebSocket) -> None:
         session_id = None
+        ping_task = None
         try:
+            async def _keepalive_ping():
+                """Send WS pings every 30s to prevent idle connection drops."""
+                while True:
+                    await asyncio.sleep(30)
+                    try:
+                        await websocket.send_text('{"jsonrpc":"2.0","method":"ping","params":{}}')
+                    except Exception:
+                        break
+
+            ping_task = asyncio.ensure_future(_keepalive_ping())
             while True:
                 raw = await websocket.receive_text()
                 try:
@@ -123,6 +135,8 @@ class ZenithHandler:
         except WebSocketDisconnect:
             pass
         finally:
+            if ping_task:
+                ping_task.cancel()
             if session_id:
                 self.manager.disconnect(session_id)
             self._executor.cancel_active()

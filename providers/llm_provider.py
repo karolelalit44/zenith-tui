@@ -66,6 +66,8 @@ def _to_litellm_model(prefix: str, model_id: str) -> str:
     """Convert a model ID to LiteLLM format using catalog-driven prefix."""
     if not prefix:
         return model_id
+    if model_id.startswith(prefix):
+        return model_id
     return f"{prefix}{model_id}"
 
 

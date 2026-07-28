@@ -239,6 +239,7 @@ export const App: React.FC = () => {
             onRemoveAttachment={removeAttachment}
             historyUp={historyUp}
             historyDown={historyDown}
+            mode={selectedMode}
           />
         )}
 

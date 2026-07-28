@@ -3,7 +3,7 @@ interface SessionItem {
   title: string;
 }
 
-const INITIAL_SESSIONS: SessionItem[] = [{ time: '15:35, 22 July', title: 'Refactored authentication flow' }];
+const INITIAL_SESSIONS: SessionItem[] = [];
 
 let sessions: SessionItem[] = [...INITIAL_SESSIONS];
 
