@@ -1,0 +1,274 @@
+"""Agent loop — multi-step prompt → LLM → tool calls → response."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import AsyncIterator, Awaitable, Callable
+
+from config.settings import AppSettings
+from core.errors import ZenithError
+from core.events import Event
+from core.message import Message
+from providers.base import BaseProvider
+from providers.parser import UnifiedResponseFormatter
+from providers import responder as r
+from tools.param_normalizer import normalize_file_params
+from tools.registry import ToolRegistry
+from .context import ContextManager
+from .prompts import build_system_prompt
+from .loop_detection import LoopDetector
+from .llm_stream import stream_with_retries, StreamState
+from .validation import (
+    REFLECTION_ERROR_LIMIT,
+    schemas_to_openai_tools,
+    _COMPLETION_SIGNALS as COMPLETION_SIGNALS,
+)
+from .tool_executor import (
+    validate_tool_calls,
+    validate_tool_rejection,
+    format_tool_result,
+    build_tool_metadata,
+    execute_tool,
+    post_execution_hooks,
+    auto_commit,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class AgentLoop:
+    """Core agent loop: prompt → context build → LLM stream → tool calls → repeat."""
+
+    def __init__(
+        self,
+        config: AppSettings,
+        provider: BaseProvider,
+        context_manager: ContextManager | None = None,
+        tool_registry: ToolRegistry | None = None,
+    ) -> None:
+        self.config = config
+        self.provider = provider
+        self.context_manager = context_manager or ContextManager(config)
+        self.tool_registry = tool_registry
+        self._summary: str | None = None
+        self._loop_detector = LoopDetector()
+        self._accept_sequence: int = 0
+        self._cancel_sequence: int = -1
+
+    def accept(self) -> int:
+        self._accept_sequence += 1
+        return self._accept_sequence
+
+    def cancel(self) -> None:
+        self._cancel_sequence = self._accept_sequence
+
+    def is_cancelled(self, sequence: int) -> bool:
+        return self._cancel_sequence >= sequence
+
+    @property
+    def summary(self) -> str | None:
+        return self._summary
+
+    def set_summary(self, summary: str | None) -> None:
+        self._summary = summary
+
+    async def process_prompt(
+        self,
+        prompt: str,
+        session_id: str,
+        history: list[Message],
+        mode: str = "build",
+        skills_section: str = "",
+        confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
+    ) -> AsyncIterator[Event]:
+        sequence = self.accept()
+        provider_name = getattr(self.provider, 'name', '')
+        system_prompt = build_system_prompt(
+            self.config.workspace_root, mode, self._get_tool_schemas(),
+            skills_section=skills_section,
+            max_context_tokens=self.config.max_context_tokens,
+            provider_name=provider_name,
+        )
+        model = self.provider.model
+        ws = self.config.workspace_root
+        registered_tools = set(self.tool_registry.list_tools()) if self.tool_registry else set()
+        openai_tools = schemas_to_openai_tools(self._get_tool_schemas())
+
+        messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
+        yield r.thinking(f"Processing your request in {mode} mode...", session_id)
+
+        if self.context_manager.should_summarize(messages, model):
+            async for ev in self._maybe_summarize(history, session_id):
+                yield ev
+            messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
+
+        if self.is_cancelled(sequence):
+            yield r.warning("Request was cancelled before starting", session_id)
+            return
+
+        messages = self._apply_prompt_caching(messages)
+
+        iteration = 0
+        max_iter = self.config.tools.max_iterations
+        reflection_errors = 0
+        created_files: set[str] = set()
+        task_completed = False
+        post_comp_iterations = 0
+        files_edited: list[str] = []
+
+        try:
+            while iteration < max_iter:
+                if self.is_cancelled(sequence):
+                    yield r.warning("Request cancelled", session_id)
+                    return
+                if task_completed and post_comp_iterations >= 2:
+                    break
+
+                iteration += 1
+                if task_completed:
+                    post_comp_iterations += 1
+                logger.info("Agent turn %d/%d session=%s", iteration, max_iter, session_id)
+
+                stream_state = StreamState()
+                try:
+                    async for event in stream_with_retries(
+                        self.provider, messages, openai_tools, session_id, iteration, stream_state
+                    ):
+                        yield event
+                except ZenithError:
+                    return
+
+                response_text = stream_state.response_text
+                native_tool_calls = getattr(self.provider, '_last_native_tool_calls', [])
+                clean_response, tool_calls = UnifiedResponseFormatter.process_response(response_text, native_tool_calls or None)
+                if clean_response:
+                    yield r.message_event(clean_response, session_id, partial=False)
+
+                if not tool_calls:
+                    if not clean_response and not stream_state.full_response:
+                        yield r.error("Model returned empty response.", session_id, code="EMPTY_RESPONSE", recoverable=True)
+                    break
+
+                if not self.tool_registry:
+                    yield r.error("No tool registry available", session_id)
+                    break
+
+                valid_calls, invalid_names = validate_tool_calls(tool_calls, registered_tools)
+                if invalid_names:
+                    yield r.warning(f"Hallucinated tools ignored: {', '.join(invalid_names)}", session_id)
+                if not valid_calls:
+                    msgs = [{"role": "assistant", "content": response_text}, {"role": "user", "content": f"Tool calls for non-existent tools: {', '.join(invalid_names)}. Available: {', '.join(sorted(registered_tools))}."}]
+                    messages.extend(msgs)
+                    continue
+
+                messages.append({"role": "assistant", "content": response_text})
+
+                for tc in valid_calls:
+                    tool_name = tc["tool"]
+                    tool_params = normalize_file_params(tc.get("params", {}))
+
+                    # Pre-execution validation
+                    reject_msg = validate_tool_rejection(tool_name, tool_params, created_files, ws)
+                    if tool_name in ("bash", "terminal") and not reject_msg and confirm_callback:
+                        from tools.command_safety import assess_command
+                        assessment = assess_command(tool_params.get("command", ""))
+                        if assessment.is_risky:
+                            try:
+                                approved = await confirm_callback(tool_name, assessment.reason, assessment.risk_level)
+                            except Exception:
+                                approved = False
+                            if not approved:
+                                reject_msg = f"Command denied: {tool_params.get('command', '')} ({assessment.reason})"
+
+                    if reject_msg:
+                        yield r.warning(f"Tool '{tool_name}' rejected: {reject_msg}", session_id)
+                        messages.append({"role": "user", "content": f"[Tool rejected] {reject_msg}"})
+                        reflection_errors += 1
+                        if reflection_errors >= REFLECTION_ERROR_LIMIT:
+                            yield r.error(f"Too many errors ({reflection_errors}).", session_id, code="REFLECTION_LIMIT", recoverable=True)
+                            return
+                        continue
+
+                    yield r.tool_call(tool_name, tool_params, session_id)
+                    result, duration_ms = await execute_tool(self.tool_registry, tool_name, tool_params, ws, mode)
+                    yield r.tool_result(tool_name, result.success, session_id,
+                        output=result.output or "", error=result.error or "",
+                        metadata=build_tool_metadata(tool_name, tool_params, result, duration_ms))
+
+                    if not result.success:
+                        reflection_errors += 1
+                        err_msg = result.error or f"Tool '{tool_name}' execution failed"
+                        yield r.error(err_msg, session_id, code=f"TOOL_ERROR_{tool_name.upper()}", recoverable=True)
+                        messages.append({"role": "user", "content": f"[Tool error] {tool_name} failed: {err_msg}. Try a different approach."})
+                        if reflection_errors >= REFLECTION_ERROR_LIMIT:
+                            yield r.error(f"Too many errors ({reflection_errors}).", session_id, code="REFLECTION_LIMIT", recoverable=True)
+                            return
+
+                    # Track created files + edited files
+                    if result.success:
+                        p = tool_params.get("filepath") or tool_params.get("path") or ""
+                        if p:
+                            if tool_name == "file_write":
+                                created_files.add(p)
+                            if tool_name in ("file_edit", "file_write"):
+                                files_edited.append(p)
+
+                    for ev in await post_execution_hooks(tool_name, tool_params, result, ws, session_id):
+                        yield ev
+
+                    messages.append({"role": "user", "content": format_tool_result(tool_name, result, self.config.tools.max_tool_output)})
+                    self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
+                    if self._loop_detector.is_loop_detected():
+                        yield r.error("Loop detected: the same tool calls are repeating without progress.", session_id, code="LOOP_DETECTED", recoverable=True)
+                        return
+
+                if not task_completed and clean_response and COMPLETION_SIGNALS.search(clean_response):
+                    task_completed = True
+
+                if files_edited:
+                    auto_commit(ws, files_edited)
+                    files_edited.clear()
+            else:
+                yield r.error(f"Max iterations ({max_iter}) exceeded", session_id, code="MAX_ITERATIONS")
+                return
+        finally:
+            pass
+
+        token_info = self.context_manager.get_token_info(messages, model)
+        yield r.success("Request processed successfully", session_id, iteration, {
+            "used": token_info.used, "remaining": token_info.remaining,
+            "total": token_info.total, "percent": round(token_info.percent, 3),
+        })
+
+    async def _maybe_summarize(self, history, session_id):
+        from session.history import HistoryManager
+        yield r.warning("Context approaching limit, summarizing...", session_id)
+        try:
+            history_mgr = HistoryManager(self.config, self.provider)
+            self._summary = await history_mgr.summarize(history, self.provider.model)
+            yield r.warning("Context summarized", session_id)
+        except Exception as e:
+            yield r.warning(f"Summarization failed: {e}", session_id)
+
+    def _get_tool_schemas(self) -> list[dict]:
+        return self.tool_registry.get_schemas() if self.tool_registry else []
+
+    def _get_tool_names(self) -> list[str]:
+        return self.tool_registry.list_tools() if self.tool_registry else []
+
+    def _apply_prompt_caching(self, messages: list[dict]) -> list[dict]:
+        if not messages:
+            return messages
+        if 'anthropic' not in getattr(self.provider, 'name', '').lower():
+            return messages
+        cached = [dict(msg) for msg in messages]
+        if cached:
+            cached[0]["cache_control"] = {"type": "ephemeral"}
+        if len(cached) >= 2:
+            cached[-1]["cache_control"] = {"type": "ephemeral"}
+            cached[-2]["cache_control"] = {"type": "ephemeral"}
+        return cached
+
+
+from .tool_executor import format_tool_result as _format_tool_result  # noqa: E402, F401

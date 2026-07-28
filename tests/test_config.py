@@ -1,6 +1,6 @@
 import os
-from zenith.config.settings import AppSettings
-from zenith.config.loader import load_config
+from config.settings import AppSettings
+from config.loader import load_config
 
 
 def test_default_config():
@@ -27,7 +27,7 @@ def test_load_config(temp_dir):
 
 
 def test_get_active_provider_config():
-    from zenith.config.providers import ProviderConfig
+    from config.providers import ProviderConfig
     config = AppSettings(
         providers={"openai": ProviderConfig(model="gpt-4o")},
         active_provider="openai",

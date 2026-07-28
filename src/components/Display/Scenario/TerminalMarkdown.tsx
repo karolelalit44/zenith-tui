@@ -205,7 +205,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-
     // Markdown Table
     if (line.trim().startsWith('|') && idx + 1 < rawLines.length && rawLines[idx + 1].includes('---')) {
       const tableLines: string[] = [];

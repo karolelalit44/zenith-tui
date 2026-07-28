@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useMemo } from 'react';
-import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
 import type { ConversationTurn } from '../hooks/useConversation';
 import type { OverlayType } from '../hooks/useOverlayManager';
-import type { ConfirmationRequestEvent } from '../types/scenario';
+import type { ConfirmationRequestEvent, ScenarioEvent, ScenarioMode } from '../types/scenario';
 
 export interface AppState {
   conversation: {
@@ -49,28 +48,44 @@ interface AppProviderProps {
   activeConfirmation: ConfirmationRequestEvent | null;
 }
 
-export const AppProvider: React.FC<AppProviderProps> = React.memo(({
-  children,
-  turns,
-  activeTurn,
-  totalTokens,
-  events,
-  isRunning,
-  overlay,
-  isOverlayOpen,
-  selectedMode,
-  thinkingCollapsed,
-  activeConfirmation,
-}) => {
-  const value = useMemo<AppState>(() => ({
-    conversation: { turns, activeTurn, totalTokens },
-    scenario: { events, isRunning },
-    overlay: { type: overlay, isOpen: isOverlayOpen, mode: selectedMode },
-    preferences: { thinkingCollapsed },
-    confirmation: { active: activeConfirmation },
-  }), [turns, activeTurn, totalTokens, events, isRunning, overlay, isOverlayOpen, selectedMode, thinkingCollapsed, activeConfirmation]);
+export const AppProvider: React.FC<AppProviderProps> = React.memo(
+  ({
+    children,
+    turns,
+    activeTurn,
+    totalTokens,
+    events,
+    isRunning,
+    overlay,
+    isOverlayOpen,
+    selectedMode,
+    thinkingCollapsed,
+    activeConfirmation,
+  }) => {
+    const value = useMemo<AppState>(
+      () => ({
+        conversation: { turns, activeTurn, totalTokens },
+        scenario: { events, isRunning },
+        overlay: { type: overlay, isOpen: isOverlayOpen, mode: selectedMode },
+        preferences: { thinkingCollapsed },
+        confirmation: { active: activeConfirmation },
+      }),
+      [
+        turns,
+        activeTurn,
+        totalTokens,
+        events,
+        isRunning,
+        overlay,
+        isOverlayOpen,
+        selectedMode,
+        thinkingCollapsed,
+        activeConfirmation,
+      ],
+    );
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
-});
+    return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  },
+);
 
 AppProvider.displayName = 'AppProvider';

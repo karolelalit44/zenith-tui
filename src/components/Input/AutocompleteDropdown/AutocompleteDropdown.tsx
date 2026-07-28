@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
-import { useTheme } from '../../../theme/ThemeContext';
 import optionsData from '../../../services/data/options.json';
+import { useTheme } from '../../../theme/ThemeContext';
 import type { AutocompleteDropdownProps } from './types';
 
 interface CommandEntry {

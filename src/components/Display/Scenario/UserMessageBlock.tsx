@@ -21,8 +21,6 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
       <Box
         flexDirection="column"
         width="100%"
-        paddingX={1}
-        paddingY={0}
         borderStyle="round"
         borderColor={theme.colors.border.muted}
       >
@@ -32,7 +30,9 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
           </Text>
         </Box>
         <Box flexDirection="row" justifyContent="flex-end" width="100%">
-          <Text color={theme.colors.text.dim} wrap="truncate-end">{timeStr}</Text>
+          <Text color={theme.colors.text.dim} wrap="truncate-end">
+            {timeStr}
+          </Text>
         </Box>
       </Box>
     </Box>

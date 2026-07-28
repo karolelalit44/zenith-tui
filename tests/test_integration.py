@@ -7,26 +7,26 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
-from zenith.config.settings import AppSettings
-from zenith.config.providers import ProviderConfig
-from zenith.db.connection import Database
-from zenith.db.repository import SessionRepository, MessageRepository
-from zenith.providers.registry import ProviderRegistry
-from zenith.providers.base import BaseProvider
-from zenith.core.session import Session
-from zenith.core.message import Message
-from zenith.core.events import Event, EventKind
-from zenith.tools import create_default_registry
-from zenith.tools.base import ToolResult
-from zenith.agent.loop import AgentLoop, _format_tool_result
-from zenith.agent.recovery import RecoverableAgentLoop
-from zenith.agent.context import ContextManager
-from zenith.session.export import SessionExporter
-from zenith.session.history import HistoryManager
-from zenith.workspace.tracker import FileTracker
-from zenith.workspace.repo_map import RepoMap
-from zenith.skills.loader import SkillLoader
-from zenith.transport.shutdown import GracefulShutdown
+from config.settings import AppSettings
+from config.providers import ProviderConfig
+from db.connection import Database
+from db.repository import SessionRepository, MessageRepository
+from providers.registry import ProviderRegistry
+from providers.base import BaseProvider
+from core.session import Session
+from core.message import Message
+from core.events import Event, EventKind
+from tools import create_default_registry
+from tools.base import ToolResult
+from agent.loop import AgentLoop, _format_tool_result
+from agent.recovery import RecoverableAgentLoop
+from agent.context import ContextManager
+from session.export import SessionExporter
+from session.history import HistoryManager
+from workspace.tracker import FileTracker
+from workspace.repo_map import RepoMap
+from skills.loader import SkillLoader
+from transport.shutdown import GracefulShutdown
 
 
 # ── Test Provider ───────────────────────────────────────────────────
@@ -167,7 +167,7 @@ class TestErrorRecovery:
 
     @pytest.mark.asyncio
     async def test_recoverable_provider_error(self, test_config):
-        from zenith.core.errors import ProviderError
+        from core.errors import ProviderError
 
         class RateLimitedProvider(BaseProvider):
             def __init__(self):

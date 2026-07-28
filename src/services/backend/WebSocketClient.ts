@@ -11,7 +11,7 @@ if (typeof WebSocket === 'undefined') {
   }
 }
 
-type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+export type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -191,7 +191,9 @@ export class WebSocketClient {
     this.reconnectAttempts++;
     this.setStatus('reconnecting');
 
-    const delay = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
+    const base = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
+    const jitter = Math.random() * this.reconnectDelay;
+    const delay = Math.min(base + jitter, 30_000);
     setTimeout(() => {
       this.connect().catch(() => {});
     }, delay);

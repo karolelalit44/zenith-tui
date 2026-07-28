@@ -1,7 +1,7 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { useCallback, useRef, useState } from 'react';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import type { FileAttachment } from '../types/scenario';
 
 const MAX_HISTORY = 50;

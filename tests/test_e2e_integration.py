@@ -91,7 +91,7 @@ import asyncio
 import logging
 logging.disable(logging.CRITICAL)
 
-from zenith.providers.base import BaseProvider
+from providers.base import BaseProvider
 
 class EchoProvider(BaseProvider):
     def __init__(self):
@@ -154,7 +154,7 @@ spec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-import zenith.providers.registry as reg
+import providers.registry as reg
 _orig_from_config = reg.ProviderRegistry.from_config
 
 def _patched_from_config(providers, active, **kw):
@@ -164,12 +164,12 @@ def _patched_from_config(providers, active, **kw):
 
 reg.ProviderRegistry.from_config = _patched_from_config
 
-import zenith.config.loader as loader
+import config.loader as loader
 _orig_load = loader.load_config
 
 def _patched_load(*a, **kw):
     cfg = _orig_load(*a, **kw)
-    from zenith.config.providers import ProviderConfig
+    from config.providers import ProviderConfig
     if cfg.providers is None:
         cfg.providers = {{}}
     cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")
@@ -179,7 +179,7 @@ def _patched_load(*a, **kw):
 loader.load_config = _patched_load
 
 import uvicorn
-uvicorn.run("zenith.transport.server:app", host="127.0.0.1", port={port}, log_level="error")
+uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")
 '''
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)

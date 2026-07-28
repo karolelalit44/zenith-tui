@@ -1,6 +1,6 @@
 """Tests for parameter normalizer module."""
 
-from zenith.tools.param_normalizer import normalize_file_params
+from tools.param_normalizer import normalize_file_params
 
 
 def test_normalize_path_aliases():

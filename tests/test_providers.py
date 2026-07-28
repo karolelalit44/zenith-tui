@@ -1,10 +1,10 @@
 """Tests for providers: token counter, retry, registry."""
 
 import pytest
-from zenith.providers.token_counter import TokenCounter
-from zenith.providers.registry import ProviderRegistry
-from zenith.providers.base import BaseProvider
-from zenith.config.providers import ProviderConfig
+from providers.token_counter import TokenCounter
+from providers.registry import ProviderRegistry
+from providers.base import BaseProvider
+from config.providers import ProviderConfig
 
 
 class TestTokenCounter:
@@ -85,7 +85,7 @@ class TestProviderRegistry:
         assert registry.require("openai") is provider
 
     def test_require_missing_raises(self):
-        from zenith.core.errors import ConfigError
+        from core.errors import ConfigError
 
         registry = ProviderRegistry()
         with pytest.raises(ConfigError):

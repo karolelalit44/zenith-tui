@@ -24,7 +24,7 @@
       "target": "context",
       "description": "View the current file context window"
     },
-{
+    {
       "command": "/provider",
       "action": "overlay",
       "target": "provider",

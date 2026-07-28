@@ -1,6 +1,6 @@
+import { requireInt } from '../../config/env';
 import type { AppStartupState, ProviderSetupRequest, ProviderSetupResult, StartupResult } from '../../types/startup';
 import { providerRepository } from '../providers/ProviderRepository';
-import { requireInt } from '../../config/env';
 
 const BACKEND_BASE = process.env.VITE_BACKEND_URL || 'http://localhost:8765';
 const VALIDATION_TIMEOUT = requireInt('ZENITH_VALIDATION_TIMEOUT') * 1000 + 5000;

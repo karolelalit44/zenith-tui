@@ -11,9 +11,19 @@ interface ToolCallCardProps {
 }
 
 const SKIP_PARAMS = new Set([
-  'content', 'file_content', 'old_content', 'new_content', 'data',
-  'file_data', 'filetext', 'file_text', 'source', 'text',
-  'body', 'input', 'output',
+  'content',
+  'file_content',
+  'old_content',
+  'new_content',
+  'data',
+  'file_data',
+  'filetext',
+  'file_text',
+  'source',
+  'text',
+  'body',
+  'input',
+  'output',
 ]);
 
 function formatValue(val: unknown): string {
@@ -52,18 +62,12 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = React.memo(({ event, co
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center">
         <Text color={theme.colors.status.info} bold>
-          {isPending ? (
-            <>[{ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]} RUN] </>
-          ) : (
-            <>{'>'} RUN </>
-          )}
+          {isPending ? <>[{ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]} RUN] </> : <>{'>'} RUN </>}
         </Text>
         <Text color={theme.colors.text.bright} bold>
           {event.tool}
         </Text>
-        {isPending && (
-          <Text color={theme.colors.text.muted}> ({(elapsed / 10).toFixed(0)}s)</Text>
-        )}
+        {isPending && <Text color={theme.colors.text.muted}> ({(elapsed / 10).toFixed(0)}s)</Text>}
       </Box>
 
       {entries.length > 0 && (

@@ -206,7 +206,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           </Box>
         )}
 
-        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderTop={true}
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
+          borderColor={theme.colors.border.muted}
+        >
           <Text color={theme.colors.text.muted}>
             <ModalFooter
               shortcuts={[

@@ -58,7 +58,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   // Re-sync modelIdx when selectedProvider changes
   React.useEffect(() => {
     setModelIdx(defaultModelIndex);
-  }, [selectedProvider.id]);
+  }, [defaultModelIndex]);
 
   const handleValidateAndSave = useCallback(async () => {
     setStep('validating');

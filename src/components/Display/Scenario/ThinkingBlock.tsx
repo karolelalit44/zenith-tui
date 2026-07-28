@@ -72,9 +72,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         {event.duration > 0 && (
           <>
             <Text color={theme.colors.text.muted}> · </Text>
-            <Text color={theme.colors.text.muted}>
-              {formatDuration(event.duration)}
-            </Text>
+            <Text color={theme.colors.text.muted}>{formatDuration(event.duration)}</Text>
           </>
         )}
         <Text color={theme.colors.text.muted}> · </Text>

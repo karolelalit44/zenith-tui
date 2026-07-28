@@ -20,16 +20,26 @@
       "preset": "recommended",
       "correctness": {
         "noUnusedImports": "warn",
-        "noUnusedVariables": "warn"
+        "noUnusedVariables": "warn",
+        "noUnusedFunctionParameters": "warn",
+        "useExhaustiveDependencies": "warn"
       },
       "suspicious": {
         "noExplicitAny": "off",
         "noArrayIndexKey": "off",
-        "noTemplateCurlyInString": "off"
+        "noTemplateCurlyInString": "off",
+        "noControlCharactersInRegex": "off",
+        "noConfusingVoidType": "off",
+        "useIterableCallbackReturn": "off"
       },
       "style": {
         "noNonNullAssertion": "off",
-        "useImportType": "off"
+        "useImportType": "off",
+        "useNodejsImportProtocol": "warn",
+        "useTemplate": "warn"
+      },
+      "complexity": {
+        "noUselessFragments": "warn"
       }
     }
   },

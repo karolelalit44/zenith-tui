@@ -13,11 +13,7 @@ interface ContextModalProps {
   onClose: () => void;
 }
 
-export const ContextModal: React.FC<ContextModalProps> = ({
-  totalTokens,
-  runningEvents = [],
-  onClose,
-}) => {
+export const ContextModal: React.FC<ContextModalProps> = ({ totalTokens, runningEvents = [], onClose }) => {
   const { theme } = useTheme();
 
   const liveTokens = useMemo(() => {
@@ -119,7 +115,16 @@ export const ContextModal: React.FC<ContextModalProps> = ({
           })
         )}
 
-        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderTop={true}
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
+          borderColor={theme.colors.border.muted}
+        >
           <Text color={theme.colors.text.muted}>
             <ModalFooter shortcuts={[{ key: '[Esc]', label: 'to exit Context Window' }]} />
           </Text>

@@ -1,5 +1,5 @@
-from zenith.transport.protocol import JsonRpcRequest, make_response, make_error_response, make_event
-from zenith.core.events import Event, EventKind
+from transport.protocol import JsonRpcRequest, make_response, make_error_response, make_event
+from core.events import Event, EventKind
 
 
 def test_jsonrpc_request():

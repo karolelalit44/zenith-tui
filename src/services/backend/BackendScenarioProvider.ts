@@ -2,7 +2,7 @@ import type { Scenario, ScenarioMode } from '../../types/scenario';
 import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scenario/types';
 import { wsClient } from './WebSocketClient';
 
-const STALE_TIMEOUT_MS = 300_000;
+const STALE_TIMEOUT_MS = 600_000;
 
 let idCounter = 0;
 const uid = () => `evt_${Date.now()}_${++idCounter}`;
@@ -179,7 +179,9 @@ export class BackendScenarioProvider implements ScenarioProvider {
         } else {
           // First thinking event in a new sequence
           const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
-          mergedThinkingThoughts = newThoughts.map(t => typeof t === 'string' ? t : t.text).filter(Boolean) as string[];
+          mergedThinkingThoughts = newThoughts
+            .map((t) => (typeof t === 'string' ? t : t.text))
+            .filter(Boolean) as string[];
         }
         onEvent(mapped, eventIndex);
         eventIndex++;
@@ -192,9 +194,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         const hasIterations = typeof data?.iterations === 'number';
         isTerminal = hasIterations;
       } else if (kind === 'error') {
-        // All errors (even recoverable ones) terminate the current execution run
-        // so the UI unlocks and the user can hit Retry or type a new command.
-        isTerminal = true;
+        isTerminal = !(data && typeof data === 'object' && data.recoverable === true);
       }
 
       if (isTerminal) {
@@ -330,7 +330,9 @@ function mapRawEvent(
         label: String(d.label || d.status || 'Progress'),
         percent: typeof d.percent === 'number' ? d.percent : undefined,
         iteration: typeof d.iteration === 'number' ? d.iteration : undefined,
-        steps: Array.isArray(d.steps) ? d.steps as { label: string; status: 'pending' | 'active' | 'done' | 'error' }[] : [],
+        steps: Array.isArray(d.steps)
+          ? (d.steps as { label: string; status: 'pending' | 'active' | 'done' | 'error' }[])
+          : [],
       };
 
     case 'confirmation_request':

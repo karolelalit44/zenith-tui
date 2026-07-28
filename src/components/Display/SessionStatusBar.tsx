@@ -34,8 +34,8 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   const { activeProvider } = useProvider();
   const activeBranch = gitBranch || getActiveGitBranch();
 
-  const providerName = activeProvider.meta.name || 'Unknown';
-  const modelShort = modelName || activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
+  const _providerName = activeProvider.meta.name || 'Unknown';
+  const _modelShort = modelName || activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
   const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
 

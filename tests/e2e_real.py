@@ -1,4 +1,4 @@
-"""Real end-to-end test: starts backend, connects WebSocket, submits a prompt, verifies events.
+"""Real end-to-end test: starts zenith, connects WebSocket, submits a prompt, verifies events.
 
 Run manually with:
     python -m pytest tests/test_e2e_real.py -v -s --timeout=120
@@ -14,7 +14,7 @@ import time
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "zenith"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import websockets
 
@@ -22,7 +22,7 @@ import websockets
 BACKEND_PORT = 18765
 BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 WS_URL = f"ws://localhost:{BACKEND_PORT}/ws"
-ZENITH_DIR = Path(__file__).resolve().parent / "zenith"
+ZENITH_DIR = Path(__file__).resolve().parent.parent
 
 
 def log(msg: str) -> None:
@@ -30,7 +30,7 @@ def log(msg: str) -> None:
 
 
 async def wait_for_backend(timeout: int = 30) -> bool:
-    """Poll /health until the backend is ready."""
+    """Poll /health until the zenith is ready."""
     import httpx
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -245,7 +245,7 @@ async def main():
     # Ensure we're in the project root
     os.chdir(str(ZENITH_DIR.parent))
 
-    log("Starting backend server...")
+    log("Starting zenith server...")
     proc = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "uvicorn", "transport.server:app",
         "--host", "localhost", "--port", str(BACKEND_PORT),
@@ -255,7 +255,7 @@ async def main():
         stderr=asyncio.subprocess.STDOUT,
     )
 
-    # Read backend output in background
+    # Read zenith output in background
     async def reader():
         assert proc.stdout
         async for line in proc.stdout:

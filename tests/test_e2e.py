@@ -4,14 +4,14 @@ import json
 import tempfile
 from pathlib import Path
 from httpx import AsyncClient, ASGITransport
-from zenith.transport.server import create_app
-from zenith.config.settings import AppSettings
-from zenith.config.providers import ProviderConfig
-from zenith.db.connection import Database
-from zenith.providers.registry import ProviderRegistry
-from zenith.providers.base import BaseProvider
-from zenith.transport.websocket import ZenithHandler
-from zenith.core.events import EventKind
+from transport.server import create_app
+from config.settings import AppSettings
+from config.providers import ProviderConfig
+from db.connection import Database
+from providers.registry import ProviderRegistry
+from providers.base import BaseProvider
+from transport.websocket import ZenithHandler
+from core.events import EventKind
 
 
 class EchoProvider(BaseProvider):
@@ -77,7 +77,7 @@ async def test_e2e_health(test_config, test_db, test_registry):
 async def test_e2e_session_create(test_config, test_db, test_registry):
     handler = ZenithHandler(test_config, test_db, test_registry)
     session = await handler.session_repo.create(
-        __import__("zenith.core.session", fromlist=["Session"]).Session(title="Test")
+        __import__("core.session", fromlist=["Session"]).Session(title="Test")
     )
     loaded = await handler.session_repo.get(session.id)
     assert loaded is not None
@@ -87,7 +87,7 @@ async def test_e2e_session_create(test_config, test_db, test_registry):
 @pytest.mark.asyncio
 async def test_e2e_prompt_processing(test_config, test_db, test_registry):
     handler = ZenithHandler(test_config, test_db, test_registry)
-    agent = __import__("zenith.agent.loop", fromlist=["AgentLoop"]).AgentLoop(
+    agent = __import__("agent.loop", fromlist=["AgentLoop"]).AgentLoop(
         test_config, EchoProvider()
     )
 
@@ -105,8 +105,8 @@ async def test_e2e_prompt_processing(test_config, test_db, test_registry):
 async def test_e2e_full_workflow(test_config, test_db, test_registry):
     handler = ZenithHandler(test_config, test_db, test_registry)
 
-    from zenith.core.session import Session
-    from zenith.core.message import Message
+    from core.session import Session
+    from core.message import Message
     from datetime import datetime, timedelta
 
     session = Session(title="E2E Test")
@@ -126,7 +126,7 @@ async def test_e2e_full_workflow(test_config, test_db, test_registry):
     assert len(history) == 1
     assert history[0].content == "Test prompt"
 
-    agent = __import__("zenith.agent.loop", fromlist=["AgentLoop"]).AgentLoop(
+    agent = __import__("agent.loop", fromlist=["AgentLoop"]).AgentLoop(
         test_config, EchoProvider()
     )
     events = []
@@ -169,7 +169,7 @@ async def test_e2e_provider_validate(test_config, test_db, test_registry):
 
 @pytest.mark.asyncio
 async def test_e2e_config_bootstrap(temp_dir):
-    from zenith.config.loader import create_default_config, load_config
+    from config.loader import create_default_config, load_config
     config_path = create_default_config(str(temp_dir))
     assert config_path.exists()
     config = load_config(str(temp_dir))
@@ -178,7 +178,7 @@ async def test_e2e_config_bootstrap(temp_dir):
 
 @pytest.mark.asyncio
 async def test_e2e_error_handling():
-    from zenith.core.errors import ProviderError, ToolError, ConfigError
+    from core.errors import ProviderError, ToolError, ConfigError
     try:
         raise ProviderError("test error", provider="openai")
     except ProviderError as e:
@@ -195,7 +195,7 @@ async def test_e2e_error_handling():
 
 @pytest.mark.asyncio
 async def test_e2e_http_health_and_status(test_config, test_db, test_registry):
-    import zenith.transport.server as srv
+    import transport.server as srv
 
     handler = ZenithHandler(test_config, test_db, test_registry)
     app = create_app()
@@ -226,14 +226,14 @@ async def test_e2e_websocket_session_and_prompt(test_config, test_db, test_regis
 
     # Test session create via handler directly
     session = await handler.session_repo.create(
-        __import__("zenith.core.session", fromlist=["Session"]).Session(title="WS Test")
+        __import__("core.session", fromlist=["Session"]).Session(title="WS Test")
     )
     loaded = await handler.session_repo.get(session.id)
     assert loaded is not None
     assert loaded.title == "WS Test"
 
     # Test message create via handler directly
-    user_msg = __import__("zenith.core.message", fromlist=["Message"]).Message(
+    user_msg = __import__("core.message", fromlist=["Message"]).Message(
         session_id=session.id, role="user", content="WS test prompt"
     )
     await handler.message_repo.create(user_msg)
@@ -241,7 +241,7 @@ async def test_e2e_websocket_session_and_prompt(test_config, test_db, test_regis
     assert len(history) == 1
 
     # Test agent prompt processing
-    agent = __import__("zenith.agent.loop", fromlist=["AgentLoop"]).AgentLoop(
+    agent = __import__("agent.loop", fromlist=["AgentLoop"]).AgentLoop(
         test_config, EchoProvider()
     )
     events = []
@@ -253,8 +253,8 @@ async def test_e2e_websocket_session_and_prompt(test_config, test_db, test_regis
 
 @pytest.mark.asyncio
 async def test_e2e_error_classification():
-    from zenith.providers.llm_provider import _classify_provider_error
-    from zenith.core.errors import AuthenticationError, RateLimitError, TimeoutError, ProviderError
+    from providers.llm_provider import _classify_provider_error
+    from core.errors import AuthenticationError, RateLimitError, TimeoutError, ProviderError
 
     exc = _classify_provider_error(Exception("401 Unauthorized"), "test")
     assert isinstance(exc, AuthenticationError)

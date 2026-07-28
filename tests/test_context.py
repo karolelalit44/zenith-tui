@@ -1,11 +1,11 @@
 """Tests for context window manager and history manager."""
 
 import pytest
-from zenith.agent.context import ContextManager, TokenInfo
-from zenith.session.history import HistoryManager
-from zenith.config.settings import AppSettings
-from zenith.core.message import Message
-from zenith.providers.base import BaseProvider
+from agent.context import ContextManager, TokenInfo
+from session.history import HistoryManager
+from config.settings import AppSettings
+from core.message import Message
+from providers.base import BaseProvider
 
 
 class TestContextManager:
