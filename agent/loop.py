@@ -159,6 +159,8 @@ class AgentLoop:
                 response_text = stream_state.response_text
                 native_tool_calls = getattr(self.provider, '_last_native_tool_calls', [])
                 clean_response, tool_calls = UnifiedResponseFormatter.process_response(response_text, native_tool_calls or None)
+                logger.info("Agent turn %d response: %d chars, %d tool calls, clean=%d chars",
+                            iteration, len(response_text), len(tool_calls), len(clean_response or ""))
                 if clean_response:
                     yield r.message_event(clean_response, session_id, partial=False)
 

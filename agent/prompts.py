@@ -385,14 +385,60 @@ def build_system_prompt(
 
 def _build_env_section(workspace_root: str, mode: str) -> str:
     """Build the <env> block with environment metadata."""
+    import shutil
+    import subprocess
+
+    os_name = platform.system()
+    is_windows = os_name == "Windows"
+
+    if is_windows:
+        shell_name = "PowerShell"
+        shell_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell"
+        try:
+            shell_version = subprocess.check_output(
+                [shell_exe, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+                timeout=5, stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception:
+            shell_version = "unknown"
+    else:
+        shell_name = "bash"
+        shell_exe = shutil.which("bash") or "/bin/bash"
+        try:
+            shell_version = subprocess.check_output(
+                [shell_exe, "--version"], timeout=5, stderr=subprocess.DEVNULL,
+            ).decode().splitlines()[0].strip() if os_name != "Darwin" else "bash (macOS)"
+        except Exception:
+            shell_version = "unknown"
+
     parts = [
         f"Working directory: {workspace_root}",
         f"Agent mode: {mode}",
         f"Platform: {sys.platform}",
-        f"OS: {platform.system()} {platform.release()}",
+        f"OS: {os_name} {platform.release()}",
+        f"Shell: {shell_name} ({shell_exe})",
+        f"Shell version: {shell_version}",
         f"Python: {platform.python_version()}",
         f"Today's date: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
     ]
+
+    if is_windows:
+        parts.append(
+            "\nCRITICAL: You are on Windows. Use PowerShell-compatible commands only.\n"
+            "- Use: Get-ChildItem, Select-String, Get-Content, Set-Content\n"
+            "- Use: Get-Process, Get-Service, Test-Path, Copy-Item, Remove-Item\n"
+            "- Use: Select-Object -First N (instead of head), Select-Object -Last N\n"
+            "- Use: Where-Object { $_ -match 'pattern' } (instead of grep)\n"
+            "- Use: ForEach-Object, Sort-Object, Measure-Object\n"
+            "- Do NOT use: ls, cat, grep, find, head, tail, chmod, curl, wget, sed, awk, tee, wc\n"
+            "- Pipeline: pipe | works the same way\n"
+            "- File paths: use forward slashes or backslashes, both work in PowerShell\n"
+        )
+    else:
+        parts.append(
+            "\nYou are on a Unix-like system. Use standard bash/sh commands.\n"
+        )
+
     return "\n".join(parts)
 
 

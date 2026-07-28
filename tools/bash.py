@@ -3,10 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import platform
+import shutil
 from typing import Any
 
 from .base import BaseTool, ToolResult
 from .background import get_background_manager
+
+_OS_NAME = platform.system()
+_IS_WINDOWS = _OS_NAME == "Windows"
+
+
+def _resolve_shell() -> str | None:
+    """Detect the best available shell for the current platform."""
+    if _IS_WINDOWS:
+        return shutil.which("pwsh") or shutil.which("powershell")
+    return shutil.which("bash")
 
 
 class BashTool(BaseTool):
@@ -108,13 +120,24 @@ class BashTool(BaseTool):
         """Execute a command synchronously with streaming output and auto-background support."""
         process = None
         try:
-            process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=workspace_root,
-                shell=True,
-            )
+            shell = _resolve_shell()
+
+            if _IS_WINDOWS and shell:
+                # PowerShell: wrap command in -Command to handle pipes and redirects
+                process = await asyncio.create_subprocess_shell(
+                    f'"{shell}" -NoProfile -Command {command}',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=workspace_root,
+                )
+            else:
+                process = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=workspace_root,
+                    shell=True,
+                )
 
             # Stream output incrementally for better responsiveness
             stdout_chunks: list[bytes] = []

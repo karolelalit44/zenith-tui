@@ -7,7 +7,7 @@
       "name": "OpenRouter",
       "description": "Free tier inference via OpenRouter. OpenAI-compatible API with native function calling. All models use the :free suffix.",
       "adapter": "openrouter",
-      "litellm_prefix": "openrouter/",
+      "litellm_prefix": "openai/",
       "default_model": "openrouter/free",
       "base_url": "https://openrouter.ai/api/v1",
       "api_key_prefix": "sk-or-v1-",

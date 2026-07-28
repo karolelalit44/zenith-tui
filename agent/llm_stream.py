@@ -58,7 +58,6 @@ async def stream_with_retries(
                 yield r.thinking(reasoning_buffer, session_id)
             # Stream completed — finalize the message
             if state.response_text:
-                yield r.message_event(state.response_text, session_id, partial=False)
                 state.full_response += state.response_text
             return
 
