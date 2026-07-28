@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from config.settings import AppSettings
 from core.message import Message
 from providers.token_counter import TokenCounter
+
+logger = logging.getLogger(__name__)
 
 RESPONSE_RESERVE_RATIO = 0.7
 PROMPT_BUFFER_TOKENS = 500
@@ -35,11 +38,13 @@ class ContextManager:
         new_prompt: str,
         model: str,
         summary: str | None = None,
+        plan_block: str | None = None,
     ) -> list[dict]:
         """Build the messages list for the LLM, staying within context budget.
 
-        Priority: system_prompt + summary (if any) + most recent history + new_prompt.
+        Priority: system_prompt + plan_block (exempt from truncation) + summary + most recent history + new_prompt.
         Older history is dropped first when approaching the limit.
+        The plan_block is injected with high priority so it is never truncated.
         """
         max_tokens = self.config.max_context_tokens
         budget = int(max_tokens * RESPONSE_RESERVE_RATIO)
@@ -51,7 +56,20 @@ class ContextManager:
         messages.append({"role": "system", "content": system_prompt})
         used = system_tokens
 
-        # 2. Summary (if provided, takes precedence over old history)
+        # 2. Plan block (injected as system message — exempt from truncation, high priority)
+        if plan_block:
+            plan_tokens = self.token_counter.count(plan_block, model)
+            if used + plan_tokens + PROMPT_BUFFER_TOKENS <= budget:
+                messages.append({
+                    "role": "system",
+                    "content": f"<plan_to_execute>\n{plan_block}\n</plan_to_execute>\n\nYou MUST execute the plan above exactly. Create every file listed, implement every component, and follow the architecture decisions described."
+                })
+                used += plan_tokens
+                logger.info("Plan block injected into context: %d chars, %d tokens", len(plan_block), plan_tokens)
+            else:
+                logger.warning("Plan block too large to inject (%d tokens, budget %d)", plan_tokens, budget)
+
+        # 3. Summary (if provided, takes precedence over old history)
         if summary:
             summary_tokens = self.token_counter.count(summary, model)
             if used + summary_tokens <= budget:
@@ -59,7 +77,7 @@ class ContextManager:
                 messages.append({"role": "assistant", "content": "Understood."})
                 used += summary_tokens + SUMMARY_FRAMING_TOKENS
 
-        # 3. History — add most recent first, drop oldest when budget exceeded
+        # 4. History — add most recent first, drop oldest when budget exceeded
         history_msgs: list[dict] = []
         for msg in history:
             entry = {"role": msg.role, "content": msg.content}
@@ -75,7 +93,7 @@ class ContextManager:
 
         messages.extend(included)
 
-        # 4. New prompt (always included)
+        # 5. New prompt (always included)
         messages.append({"role": "user", "content": new_prompt})
 
         return messages

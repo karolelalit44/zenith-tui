@@ -75,12 +75,17 @@ export class BackendScenarioProvider implements ScenarioProvider {
       resetStaleTimer();
 
       const { kind, data, id: rpcId } = rpcEvent.params;
-      console.log(`[WS EVENT] kind=${kind} id=${rpcId} data_keys=${Object.keys(data || {})} full=`, JSON.stringify(data).slice(0, 300));
+      console.log(
+        `[WS EVENT] kind=${kind} id=${rpcId} data_keys=${Object.keys(data || {})} full=`,
+        JSON.stringify(data).slice(0, 300),
+      );
 
       if (kind === 'message' && data?.partial === true) {
         const token = String(data.text || '');
         accumulatedText += token;
-        console.log(`[WS PARTIAL] token_len=${token.length} accumulated_len=${accumulatedText.length} preview=${token.slice(0, 100)}`);
+        console.log(
+          `[WS PARTIAL] token_len=${token.length} accumulated_len=${accumulatedText.length} preview=${token.slice(0, 100)}`,
+        );
 
         if (partialMessageIndex === null) {
           partialMessageIndex = eventIndex;

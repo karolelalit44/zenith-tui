@@ -27,6 +27,7 @@ class AgentRuntime(ABC):
         mode: str = "build",
         skills_section: str = "",
         confirm_callback: Any | None = None,
+        plan_context: str = "",
     ) -> AsyncIterator[Event]:
         """Process a user prompt through the agent loop."""
         ...
@@ -79,6 +80,7 @@ class DefaultAgentRuntime(AgentRuntime):
         mode: str = "build",
         skills_section: str = "",
         confirm_callback: Any | None = None,
+        plan_context: str = "",
     ) -> AsyncIterator[Event]:
         self._state = AgentState.RUNNING
         try:
@@ -86,6 +88,7 @@ class DefaultAgentRuntime(AgentRuntime):
                 prompt, session_id, history, mode,
                 skills_section=skills_section,
                 confirm_callback=confirm_callback,
+                plan_context=plan_context,
             ):
                 yield event
         finally:

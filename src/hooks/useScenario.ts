@@ -5,6 +5,8 @@ import { eventBus } from '../services/eventBus';
 import type { ScenarioRunner } from '../services/scenario/types';
 import type { ConfirmationRequestEvent, ScenarioEvent, ScenarioMode } from '../types/scenario';
 
+const SESSION_STORAGE_KEY = 'zenith_session_id';
+
 export interface UseScenarioReturn {
   events: ScenarioEvent[];
   isRunning: boolean;
@@ -22,6 +24,19 @@ export function useScenario(): UseScenarioReturn {
   const [lastSessionId, setLastSessionId] = useState<string | null>(null);
   const runnerRef = useRef<ScenarioRunner | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+
+  // Restore session ID from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedId = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (savedId) {
+        sessionIdRef.current = savedId;
+        setLastSessionId(savedId);
+      }
+    } catch {
+      // localStorage not available (test environment)
+    }
+  }, []);
 
   useEffect(() => {
     wsClient.connect().catch(() => {});
@@ -55,6 +70,11 @@ export function useScenario(): UseScenarioReturn {
     const id = (session as { id: string }).id;
     sessionIdRef.current = id;
     setLastSessionId(id);
+    try {
+      localStorage.setItem(SESSION_STORAGE_KEY, id);
+    } catch {
+      /* noop */
+    }
     return id;
   }, []);
 
@@ -80,6 +100,20 @@ export function useScenario(): UseScenarioReturn {
       }
 
       try {
+        if (sessionIdRef.current) {
+          // Verify saved session still exists on backend
+          try {
+            await wsClient.send('session.resume', { session_id: sessionIdRef.current });
+          } catch {
+            // Session no longer exists — create a new one
+            sessionIdRef.current = null;
+            try {
+              localStorage.removeItem(SESSION_STORAGE_KEY);
+            } catch {
+              /* noop */
+            }
+          }
+        }
         if (!sessionIdRef.current) await createSession(prompt);
       } catch {
         reportError('sess', 'Failed to create session');

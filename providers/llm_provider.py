@@ -306,7 +306,7 @@ class LLMProvider(BaseProvider):
         safe_kwargs["messages_count"] = len(messages)
         if tools:
             safe_kwargs["tools_count"] = len(tools)
-        logger.info("API CALL (stream) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False)[:2000])
+        logger.info("API CALL (stream) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False)[:100])
         t0 = time.monotonic()
         stream = await litellm.acompletion(**kwargs)
         logger.info("API STREAM OPENED model=%s latency=%.0fms", self._litellm_model, (time.monotonic() - t0) * 1000)

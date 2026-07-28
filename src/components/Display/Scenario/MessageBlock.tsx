@@ -31,9 +31,7 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) 
         <Text color={theme.colors.status.accent} bold>
           ◇
         </Text>
-        <Text color={theme.colors.text.muted}>
-          {' '}Assistant
-        </Text>
+        <Text color={theme.colors.text.muted}> Assistant</Text>
         {icon}
       </Box>
       {hasContent && (

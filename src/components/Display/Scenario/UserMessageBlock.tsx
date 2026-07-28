@@ -29,13 +29,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1}>
-      <Box
-        flexDirection="column"
-        width="100%"
-        borderStyle="round"
-        borderColor={theme.colors.border.muted}
-        paddingX={1}
-      >
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1}>
         <Box width="100%">
           <Text color={theme.colors.text.bright} wrap="wrap">
             {prompt}
@@ -50,4 +44,3 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
     </Box>
   );
 });
-

@@ -5,7 +5,6 @@ import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
-import { WelcomeScreen } from './screens/Welcome';
 import { ASCII_SPINNER_FRAMES } from './constants/animation';
 import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
@@ -17,6 +16,7 @@ import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { useTickAnimation } from './hooks/useTickAnimation';
 import { OverlayRouter } from './routes/OverlayRouter';
 import { SetupWizard } from './screens/SetupWizard';
+import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';

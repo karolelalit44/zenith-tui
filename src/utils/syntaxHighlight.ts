@@ -13,16 +13,20 @@ const LANG_MAP: Record<string, string> = {
   md: 'markdown',
 };
 
+const KNOWN_LANGUAGES = new Set(Object.values(LANG_MAP));
+
 export function highlightCode(code: string, lang?: string): string {
   if (!code) return '';
   const language = lang ? LANG_MAP[lang.toLowerCase()] || lang.toLowerCase() : 'text';
-
+  if (language !== 'text' && !KNOWN_LANGUAGES.has(language)) {
+    return code;
+  }
   try {
     return highlight(code, {
       language,
       ignoreIllegals: true,
     });
-  } catch (_err) {
+  } catch {
     return code;
   }
 }

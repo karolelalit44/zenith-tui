@@ -80,6 +80,7 @@ class AgentLoop:
         mode: str = "build",
         skills_section: str = "",
         confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
+        plan_context: str = "",
     ) -> AsyncIterator[Event]:
         sequence = self.accept()
         provider_name = getattr(self.provider, 'name', '')
@@ -140,14 +141,14 @@ class AgentLoop:
         # Safety net — dynamic stopping is the primary mechanism
         SAFETY_NET_MAX_ITERATIONS = 100
 
-        messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
+        messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context)
         logger.info("Context built: %d messages, system_prompt=%d chars", len(messages), len(system_prompt))
         yield r.thinking(f"Processing your request in {mode} mode...", session_id)
 
         if self.context_manager.should_summarize(messages, model):
             async for ev in self._maybe_summarize(history, session_id):
                 yield ev
-            messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
+            messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context)
 
         if self.is_cancelled(sequence):
             yield r.warning("Request was cancelled before starting", session_id)
@@ -185,7 +186,7 @@ class AgentLoop:
                     logger.warning("Context window %.1f%% full — summarizing", token_info.percent * 100)
                     async for ev in self._maybe_summarize(history, session_id):
                         yield ev
-                    messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary)
+                    messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context)
                     token_info = self.context_manager.get_token_info(messages, model)
                     if token_info.percent > 0.95:
                         yield r.error("Context window exhausted even after summarization", session_id, code="CONTEXT_EXHAUSTED")

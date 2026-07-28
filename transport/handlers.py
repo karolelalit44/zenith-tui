@@ -131,9 +131,17 @@ class MethodHandlers:
             await ws.send_text(make_error_response(rid, -32602, "Empty prompt"))
             return session_id
         if not session_id:
-            session = Session(title=content[:50])
-            await self.session_repo.create(session)
-            session_id = session.id
+            # If build mode with no session, try to find latest session with a plan
+            if params.get("mode") == "build":
+                plan_session = await self.session_repo.find_latest_with_plan()
+                if plan_session:
+                    session_id = plan_session.id
+                    logger.info("Reusing plan session %s for build (plan_output=%d chars)",
+                                session_id, len(plan_session.plan_output))
+            if not session_id:
+                session = Session(title=content[:50])
+                await self.session_repo.create(session)
+                session_id = session.id
         user_msg = Message(session_id=session_id, role="user", content=content)
         await self.message_repo.create(user_msg)
 

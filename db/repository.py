@@ -22,8 +22,9 @@ class SessionRepository:
         self.db = db
 
     async def create(self, session: Session) -> Session:
+        plan_approved = session.plan_approved_at.isoformat() if session.plan_approved_at else None
         await self.db.execute(
-            "INSERT INTO sessions (id, title, mode, created_at, updated_at, workspace_root, is_active, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, title, mode, created_at, updated_at, workspace_root, is_active, metadata_json, parent_session_id, state, plan_output, plan_approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session.id,
                 session.title,
@@ -33,6 +34,10 @@ class SessionRepository:
                 session.workspace_root,
                 int(session.is_active),
                 json.dumps(session.metadata),
+                session.parent_session_id,
+                session.state,
+                session.plan_output,
+                plan_approved,
             ),
         )
         await self.db.commit()
@@ -42,6 +47,7 @@ class SessionRepository:
         row = await self.db.fetch_one("SELECT * FROM sessions WHERE id = ?", (session_id,))
         if not row:
             return None
+        plan_approved = datetime.fromisoformat(row["plan_approved_at"]) if row.get("plan_approved_at") else None
         return Session(
             id=row["id"],
             title=row["title"],
@@ -51,41 +57,79 @@ class SessionRepository:
             workspace_root=row["workspace_root"],
             is_active=bool(row["is_active"]),
             metadata=json.loads(row["metadata_json"]),
+            parent_session_id=row.get("parent_session_id"),
+            state=row.get("state", "created"),
+            plan_output=row.get("plan_output", ""),
+            plan_approved_at=plan_approved,
         )
 
     async def list_active(self) -> list[Session]:
         rows = await self.db.fetch_all(
             "SELECT * FROM sessions WHERE is_active = 1 ORDER BY updated_at DESC"
         )
-        return [
-            Session(
-                id=r["id"],
-                title=r["title"],
-                mode=r["mode"],
-                created_at=datetime.fromisoformat(r["created_at"]),
-                updated_at=datetime.fromisoformat(r["updated_at"]),
-                workspace_root=r["workspace_root"],
-                is_active=bool(r["is_active"]),
-                metadata=json.loads(r["metadata_json"]),
+        result = []
+        for r in rows:
+            plan_approved = datetime.fromisoformat(r["plan_approved_at"]) if r.get("plan_approved_at") else None
+            result.append(
+                Session(
+                    id=r["id"],
+                    title=r["title"],
+                    mode=r["mode"],
+                    created_at=datetime.fromisoformat(r["created_at"]),
+                    updated_at=datetime.fromisoformat(r["updated_at"]),
+                    workspace_root=r["workspace_root"],
+                    is_active=bool(r["is_active"]),
+                    metadata=json.loads(r["metadata_json"]),
+                    parent_session_id=r.get("parent_session_id"),
+                    state=r.get("state", "created"),
+                    plan_output=r.get("plan_output", ""),
+                    plan_approved_at=plan_approved,
+                )
             )
-            for r in rows
-        ]
+        return result
 
     async def update(self, session: Session) -> Session:
         session.updated_at = datetime.now()
+        plan_approved = session.plan_approved_at.isoformat() if session.plan_approved_at else None
         await self.db.execute(
-            "UPDATE sessions SET title=?, mode=?, updated_at=?, is_active=?, metadata_json=? WHERE id=?",
+            "UPDATE sessions SET title=?, mode=?, updated_at=?, is_active=?, metadata_json=?, parent_session_id=?, state=?, plan_output=?, plan_approved_at=? WHERE id=?",
             (
                 session.title,
                 session.mode,
                 session.updated_at.isoformat(),
                 int(session.is_active),
                 json.dumps(session.metadata),
+                session.parent_session_id,
+                session.state,
+                session.plan_output,
+                plan_approved,
                 session.id,
             ),
         )
         await self.db.commit()
         return session
+
+    async def find_latest_with_plan(self) -> Optional[Session]:
+        row = await self.db.fetch_one(
+            "SELECT * FROM sessions WHERE plan_output != '' AND is_active = 1 ORDER BY updated_at DESC LIMIT 1"
+        )
+        if not row:
+            return None
+        plan_approved = datetime.fromisoformat(row["plan_approved_at"]) if row.get("plan_approved_at") else None
+        return Session(
+            id=row["id"],
+            title=row["title"],
+            mode=row["mode"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            workspace_root=row["workspace_root"],
+            is_active=bool(row["is_active"]),
+            metadata=json.loads(row["metadata_json"]),
+            parent_session_id=row.get("parent_session_id"),
+            state=row.get("state", "created"),
+            plan_output=row.get("plan_output", ""),
+            plan_approved_at=plan_approved,
+        )
 
     async def delete(self, session_id: str) -> bool:
         await self.db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))

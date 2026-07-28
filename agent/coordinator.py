@@ -35,6 +35,7 @@ class CoordinatorService(ABC):
         prompt: str,
         mode: ScenarioMode,
         role: AgentRole = AgentRole.CODER,
+        plan_context: str = "",
     ) -> AsyncIterator[Event]: ...
 
     @abstractmethod
@@ -72,6 +73,7 @@ class DefaultCoordinator(CoordinatorService):
         prompt: str,
         mode: ScenarioMode,
         role: AgentRole = AgentRole.CODER,
+        plan_context: str = "",
     ) -> AsyncIterator[Event]:
         await self._sessions.require(session_id)
 
@@ -88,6 +90,7 @@ class DefaultCoordinator(CoordinatorService):
             session_id=session_id,
             history=history,
             mode=mode.value if hasattr(mode, "value") else str(mode),
+            plan_context=plan_context,
         ):
             yield event
 

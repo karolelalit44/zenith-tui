@@ -1,0 +1,58 @@
+{
+    "commands": [
+        {
+            "command": "/mode",
+            "action": "overlay",
+            "target": "mode",
+            "description": "Switch between Build and Plan mode"
+        },
+        {
+            "command": "/help",
+            "action": "overlay",
+            "target": "help",
+            "description": "Show available commands & keyboard shortcuts"
+        },
+        {
+            "command": "/settings",
+            "action": "overlay",
+            "target": "settings",
+            "description": "Configure Zenith options and theme"
+        },
+        {
+            "command": "/context",
+            "action": "overlay",
+            "target": "context",
+            "description": "View the current file context window"
+        },
+        {
+            "command": "/provider",
+            "action": "overlay",
+            "target": "provider",
+            "description": "Manage AI provider configurations and active model"
+        },
+        {
+            "command": "/clear",
+            "action": "clear",
+            "target": "",
+            "description": "Clear conversation history and free up context"
+        },
+        {
+            "command": "/compact",
+            "action": "compact",
+            "target": "",
+            "description": "Clear conversation history but keep a summary in context"
+        },
+        {
+            "command": "/build",
+            "action": "mode",
+            "target": "build",
+            "description": "Switch to Build mode"
+        },
+        {
+            "command": "/plan",
+            "action": "mode",
+            "target": "plan",
+            "description": "Switch to Plan mode"
+        }
+    ]
+}

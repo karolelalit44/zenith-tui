@@ -100,7 +100,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           );
         })}
 
-        {showLiveIndicator && <LiveSpinner label={''}/>}
+        {showLiveIndicator && <LiveSpinner label={''} />}
       </Box>
     );
   },

@@ -39,6 +39,8 @@ class Session(BaseModel):
     state: SessionState = SessionState.CREATED
     parent_session_id: Optional[str] = None
     child_session_ids: list[str] = Field(default_factory=list)
+    plan_output: str = ""
+    plan_approved_at: Optional[datetime] = None
     message_count: int = 0
     total_tokens: int = 0
     model: Optional[str] = None

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from core.events import Event, EventKind
 from core.message import Message
+from core.domain import SessionState
 from agent.recovery import RecoverableAgentLoop
 from agent.context import ContextManager
 
@@ -82,6 +84,18 @@ class PromptExecutor:
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
+
+            # Load plan context if in build mode
+            plan_context = ""
+            if mode == "build":
+                try:
+                    session = await self._session_repo.get(session_id)
+                    if session and session.plan_output:
+                        plan_context = session.plan_output
+                        logger.info("Plan context loaded: %d chars for build session %s", len(plan_context), session_id)
+                except Exception:
+                    logger.warning("Failed to load plan context for session %s", session_id)
+
             context_manager = ContextManager(self._config)
             agent = RecoverableAgentLoop(self._config, self._provider, context_manager, self._tool_registry)
             skills_section = self._skill_loader.get_skill_prompt()
@@ -98,13 +112,12 @@ class PromptExecutor:
             async for event in agent.process_prompt(
                 content, session_id, history, mode,
                 skills_section=skills_section, confirm_callback=_confirm,
+                plan_context=plan_context,
             ):
                 event_count += 1
                 collected_events.append(event)
-                # logger.info("Event #%d: kind=%s data_keys=%s", event_count, event.kind, list(event.data.keys()) if event.data else [])
                 if event.kind == EventKind.MESSAGE:
                     pass
-                    # logger.info("  MESSAGE: partial=%s text_len=%d text_preview=%r",event.data.get("partial"), len(event.data.get("text", "")),event.data.get("text", "")[:200])
                 elif event.kind == EventKind.THINKING:
                     logger.info("  THINKING: %s", event.data.get("text", "")[:200])
                 elif event.kind == EventKind.TOOL_CALL:
@@ -130,9 +143,21 @@ class PromptExecutor:
 
                 if manager:
                     await manager.send_event(session_id, event)
-                    # logger.info("  Event sent to client via manager")
                 if event.kind == EventKind.MESSAGE and not event.data.get("partial"):
                     response_text += event.data.get("text", "")
+
+            # Save plan output to session if in plan mode
+            if mode == "plan" and response_text:
+                try:
+                    session = await self._session_repo.get(session_id)
+                    if session:
+                        session.plan_output = response_text
+                        session.plan_approved_at = datetime.now()
+                        session.state = SessionState.SUMMARIZED
+                        await self._session_repo.update(session)
+                        logger.info("Plan output saved to session %s: %d chars", session_id, len(response_text))
+                except Exception:
+                    logger.warning("Failed to save plan output for session %s", session_id)
 
             logger.info("=" * 60)
             logger.info("_execute COMPLETE: events=%d response_text_len=%d", event_count, len(response_text))
