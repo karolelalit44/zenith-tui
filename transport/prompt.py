@@ -101,11 +101,10 @@ class PromptExecutor:
             ):
                 event_count += 1
                 collected_events.append(event)
-                logger.info("Event #%d: kind=%s data_keys=%s", event_count, event.kind, list(event.data.keys()) if event.data else [])
+                # logger.info("Event #%d: kind=%s data_keys=%s", event_count, event.kind, list(event.data.keys()) if event.data else [])
                 if event.kind == EventKind.MESSAGE:
-                    logger.info("  MESSAGE: partial=%s text_len=%d text_preview=%r",
-                                event.data.get("partial"), len(event.data.get("text", "")),
-                                event.data.get("text", "")[:200])
+                    pass
+                    # logger.info("  MESSAGE: partial=%s text_len=%d text_preview=%r",event.data.get("partial"), len(event.data.get("text", "")),event.data.get("text", "")[:200])
                 elif event.kind == EventKind.THINKING:
                     logger.info("  THINKING: %s", event.data.get("text", "")[:200])
                 elif event.kind == EventKind.TOOL_CALL:
@@ -131,7 +130,7 @@ class PromptExecutor:
 
                 if manager:
                     await manager.send_event(session_id, event)
-                    logger.info("  Event sent to client via manager")
+                    # logger.info("  Event sent to client via manager")
                 if event.kind == EventKind.MESSAGE and not event.data.get("partial"):
                     response_text += event.data.get("text", "")
 

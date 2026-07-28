@@ -336,10 +336,10 @@ Done — added email format validation using RFC 5322 regex pattern
 
 ## What NOT to do (these patterns cause errors):
 
-❌ file_edit without file_read first → "old_content not found" error
-❌ Guessing file contents instead of reading → wrong edit location
-❌ Editing without running tests → silent breakage
-❌ Asking "what should I do?" when tools can answer → be autonomous
+file_edit without file_read first → "old_content not found" error
+Guessing file contents instead of reading → wrong edit location
+Editing without running tests → silent breakage
+Asking "what should I do?" when tools can answer → be autonomous
 </tool_usage_examples>
 """
 
@@ -461,80 +461,51 @@ def build_plan_system_prompt(
 ) -> str:
     """Build a focused, lightweight system prompt for plan mode.
 
-    Inspired by Crush's 15-line task.md.tpl and Aider's architect_prompts.py.
-    The plan agent is a read-only analyst that produces structured
-    implementation plans — it does NOT write code or modify files.
+    ~500 chars. Modeled after Aider's 17-line architect prompt and
+    Crush's 15-line task.md.tpl — minimal instructions, maximum clarity.
     """
     sections: list[str] = []
 
-    # --- Role ---
     sections.append(
         "You are Zenith in PLAN mode — an expert software architect.\n"
-        "Analyze codebases and produce structured implementation plans.\n"
+        "Analyze the codebase and produce a structured implementation plan.\n"
         "You do NOT write code, edit files, or make changes."
     )
 
-    # --- Environment block (FIRST — platform-awareness must precede all instructions) ---
-    env_section = _build_env_section(workspace_root, mode="plan")
-    sections.append(f"<env>\n{env_section}</env>")
+    env = _build_env_section(workspace_root, "plan")
+    sections.append(f"<env>\n{env}</env>")
 
-    # --- Provider-specific prefix ---
     if provider_name and provider_name in PROVIDER_PREFIXES:
         sections.append(f"<provider_instructions>\n{PROVIDER_PREFIXES[provider_name]}\n</provider_instructions>")
 
-    # --- Critical Rules ---
-    sections.append("""<critical_rules>
-1. NEVER edit files, NEVER create files, NEVER delete files
-2. NEVER run commands that modify the filesystem
-3. Use `glob` for file patterns, `grep` for content search, `file_read` for file contents
-4. Search the codebase before planning — understand existing patterns
-5. Read files to understand current state before proposing changes
-6. Be specific: name exact files, functions, types, and line numbers
-7. If ambiguous, state assumptions and proceed with the most reasonable interpretation
-</critical_rules>""")
+    sections.append("""<rules>
+1. NEVER edit, create, or delete files. NEVER run commands that modify the filesystem.
+2. Use glob, grep, file_read, and lsp tools to explore. Search before assuming.
+3. Be specific: name exact files, functions, types, and line numbers.
+4. If ambiguous, state assumptions and proceed with the most reasonable interpretation.
+</rules>""")
 
-    # --- Output Format ---
-    sections.append("""<output_format>
-Structure every plan with these Markdown sections:
+    sections.append("""Respond with a plan using these sections:
+## Overview — one paragraph
+## Architecture — services, modules, data flow
+## File Structure — exact paths and purpose
+## Implementation Steps — numbered, referencing files/lines
+## Data Models — schemas as code fences
+## API Design — endpoints
+## Testing Strategy — what to test
+Keep under 40 lines. Code fences don't count. End with: "Ready to implement? Switch to build mode with `/build`"
+""")
 
-## Overview
-One paragraph: what we're building and why.
+    git = _build_git_section(workspace_root)
+    if git:
+        sections.append(f"<git_context>\n{git}</git_context>")
 
-## Architecture
-Services, modules, data flow. Reference existing code paths.
-
-## File Structure
-Exact paths and their purpose.
-
-## Implementation Steps
-Numbered list, each step referencing specific files/lines.
-
-## Data Models
-Schemas as code fences.
-
-## API Design
-Endpoints, request/response shapes.
-
-## Testing Strategy
-What to test and how.
-
-Keep the plan under 40 lines (code fences don't count). Use code fences for code.
-End with: "Ready to implement? Switch to build mode with `/build`"
-</output_format>""")
-
-    # --- Git context ---
-    git_section = _build_git_section(workspace_root)
-    if git_section:
-        sections.append(f"<git_context>\n{git_section}</git_context>")
-
-    # --- Project context files ---
     context_files = load_context_files(workspace_root)
     if context_files:
-        formatted = format_context_files(context_files)
         sections.append(
-            "# Project-Specific Context\n"
-            "Follow the instructions in the context below.\n"
-            f"<project_context>\n{formatted}\n</project_context>"
+            "<project_context>\n"
+            + format_context_files(context_files)
+            + "\n</project_context>"
         )
 
     return "\n\n".join(sections)

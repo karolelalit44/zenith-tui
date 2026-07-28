@@ -13,9 +13,11 @@ from .env import optional_env, optional_int, optional_float
 # Read-only tools for plan mode — comprehensive set matching the device.
 # These tools NEVER modify the filesystem or system state.
 PLAN_READ_ONLY_TOOLS = [
-    "file_read",       # Read file contents
-    "glob",            # Find files by pattern
-    "grep",            # Search file contents
+    "file_read",        # Read file contents
+    "glob",             # Find files by pattern
+    "grep",             # Search file contents
+    "lsp_definition",   # Go-to-definition (language-aware)
+    "lsp_diagnostics",  # Lint/typecheck (read-only analysis)
 ]
 
 @dataclass(frozen=True)
