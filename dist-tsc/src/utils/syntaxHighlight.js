@@ -1,4 +1,4 @@
-import { highlight } from 'cli-highlight';
+import { DEFAULT_THEME, highlight } from 'cli-highlight';
 const LANG_MAP = {
     ts: 'typescript',
     tsx: 'typescript',
@@ -12,6 +12,11 @@ const LANG_MAP = {
     md: 'markdown',
 };
 const KNOWN_LANGUAGES = new Set(Object.values(LANG_MAP));
+const customTheme = {
+    ...DEFAULT_THEME,
+    string: (str) => `\x1b[36m${str}\x1b[0m`,
+    quote: (str) => `\x1b[36m${str}\x1b[0m`,
+};
 export function highlightCode(code, lang) {
     if (!code)
         return '';
@@ -23,6 +28,7 @@ export function highlightCode(code, lang) {
         return highlight(code, {
             language,
             ignoreIllegals: true,
+            theme: customTheme,
         });
     }
     catch {

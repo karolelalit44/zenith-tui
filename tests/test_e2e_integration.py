@@ -98,7 +98,7 @@ class EchoProvider(BaseProvider):
     async def complete(self, messages, tools=None):
         user_msg = messages[-1]["content"] if messages else ""
         return f"Echo: {user_msg}"
-    async def stream(self, messages, tools=None):
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages)
         for word in response.split():
             yield (word + " ", None)

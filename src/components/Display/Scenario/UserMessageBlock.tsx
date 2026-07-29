@@ -27,8 +27,10 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
     ? now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
     : `${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
+  const boxWidth = Math.max(0, columns - 2);
+
   return (
-    <Box flexDirection="column" width="100%" marginBottom={1}>
+    <Box flexDirection="column" width={boxWidth} marginBottom={1}>
       <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1}>
         <Box width="100%">
           <Text color={theme.colors.text.bright} wrap="wrap">
@@ -36,7 +38,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
           </Text>
         </Box>
         <Box flexDirection="row" justifyContent="flex-end" width="100%">
-          <Text color={theme.colors.text.dim} wrap="truncate-end">
+          <Text color={theme.colors.text.dim} wrap="wrap">
             {timeStr}
           </Text>
         </Box>

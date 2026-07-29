@@ -323,7 +323,14 @@ class LLMProvider(BaseProvider):
             self.extra_params is not None,
         )
 
-    def _build_completion_kwargs(self, messages: list[dict], tools: list[dict] | None = None, stream: bool = False) -> dict:
+    def _build_completion_kwargs(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        stream: bool = False,
+        tool_choice: str | None = None,
+        response_format: dict | None = None,
+    ) -> dict:
         """Build kwargs for litellm.acompletion().
 
         Merges base params with per-model extra_params from catalog (Aider-style).
@@ -346,7 +353,10 @@ class LLMProvider(BaseProvider):
 
         if tools and self._model_config.get("supports_tools", True):
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
+            kwargs["tool_choice"] = tool_choice or "auto"
+
+        if response_format:
+            kwargs["response_format"] = response_format
 
         # Per-model thinking/reasoning for Anthropic
         if self.enable_thinking and ('anthropic' in self.name.lower() or 'claude' in self._litellm_model):
@@ -454,12 +464,18 @@ class LLMProvider(BaseProvider):
             v = usage.get(k, 0) or 0
             self._cumulative_usage[k] = self._cumulative_usage.get(k, 0) + v
 
-    async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[tuple[str, str | None]]:
+    async def stream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        response_format: dict | None = None,
+    ) -> AsyncIterator[tuple[str, str | None]]:
         """Stream LLM response tokens. (content, reasoning) tuples."""
         self._last_native_tool_calls = []
         self._reset_cumulative_usage()
         try:
-            async for chunk in self._stream_impl(messages, tools):
+            async for chunk in self._stream_impl(messages, tools, tool_choice=tool_choice, response_format=response_format):
                 yield chunk
         except ProviderError:
             raise
@@ -467,10 +483,16 @@ class LLMProvider(BaseProvider):
             logger.error("STREAM ERROR model=%s error=%s", self._litellm_model, str(e)[:500])
             raise _classify_provider_error(e, self.name) from e
 
-    async def _stream_impl(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[tuple[str, str | None]]:
+    async def _stream_impl(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        response_format: dict | None = None,
+    ) -> AsyncIterator[tuple[str, str | None]]:
         import litellm
 
-        kwargs = self._build_completion_kwargs(messages, tools, stream=True)
+        kwargs = self._build_completion_kwargs(messages, tools, stream=True, tool_choice=tool_choice, response_format=response_format)
         safe_kwargs = {k: v for k, v in kwargs.items() if k != "api_key"}
         safe_kwargs["messages_count"] = len(messages)
         if tools:

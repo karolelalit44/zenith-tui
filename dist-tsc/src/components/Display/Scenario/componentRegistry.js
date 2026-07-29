@@ -23,6 +23,7 @@ class ComponentRegistry {
         this.register('success', SuccessCard);
         this.register('progress', ProgressBar);
         this.register('confirmation_request', ConfirmationCard);
+        this.register('plan_ready', MessageBlock);
     }
     register(kind, component) {
         this.registry.set(kind, component);

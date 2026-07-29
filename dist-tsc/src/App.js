@@ -137,7 +137,7 @@ export const App = () => {
             isRunning && (React.createElement(Box, { flexDirection: "column", marginTop: 1, width: "100%" },
                 activeTurn && React.createElement(UserMessageBlock, { prompt: activeTurn.prompt }),
                 React.createElement(ScenarioRenderer, { events: events, isRunning: isRunning, isHistorical: false, thinkingCollapsed: thinkingCollapsed, onRetry: handleRetry }))),
-            !showAutocomplete && !showFilePicker && !isOverlayOpen && (React.createElement(CommandInput, { input: input, onInputChange: handleInputChange, onSubmit: handleSubmit, disabled: isRunning, attachments: attachments, onRemoveAttachment: removeAttachment, historyUp: historyUp, historyDown: historyDown, mode: selectedMode, totalTokens: totalTokens })),
+            !showAutocomplete && !showFilePicker && !isOverlayOpen && (React.createElement(CommandInput, { input: input, onInputChange: handleInputChange, onSubmit: handleSubmit, disabled: isRunning, attachments: attachments, onRemoveAttachment: removeAttachment, historyUp: historyUp, historyDown: historyDown, mode: selectedMode, totalTokens: totalTokens, isRunning: isRunning, tokenUsageStats: tokenUsageStats, workspaceName: workspace })),
             showAutocomplete && (React.createElement(Box, { marginTop: 1, width: "100%" },
                 React.createElement(AutocompleteDropdown, { input: input, onSelect: handleAutocompleteSelectWithRouter, onClose: closeAutocomplete }))),
             showFilePicker && (React.createElement(Box, { marginTop: 1, width: "100%" },

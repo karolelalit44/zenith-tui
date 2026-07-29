@@ -62,6 +62,7 @@ class AgentModeConfig:
     description: str = ""
     model_override: str | None = None
     sub_agent: bool = False
+    tool_choice: str = "auto"  # "auto", "required", "none", or specific function name
 
 PLAN_MODE_CONFIG = AgentModeConfig(
     name="plan",
@@ -77,6 +78,7 @@ BUILD_MODE_CONFIG = AgentModeConfig(
     allowed_mcp=None,  # All MCPs
     description="Full execution with all tools.",
     sub_agent=True,  # Spawn fresh sub-agent on plan→build transition
+    tool_choice="required",  # Force tool calling in build mode
 )
 
 AGENT_MODES: dict[str, AgentModeConfig] = {

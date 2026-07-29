@@ -43,7 +43,9 @@ _COMPLETION_SIGNALS = re.compile(
 
 _INTERACTIVE_CMD_PATTERNS = re.compile(
     r"\binput\s*\(|"
-    r"python\s+-[im]|"
+    r"python\s+-i\b|"
+    r"python\s+-im\b|"
+    r"python\s+-mi\b|"
     r"\bpdb\b|"
     r"\bgetpass\b|"
     r"\bread\s+-[srp]\b",

@@ -97,8 +97,16 @@ export function useTerminalKeyboard({ turns, isRunning, events, overlay, openOve
                     opts.openOverlay('mode');
                 return;
             }
+            if (_char === 't' || _char === 'T' || _char === '\x14') {
+                if (opts.onToggleThinking)
+                    opts.onToggleThinking();
+                return;
+            }
         }
-        if (key.shift && (_char === 't' || _char === 'T') && opts.overlay === 'none' && opts.onToggleThinking) {
+        if ((key.shift || key.ctrl) &&
+            (_char === 't' || _char === 'T' || _char === '\x14') &&
+            opts.overlay === 'none' &&
+            opts.onToggleThinking) {
             opts.onToggleThinking();
             return;
         }

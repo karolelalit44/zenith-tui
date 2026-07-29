@@ -4,6 +4,8 @@ import json
 import logging
 import re
 
+from json_repair import repair_json
+
 logger = logging.getLogger(__name__)
 
 TOOL_PATTERNS = [
@@ -18,6 +20,9 @@ TOOL_PATTERNS = [
 ]
 
 UNCLOSED_PATTERN = re.compile(r"```(?:tool|json)?\s*\n?(\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*)$", re.IGNORECASE)
+
+BRACKET_PATTERN = re.compile(r"\[(\w+)((?:\s+\w+=(?:\"[^\"]*\"|\S+))+\s*)\]")
+BRACKET_KV_PATTERN = re.compile(r'(\w+)=(?:"((?:[^"\\]|\\.)*)"|(\S+))')
 
 # Tool names that are placeholders the model might echo literally
 PLACEHOLDER_TOOL_NAMES = frozenset({"tool_name", "tool", "function", "name", "call", "action", "command", "method"})
@@ -72,14 +77,12 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
     cleaned_cand = re.sub(r"\s*```$", "", cleaned_cand).strip()
 
     def _validate_tool_name(data: dict) -> dict | None:
-        """Reject placeholder tool names the model might echo literally."""
         name = data.get("tool", "")
         if name in PLACEHOLDER_TOOL_NAMES:
             return None
         return data
 
     def _remap_openai_format(data: dict) -> dict:
-        """Remap OpenAI 'function'+'arguments' to 'tool'+'params'."""
         if "function" in data and "tool" not in data:
             data["tool"] = data.pop("function")
         if "arguments" in data and "params" not in data:
@@ -87,120 +90,69 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
             data["params"] = args if isinstance(args, dict) else {}
         return data
 
-    # 0. Pre-process: remap OpenAI format before parsing
-    remapped = cleaned_cand
-    if '"function"' in remapped and '"tool"' not in remapped:
-        remapped = re.sub(r'"function"\s*:\s*"([^"]+)"', r'"tool": "\1"', remapped)
-    if '"arguments"' in remapped and '"params"' not in remapped:
-        remapped = remapped.replace('"arguments"', '"params"')
+    # Pre-process: remap OpenAI format before parsing
+    if '"function"' in cleaned_cand and '"tool"' not in cleaned_cand:
+        cleaned_cand = re.sub(r'"function"\s*:\s*"([^"]+)"', r'"tool": "\1"', cleaned_cand)
+    if '"arguments"' in cleaned_cand and '"params"' not in cleaned_cand:
+        cleaned_cand = cleaned_cand.replace('"arguments"', '"params"')
 
-    # 1. Standard json.loads (non-strict allows control chars)
+    # Use json_repair to handle all LLM JSON quirks
+    json_result = None
     try:
-        data = json.loads(remapped, strict=False)
-        if isinstance(data, dict) and "tool" in data and "params" in data:
-            return _validate_tool_name(data)
-        # Also handle OpenAI format after parse
-        if isinstance(data, dict) and ("function" in data or "arguments" in data):
-            data = _remap_openai_format(data)
+        repaired = repair_json(cleaned_cand)
+        data = json.loads(repaired)
+        if isinstance(data, dict):
             if "tool" in data and "params" in data:
-                return _validate_tool_name(data)
+                json_result = _validate_tool_name(data)
+            if not json_result and ("function" in data or "arguments" in data):
+                data = _remap_openai_format(data)
+                if "tool" in data and "params" in data:
+                    json_result = _validate_tool_name(data)
     except Exception:
         pass
 
-    # 2. Repair unclosed quotes and braces at end of truncated stream
-    repaired_stream = cleaned_cand
-    if repaired_stream.count('"') % 2 != 0:
-        repaired_stream += '"'
-    open_braces = repaired_stream.count('{') - repaired_stream.count('}')
-    if open_braces > 0:
-        repaired_stream += '}' * open_braces
-    try:
-        data = json.loads(repaired_stream, strict=False)
-        if isinstance(data, dict) and "tool" in data:
-            if "params" not in data:
-                data["params"] = {}
-            return _validate_tool_name(data)
-    except Exception:
-        pass
+    # Verify json_repair result is meaningful (not tripped up by triple quotes etc.)
+    if json_result:
+        params = json_result.get("params", {})
+        content = params.get("content", "")
+        if content or json_result["tool"] != "file_write":
+            return json_result
+        # content is empty for file_write — fall through to regex extraction
 
-    # 3. Fix invalid backslash escapes (Windows paths like \v, \c)
-    sanitized = re.sub(r'\\(?![\\"/bfnrtu])', '/', cleaned_cand)
-    try:
-        data = json.loads(sanitized, strict=False)
-        if isinstance(data, dict) and "tool" in data and "params" in data:
-            return _validate_tool_name(data)
-    except Exception:
-        pass
-
-    # 4. Handle trailing commas before closing braces
-    fixed_commas = re.sub(r",\s*([\}\]])", r"\1", sanitized)
-    try:
-        data = json.loads(fixed_commas, strict=False)
-        if isinstance(data, dict) and "tool" in data and "params" in data:
-            return _validate_tool_name(data)
-    except Exception:
-        pass
-
-    # 5. Regex extraction fallback for tool + params if JSON decoding failed
+    # Regex extraction fallback (handles triple-quoted content, unescaped chars, etc.)
     tool_match = re.search(r'"tool"\s*:\s*"([^"]+)"', candidate)
     if tool_match:
         tool_name = tool_match.group(1)
         if tool_name in PLACEHOLDER_TOOL_NAMES:
             return None
         params: dict = {}
-
-        # Extract path (many alias variants)
-        path_aliases = [
-            "filePath", "filepath", "file_path", "targetFile", "target_file",
-            "filename", "file_name", "targetPath", "target_path",
-            "dest", "destination", "src", "source",
-        ]
-        path_val = _extract_param_fallback(candidate, "path", path_aliases)
+        path_val = _extract_param_fallback(candidate, "path", ["filePath", "filepath", "file_path", "targetFile", "target_file", "filename", "file_name", "targetPath", "target_path", "dest", "destination", "src", "source"])
         if path_val is not None:
             params["path"] = path_val
-
-        # Extract content
         content_val = _extract_param_fallback(candidate, "content")
         if content_val is not None:
             params["content"] = content_val
-
-        # Extract old_content / search / find
-        old_aliases = ["oldContent", "search", "find", "old_string", "original", "oldtext", "targettext"]
-        old_val = _extract_param_fallback(candidate, "old_content", old_aliases)
+        old_val = _extract_param_fallback(candidate, "old_content", ["oldContent", "search", "find", "old_string", "original", "oldtext", "targettext"])
         if old_val is not None:
             params["old_content"] = old_val
-
-        # Extract new_content / replace / replacement
-        new_aliases = ["newContent", "replace", "new_string", "replacement", "newtext", "replacementtext"]
-        new_val = _extract_param_fallback(candidate, "new_content", new_aliases)
+        new_val = _extract_param_fallback(candidate, "new_content", ["newContent", "replace", "new_string", "replacement", "newtext", "replacementtext"])
         if new_val is not None:
             params["new_content"] = new_val
-
-        # Extract command
         cmd_val = _extract_param_fallback(candidate, "command", ["cmd", "commandString", "script", "exec", "run"])
         if cmd_val is not None:
             params["command"] = cmd_val
-
-        # Extract pattern (for glob/grep)
         pattern_val = _extract_param_fallback(candidate, "pattern", ["query", "glob", "searchPattern", "filter", "regex"])
         if pattern_val is not None:
             params["pattern"] = pattern_val
-
-        # Extract URL (for webfetch)
         url_val = _extract_param_fallback(candidate, "url")
         if url_val is not None:
             params["url"] = url_val
-
-        # Extract include (for grep file filter)
         include_val = _extract_param_fallback(candidate, "include")
         if include_val is not None:
             params["include"] = include_val
-
-        # Extract timeout (for bash/webfetch)
         timeout_match = re.search(r'"timeout"\s*:\s*(\d+)', candidate)
         if timeout_match:
             params["timeout"] = int(timeout_match.group(1))
-
         if tool_name:
             return {"tool": tool_name, "params": params}
 
@@ -265,6 +217,20 @@ def parse_tool_calls(text: str) -> list[dict]:
             if parsed and _add_call(parsed):
                 calls.append(parsed)
 
+    # Fallback: bracket format [tool_name key="val" key2="val2"]
+    if not calls:
+        for match in BRACKET_PATTERN.finditer(text):
+            tool_name = match.group(1)
+            if tool_name in PLACEHOLDER_TOOL_NAMES:
+                continue
+            params = {}
+            for kv in BRACKET_KV_PATTERN.finditer(match.group(2)):
+                key = kv.group(1)
+                val = kv.group(2) if kv.group(2) is not None else kv.group(3)
+                params[key] = val
+            parsed = {"tool": tool_name, "params": normalize_file_params(params)}
+            _add_call(parsed)
+
     return calls
 
 
@@ -291,6 +257,11 @@ def clean_tool_text(text: str) -> str:
         r"\[[\s\S]*?\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\}[\s\S]*?\]",
         "", cleaned,
     )
+    # Bracket format tool calls: [tool_name key="val"]
+    cleaned = re.sub(
+        r"\[(\w+)((?:\s+\w+=(?:\"[^\"]*\"|\S+))+\s*)\]",
+        "", cleaned,
+    )
     # Remove hallucinated mock output blocks (only when they look like structured output, not natural prose)
     cleaned = re.sub(r"^Command:\s+.*$\n^Output:.*$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE)
     cleaned = re.sub(r"^Successfully (?:created|wrote|deleted|edited) (?:new )?file:\s*[^\n]+$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE)
@@ -308,12 +279,16 @@ class UnifiedResponseFormatter:
     def process_response(raw_content: str, raw_tool_calls: list[dict] | None = None) -> tuple[str, list[dict]]:
         tool_calls = []
 
-        # Only remap native tool_calls from OpenAI format to our internal format
+        # First: try native function calls (OpenAI format)
         if raw_tool_calls:
             for tc in raw_tool_calls:
                 remapped = UnifiedResponseFormatter._remap_native_tool_call(tc)
                 if remapped:
                     tool_calls.append(remapped)
+
+        # Fallback: parse text-based tool calls (JSON, fenced JSON, bracket format)
+        if not tool_calls and raw_content.strip():
+            tool_calls = parse_tool_calls(raw_content)
 
         clean_text = clean_tool_text(raw_content)
         return clean_text, tool_calls

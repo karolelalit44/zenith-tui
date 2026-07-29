@@ -255,6 +255,9 @@ export const App: React.FC = () => {
             historyDown={historyDown}
             mode={selectedMode}
             totalTokens={totalTokens}
+            isRunning={isRunning}
+            tokenUsageStats={tokenUsageStats}
+            workspaceName={workspace}
           />
         )}
 

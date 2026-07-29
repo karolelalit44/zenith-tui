@@ -125,9 +125,16 @@ class ContextManager:
                 messages.append({"role": "assistant", "content": "Understood."})
                 used += summary_tokens + SUMMARY_FRAMING_TOKENS
 
-        # 4. History — add most recent first, drop oldest when budget exceeded
+        # 4. History — skip empty assistant messages and dedup consecutive duplicates
         history_msgs: list[dict] = []
+        last_key: tuple[str, str] | None = None
         for msg in history:
+            if msg.role == "assistant" and not msg.content:
+                continue
+            key = (msg.role, msg.content)
+            if key == last_key:
+                continue
+            last_key = key
             entry = {"role": msg.role, "content": msg.content}
             entry_tokens = self.token_counter.count(msg.content, model)
             history_msgs.append((entry, entry_tokens))
@@ -143,9 +150,13 @@ class ContextManager:
 
         # 5. New prompt (always included)
         if not use_system_prompt:
-            messages.append({"role": "user", "content": f"{system_prompt}\n\n{new_prompt}"})
+            new_entry = {"role": "user", "content": f"{system_prompt}\n\n{new_prompt}"}
         else:
-            messages.append({"role": "user", "content": new_prompt})
+            new_entry = {"role": "user", "content": new_prompt}
+
+        # Dedup: skip if the last history message has the same content
+        if not messages or messages[-1].get("content") != new_entry.get("content"):
+            messages.append(new_entry)
 
         return messages
 

@@ -39,6 +39,8 @@ async def stream_with_retries(
     session_id: str,
     iteration: int,
     state: StreamState | None = None,
+    tool_choice: str | None = None,
+    response_format: dict | None = None,
 ) -> AsyncIterator[Event]:
     """Stream LLM response with time-based retry on recoverable errors.
 
@@ -64,7 +66,7 @@ async def stream_with_retries(
         logger.info("LLM stream start: attempt=%d, tools=%d, messages=%d, remaining=%.1fs",
                      attempt, len(tools), len(messages), remaining)
         try:
-            async for content, reasoning in provider.stream(messages, tools=tools):
+            async for content, reasoning in provider.stream(messages, tools=tools, tool_choice=tool_choice, response_format=response_format):
                 stream_chunk_count += 1
                 if reasoning:
                     reasoning_buffer += reasoning
@@ -119,6 +121,16 @@ async def stream_with_retries(
             yield r.thinking("Retrying after provider error...", session_id)
             await asyncio.sleep(delay)
         except Exception as e:
+            error_str = str(e).lower()
+            if tool_choice == "required" and ("tool_choice" in error_str or "unsupported" in error_str or "invalid parameter" in error_str):
+                logger.warning("tool_choice=required rejected by model (%.100s), falling back to auto", error_str)
+                tool_choice = "auto"
+                if state.response_text:
+                    yield r.message_event(state.response_text, session_id, partial=False)
+                    state.full_response += state.response_text
+                    state.response_text = ""
+                yield r.thinking("Model doesn't support forced tool calls, switching to auto...", session_id)
+                continue
             logger.error("LLM stream error on turn %d: %s", iteration, e, exc_info=True)
             yield r.error(str(e), session_id)
             return

@@ -413,6 +413,14 @@ function mapRawEvent(
         message: String(d.message || 'Operation requires confirmation'),
       };
 
+    case 'plan_ready':
+      return {
+        kind: 'plan_ready',
+        id,
+        plan: String(d.plan || ''),
+        sessionId: String(d.session_id || ''),
+      };
+
     default:
       return {
         kind: 'warning',

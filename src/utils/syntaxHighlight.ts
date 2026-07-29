@@ -1,4 +1,4 @@
-import { highlight } from 'cli-highlight';
+import { DEFAULT_THEME, highlight } from 'cli-highlight';
 
 const LANG_MAP: Record<string, string> = {
   ts: 'typescript',
@@ -15,6 +15,12 @@ const LANG_MAP: Record<string, string> = {
 
 const KNOWN_LANGUAGES = new Set(Object.values(LANG_MAP));
 
+const customTheme = {
+  ...DEFAULT_THEME,
+  string: (str: string) => `\x1b[36m${str}\x1b[0m`,
+  quote: (str: string) => `\x1b[36m${str}\x1b[0m`,
+};
+
 export function highlightCode(code: string, lang?: string): string {
   if (!code) return '';
   const language = lang ? LANG_MAP[lang.toLowerCase()] || lang.toLowerCase() : 'text';
@@ -25,6 +31,7 @@ export function highlightCode(code: string, lang?: string): string {
     return highlight(code, {
       language,
       ignoreIllegals: true,
+      theme: customTheme,
     });
   } catch {
     return code;

@@ -127,6 +127,13 @@ class PromptExecutor:
                 if manager:
                     await manager.send_event(session_id, plan_ready_event)
                 collected_events.append(plan_ready_event)
+                logger.info("Plan not approved — waiting for approval before build")
+                _step_count += 1
+                warning_event = r.warning("Plan is pending approval. Approve in the UI or use plan.approve to continue.", session_id)
+                if manager:
+                    await manager.send_event(session_id, warning_event)
+                collected_events.append(warning_event)
+                return
 
             async def _confirm(tool_name: str, reason: str, risk_level: str) -> bool:
                 logger.info("Confirmation requested: tool=%s reason=%s risk=%s", tool_name, reason, risk_level)
@@ -316,8 +323,11 @@ class PromptExecutor:
             collected_events.append(error_event)
 
         try:
-            assistant_msg = Message(session_id=session_id, role="assistant", content=response_text, events=collected_events)
-            await self._message_repo.create(assistant_msg)
-            logger.info("Assistant message persisted: %d events, %d chars", len(collected_events), len(response_text))
+            if response_text:
+                assistant_msg = Message(session_id=session_id, role="assistant", content=response_text, events=collected_events)
+                await self._message_repo.create(assistant_msg)
+                logger.info("Assistant message persisted: %d events, %d chars", len(collected_events), len(response_text))
+            else:
+                logger.info("Skipping empty assistant message (request may have failed)")
         except Exception:
             logger.exception("Failed to persist assistant message for session %s", session_id)

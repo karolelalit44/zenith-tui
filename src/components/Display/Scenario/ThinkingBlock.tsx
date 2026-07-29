@@ -63,9 +63,9 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
         <Text color={theme.colors.status.accent} bold>
-          ○ {isCollapsed ? '▸' : '▾'}
+          {isCollapsed ? '▶' : '▼'}
         </Text>
-        <Text color={theme.colors.text.muted}> {event.thoughts.length}</Text>
+        <Text color={theme.colors.text.muted}> {event.thoughts.length} thoughts</Text>
         {event.duration > 0 && (
           <>
             <Text color={theme.colors.text.muted}> · </Text>
@@ -73,9 +73,10 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
           </>
         )}
         <Text color={theme.colors.text.muted}> · </Text>
-        <Text color={theme.colors.text.muted} underline>
-          Ctrl+T to toggle
+        <Text color={theme.colors.text.bright} backgroundColor={theme.colors.bg.modal}>
+          {' Ctrl+T '}
         </Text>
+        <Text color={theme.colors.text.dim}> toggle</Text>
       </Box>
 
       {!isCollapsed && (
@@ -83,7 +84,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
           {displayedThoughts.map((thought, idx) => {
             const isLatest = !historical && idx === visibleCount - 1 && visibleCount < event.thoughts.length;
             return (
-              <Box key={idx} flexDirection="row" alignItems="center" width="100%">
+              <Box key={idx} flexDirection="row" alignItems="flex-start" width="100%" marginBottom={0}>
                 <Box width={2} flexShrink={0}>
                   <Text color={isLatest ? theme.colors.status.accent : theme.colors.text.muted}>
                     {isLatest ? '>' : '*'}

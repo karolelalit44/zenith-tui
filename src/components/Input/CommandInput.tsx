@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
+import type { TokenUsageStats } from '../../services/data/TokenUsageService';
 import { formatTokenCount } from '../../services/data/tokenEstimationService';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
@@ -18,9 +19,13 @@ interface CommandInputProps {
   onRemoveAttachment?: (index: number) => void;
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
+  mode?: ScenarioMode;
   totalTokens?: number;
   maxTokens?: number;
-  mode?: ScenarioMode;
+  isRunning?: boolean;
+  tokenUsageStats?: TokenUsageStats | null;
+  workspaceName?: string;
+  gitBranch?: string;
 }
 
 export const CommandInput: React.FC<CommandInputProps> = React.memo(
@@ -33,38 +38,42 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onRemoveAttachment: _onRemoveAttachment,
     historyUp,
     historyDown,
+    mode = 'build',
     totalTokens = 0,
     maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
-    mode = 'build',
+    isRunning = false,
+    tokenUsageStats,
+    workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
+    gitBranch,
   }) => {
     const { theme } = useTheme();
     const { activeProvider } = useProvider();
-    const branch = getActiveGitBranch();
+    const activeBranch = gitBranch || getActiveGitBranch();
     const modelShort = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
     const providerName = activeProvider.meta.name || 'Unknown';
-    const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
-
-    const cwd = process.cwd();
-    const dirParts = cwd.replace(/\\/g, '/').split('/');
-    const shortDir = dirParts.length > 2 ? `.../${dirParts.slice(-2).join('/')}` : cwd;
 
     const modeLabel = mode === 'plan' ? '[PLAN]' : '[BUILD]';
     const modeColor = theme.colors.text.emerald;
 
     const columns = process.stdout.columns ?? 80;
     const isSmall = columns < 65;
-    const isMedium = columns < 90;
+    const isMedium = columns < 100;
+
+    const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
+    const totalBlocks = 10;
+    const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
+    const contextGauge = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
+
+    const dirParts = workspaceName.replace(/\\/g, '/').split('/');
+    const shortDir = dirParts.length > 2 ? `.../${dirParts.slice(-2).join('/')}` : workspaceName;
+
+    const grandTotal = tokenUsageStats?.totals?.grand_total_tokens ?? 0;
+    const requestCount = tokenUsageStats?.totals?.total_requests ?? 0;
+
+    const dividerWidth = Math.max(0, columns - 4);
 
     return (
-      <Box
-        flexDirection="column"
-        width="100%"
-        borderStyle="round"
-        borderColor={disabled ? theme.colors.border.muted : theme.colors.border.active}
-        paddingX={1}
-        paddingY={0}
-        marginTop={1}
-      >
+      <Box flexDirection="column" width="100%" marginTop={1}>
         {attachments && attachments.length > 0 && (
           <Box flexDirection="row" flexWrap="wrap" marginBottom={0}>
             {attachments.map((att, idx) => (
@@ -77,51 +86,92 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             ))}
           </Box>
         )}
-        <Box flexDirection="row" alignItems="flex-start">
-          <Text color={disabled ? theme.colors.text.muted : theme.colors.text.emerald} bold>
-            {disabled ? '◌' : '❯'}{' '}
-          </Text>
-          <Box flexDirection="column" flexGrow={1}>
-            {disabled ? (
-              <Box flexDirection="row" alignItems="center" minHeight={1}>
-                <Text color={theme.colors.text.muted} italic>
-                  Processing... (Esc to cancel)
-                </Text>
-              </Box>
-            ) : (
-              <MultiLineTextInput
-                value={input}
-                onChange={onInputChange}
-                onSubmit={onSubmit}
-                placeholder="Ask anything..."
-                focus={!disabled}
-                historyUp={historyUp}
-                historyDown={historyDown}
-              />
-            )}
 
-            {/* Secondary status row — ALWAYS rendered to keep height stable */}
-            <Box flexDirection="row" justifyContent="space-between" marginTop={1} width="100%">
-              <Box flexDirection="row" flexShrink={1}>
-                <Text color={modeColor}>{modeLabel} </Text>
-                <Text color={theme.colors.status.accent}>◇ </Text>
-                <Text color={theme.colors.text.muted} wrap="truncate-end">
-                  {modelShort}
-                  {!isSmall ? ` · ${providerName}` : ''}
-                </Text>
-              </Box>
+        {/* Single Unified Input Card */}
+        <Box
+          flexDirection="column"
+          width="100%"
+          borderStyle="round"
+          borderColor={disabled ? theme.colors.border.muted : theme.colors.border.active}
+          paddingX={1}
+          paddingY={0}
+        >
+          {/* Primary Input Section */}
+          <Box flexDirection="row" width="100%" alignItems="flex-start">
+            <Text color={disabled ? theme.colors.text.muted : theme.colors.text.emerald} bold>
+              {disabled ? '◌' : '❯'}{' '}
+            </Text>
+            <Box flexDirection="column" flexGrow={1}>
+              {disabled ? (
+                <Box flexDirection="row" alignItems="center" minHeight={1}>
+                  <Text color={theme.colors.text.muted} italic>
+                    Processing... (Esc to cancel)
+                  </Text>
+                </Box>
+              ) : (
+                <MultiLineTextInput
+                  value={input}
+                  onChange={onInputChange}
+                  onSubmit={onSubmit}
+                  placeholder="Ask anything..."
+                  focus={!disabled}
+                  historyUp={historyUp}
+                  historyDown={historyDown}
+                />
+              )}
+            </Box>
+          </Box>
 
-              <Box flexDirection="row" flexShrink={0} paddingLeft={1}>
-                <Text color={theme.colors.text.dim} wrap="truncate-end">
-                  {!isMedium ? `${shortDir} ` : ''}
-                  {branch && !isSmall ? (
-                    <>
-                      <Text color={theme.colors.text.emerald}>({branch})</Text>{' '}
-                    </>
-                  ) : null}
-                  {formatTokenCount(totalTokens)} tok {contextPercent}%
+          {/* Seamless Horizontal Divider Line */}
+          <Box width="100%" marginY={0}>
+            <Text color={theme.colors.border.muted}>{'─'.repeat(dividerWidth)}</Text>
+          </Box>
+
+          {/* Secondary Info Section */}
+          <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center">
+            {/* Left side: Mode & Model */}
+            <Box flexDirection="row" flexShrink={1}>
+              <Text color={modeColor}>{modeLabel} </Text>
+              <Text color={theme.colors.status.accent}>◇ </Text>
+              <Text color={theme.colors.text.muted} wrap="truncate-end">
+                {modelShort}
+                {!isSmall ? ` · ${providerName}` : ''}
+              </Text>
+            </Box>
+
+            {/* Right side: Repo / Branch | Tokens | Gauge | Reqs | State */}
+            <Box flexDirection="row" flexShrink={0} alignItems="center">
+              {!isMedium && <Text color={theme.colors.text.ethereal}>{shortDir}</Text>}
+              {activeBranch ? (
+                <>
+                  {!isMedium && <Text color={theme.colors.text.muted}> </Text>}
+                  <Text color={theme.colors.text.emerald}>({activeBranch})</Text>
+                </>
+              ) : null}
+              <Text color={theme.colors.text.muted}> | </Text>
+              <Text color={theme.colors.status.info}>{formatTokenCount(totalTokens)}</Text>
+              <Text color={theme.colors.text.muted}>/</Text>
+              <Text color={grandTotal > 0 ? theme.colors.text.bright : theme.colors.text.muted}>
+                {formatTokenCount(grandTotal)}
+              </Text>
+              <Text color={theme.colors.text.muted}> tokens </Text>
+              <Text color={contextPercent > 80 ? theme.colors.status.warning : theme.colors.status.success}>
+                [{contextGauge}] {contextPercent}%
+              </Text>
+              {requestCount > 0 && (
+                <>
+                  <Text color={theme.colors.text.muted}> | </Text>
+                  <Text color={theme.colors.text.muted}>{requestCount} req</Text>
+                </>
+              )}
+              <Text color={theme.colors.text.muted}> | </Text>
+              {isRunning ? (
+                <Text color={theme.colors.status.success} bold>
+                  Running
                 </Text>
-              </Box>
+              ) : (
+                <Text color={theme.colors.text.muted}>Idle</Text>
+              )}
             </Box>
           </Box>
         </Box>

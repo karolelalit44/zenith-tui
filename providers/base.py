@@ -40,7 +40,13 @@ class BaseProvider(ABC):
         ...
 
     @abstractmethod
-    async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[tuple[str, str | None]]:
+    async def stream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        response_format: dict | None = None,
+    ) -> AsyncIterator[tuple[str, str | None]]:
         ...
 
     @abstractmethod

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ScenarioEvent } from '../src/types/scenario';
 
 /**
- * End-to-end test: validates that the 9 EventKind types produce valid ScenarioEvents
+ * End-to-end test: validates that all EventKind types produce valid ScenarioEvents
  * and that the full event sequence works correctly.
  */
 

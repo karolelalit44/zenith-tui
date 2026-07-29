@@ -40,7 +40,7 @@ class EchoProvider(BaseProvider):
             return '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
         return f"Echo: {user_msg}"
 
-    async def stream(self, messages: list[dict], tools=None):
+    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)

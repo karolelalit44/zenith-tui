@@ -97,6 +97,34 @@ export const TerminalMarkdown = ({ content }) => {
     let idx = 0;
     while (idx < rawLines.length) {
         const line = rawLines[idx];
+        // Intercept raw tool call dumps like [file_write path="..." content="..."]
+        const fileWriteMatch = line.trim().match(/^\[file_write\s+path=["']([^"']+)["']\s+content=["']([\s\S]*)["']\]?$/);
+        if (fileWriteMatch) {
+            const filePath = fileWriteMatch[1];
+            const rawContent = fileWriteMatch[2].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+            const ext = filePath.split('.').pop() || 'text';
+            const fileCodeLines = rawContent.split('\n');
+            const MAX_CODE_LINES = 15;
+            const isTruncated = fileCodeLines.length > MAX_CODE_LINES;
+            const visibleLines = isTruncated ? fileCodeLines.slice(0, MAX_CODE_LINES) : fileCodeLines;
+            blocks.push(React.createElement(Box, { key: `filewrite_${idx}`, flexDirection: "column", marginY: 1, width: "100%" },
+                React.createElement(Box, { flexDirection: "row", justifyContent: "space-between", paddingX: 1, backgroundColor: theme.colors.bg.modal },
+                    React.createElement(Text, { color: theme.colors.status.success, bold: true },
+                        "\u2713 [FILE_WRITE] ",
+                        filePath),
+                    React.createElement(Text, { color: theme.colors.text.muted },
+                        fileCodeLines.length,
+                        " ",
+                        fileCodeLines.length === 1 ? 'line' : 'lines')),
+                React.createElement(Box, { flexDirection: "column", paddingX: 1, paddingY: 0, borderStyle: "round", borderColor: theme.colors.border.muted },
+                    visibleLines.map((cL, cIdx) => (React.createElement(Text, { key: cIdx }, highlightCode(cL, ext)))),
+                    isTruncated && (React.createElement(Text, { color: theme.colors.text.muted, italic: true },
+                        "... [",
+                        fileCodeLines.length - MAX_CODE_LINES,
+                        " more lines collapsed]")))));
+            idx++;
+            continue;
+        }
         // Code Block
         if (line.trim().startsWith('```')) {
             const lang = line.trim().replace(/^```/, '').toUpperCase() || 'CODE';
@@ -118,7 +146,8 @@ export const TerminalMarkdown = ({ content }) => {
                         "]"),
                     React.createElement(Text, { color: theme.colors.text.muted },
                         codeLines.length,
-                        " lines",
+                        " ",
+                        codeLines.length === 1 ? 'line' : 'lines',
                         isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : '')),
                 React.createElement(Box, { flexDirection: "column", paddingX: 1, paddingY: 0, borderStyle: "round", borderColor: theme.colors.border.muted },
                     visibleLines.map((cL, cIdx) => (React.createElement(Text, { key: cIdx }, highlightCode(cL, lang)))),

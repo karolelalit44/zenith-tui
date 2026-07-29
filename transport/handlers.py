@@ -180,9 +180,8 @@ class MethodHandlers:
             executor = self._session_executors.get(session_id)
             if executor:
                 executor.cancel_active()
-            else:
-                executor = PromptExecutor(self.config, provider, self.tool_registry, self.session_repo, self.message_repo, self.skill_loader)
-                self._session_executors[session_id] = executor
+            executor = PromptExecutor(self.config, provider, self.tool_registry, self.session_repo, self.message_repo, self.skill_loader)
+            self._session_executors[session_id] = executor
             executor.run(
                 session_id, content,
                 mode=params.get("mode", "build"),

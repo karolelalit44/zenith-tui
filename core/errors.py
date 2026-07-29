@@ -77,8 +77,8 @@ class ConfigError(ZenithError):
 # ---------------------------------------------------------------------------
 
 class ProviderError(ZenithError):
-    def __init__(self, message: str, provider: str = "", recoverable: bool = True, cause: Exception | None = None):
-        super().__init__(message, code="PROVIDER_ERROR", recoverable=recoverable, cause=cause)
+    def __init__(self, message: str, provider: str = "", code: str = "PROVIDER_ERROR", recoverable: bool = True, cause: Exception | None = None):
+        super().__init__(message, code=code, recoverable=recoverable, cause=cause)
         self.provider = provider
 
 

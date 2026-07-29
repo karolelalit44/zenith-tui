@@ -159,25 +159,7 @@ class AgentLoop:
             registered_tools = all_tool_names
             openai_tools = schemas_to_openai_tools(all_tool_schemas)
 
-        # --- Model capability check ---
-        model_supports_tools = True
         model_use_system_prompt = True
-        try:
-            from db.repository import load_catalog
-            cat = load_catalog()
-            provider_entry = cat.get("providers", {}).get(provider_name, {})
-            for m in provider_entry.get("models", []):
-                if m.get("id") == model:
-                    caps = m.get("model_capabilities", {})
-                    model_supports_tools = caps.get("function_calling", True)
-                    model_use_system_prompt = m.get("use_system_prompt", True)
-                    break
-        except Exception:
-            pass
-
-        if not model_supports_tools:
-            openai_tools = []
-            logger.info("Model '%s' does not support tool calling — sending without tools", model)
 
         if not model_use_system_prompt:
             logger.info("Model '%s' does not support system prompt — merging into user message", model)
@@ -247,8 +229,10 @@ class AgentLoop:
                 finish_reason = FinishReason.STOP
                 context_exceeded = False
                 try:
+                    _tool_choice = mode_config.tool_choice if mode_config else "auto"
                     async for event in stream_with_retries(
-                        self.provider, messages, openai_tools, session_id, iteration, stream_state
+                        self.provider, messages, openai_tools, session_id, iteration, stream_state,
+                        tool_choice=_tool_choice,
                     ):
                         if event.kind == EventKind.WARNING and event.data.get("context_exceeded"):
                             context_exceeded = True
@@ -291,6 +275,8 @@ class AgentLoop:
                 if not tool_calls:
                     if not clean_response and not stream_state.full_response:
                         yield r.error("Model returned empty response.", session_id, code="EMPTY_RESPONSE", recoverable=True)
+                    if mode == "build" and not created_files:
+                        yield r.warning("Model returned no tool calls in build mode — no files will be created.", session_id)
                     break
 
                 if not self.tool_registry:
@@ -301,11 +287,11 @@ class AgentLoop:
                 if invalid_names:
                     yield r.warning(f"Hallucinated tools ignored: {', '.join(invalid_names)}", session_id)
                 if not valid_calls:
-                    msgs = [{"role": "assistant", "content": response_text}, {"role": "user", "content": f"Tool calls for non-existent tools: {', '.join(invalid_names)}. Available: {', '.join(sorted(registered_tools))}."}]
+                    msgs = [{"role": "assistant", "content": response_text or "[tool calls]"}, {"role": "user", "content": f"Tool calls for non-existent tools: {', '.join(invalid_names)}. Available: {', '.join(sorted(registered_tools))}."}]
                     messages.extend(msgs)
                     continue
 
-                messages.append({"role": "assistant", "content": response_text})
+                messages.append({"role": "assistant", "content": response_text or "[tool calls]"})
 
                 stop_turn = False
                 for tc in valid_calls:
@@ -419,6 +405,8 @@ class AgentLoop:
         estimated_completion = max(1, _total_completion_chars // 4)
         cum_usage: dict = getattr(self.provider, '_cumulative_usage', {})
         is_estimated = cum_usage.get("total_tokens", 0) == 0
+        if mode == "build" and not created_files:
+            yield r.warning("Build completed but no files were created. The model output text instead of using file_write.", session_id, code="NO_FILES_CREATED")
         yield r.success("Request processed successfully", session_id, iteration, {
             "used": token_info.used, "remaining": token_info.remaining,
             "total": token_info.total, "percent": round(token_info.percent, 3),
