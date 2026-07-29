@@ -1,5 +1,5 @@
 import { Box, Static, Text } from 'ink';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
@@ -21,6 +21,7 @@ import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
+import { estimateTokensForEvents } from './services/data/tokenEstimationService';
 import type { TokenUsageStats } from './services/data/TokenUsageService';
 import { tokenUsageService } from './services/data/TokenUsageService';
 import { loadUserProfile } from './services/data/userProfileService';
@@ -83,11 +84,19 @@ export const App: React.FC = () => {
   const { activeProvider } = useProvider();
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
+  const refreshStats = useCallback(() => {
+    tokenUsageService.fetchStats().then(setTokenUsageStats);
+  }, []);
+
   useEffect(() => {
     if (startupState.phase === 'ready') {
-      tokenUsageService.fetchStats().then(setTokenUsageStats);
+      refreshStats();
     }
-  }, [startupState.phase]);
+  }, [startupState.phase, refreshStats]);
+
+  const liveTotalTokens = useMemo(() => {
+    return totalTokens + (isRunning ? estimateTokensForEvents(events) : 0);
+  }, [totalTokens, isRunning, events]);
 
   const handleSubmit = useCallback(
     (value: string) => {
@@ -138,8 +147,9 @@ export const App: React.FC = () => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
       completeActiveTurn(eventsRef.current);
       addSession(activeTurn.prompt).catch(() => {});
+      refreshStats();
     }
-  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn]);
+  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats]);
 
   const handleAutocompleteSelectWithRouter = useCallback(
     (cmd: string) => {
@@ -254,7 +264,7 @@ export const App: React.FC = () => {
             historyUp={historyUp}
             historyDown={historyDown}
             mode={selectedMode}
-            totalTokens={totalTokens}
+            totalTokens={liveTotalTokens}
             isRunning={isRunning}
             tokenUsageStats={tokenUsageStats}
             workspaceName={workspace}

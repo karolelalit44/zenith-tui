@@ -59,7 +59,14 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const isSmall = columns < 65;
     const isMedium = columns < 100;
 
-    const contextPercent = Math.min(100, Math.round((totalTokens / maxTokens) * 100));
+    const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
+    const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
+    const effectiveMaxTokens =
+      maxTokens && maxTokens !== SESSION_STATUS_DEFAULTS.maxTokens
+        ? maxTokens
+        : activeModelInfo?.context_window || SESSION_STATUS_DEFAULTS.maxTokens;
+
+    const contextPercent = Math.min(100, Math.round((totalTokens / effectiveMaxTokens) * 100));
     const totalBlocks = 10;
     const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
     const contextGauge = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
@@ -153,13 +160,18 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
               <Text color={theme.colors.text.muted}> | </Text>
               <Text color={theme.colors.status.info}>{formatTokenCount(totalTokens)}</Text>
               <Text color={theme.colors.text.muted}>/</Text>
-              <Text color={grandTotal > 0 ? theme.colors.text.bright : theme.colors.text.muted}>
-                {formatTokenCount(grandTotal)}
-              </Text>
+              <Text color={theme.colors.text.bright}>{formatTokenCount(effectiveMaxTokens)}</Text>
               <Text color={theme.colors.text.muted}> tokens </Text>
               <Text color={contextPercent > 80 ? theme.colors.status.warning : theme.colors.status.success}>
                 [{contextGauge}] {contextPercent}%
               </Text>
+              {grandTotal > 0 && (
+                <>
+                  <Text color={theme.colors.text.muted}> (Σ </Text>
+                  <Text color={theme.colors.text.bright}>{formatTokenCount(grandTotal)}</Text>
+                  <Text color={theme.colors.text.muted}> total)</Text>
+                </>
+              )}
               {requestCount > 0 && (
                 <>
                   <Text color={theme.colors.text.muted}> | </Text>
