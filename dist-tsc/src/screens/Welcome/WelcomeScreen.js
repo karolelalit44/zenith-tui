@@ -1,17 +1,23 @@
 import { Box, Text } from 'ink';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { APP_VERSION } from '../../constants';
 import { useProvider } from '../../hooks/useProvider';
-import { getRecentSessions } from '../../services/data/SessionRepository';
+import { wsClient } from '../../services/backend/WebSocketClient';
 import { useTheme } from '../../theme/ThemeContext';
 import { getGreeting, WELCOME_DATA } from './data/welcomeData';
 export const WelcomeScreen = React.memo(({ workspace }) => {
     const { theme } = useTheme();
     const { activeProvider } = useProvider();
     const activeWorkspace = workspace || process.cwd();
-    const recentSessions = getRecentSessions();
     const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
+    const [recentSessions, setRecentSessions] = useState([]);
+    useEffect(() => {
+        wsClient
+            .listSessionSummaries({ limit: 10, include_archived: false })
+            .then(setRecentSessions)
+            .catch(() => setRecentSessions([]));
+    }, []);
     return (React.createElement(RoundedBox, { title: APP_VERSION, borderColor: theme.colors.border.active, hasShadow: true },
         React.createElement(Box, { flexGrow: 1, width: "100%", flexDirection: "row", justifyContent: "center", alignItems: "center", paddingX: 4, paddingY: 2 },
             React.createElement(Box, { flexDirection: "column", width: "60%", minWidth: 56, paddingRight: 2 },
@@ -65,13 +71,16 @@ export const WelcomeScreen = React.memo(({ workspace }) => {
                 React.createElement(Box, { flexDirection: "column", width: "100%", marginTop: 1 },
                     React.createElement(Box, { flexDirection: "row", alignItems: "center", marginBottom: 1 },
                         React.createElement(Text, { color: theme.colors.text.muted, bold: true }, "RECENT SESSIONS")),
-                    React.createElement(Box, { flexDirection: "column", width: "100%" }, recentSessions.length === 0 ? (React.createElement(Text, { color: theme.colors.text.dim, italic: true }, "No recent sessions")) : (recentSessions.map((session, idx) => {
-                        const formattedTime = session.time.replace(/^\[\s*/, '').replace(/\s*\]$/, '');
-                        return (React.createElement(Box, { key: idx, flexDirection: "column", marginBottom: 1, width: "100%" },
-                            React.createElement(Box, { flexDirection: "row", alignItems: "center" },
-                                React.createElement(Text, { color: theme.colors.border.active }, "\u2502 "),
-                                React.createElement(Text, { color: theme.colors.text.ethereal, bold: true, wrap: "truncate-end" }, session.title)),
-                            React.createElement(Box, { paddingLeft: 2 },
-                                React.createElement(Text, { color: theme.colors.text.dim }, formattedTime))));
-                    }))))))));
+                    React.createElement(Box, { flexDirection: "column", width: "100%" }, recentSessions.length === 0 ? (React.createElement(Text, { color: theme.colors.text.dim, italic: true }, "No recent sessions")) : (recentSessions.map((session, idx) => (React.createElement(Box, { key: session.id || idx, flexDirection: "column", marginBottom: 1, width: "100%" },
+                        React.createElement(Box, { flexDirection: "row", alignItems: "center" },
+                            React.createElement(Text, { color: theme.colors.border.active }, "\u2502 "),
+                            React.createElement(Text, { color: theme.colors.text.ethereal, bold: true, wrap: "truncate-end" }, session.title)),
+                        React.createElement(Box, { paddingLeft: 2 },
+                            React.createElement(Text, { color: theme.colors.text.dim },
+                                session.state,
+                                " \u00B7 ",
+                                session.message_count,
+                                " msgs \u00B7 ",
+                                session.total_tokens,
+                                " tok"))))))))))));
 });

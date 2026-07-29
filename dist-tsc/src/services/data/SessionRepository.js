@@ -1,34 +1,25 @@
-const STORAGE_KEY = 'zenith_recent_sessions';
-const MAX_SESSIONS = 3;
-function loadSessions() {
+import { wsClient } from '../backend/WebSocketClient';
+export const getRecentSessions = async (limit = 10) => {
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-            return JSON.parse(raw);
-        }
+        const summaries = await wsClient.listSessionSummaries({ limit, include_archived: false });
+        return summaries.map((s) => ({
+            id: s.id,
+            title: s.title || 'Untitled',
+            time: s.created_at || s.updated_at || '',
+            state: s.state || '',
+            message_count: s.message_count || 0,
+            total_tokens: s.total_tokens || 0,
+        }));
     }
     catch {
+        return [];
     }
-    return [];
-}
-function saveSessions(sessions) {
+};
+export const addSession = async (title) => {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+        await wsClient.createSession(title);
     }
     catch {
+        // Silently handle — session is tracked server-side
     }
-}
-export const getRecentSessions = () => loadSessions();
-export const addSession = (title) => {
-    const now = new Date();
-    const day = now.getDate();
-    const month = now.toLocaleString('default', { month: 'short' });
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    const newSession = {
-        time: `${timeStr}, ${day} ${month}`,
-        title,
-    };
-    const existing = loadSessions();
-    const updated = [newSession, ...existing.filter((s) => s.title !== title)].slice(0, MAX_SESSIONS);
-    saveSessions(updated);
 };

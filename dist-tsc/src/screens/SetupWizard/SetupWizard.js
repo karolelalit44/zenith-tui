@@ -73,6 +73,8 @@ export const SetupWizard = ({ startupState, onComplete, mode = 'setup' }) => {
     }, [selectedProvider, apiKeyInput, modelIdx, models, onComplete]);
     useInput((char, key) => {
         if (step === 'intro') {
+            if (key.escape)
+                process.exit(0);
             if (key.return || char === ' ')
                 setStep('select_provider');
             return;
@@ -338,7 +340,7 @@ export const SetupWizard = ({ startupState, onComplete, mode = 'setup' }) => {
     };
     const renderHotkeys = () => {
         if (step === 'intro')
-            return 'Enter — Start Setup';
+            return 'Enter — Start Setup  |  Esc — Exit';
         if (step === 'select_provider')
             return '↑↓ — Navigate  |  Enter — Select  |  Esc — Back';
         if (step === 'enter_key')

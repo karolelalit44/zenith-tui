@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { backendScenarioProvider } from '../services/backend/BackendScenarioProvider';
 import { wsClient } from '../services/backend/WebSocketClient';
 import { eventBus } from '../services/eventBus';
-const SESSION_STORAGE_KEY = 'zenith_session_id';
 export function useScenario() {
     const [events, setEvents] = useState([]);
     const eventsRef = useRef([]);
@@ -11,19 +10,6 @@ export function useScenario() {
     const [lastSessionId, setLastSessionId] = useState(null);
     const runnerRef = useRef(null);
     const sessionIdRef = useRef(null);
-    // Restore session ID from localStorage on mount
-    useEffect(() => {
-        try {
-            const savedId = localStorage.getItem(SESSION_STORAGE_KEY);
-            if (savedId) {
-                sessionIdRef.current = savedId;
-                setLastSessionId(savedId);
-            }
-        }
-        catch {
-            // localStorage not available (test environment)
-        }
-    }, []);
     useEffect(() => {
         wsClient.connect().catch(() => { });
     }, []);
@@ -49,19 +35,6 @@ export function useScenario() {
         setIsRunning(false);
         setActiveConfirmation(null);
     }, []);
-    const createSession = useCallback(async (prompt) => {
-        const session = await wsClient.createSession(prompt.slice(0, 50));
-        const id = session.id;
-        sessionIdRef.current = id;
-        setLastSessionId(id);
-        try {
-            localStorage.setItem(SESSION_STORAGE_KEY, id);
-        }
-        catch {
-            /* noop */
-        }
-        return id;
-    }, []);
     const connectToBackend = useCallback(async () => {
         await wsClient.connect();
     }, []);
@@ -86,27 +59,22 @@ export function useScenario() {
         }
         try {
             if (sessionIdRef.current) {
-                // Verify saved session still exists on backend
                 try {
-                    const resumed = await wsClient.send('session.resume', { session_id: sessionIdRef.current });
-                    // Session is valid — reuse it; update the ID from backend response
+                    const result = await wsClient.resumeSession(sessionIdRef.current);
+                    const resumed = result.session;
                     if (resumed?.id && resumed.id !== sessionIdRef.current) {
                         sessionIdRef.current = resumed.id;
                     }
                 }
                 catch {
-                    // Session no longer exists — create a new one
                     sessionIdRef.current = null;
-                    try {
-                        localStorage.removeItem(SESSION_STORAGE_KEY);
-                    }
-                    catch {
-                        /* noop */
-                    }
                 }
             }
-            if (!sessionIdRef.current)
-                await createSession(prompt);
+            if (!sessionIdRef.current) {
+                const session = await wsClient.createSession(prompt.slice(0, 50));
+                sessionIdRef.current = session.id;
+                setLastSessionId(session.id);
+            }
         }
         catch {
             reportError('sess', 'Failed to create session');
@@ -121,7 +89,7 @@ export function useScenario() {
             const message = err instanceof Error ? err.message : String(err);
             reportError('prompt_err', `Backend prompt error: ${message}`);
         });
-    }, [connectToBackend, createSession, handleEvent, handleComplete, reportError]);
+    }, [connectToBackend, handleEvent, handleComplete, reportError]);
     const abort = useCallback(() => {
         runnerRef.current?.abort();
         setIsRunning(false);

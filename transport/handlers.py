@@ -100,9 +100,10 @@ class MethodHandlers:
 
     async def _session_create(self, ws, rid, params) -> str:
         svc = self._resolve_service()
+        from core.domain import ScenarioMode
         session = await svc.create(
             title=params.get("title", "New Session"),
-            mode=params.get("mode"),
+            mode=params.get("mode", ScenarioMode.BUILD),
             provider=params.get("provider"),
             model=params.get("model"),
             workspace_root=params.get("workspace_root"),

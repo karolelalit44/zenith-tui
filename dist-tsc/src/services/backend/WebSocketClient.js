@@ -54,8 +54,6 @@ export class WebSocketClient {
             try {
                 this.ws = new WebSocket(this.url);
                 this.ws.onopen = () => {
-                    // Only reset reconnect count if connection stays open briefly;
-                    // track connection time to detect brief open/flap patterns
                     this.reconnectAttempts = 0;
                     this._connectedAt = Date.now();
                     this.setStatus('connected');
@@ -72,7 +70,6 @@ export class WebSocketClient {
                 };
                 this.ws.onclose = () => {
                     this.setStatus('disconnected');
-                    // Detect brief connections (<5s) — likely auth failure, don't retry endlessly
                     const wasStable = Date.now() - this._connectedAt > 5000;
                     if (wasStable) {
                         this.reconnectAttempts = 0;
@@ -121,15 +118,54 @@ export class WebSocketClient {
             this.ws.send(JSON.stringify(request));
         });
     }
+    // ── Session RPC methods ──────────────────────────────────────────
     createSession(title) {
         return this.send('session.create', { title });
     }
+    listActiveSessions() {
+        return this.send('session.list');
+    }
+    listAllSessions(params) {
+        return this.send('session.list_all', params || {});
+    }
+    listSessionSummaries(params) {
+        return this.send('session.summaries', params || {});
+    }
+    resumeSession(sessionId, sinceSequence) {
+        return this.send('session.resume', { session_id: sessionId, since_sequence: sinceSequence ?? 0 });
+    }
+    updateSession(params) {
+        return this.send('session.update', params);
+    }
+    pauseSession(sessionId) {
+        return this.send('session.pause', { session_id: sessionId });
+    }
+    archiveSession(sessionId) {
+        return this.send('session.archive', { session_id: sessionId });
+    }
+    deleteSession(sessionId) {
+        return this.send('session.delete', { session_id: sessionId });
+    }
+    checkpointSession(sessionId) {
+        return this.send('session.checkpoint', { session_id: sessionId });
+    }
+    duplicateSession(sessionId, title) {
+        return this.send('session.duplicate', { session_id: sessionId, title });
+    }
+    restoreSession(sessionId) {
+        return this.send('session.restore', { session_id: sessionId });
+    }
+    getSyncEvents(sessionId, sinceSequence) {
+        return this.send('session.sync', { session_id: sessionId, since_sequence: sinceSequence ?? 0 });
+    }
+    // ── Prompt RPC methods ──────────────────────────────────────────
     sendPrompt(content, mode = 'build', sessionId, provider) {
         return this.send('prompt.send', { content, mode, session_id: sessionId, provider });
     }
     sendConfirmation(confirmationId, approved) {
         return this.send('confirmation.response', { confirmation_id: confirmationId, approved });
     }
+    // ── Internal ────────────────────────────────────────────────────
     handleMessage(data) {
         if ('method' in data && data.method === 'event') {
             this.emitter.emit('event', data);
@@ -160,7 +196,6 @@ export class WebSocketClient {
         const base = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
         const jitter = Math.random() * this.reconnectDelay;
         const delay = Math.min(base + jitter, 30_000);
-        // Re-read the backend URL each reconnect attempt to pick up env changes
         this.url = WebSocketClient.detectBackendUrl();
         setTimeout(() => {
             this.connect().catch(() => { });

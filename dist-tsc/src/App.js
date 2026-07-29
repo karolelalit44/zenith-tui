@@ -94,7 +94,7 @@ export const App = () => {
     useEffect(() => {
         if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
             completeActiveTurn(eventsRef.current);
-            addSession(activeTurn.prompt);
+            addSession(activeTurn.prompt).catch(() => { });
         }
     }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn]);
     const handleAutocompleteSelectWithRouter = useCallback((cmd) => {

@@ -9,7 +9,7 @@ import logging
 from fastapi import WebSocket, WebSocketDisconnect
 
 from config.settings import AppSettings
-from core.events import Event
+from core.events import Event, EventKind
 from db.connection import Database
 from providers.registry import ProviderRegistry
 from tools import create_default_registry
@@ -111,15 +111,27 @@ class ConnectionManager(TransportService):
         else:
             logger.debug("WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf))
 
-    async def schedule_session_event(self, session_id: str, event_type: str, event_data: dict) -> None:
+    async def schedule_session_event(self, session_id: str, kind: str | EventKind, event_data: dict) -> None:
         """Persist a sync event and broadcast it to the client."""
+        if isinstance(kind, str):
+            kind_map = {
+                "session.created": EventKind.SESSION_CREATED,
+                "session.paused": EventKind.SESSION_PAUSED,
+                "session.duplicated": EventKind.SESSION_DUPLICATED,
+            }
+            event_kind = kind_map.get(kind)
+            if event_kind is None:
+                logger.warning("Unknown sync event kind: %s", kind)
+                return
+        else:
+            event_kind = kind
         if self._session_service:
             try:
-                await self._session_service.record_sync_event(session_id, event_type, event_data)
+                await self._session_service.record_sync_event(session_id, str(event_kind), event_data)
             except Exception as exc:
-                logger.warning("Failed to persist sync event %s: %s", event_type, exc)
+                logger.warning("Failed to persist sync event %s: %s", event_kind, exc)
         evt = Event(
-            kind=event_type,
+            kind=event_kind,
             data=event_data,
             session_id=session_id,
         )
