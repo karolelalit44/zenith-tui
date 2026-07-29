@@ -1,8 +1,10 @@
 import json
-from datetime import datetime
+import uuid as _uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from core.events import Event
+from core.domain import SessionState
 from core.message import Message
 from core.session import Session
 
@@ -24,85 +26,158 @@ class SessionRepository:
     async def create(self, session: Session) -> Session:
         plan_approved = session.plan_approved_at.isoformat() if session.plan_approved_at else None
         await self.db.execute(
-            "INSERT INTO sessions (id, title, mode, created_at, updated_at, workspace_root, is_active, metadata_json, parent_session_id, state, plan_output, plan_approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            """INSERT INTO sessions (id, title, mode, state, created_at, updated_at, workspace_root, is_active, metadata_json, parent_session_id, plan_output, plan_approved_at, message_count, total_tokens, total_cost, model, provider, agent_state, context_used, context_window, context_percent, error_count, last_error, export_format, exported_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 session.id,
                 session.title,
-                session.mode,
+                session.mode.value if hasattr(session.mode, 'value') else session.mode,
+                session.state.value if hasattr(session.state, 'value') else session.state,
                 session.created_at.isoformat(),
                 session.updated_at.isoformat(),
                 session.workspace_root,
                 int(session.is_active),
                 json.dumps(session.metadata),
                 session.parent_session_id,
-                session.state,
                 session.plan_output,
                 plan_approved,
+                session.message_count,
+                session.total_tokens,
+                session.total_cost,
+                session.model,
+                session.provider,
+                session.agent_state,
+                session.context_used,
+                session.context_window,
+                session.context_percent,
+                session.error_count,
+                session.last_error,
+                session.export_format,
+                session.exported_at.isoformat() if session.exported_at else None,
             ),
         )
         await self.db.commit()
         return session
 
-    async def get(self, session_id: str) -> Session | None:
-        row = await self.db.fetch_one("SELECT * FROM sessions WHERE id = ?", (session_id,))
-        if not row:
-            return None
+    def _row_to_session(self, row: dict) -> Session:
+        from core.domain import ScenarioMode
         plan_approved = datetime.fromisoformat(row["plan_approved_at"]) if row.get("plan_approved_at") else None
+        exported_at = datetime.fromisoformat(row["exported_at"]) if row.get("exported_at") else None
         return Session(
             id=row["id"],
             title=row["title"],
-            mode=row["mode"],
+            mode=ScenarioMode(row["mode"]) if row.get("mode") else ScenarioMode.BUILD,
+            state=SessionState(row.get("state", "created")),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             workspace_root=row["workspace_root"],
             is_active=bool(row["is_active"]),
             metadata=json.loads(row["metadata_json"]),
             parent_session_id=row.get("parent_session_id"),
-            state=row.get("state", "created"),
             plan_output=row.get("plan_output", ""),
             plan_approved_at=plan_approved,
+            message_count=row.get("message_count", 0),
+            total_tokens=row.get("total_tokens", 0),
+            total_cost=float(row.get("total_cost", 0) or 0),
+            model=row.get("model"),
+            provider=row.get("provider"),
+            agent_state=row.get("agent_state", "idle"),
+            context_used=row.get("context_used", 0),
+            context_window=row.get("context_window", 0),
+            context_percent=float(row.get("context_percent", 0) or 0),
+            error_count=row.get("error_count", 0),
+            last_error=row.get("last_error"),
+            export_format=row.get("export_format"),
+            exported_at=exported_at,
         )
+
+    async def get(self, session_id: str) -> Session | None:
+        row = await self.db.fetch_one("SELECT * FROM sessions WHERE id = ?", (session_id,))
+        if not row:
+            return None
+        return self._row_to_session(row)
 
     async def list_active(self) -> list[Session]:
         rows = await self.db.fetch_all(
             "SELECT * FROM sessions WHERE is_active = 1 ORDER BY updated_at DESC"
         )
-        result = []
-        for r in rows:
-            plan_approved = datetime.fromisoformat(r["plan_approved_at"]) if r.get("plan_approved_at") else None
-            result.append(
-                Session(
-                    id=r["id"],
-                    title=r["title"],
-                    mode=r["mode"],
-                    created_at=datetime.fromisoformat(r["created_at"]),
-                    updated_at=datetime.fromisoformat(r["updated_at"]),
-                    workspace_root=r["workspace_root"],
-                    is_active=bool(r["is_active"]),
-                    metadata=json.loads(r["metadata_json"]),
-                    parent_session_id=r.get("parent_session_id"),
-                    state=r.get("state", "created"),
-                    plan_output=r.get("plan_output", ""),
-                    plan_approved_at=plan_approved,
-                )
-            )
-        return result
+        return [self._row_to_session(r) for r in rows]
+
+    async def list_all(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        include_archived: bool = False,
+        search: str | None = None,
+        state_filter: str | None = None,
+    ) -> list[Session]:
+        conditions = []
+        params: list = []
+        if not include_archived:
+            conditions.append("is_active = 1")
+        if state_filter:
+            conditions.append("state = ?")
+            params.append(state_filter)
+        if search:
+            conditions.append("title LIKE ?")
+            params.append(f"%{search}%")
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        rows = await self.db.fetch_all(
+            f"SELECT * FROM sessions {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
+        )
+        return [self._row_to_session(r) for r in rows]
+
+    async def get_summaries(
+        self,
+        limit: int = 10,
+        include_archived: bool = False,
+    ) -> list[dict]:
+        conditions = []
+        if not include_archived:
+            conditions.append("is_active = 1")
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        rows = await self.db.fetch_all(
+            f"""SELECT id, title, mode, state, provider, model, message_count, total_tokens, total_cost,
+                       context_percent, created_at, updated_at, is_active, error_count, last_error, parent_session_id
+                FROM sessions {where} ORDER BY updated_at DESC LIMIT ?""",
+            (limit,),
+        )
+        return [dict(r) for r in rows]
 
     async def update(self, session: Session) -> Session:
         session.updated_at = datetime.now()
         plan_approved = session.plan_approved_at.isoformat() if session.plan_approved_at else None
+        exported_at = session.exported_at.isoformat() if session.exported_at else None
         await self.db.execute(
-            "UPDATE sessions SET title=?, mode=?, updated_at=?, is_active=?, metadata_json=?, parent_session_id=?, state=?, plan_output=?, plan_approved_at=? WHERE id=?",
+            """UPDATE sessions SET title=?, mode=?, state=?, updated_at=?, is_active=?, metadata_json=?,
+               parent_session_id=?, plan_output=?, plan_approved_at=?, message_count=?, total_tokens=?,
+               total_cost=?, model=?, provider=?, agent_state=?, context_used=?, context_window=?,
+               context_percent=?, error_count=?, last_error=?, export_format=?, exported_at=?
+               WHERE id=?""",
             (
                 session.title,
-                session.mode,
+                session.mode.value if hasattr(session.mode, 'value') else session.mode,
+                session.state.value if hasattr(session.state, 'value') else session.state,
                 session.updated_at.isoformat(),
                 int(session.is_active),
                 json.dumps(session.metadata),
                 session.parent_session_id,
-                session.state,
                 session.plan_output,
                 plan_approved,
+                session.message_count,
+                session.total_tokens,
+                session.total_cost,
+                session.model,
+                session.provider,
+                session.agent_state,
+                session.context_used,
+                session.context_window,
+                session.context_percent,
+                session.error_count,
+                session.last_error,
+                session.export_format,
+                exported_at,
                 session.id,
             ),
         )
@@ -655,4 +730,250 @@ class TokenUsageRepository:
             (session_id,),
         )
         return [dict(r) for r in rows] if rows else []
+
+    async def record_v2(
+        self,
+        session_id: str,
+        provider: str,
+        model: str,
+        total_tokens: int,
+        context_window: int,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        step_index: int = -1,
+        estimated: bool = False,
+        is_retry: bool = False,
+        retry_of: str | None = None,
+        duration_ms: int = 0,
+    ) -> str:
+        percent = (total_tokens / context_window * 100) if context_window > 0 else 0.0
+        price = self._resolve_price(provider, model)
+        if estimated:
+            cost_usd = 0.0
+        else:
+            input_cost = (input_tokens or prompt_tokens) * price["input"] / 1_000_000
+            output_cost = (output_tokens or completion_tokens) * price["output"] / 1_000_000
+            cache_read_cost = (cache_read_tokens or 0) * price.get("cache_read", 0) / 1_000_000
+            cache_creation_cost = (cache_creation_tokens or 0) * price.get("cache_creation", 0) / 1_000_000
+            cost_usd = round(input_cost + output_cost + cache_read_cost + cache_creation_cost, 6)
+        record_id = str(_uuid.uuid4())
+        await self.db.execute(
+            """INSERT INTO token_usage (id, session_id, provider, model, prompt_tokens, completion_tokens, total_tokens, context_window, percent, created_at, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cache_write_tokens, reasoning_tokens, step_index, estimated, is_retry, retry_of, duration_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record_id,
+                session_id,
+                provider,
+                model,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                context_window,
+                round(percent, 3),
+                datetime.now().isoformat(),
+                cost_usd,
+                input_tokens or prompt_tokens,
+                output_tokens or completion_tokens,
+                cache_read_tokens,
+                cache_creation_tokens,
+                cache_write_tokens,
+                reasoning_tokens,
+                step_index,
+                1 if estimated else 0,
+                1 if is_retry else 0,
+                retry_of,
+                duration_ms,
+            ),
+        )
+        await self.db.commit()
+        return record_id
+
+    async def get_lifetime_stats(self) -> dict:
+        row = await self.db.fetch_one("""
+            SELECT
+                COUNT(*) as total_requests,
+                COALESCE(SUM(total_tokens), 0) as grand_total_tokens,
+                COALESCE(SUM(cost_usd), 0) as grand_total_cost,
+                COALESCE(SUM(input_tokens), 0) as grand_total_input,
+                COALESCE(SUM(output_tokens), 0) as grand_total_output,
+                COALESCE(SUM(cache_read_tokens), 0) as grand_total_cache_read,
+                COALESCE(SUM(cache_creation_tokens), 0) as grand_total_cache_write,
+                COALESCE(SUM(reasoning_tokens), 0) as grand_total_reasoning,
+                COUNT(DISTINCT session_id) as total_sessions
+            FROM token_usage
+        """)
+        return dict(row) if row else {}
+
+
+class CheckpointRepository:
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def create(
+        self,
+        session_id: str,
+        checkpoint_type: str = "automatic",
+        step_index: int = 0,
+        snapshot_data: dict | None = None,
+        token_count: int = 0,
+        message_count: int = 0,
+    ) -> str:
+        cid = str(_uuid.uuid4())
+        await self.db.execute(
+            "INSERT INTO session_checkpoints (id, session_id, checkpoint_type, step_index, snapshot_data, token_count, message_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (cid, session_id, checkpoint_type, step_index, json.dumps(snapshot_data or {}), token_count, message_count, datetime.now().isoformat()),
+        )
+        await self.db.commit()
+        return cid
+
+    async def get_latest(self, session_id: str) -> dict | None:
+        row = await self.db.fetch_one(
+            "SELECT * FROM session_checkpoints WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+            (session_id,),
+        )
+        if row:
+            result = dict(row)
+            result["snapshot_data"] = json.loads(result["snapshot_data"])
+            return result
+        return None
+
+    async def list_by_session(self, session_id: str, limit: int = 20) -> list[dict]:
+        rows = await self.db.fetch_all(
+            "SELECT * FROM session_checkpoints WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
+            (session_id, limit),
+        )
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["snapshot_data"] = json.loads(d["snapshot_data"])
+            result.append(d)
+        return result
+
+    async def delete_old(self, session_id: str, keep: int = 5) -> int:
+        rows = await self.db.fetch_all(
+            "SELECT id FROM session_checkpoints WHERE session_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET ?",
+            (session_id, keep),
+        )
+        if not rows:
+            return 0
+        ids = [r["id"] for r in rows]
+        placeholders = ",".join("?" for _ in ids)
+        await self.db.execute(f"DELETE FROM session_checkpoints WHERE id IN ({placeholders})", ids)
+        await self.db.commit()
+        return len(ids)
+
+
+class SyncEventRepository:
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def record(self, session_id: str, event_type: str, event_data: dict) -> str:
+        seq = await self._next_sequence(session_id)
+        eid = str(_uuid.uuid4())
+        await self.db.execute(
+            "INSERT INTO sync_events (id, session_id, event_type, event_data, sequence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (eid, session_id, event_type, json.dumps(event_data), seq, datetime.now().isoformat()),
+        )
+        await self.db.commit()
+        return eid
+
+    async def _next_sequence(self, session_id: str) -> int:
+        row = await self.db.fetch_one(
+            "SELECT COALESCE(MAX(sequence), 0) as max_seq FROM sync_events WHERE session_id = ?",
+            (session_id,),
+        )
+        return (row["max_seq"] if row else 0) + 1
+
+    async def get_since(self, session_id: str, sequence: int = 0) -> list[dict]:
+        rows = await self.db.fetch_all(
+            "SELECT * FROM sync_events WHERE session_id = ? AND sequence > ? ORDER BY sequence ASC",
+            (session_id, sequence),
+        )
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["event_data"] = json.loads(d["event_data"])
+            result.append(d)
+        return result
+
+    async def get_latest_sequence(self, session_id: str) -> int:
+        row = await self.db.fetch_one(
+            "SELECT COALESCE(MAX(sequence), 0) as max_seq FROM sync_events WHERE session_id = ?",
+            (session_id,),
+        )
+        return row["max_seq"] if row else 0
+
+    async def delete_by_session(self, session_id: str) -> None:
+        await self.db.execute("DELETE FROM sync_events WHERE session_id = ?", (session_id,))
+        await self.db.commit()
+
+
+class SessionStatusHistoryRepository:
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def record(self, session_id: str, from_state: str | None, to_state: str, reason: str = "") -> str:
+        hid = str(_uuid.uuid4())
+        await self.db.execute(
+            "INSERT INTO session_status_history (id, session_id, from_state, to_state, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (hid, session_id, from_state, to_state, reason, datetime.now().isoformat()),
+        )
+        await self.db.commit()
+        return hid
+
+    async def get_history(self, session_id: str, limit: int = 50) -> list[dict]:
+        rows = await self.db.fetch_all(
+            "SELECT * FROM session_status_history WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
+            (session_id, limit),
+        )
+        return [dict(r) for r in rows]
+
+
+class DraftRepository:
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def save(self, session_id: str, prompt: str = "", context: dict | None = None, ttl_hours: int = 24) -> str:
+        did = str(_uuid.uuid4())
+        expires = (datetime.now() + timedelta(hours=ttl_hours)).isoformat()
+        await self.db.execute(
+            "INSERT INTO session_drafts (id, session_id, prompt, context, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (did, session_id, prompt, json.dumps(context or {}), expires, datetime.now().isoformat()),
+        )
+        await self.db.commit()
+        return did
+
+    async def get_by_session(self, session_id: str) -> dict | None:
+        row = await self.db.fetch_one(
+            "SELECT * FROM session_drafts WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+            (session_id,),
+        )
+        if row:
+            result = dict(row)
+            result["context"] = json.loads(result["context"])
+            return result
+        return None
+
+    async def list_expired(self) -> list[dict]:
+        rows = await self.db.fetch_all(
+            "SELECT * FROM session_drafts WHERE expires_at < ?",
+            (datetime.now().isoformat(),),
+        )
+        return [dict(r) for r in rows]
+
+    async def delete_expired(self) -> int:
+        rows = await self.list_expired()
+        if not rows:
+            return 0
+        ids = [r["id"] for r in rows]
+        placeholders = ",".join("?" for _ in ids)
+        await self.db.execute(f"DELETE FROM session_drafts WHERE id IN ({placeholders})", ids)
+        await self.db.commit()
+        return len(ids)
 

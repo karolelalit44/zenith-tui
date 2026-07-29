@@ -39,6 +39,17 @@ export interface JsonRpcEvent {
   };
 }
 
+export interface SessionSummary {
+  id: string;
+  title: string;
+  state: string;
+  mode: string;
+  message_count: number;
+  total_tokens: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -90,8 +101,6 @@ export class WebSocketClient {
       try {
         this.ws = new WebSocket(this.url);
         this.ws.onopen = () => {
-          // Only reset reconnect count if connection stays open briefly;
-          // track connection time to detect brief open/flap patterns
           this.reconnectAttempts = 0;
           this._connectedAt = Date.now();
           this.setStatus('connected');
@@ -107,7 +116,6 @@ export class WebSocketClient {
         };
         this.ws.onclose = () => {
           this.setStatus('disconnected');
-          // Detect brief connections (<5s) — likely auth failure, don't retry endlessly
           const wasStable = Date.now() - this._connectedAt > 5000;
           if (wasStable) {
             this.reconnectAttempts = 0;
@@ -161,9 +169,89 @@ export class WebSocketClient {
     });
   }
 
+  // ── Session RPC methods ──────────────────────────────────────────
+
   createSession(title?: string): Promise<{ id: string; title: string }> {
     return this.send('session.create', { title });
   }
+
+  listActiveSessions(): Promise<SessionSummary[]> {
+    return this.send('session.list');
+  }
+
+  listAllSessions(params?: {
+    limit?: number;
+    offset?: number;
+    include_archived?: boolean;
+    search?: string;
+    state_filter?: string;
+  }): Promise<SessionSummary[]> {
+    return this.send('session.list_all', params || {});
+  }
+
+  listSessionSummaries(params?: { limit?: number; include_archived?: boolean }): Promise<SessionSummary[]> {
+    return this.send('session.summaries', params || {});
+  }
+
+  resumeSession(
+    sessionId: string,
+    sinceSequence?: number,
+  ): Promise<{
+    session: Record<string, unknown>;
+    messages: Record<string, unknown>[];
+    events_replayed: number;
+    sync_events: Record<string, unknown>[];
+    latest_sequence: number;
+  }> {
+    return this.send('session.resume', { session_id: sessionId, since_sequence: sinceSequence ?? 0 });
+  }
+
+  updateSession(params: {
+    session_id?: string;
+    title?: string;
+    context_used?: number;
+    context_window?: number;
+    tokens?: number;
+    cost?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.send('session.update', params);
+  }
+
+  pauseSession(sessionId: string): Promise<Record<string, unknown>> {
+    return this.send('session.pause', { session_id: sessionId });
+  }
+
+  archiveSession(sessionId: string): Promise<Record<string, unknown>> {
+    return this.send('session.archive', { session_id: sessionId });
+  }
+
+  deleteSession(sessionId: string): Promise<{ status: string }> {
+    return this.send('session.delete', { session_id: sessionId });
+  }
+
+  checkpointSession(sessionId: string): Promise<{ checkpoint_id: string }> {
+    return this.send('session.checkpoint', { session_id: sessionId });
+  }
+
+  duplicateSession(sessionId: string, title?: string): Promise<Record<string, unknown>> {
+    return this.send('session.duplicate', { session_id: sessionId, title });
+  }
+
+  restoreSession(sessionId: string): Promise<Record<string, unknown>> {
+    return this.send('session.restore', { session_id: sessionId });
+  }
+
+  getSyncEvents(
+    sessionId: string,
+    sinceSequence?: number,
+  ): Promise<{
+    events: Record<string, unknown>[];
+    latest_sequence: number;
+  }> {
+    return this.send('session.sync', { session_id: sessionId, since_sequence: sinceSequence ?? 0 });
+  }
+
+  // ── Prompt RPC methods ──────────────────────────────────────────
 
   sendPrompt(
     content: string,
@@ -177,6 +265,8 @@ export class WebSocketClient {
   sendConfirmation(confirmationId: string, approved: boolean): Promise<void> {
     return this.send('confirmation.response', { confirmation_id: confirmationId, approved }) as Promise<void>;
   }
+
+  // ── Internal ────────────────────────────────────────────────────
 
   private handleMessage(data: JsonRpcResponse | JsonRpcEvent): void {
     if ('method' in data && data.method === 'event') {
@@ -211,7 +301,6 @@ export class WebSocketClient {
     const base = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
     const jitter = Math.random() * this.reconnectDelay;
     const delay = Math.min(base + jitter, 30_000);
-    // Re-read the backend URL each reconnect attempt to pick up env changes
     this.url = WebSocketClient.detectBackendUrl();
     setTimeout(() => {
       this.connect().catch(() => {});

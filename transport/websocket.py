@@ -29,21 +29,37 @@ logger = logging.getLogger(__name__)
 
 
 class ConnectionManager(TransportService):
-    """WebSocket connection manager implementing TransportService."""
+    """WebSocket connection manager implementing TransportService.
+
+    Tracks per-session sequence numbers for ordering guarantees.
+    Maintains:
+    - In-memory event buffer for fast reconnect replay
+    - Sequence counter for ordering
+    - Optional sync event persistence via the session service
+    """
 
     def __init__(self) -> None:
         self.connections: dict[str, WebSocket] = {}
         self.event_buffers: dict[str, list[str]] = {}
         self._disconnect_at: dict[str, int] = {}
+        self._sequences: dict[str, int] = {}
         self.max_buffered_events = 5000
+        self._session_service = None
+
+    def set_session_service(self, service) -> None:
+        self._session_service = service
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         await websocket.accept()
         self.connections[session_id] = websocket
+        if session_id not in self._sequences:
+            self._sequences[session_id] = 0
         logger.info("Client connected: %s", session_id)
 
     def register(self, session_id: str, websocket: WebSocket) -> None:
         self.connections[session_id] = websocket
+        if session_id not in self._sequences:
+            self._sequences[session_id] = 0
 
     def disconnect(self, session_id: str) -> None:
         self.connections.pop(session_id, None)
@@ -55,6 +71,7 @@ class ConnectionManager(TransportService):
     def drop_buffer(self, session_id: str) -> None:
         self.event_buffers.pop(session_id, None)
         self._disconnect_at.pop(session_id, None)
+        self._sequences.pop(session_id, None)
         logger.info("Buffer dropped for session %s", session_id)
 
     def get_connections(self) -> list[Connection]:
@@ -71,7 +88,14 @@ class ConnectionManager(TransportService):
         for sid in list(self.connections):
             await self.send_event(sid, event)
 
+    def next_sequence(self, session_id: str) -> int:
+        seq = self._sequences.get(session_id, 0) + 1
+        self._sequences[session_id] = seq
+        return seq
+
     async def send_event(self, session_id: str, event: Event) -> None:
+        seq = self.next_sequence(session_id)
+        event.metadata["sequence"] = seq
         payload = make_event(event)
         buf = self.event_buffers.setdefault(session_id, [])
         buf.append(payload)
@@ -86,6 +110,20 @@ class ConnectionManager(TransportService):
                 logger.warning("WS SEND FAIL session=%s kind=%s: %s", session_id, event.kind, exc)
         else:
             logger.debug("WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf))
+
+    async def schedule_session_event(self, session_id: str, event_type: str, event_data: dict) -> None:
+        """Persist a sync event and broadcast it to the client."""
+        if self._session_service:
+            try:
+                await self._session_service.record_sync_event(session_id, event_type, event_data)
+            except Exception as exc:
+                logger.warning("Failed to persist sync event %s: %s", event_type, exc)
+        evt = Event(
+            kind=event_type,
+            data=event_data,
+            session_id=session_id,
+        )
+        await self.send_event(session_id, evt)
 
     async def replay_events(self, session_id: str, websocket: WebSocket) -> int:
         """Replay events buffered since last disconnect. Returns count replayed."""
@@ -104,6 +142,9 @@ class ConnectionManager(TransportService):
         logger.info("Replayed %d/%d buffered events for session %s", len(new_events), len(buf), session_id)
         return len(new_events)
 
+    def get_sequence(self, session_id: str) -> int:
+        return self._sequences.get(session_id, 0)
+
 
 class ZenithHandler:
     def __init__(
@@ -118,6 +159,18 @@ class ZenithHandler:
             timeout=config.tools.max_bash_timeout,
             provider=registry.get(config.active_provider),
         )
+        # Build dependencies for session service
+        from db.repository import (
+            CheckpointRepository,
+            DraftRepository,
+            MessageRepository,
+            SessionRepository,
+            SessionStatusHistoryRepository,
+            SyncEventRepository,
+            TokenUsageRepository,
+        )
+        from session.service import DefaultSessionService
+
         self.manager = ConnectionManager()
         self.handlers = MethodHandlers(config, db, registry, self.tool_registry)
         self._executor = PromptExecutor(
@@ -125,10 +178,23 @@ class ZenithHandler:
             self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader,
         )
         self.handlers.manager = self.manager
-        self.handlers._shared_executor = self._executor
+
+        # Wire session service into handlers
+        self._session_service = DefaultSessionService(
+            session_repo=SessionRepository(db),
+            message_repo=MessageRepository(db),
+            token_usage_repo=TokenUsageRepository(db),
+            checkpoint_repo=CheckpointRepository(db),
+            sync_event_repo=SyncEventRepository(db),
+            status_history_repo=SessionStatusHistoryRepository(db),
+            draft_repo=DraftRepository(db),
+        )
+        self.handlers._session_service = self._session_service
+        self.manager.set_session_service(self._session_service)
 
     def _reload_config(self) -> None:
         self.handlers.reload_config()
+        from providers.registry import ProviderRegistry
         self._executor = PromptExecutor(
             self.handlers.config, self.handlers.registry.get(self.handlers.config.active_provider),
             self.tool_registry, self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader,
@@ -148,7 +214,6 @@ class ZenithHandler:
         ping_task = None
         try:
             async def _keepalive_ping():
-                """Send text-based keepalive every 15s to prevent idle connection drops."""
                 while True:
                     await asyncio.sleep(15)
                     try:
@@ -177,5 +242,3 @@ class ZenithHandler:
                 ping_task.cancel()
             if session_id:
                 self.manager.disconnect(session_id)
-            # Don't cancel executor — per-session executors continue
-            # running and buffering events for potential reconnection.

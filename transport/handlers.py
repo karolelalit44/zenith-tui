@@ -9,12 +9,14 @@ from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 
+from core.domain import SessionState
 from core.events import Event, EventKind
 from core.message import Message
 from core.session import Session
 from db.connection import Database
 from db.repository import MessageRepository, SessionRepository
 from session.export import SessionExporter
+from session.service import DefaultSessionService, SessionService
 from skills.loader import SkillLoader
 
 from .protocol import make_error_response, make_response
@@ -38,6 +40,7 @@ class MethodHandlers:
         db: Database,
         registry: ProviderRegistry,
         tool_registry: ToolRegistry,
+        session_service: SessionService | None = None,
     ) -> None:
         self.config = config
         self.registry = registry
@@ -50,6 +53,7 @@ class MethodHandlers:
         self.manager = None
         self._shared_executor = None
         self._session_executors: dict[str, PromptExecutor] = {}
+        self._session_service = session_service
 
     def reload_config(self) -> None:
         from config.loader import load_config
@@ -62,8 +66,18 @@ class MethodHandlers:
         handlers = {
             "session.create": lambda: self._session_create(ws, rid, params),
             "session.list": lambda: self._session_list(ws, rid),
+            "session.list_all": lambda: self._session_list_all(ws, rid, params),
+            "session.summaries": lambda: self._session_summaries(ws, rid, params),
             "session.resume": lambda: self._session_resume(ws, rid, params),
+            "session.update": lambda: self._session_update(ws, rid, params, session_id),
+            "session.pause": lambda: self._session_pause(ws, rid, session_id),
+            "session.archive": lambda: self._session_archive(ws, rid, session_id),
+            "session.delete": lambda: self._session_delete(ws, rid, params),
+            "session.checkpoint": lambda: self._session_checkpoint(ws, rid, session_id),
+            "session.duplicate": lambda: self._session_duplicate(ws, rid, params),
+            "session.restore": lambda: self._session_restore(ws, rid, params),
             "session.export": lambda: self._session_export(ws, rid, params, session_id),
+            "session.sync": lambda: self._session_sync(ws, rid, params, session_id),
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
             "provider.validate": lambda: self._provider_validate(ws, rid, params),
             "provider.models": lambda: self._provider_models(ws, rid, params),
@@ -85,48 +99,183 @@ class MethodHandlers:
         return session_id
 
     async def _session_create(self, ws, rid, params) -> str:
-        session = Session(title=params.get("title", "New Session"))
-        await self.session_repo.create(session)
+        svc = self._resolve_service()
+        session = await svc.create(
+            title=params.get("title", "New Session"),
+            mode=params.get("mode"),
+            provider=params.get("provider"),
+            model=params.get("model"),
+            workspace_root=params.get("workspace_root"),
+        )
+        if self.manager:
+            await self.manager.schedule_session_event(session.id, "session.created", {"session_id": session.id, "title": session.title})
         await ws.send_text(make_response(rid, session.model_dump(mode="json")))
         return session.id
 
     async def _session_list(self, ws, rid) -> None:
-        sessions = await self.session_repo.list_active()
-        await ws.send_text(make_response(rid, [s.model_dump(mode="json") for s in sessions]))
+        svc = self._resolve_service()
+        sessions = await svc.list_active()
+        await ws.send_text(make_response(rid, [s.to_summary_dict() for s in sessions]))
+
+    async def _session_list_all(self, ws, rid, params) -> None:
+        svc = self._resolve_service()
+        sessions = await svc.list_sessions(
+            limit=params.get("limit", 50),
+            offset=params.get("offset", 0),
+            include_archived=params.get("include_archived", False),
+            search=params.get("search"),
+            state_filter=params.get("state_filter"),
+        )
+        await ws.send_text(make_response(rid, [s.to_summary_dict() for s in sessions]))
+
+    async def _session_summaries(self, ws, rid, params) -> None:
+        svc = self._resolve_service()
+        summaries = await svc.list_summaries(
+            limit=params.get("limit", 10),
+            include_archived=params.get("include_archived", False),
+        )
+        await ws.send_text(make_response(rid, summaries))
 
     async def _session_resume(self, ws, rid, params) -> str | None:
+        svc = self._resolve_service()
         sid = params.get("session_id", "")
-        session = await self.session_repo.get(sid)
+        session = await svc.get(sid)
         if not session:
             await ws.send_text(make_error_response(rid, -32602, "Session not found"))
             return None
-        messages = await self.message_repo.get_by_session(sid)
+        try:
+            session = await svc.resume(sid)
+        except ValueError:
+            pass
+        messages = await svc.get_history(sid)
         replayed = 0
         if self.manager:
             self.manager.register(sid, ws)
             replayed = await self.manager.replay_events(sid, ws)
+        # Sync events since last sequence
+        since = params.get("since_sequence", 0)
+        sync_events = await svc.get_sync_events(sid, since_sequence=since)
         await ws.send_text(make_response(rid, {
             "session": session.model_dump(mode="json"),
             "messages": [m.model_dump(mode="json") for m in messages],
             "events_replayed": replayed,
+            "sync_events": sync_events,
+            "latest_sequence": await svc.get_latest_sync_sequence(sid),
         }))
         return sid
 
-    async def _session_export(self, ws, rid, params, session_id) -> None:
+    async def _session_update(self, ws, rid, params, session_id) -> None:
+        svc = self._resolve_service()
+        target = params.get("session_id", session_id)
+        if not target:
+            await ws.send_text(make_error_response(rid, -32602, "No session_id provided"))
+            return
+        session = await svc.require(target)
+        if "title" in params:
+            session = await svc.update_title(target, params["title"])
+        if "context_used" in params or "context_window" in params:
+            used = params.get("context_used", session.context_used or 0)
+            window = params.get("context_window", session.context_window or 0)
+            session = await svc.update_context(target, used, window)
+        if "tokens" in params or "cost" in params:
+            tokens = params.get("tokens", 0)
+            cost = params.get("cost", 0.0)
+            session = await svc.add_tokens(target, tokens, cost)
+        await ws.send_text(make_response(rid, session.model_dump(mode="json")))
+
+    async def _session_pause(self, ws, rid, session_id) -> None:
         if not session_id:
             await ws.send_text(make_error_response(rid, -32602, "No active session"))
             return
-        session = await self.session_repo.get(session_id)
-        if not session:
-            await ws.send_text(make_error_response(rid, -32602, "Session not found"))
+        svc = self._resolve_service()
+        session = await svc.pause(session_id)
+        if self.manager:
+            await self.manager.schedule_session_event(session_id, "session.paused", {"session_id": session_id})
+        await ws.send_text(make_response(rid, session.model_dump(mode="json")))
+
+    async def _session_archive(self, ws, rid, session_id) -> None:
+        if not session_id:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
             return
-        messages = await self.message_repo.get_by_session(session_id)
+        svc = self._resolve_service()
+        session = await svc.archive(session_id)
+        await ws.send_text(make_response(rid, session.model_dump(mode="json")))
+
+    async def _session_delete(self, ws, rid, params) -> None:
+        sid = params.get("session_id", "")
+        if not sid:
+            await ws.send_text(make_error_response(rid, -32602, "No session_id provided"))
+            return
+        svc = self._resolve_service()
+        await svc.delete(sid)
+        if self.manager:
+            self.manager.drop_buffer(sid)
+        await ws.send_text(make_response(rid, {"status": "deleted"}))
+
+    async def _session_checkpoint(self, ws, rid, session_id) -> None:
+        if not session_id:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
+            return
+        svc = self._resolve_service()
         try:
-            filepath = self.exporter.export(session, messages, params.get("output_dir", "zenith_exports"))
-            markdown = self.exporter.export_to_string(session, messages)
-            await ws.send_text(make_response(rid, {"filepath": filepath, "markdown": markdown}))
+            cid = await svc.checkpoint(session_id, checkpoint_type="manual")
+            await ws.send_text(make_response(rid, {"checkpoint_id": cid}))
+        except Exception as e:
+            await ws.send_text(make_error_response(rid, -32603, f"Checkpoint failed: {e}"))
+
+    async def _session_duplicate(self, ws, rid, params) -> None:
+        sid = params.get("session_id", "")
+        if not sid:
+            await ws.send_text(make_error_response(rid, -32602, "No session_id provided"))
+            return
+        svc = self._resolve_service()
+        try:
+            new_session = await svc.duplicate(sid, new_title=params.get("title"))
+            if self.manager:
+                await self.manager.schedule_session_event(new_session.id, "session.duplicated", {
+                    "session_id": new_session.id, "original_id": sid,
+                })
+            await ws.send_text(make_response(rid, new_session.model_dump(mode="json")))
+        except Exception as e:
+            await ws.send_text(make_error_response(rid, -32603, f"Duplicate failed: {e}"))
+
+    async def _session_restore(self, ws, rid, params) -> None:
+        sid = params.get("session_id", "")
+        if not sid:
+            await ws.send_text(make_error_response(rid, -32602, "No session_id provided"))
+            return
+        svc = self._resolve_service()
+        try:
+            session = await svc.restore_from_archive(sid)
+            await ws.send_text(make_response(rid, session.model_dump(mode="json")))
+        except Exception as e:
+            await ws.send_text(make_error_response(rid, -32603, f"Restore failed: {e}"))
+
+    async def _session_export(self, ws, rid, params, session_id) -> None:
+        sid = params.get("session_id", session_id)
+        if not sid:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
+            return
+        svc = self._resolve_service()
+        try:
+            markdown = await svc.export_markdown(sid)
+            await ws.send_text(make_response(rid, {"markdown": markdown}))
         except Exception as e:
             await ws.send_text(make_error_response(rid, -32603, f"Export failed: {e}"))
+
+    async def _session_sync(self, ws, rid, params, session_id) -> None:
+        sid = params.get("session_id", session_id)
+        if not sid:
+            await ws.send_text(make_error_response(rid, -32602, "No session_id provided"))
+            return
+        svc = self._resolve_service()
+        since = params.get("since_sequence", 0)
+        events = await svc.get_sync_events(sid, since_sequence=since)
+        latest = await svc.get_latest_sync_sequence(sid)
+        await ws.send_text(make_response(rid, {
+            "events": events,
+            "latest_sequence": latest,
+        }))
 
     async def _prompt(self, ws, rid, params, session_id) -> str | None:
         from .prompt import PromptExecutor
@@ -140,7 +289,6 @@ class MethodHandlers:
             await ws.send_text(make_error_response(rid, -32602, "Empty prompt"))
             return session_id
         if not session_id:
-            # If build mode with no session, try to find latest session with a plan
             if params.get("mode") == "build":
                 plan_session = await self.session_repo.find_latest_with_plan()
                 if plan_session:
@@ -148,8 +296,8 @@ class MethodHandlers:
                     logger.info("Reusing plan session %s for build (plan_output=%d chars)",
                                 session_id, len(plan_session.plan_output))
             if not session_id:
-                session = Session(title=content[:50])
-                await self.session_repo.create(session)
+                svc = self._resolve_service()
+                session = await svc.create(title=content[:50])
                 session_id = session.id
         user_msg = Message(session_id=session_id, role="user", content=content)
         await self.message_repo.create(user_msg)
@@ -249,8 +397,12 @@ class MethodHandlers:
             return
         from datetime import datetime
         session.plan_approved_at = datetime.now()
-        session.state = "approved"
+        session.state = SessionState.ACTIVE
         await self.session_repo.update(session)
+        svc = self._resolve_service()
+        if svc._status_history_repo:
+            state_name = SessionState.ACTIVE.value if hasattr(SessionState.ACTIVE, 'value') else str(SessionState.ACTIVE)
+            await svc._status_history_repo.record(session_id, session.state, state_name, "Plan approved")
         logger.info("Plan approved for session %s", session_id)
         await ws.send_text(make_response(rid, {"status": "approved"}))
 
@@ -267,8 +419,12 @@ class MethodHandlers:
             return
         session.plan_output = ""
         session.plan_approved_at = None
-        session.state = "active"
+        session.state = SessionState.ACTIVE
         await self.session_repo.update(session)
+        svc = self._resolve_service()
+        if svc._status_history_repo:
+            state_name = SessionState.ACTIVE.value if hasattr(SessionState.ACTIVE, 'value') else str(SessionState.ACTIVE)
+            await svc._status_history_repo.record(session_id, "", state_name, "Plan rejected")
         logger.info("Plan rejected for session %s", session_id)
         await ws.send_text(make_response(rid, {"status": "rejected"}))
 
@@ -288,3 +444,11 @@ class MethodHandlers:
         except TimeoutError:
             self._pending_confirmations.pop(confirmation_id, None)
             return False
+
+    def _resolve_service(self) -> SessionService:
+        if self._session_service is not None:
+            return self._session_service
+        return DefaultSessionService(
+            session_repo=self.session_repo,
+            message_repo=self.message_repo,
+        )

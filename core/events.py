@@ -48,8 +48,36 @@ class EventKind(StrEnum):
 
     # Session events
     SESSION_CREATED = "session_created"
+    SESSION_INITIALIZED = "session_initialized"
     SESSION_RESUMED = "session_resumed"
+    SESSION_COMPLETED = "session_completed"
     SESSION_SUMMARIZED = "session_summarized"
+    SESSION_PAUSED = "session_paused"
+    SESSION_ARCHIVED = "session_archived"
+    SESSION_EXPORTED = "session_exported"
+    SESSION_DELETED = "session_deleted"
+    SESSION_RENAMED = "session_renamed"
+    SESSION_DUPLICATED = "session_duplicated"
+    SESSION_RESTORED = "session_restored"
+    SESSION_ERROR = "session_error"
+    SESSION_STATE_CHANGED = "session_state_changed"
+    SESSION_CHECKPOINT_CREATED = "session_checkpoint_created"
+
+    # Context events
+    CONTEXT_UPDATED = "context_updated"
+    CONTEXT_COMPACTED = "context_compacted"
+    CONTEXT_RESET = "context_reset"
+
+    # Token events
+    TOKEN_USAGE_RECORDED = "token_usage_recorded"
+    TOKEN_BUDGET_EXCEEDED = "token_budget_exceeded"
+    TOKEN_STATS_UPDATED = "token_stats_updated"
+
+    # Sync events
+    SYNC_STATUS = "sync_status"
+    SYNC_EVENT = "sync_event"
+
+    AGENT_STATUS = "agent_status"
 
     # Plan/Approval events
     PLAN_READY = "plan_ready"

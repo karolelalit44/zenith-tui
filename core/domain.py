@@ -40,13 +40,34 @@ class AgentState(StrEnum):
 
 
 class SessionState(StrEnum):
-    """Lifecycle state of a session."""
+    """Lifecycle state of a session.
+
+    States and transitions:
+    CREATED → INITIALIZING → ACTIVE
+    ACTIVE → COMPLETED | SUMMARIZED | PAUSED | ERROR | EXPORTED | ARCHIVED | CHECKPOINTING | DRAFT
+    INITIALIZING → ACTIVE | ERROR
+    COMPLETED → ACTIVE (resume) | SUMMARIZED | EXPORTED | ARCHIVED
+    RESUMED → ACTIVE | SUMMARIZED | EXPORTED | ARCHIVED
+    SUMMARIZED → RESUMED | ACTIVE | ARCHIVED
+    PAUSED → ACTIVE (resume) | ARCHIVED
+    ERROR → ACTIVE (retry) | ARCHIVED
+    DRAFT → ACTIVE | ARCHIVED
+    EXPORTED → ACTIVE | ARCHIVED
+    ARCHIVED → _terminal_
+    CHECKPOINTING → ACTIVE (transient)
+    """
     CREATED = "created"
+    INITIALIZING = "initializing"
     ACTIVE = "active"
     RESUMED = "resumed"
+    COMPLETED = "completed"
+    PAUSED = "paused"
     SUMMARIZED = "summarized"
     EXPORTED = "exported"
     ARCHIVED = "archived"
+    DRAFT = "draft"
+    ERROR = "error"
+    CHECKPOINTING = "checkpointing"
 
 
 class PermissionDecision(StrEnum):
