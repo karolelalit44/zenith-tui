@@ -11,34 +11,14 @@ export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event }) 
   const { theme } = useTheme();
 
   return (
-    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      <Box
-        flexDirection="column"
-        width="100%"
-        borderStyle="round"
-        borderColor={theme.colors.status.warning}
-        paddingX={1}
-        paddingY={1}
-      >
-        <Box flexDirection="row" alignItems="center" marginBottom={1} flexWrap="wrap">
-          <Text color={theme.colors.status.warning} bold>
-            [WARNING]{' '}
-          </Text>
-          <Text color={theme.colors.text.bright} bold>
-            {event.message}
-          </Text>
-        </Box>
-
-        {event.code && (
-          <Box marginTop={0} paddingLeft={1}>
-            <Text color={theme.colors.text.muted}>Code: {event.code}</Text>
-          </Box>
-        )}
-
-        <Box marginTop={1} flexDirection="row" justifyContent="flex-end">
-          <Text color={theme.colors.text.dim}>[NON-FATAL - Execution Continuing]</Text>
-        </Box>
-      </Box>
+    <Box flexDirection="row" width="100%" marginBottom={1} paddingX={1} alignItems="center">
+      <Text color={theme.colors.status.warning} bold>
+        ▲ [WARNING]{' '}
+      </Text>
+      <Text color={theme.colors.text.bright} wrap="wrap">
+        {event.message}
+      </Text>
+      {event.code && <Text color={theme.colors.text.dim}> ({event.code})</Text>}
     </Box>
   );
 });

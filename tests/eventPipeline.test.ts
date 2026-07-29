@@ -21,6 +21,7 @@ const ALL_EVENT_KINDS: EventKind[] = [
   'success',
   'progress',
   'confirmation_request',
+  'plan_ready',
 ];
 
 function makeEvent(kind: string, data: Record<string, unknown> = {}): ScenarioEvent {
@@ -173,8 +174,8 @@ describe('ComponentRegistry covers all EventKind types', () => {
 
 // ── Pipeline integrity ───────────────────────────────────────────────────────
 describe('Pipeline integrity', () => {
-  it('has exactly 9 EventKind values', () => {
-    expect(ALL_EVENT_KINDS.length).toBe(9);
+  it('has exactly 10 EventKind values', () => {
+    expect(ALL_EVENT_KINDS.length).toBe(10);
   });
 
   it('no duplicate EventKind values', () => {

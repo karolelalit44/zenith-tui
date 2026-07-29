@@ -1,12 +1,6 @@
 {
   "commands": [
     {
-      "command": "/mode",
-      "action": "overlay",
-      "target": "mode",
-      "description": "Switch between Build and Plan mode"
-    },
-    {
       "command": "/help",
       "action": "overlay",
       "target": "help",
@@ -24,7 +18,13 @@
       "target": "context",
       "description": "View the current file context window"
     },
-{
+    {
+      "command": "/usage",
+      "action": "overlay",
+      "target": "usage",
+      "description": "View token usage, costs, and budget"
+    },
+    {
       "command": "/provider",
       "action": "overlay",
       "target": "provider",

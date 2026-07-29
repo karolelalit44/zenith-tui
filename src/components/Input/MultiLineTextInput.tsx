@@ -1,4 +1,4 @@
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, type Key, Text, useInput } from 'ink';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTheme } from '../../theme/ThemeContext';
 
@@ -19,7 +19,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
   ({ value, onChange, onSubmit, placeholder = '', focus = true, historyUp, historyDown }) => {
     const { theme } = useTheme();
     const [cursor, setCursor] = useState(value.length);
-    const [historyIndex, setHistoryIndex] = useState(-1);
+    const [_historyIndex, setHistoryIndex] = useState(-1);
 
     useEffect(() => {
       if (cursor > value.length) setCursor(value.length);
@@ -27,7 +27,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
 
     useEffect(() => {
       setHistoryIndex(-1);
-    }, [value]);
+    }, []);
 
     const lines = useMemo(() => value.split('\n'), [value]);
     const lineCount = Math.max(MIN_LINES, Math.min(MAX_LINES, lines.length));
@@ -63,7 +63,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
 
         if (key.return || _input === '\n' || _input === '\r') {
           if (key.shift || key.ctrl) {
-            const nextValue = value.slice(0, cursor) + '\n' + value.slice(cursor);
+            const nextValue = `${value.slice(0, cursor)}\n${value.slice(cursor)}`;
             onChange(nextValue);
             setCursor((c) => c + 1);
           } else {
@@ -174,30 +174,26 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
       const cursorLineIdx = value.slice(0, cursor).split('\n').length - 1;
       const cursorCol = cursor - (value.lastIndexOf('\n', cursor - 1) + 1);
 
-      content = (
-        <>
-          {lines.map((line, lineIdx) => {
-            const isCursorLine = lineIdx === cursorLineIdx;
-            if (isCursorLine) {
-              const before = line.slice(0, cursorCol);
-              const charAtCursor = line[cursorCol];
-              const after = line.slice(cursorCol + 1);
-              return (
-                <Text key={lineIdx} wrap="wrap">
-                  {before}
-                  <Text inverse>{charAtCursor || ' '}</Text>
-                  {after}
-                </Text>
-              );
-            }
-            return (
-              <Text key={lineIdx} wrap="wrap">
-                {line || ' '}
-              </Text>
-            );
-          })}
-        </>
-      );
+      content = lines.map((line, lineIdx) => {
+        const isCursorLine = lineIdx === cursorLineIdx;
+        if (isCursorLine) {
+          const before = line.slice(0, cursorCol);
+          const charAtCursor = line[cursorCol];
+          const after = line.slice(cursorCol + 1);
+          return (
+            <Text key={lineIdx} wrap="wrap">
+              {before}
+              <Text inverse>{charAtCursor || ' '}</Text>
+              {after}
+            </Text>
+          );
+        }
+        return (
+          <Text key={lineIdx} wrap="wrap">
+            {line || ' '}
+          </Text>
+        );
+      });
     }
 
     return (

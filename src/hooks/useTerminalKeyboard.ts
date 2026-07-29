@@ -39,16 +39,38 @@ export function useTerminalKeyboard({
   respondConfirmation,
 }: UseTerminalKeyboardOptions): void {
   const optionsRef = useRef({
-    turns, isRunning, events, overlay, openOverlay, closeOverlay, closeAllOverlays,
-    abort, abortActiveTurn, markTurnSaved, clearTurns, onToggleThinking,
-    activeConfirmation, respondConfirmation,
+    turns,
+    isRunning,
+    events,
+    overlay,
+    openOverlay,
+    closeOverlay,
+    closeAllOverlays,
+    abort,
+    abortActiveTurn,
+    markTurnSaved,
+    clearTurns,
+    onToggleThinking,
+    activeConfirmation,
+    respondConfirmation,
   });
 
   useEffect(() => {
     optionsRef.current = {
-      turns, isRunning, events, overlay, openOverlay, closeOverlay, closeAllOverlays,
-      abort, abortActiveTurn, markTurnSaved, clearTurns, onToggleThinking,
-      activeConfirmation, respondConfirmation,
+      turns,
+      isRunning,
+      events,
+      overlay,
+      openOverlay,
+      closeOverlay,
+      closeAllOverlays,
+      abort,
+      abortActiveTurn,
+      markTurnSaved,
+      clearTurns,
+      onToggleThinking,
+      activeConfirmation,
+      respondConfirmation,
     };
   });
 
@@ -100,7 +122,9 @@ export function useTerminalKeyboard({
           const targetEvents = opts.isRunning ? opts.events : targetTurn?.events || [];
           if (targetEvents.length > 0) {
             savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
-            if (targetTurn) { opts.markTurnSaved(targetTurn.id); }
+            if (targetTurn) {
+              opts.markTurnSaved(targetTurn.id);
+            }
           }
           return;
         }
@@ -114,9 +138,19 @@ export function useTerminalKeyboard({
           if (opts.openOverlay) opts.openOverlay('mode');
           return;
         }
+
+        if (_char === 't' || _char === 'T' || _char === '\x14') {
+          if (opts.onToggleThinking) opts.onToggleThinking();
+          return;
+        }
       }
 
-      if (key.shift && (_char === 't' || _char === 'T') && opts.overlay === 'none' && opts.onToggleThinking) {
+      if (
+        (key.shift || key.ctrl) &&
+        (_char === 't' || _char === 'T' || _char === '\x14') &&
+        opts.overlay === 'none' &&
+        opts.onToggleThinking
+      ) {
         opts.onToggleThinking();
         return;
       }

@@ -1,5 +1,5 @@
 import { Box, Static, Text } from 'ink';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
@@ -15,15 +15,15 @@ import { useProvider } from './hooks/useProvider';
 import { useScenario } from './hooks/useScenario';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { useTickAnimation } from './hooks/useTickAnimation';
-import { ContextModal } from './screens/Context/ContextModal';
-import { HelpModal } from './screens/Help/HelpModal';
-import { ModeSelectScreen } from './screens/ModeSelect';
-import { SettingsModal } from './screens/Settings/SettingsModal';
+import { OverlayRouter } from './routes/OverlayRouter';
 import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
+import { estimateTokensForEvents } from './services/data/tokenEstimationService';
+import type { TokenUsageStats } from './services/data/TokenUsageService';
+import { tokenUsageService } from './services/data/TokenUsageService';
 import { loadUserProfile } from './services/data/userProfileService';
 import { useTheme } from './theme/ThemeContext';
 import type { AppStartupState } from './types/startup';
@@ -33,6 +33,9 @@ export const App: React.FC = () => {
   const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
   const tick = useTickAnimation(150, startupState.phase === 'loading');
   const [workspace, setWorkspace] = useState(() => process.cwd());
+  useEffect(() => {
+    setWorkspace(process.cwd());
+  }, []);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
 
   useEffect(() => {
@@ -41,9 +44,8 @@ export const App: React.FC = () => {
     return unsub;
   }, []);
 
-  const toggleThinking = useCallback(() => {
-    setThinkingCollapsed((prev: boolean) => !prev);
-  }, []);
+  const toggleThinking = useCallback(() => setThinkingCollapsed((p) => !p), []);
+
   const {
     turns,
     completedTurns,
@@ -57,8 +59,10 @@ export const App: React.FC = () => {
     clearTurns,
     compactTurns,
   } = useConversation();
+
   const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, closeAllOverlays, handleModeSelect } =
     useOverlayManager();
+
   const {
     input,
     showAutocomplete,
@@ -75,33 +79,43 @@ export const App: React.FC = () => {
     attachments,
     removeAttachment,
   } = useAutocomplete();
-  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation } = useScenario();
+
+  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation, eventsRef } = useScenario();
   const { activeProvider } = useProvider();
+  const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
+
+  const refreshStats = useCallback(() => {
+    tokenUsageService.fetchStats().then(setTokenUsageStats);
+  }, []);
+
+  useEffect(() => {
+    if (startupState.phase === 'ready') {
+      refreshStats();
+    }
+  }, [startupState.phase, refreshStats]);
+
+  const liveTotalTokens = useMemo(() => {
+    return totalTokens + (isRunning ? estimateTokensForEvents(events) : 0);
+  }, [totalTokens, isRunning, events]);
 
   const handleSubmit = useCallback(
     (value: string) => {
       const trimmed = value.trim();
       if (!trimmed) return;
-
       if (trimmed.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(trimmed, {
-          openOverlay,
-          clearTurns,
-          compactTurns,
-          setMode: handleModeSelect,
-        });
+        commandService.dispatchCommand(trimmed, { openOverlay, clearTurns, compactTurns, setMode: handleModeSelect });
         return;
       }
-
       addHistory(trimmed);
       addTurn(trimmed, selectedMode);
       clearInput();
-      startScenario(trimmed, selectedMode);
+      startScenario(trimmed, selectedMode, activeProvider.id);
     },
     [
       selectedMode,
       startScenario,
+      activeProvider.id,
       addTurn,
       clearInput,
       openOverlay,
@@ -131,21 +145,17 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
-      completeActiveTurn(events);
-      addSession(activeTurn.prompt);
+      completeActiveTurn(eventsRef.current);
+      addSession(activeTurn.prompt).catch(() => {});
+      refreshStats();
     }
-  }, [isRunning, events, activeTurn, completeActiveTurn]);
+  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats]);
 
   const handleAutocompleteSelectWithRouter = useCallback(
     (cmd: string) => {
       if (cmd.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(cmd, {
-          openOverlay,
-          clearTurns,
-          compactTurns,
-          setMode: handleModeSelect,
-        });
+        commandService.dispatchCommand(cmd, { openOverlay, clearTurns, compactTurns, setMode: handleModeSelect });
       } else {
         handleAutocompleteSelect(cmd);
       }
@@ -154,15 +164,14 @@ export const App: React.FC = () => {
   );
 
   const handleRetry = useCallback(() => {
-    if (activeTurn && !isRunning) {
-      startScenario(activeTurn.prompt, activeTurn.mode);
-    }
-  }, [activeTurn, isRunning, startScenario]);
+    if (activeTurn && !isRunning) startScenario(activeTurn.prompt, activeTurn.mode, activeProvider.id);
+  }, [activeTurn, isRunning, startScenario, activeProvider.id]);
 
   const handleSetupComplete = useCallback(() => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });
   }, [startupState]);
 
+  // Loading screen
   if (startupState.phase === 'loading') {
     return (
       <Box
@@ -181,6 +190,7 @@ export const App: React.FC = () => {
     );
   }
 
+  // Setup wizard
   if (startupState.phase === 'setup' || startupState.phase === 'error') {
     return (
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
@@ -203,30 +213,8 @@ export const App: React.FC = () => {
       activeConfirmation={activeConfirmation}
     >
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-        {turns.length === 0 && !isRunning && (
-          <>
-            <WelcomeScreen workspace={workspace} />
-            <Box flexDirection="column" paddingX={2} marginTop={1} marginBottom={1}>
-              <Text color={theme.colors.text.muted} bold>
-                Try asking:
-              </Text>
-              <Box flexDirection="column" marginTop={1} paddingLeft={1}>
-                {[
-                  'Help me understand this codebase',
-                  'Run the test suite and show results',
-                  'Create a new module with proper structure',
-                ].map((suggestion, idx) => (
-                  <Box key={idx} flexDirection="row" marginBottom={0}>
-                    <Text color={theme.colors.status.accent}>{idx + 1}. </Text>
-                    <Text color={theme.colors.text.ethereal}>{suggestion}</Text>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </>
-        )}
+        {turns.length === 0 && !isRunning && <WelcomeScreen workspace={workspace} />}
 
-        {/* Completed turns — rendered once via Static, immune to live event re-renders */}
         <Static key={staticKey} items={completedTurns}>
           {(turn, idx) => (
             <Box key={turn.id} flexDirection="column" width="100%">
@@ -252,7 +240,6 @@ export const App: React.FC = () => {
           )}
         </Static>
 
-        {/* Currently running scenario */}
         {isRunning && (
           <Box flexDirection="column" marginTop={1} width="100%">
             {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
@@ -266,7 +253,6 @@ export const App: React.FC = () => {
           </Box>
         )}
 
-        {/* Input box — hidden while any overlay/modal is active to prevent keypress leakage */}
         {!showAutocomplete && !showFilePicker && !isOverlayOpen && (
           <CommandInput
             input={input}
@@ -277,10 +263,14 @@ export const App: React.FC = () => {
             onRemoveAttachment={removeAttachment}
             historyUp={historyUp}
             historyDown={historyDown}
+            mode={selectedMode}
+            totalTokens={liveTotalTokens}
+            isRunning={isRunning}
+            tokenUsageStats={tokenUsageStats}
+            workspaceName={workspace}
           />
         )}
 
-        {/* Slash Command Palette */}
         {showAutocomplete && (
           <Box marginTop={1} width="100%">
             <AutocompleteDropdown
@@ -291,45 +281,33 @@ export const App: React.FC = () => {
           </Box>
         )}
 
-        {/* File Picker Modal */}
         {showFilePicker && (
           <Box marginTop={1} width="100%">
             <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
           </Box>
         )}
 
-        {/* Session Status Bar removed as details are in CommandInput */}
+        <OverlayRouter
+          overlay={overlay}
+          isOverlayOpen={isOverlayOpen}
+          selectedMode={selectedMode}
+          totalTokens={totalTokens}
+          events={events}
+          startupState={startupState}
+          tokenUsageStats={tokenUsageStats}
+          onSelectMode={handleModeSelect}
+          onClose={closeOverlay}
+          onComplete={handleSetupComplete}
+        />
 
-        {/* Overlays & Modals */}
-        {overlay === 'mode' && (
-          <Box flexDirection="column" marginTop={1} width="100%">
-            <ModeSelectScreen currentMode={selectedMode} onSelect={handleModeSelect} onClose={closeOverlay} />
-          </Box>
-        )}
-
-        {overlay === 'help' && (
-          <Box flexDirection="column" marginTop={1} width="100%">
-            <HelpModal onClose={closeOverlay} />
-          </Box>
-        )}
-
-        {overlay === 'settings' && (
-          <Box flexDirection="column" marginTop={1} width="100%">
-            <SettingsModal onClose={closeOverlay} />
-          </Box>
-        )}
-
-        {overlay === 'context' && (
-          <Box flexDirection="column" marginTop={1} width="100%">
-            <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={closeOverlay} />
-          </Box>
-        )}
-
-        {overlay === 'provider' && (
-          <Box flexDirection="column" marginTop={1} width="100%">
-            <SetupWizard startupState={startupState} onComplete={closeOverlay} mode="reconfigure" />
-          </Box>
-        )}
+        <SessionStatusBar
+          mode={selectedMode}
+          totalTokens={totalTokens}
+          isRunning={isRunning}
+          isOverlayOpen={isOverlayOpen}
+          hasEvents={events.length > 0 || turns.length > 0}
+          tokenUsageStats={tokenUsageStats}
+        />
       </Box>
     </AppProvider>
   );

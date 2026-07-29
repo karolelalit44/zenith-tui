@@ -1,4 +1,4 @@
-import catalogData from '../../../zenith/config/provider_catalog.json';
+import catalogData from '../../../config/provider_catalog.json';
 import { requireEnv, requireFloat, requireInt } from '../../config/env';
 import type { ProviderConfig, ProviderId, ProviderMeta } from './types';
 

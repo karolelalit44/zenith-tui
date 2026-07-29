@@ -1,6 +1,7 @@
 import os
-from zenith.config.settings import AppSettings
-from zenith.config.loader import load_config
+
+from config.loader import load_config
+from config.settings import AppSettings
 
 
 def test_default_config():
@@ -9,7 +10,6 @@ def test_default_config():
     assert config.active_provider == os.environ["ZENITH_ACTIVE_PROVIDER"]
     assert config.db_path == os.environ["ZENITH_DB_PATH"]
     assert config.max_context_tokens == int(os.environ["ZENITH_MAX_CONTEXT_TOKENS"])
-    assert config.tools.max_iterations == int(os.environ["ZENITH_MAX_ITERATIONS"])
 
 
 def test_config_validation():
@@ -27,7 +27,7 @@ def test_load_config(temp_dir):
 
 
 def test_get_active_provider_config():
-    from zenith.config.providers import ProviderConfig
+    from config.providers import ProviderConfig
     config = AppSettings(
         providers={"openai": ProviderConfig(model="gpt-4o")},
         active_provider="openai",

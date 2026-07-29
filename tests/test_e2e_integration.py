@@ -21,7 +21,6 @@ from typing import Any
 import pytest
 import websockets
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _get_free_port() -> int:
@@ -57,7 +56,7 @@ async def _collect_events(ws, timeout: float = 15) -> list[dict]:
             data = json.loads(raw)
             if data.get("method") == "event":
                 events.append(data)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
     return events
 
@@ -72,7 +71,7 @@ async def _collect_all(ws, timeout: float = 5) -> list[dict]:
             raw = await asyncio.wait_for(ws.recv(), timeout=max(0.1, remaining))
             data = json.loads(raw)
             messages.append(data)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
     return messages
 
@@ -91,7 +90,7 @@ import asyncio
 import logging
 logging.disable(logging.CRITICAL)
 
-from zenith.providers.base import BaseProvider
+from providers.base import BaseProvider
 
 class EchoProvider(BaseProvider):
     def __init__(self):
@@ -99,7 +98,7 @@ class EchoProvider(BaseProvider):
     async def complete(self, messages, tools=None):
         user_msg = messages[-1]["content"] if messages else ""
         return f"Echo: {user_msg}"
-    async def stream(self, messages, tools=None):
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages)
         for word in response.split():
             yield (word + " ", None)
@@ -118,7 +117,7 @@ def echo_server(tmp_path_factory):
     """Start a real zenith server with EchoProvider in a subprocess."""
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
-    workspace = str(tmp_path_factory.mktemp("workspace"))
+    str(tmp_path_factory.mktemp("workspace"))
 
     prov_file = Path(tempfile.mktemp(suffix=".py"))
     prov_file.write_text(_ECHO_PROVIDER_CODE)
@@ -154,7 +153,7 @@ spec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-import zenith.providers.registry as reg
+import providers.registry as reg
 _orig_from_config = reg.ProviderRegistry.from_config
 
 def _patched_from_config(providers, active, **kw):
@@ -164,12 +163,12 @@ def _patched_from_config(providers, active, **kw):
 
 reg.ProviderRegistry.from_config = _patched_from_config
 
-import zenith.config.loader as loader
+import config.loader as loader
 _orig_load = loader.load_config
 
 def _patched_load(*a, **kw):
     cfg = _orig_load(*a, **kw)
-    from zenith.config.providers import ProviderConfig
+    from config.providers import ProviderConfig
     if cfg.providers is None:
         cfg.providers = {{}}
     cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")
@@ -179,7 +178,7 @@ def _patched_load(*a, **kw):
 loader.load_config = _patched_load
 
 import uvicorn
-uvicorn.run("zenith.transport.server:app", host="127.0.0.1", port={port}, log_level="error")
+uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")
 '''
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
@@ -649,7 +648,7 @@ class TestSessionExport:
     async def test_session_export_after_prompt(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             create_resp = await _ws_rpc(ws, "session.create", {"title": "Export Test"})
-            sid = create_resp["result"]["id"]
+            create_resp["result"]["id"]
             await _ws_rpc(ws, "prompt.send", {"content": "Export me", "mode": "build"})
             await _collect_events(ws, timeout=10)
 

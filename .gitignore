@@ -8,12 +8,12 @@ __pycache__
 .keys
 
 # Runtime data
-data/
+data/*
+!data/.gitkeep
 *.db
 *.db-shm
 *.db-wal
 *.log
-zenith.db
 
 # User-specific runtime config
 user_profile.json
@@ -21,4 +21,5 @@ user_profile.json
 # Reference repositories (large, not part of source)
 reference_repo/
 
-
+.ruff_cache
+.mypy_cache

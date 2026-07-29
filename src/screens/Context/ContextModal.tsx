@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import React, { useMemo } from 'react';
 import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
+import { useProvider } from '../../hooks/useProvider';
 import { estimateTokensForEvents, formatTokenCount } from '../../services/data/tokenEstimationService';
 import { WORKSPACE_FILES } from '../../services/fileExplorerService';
 import { useTheme } from '../../theme/ThemeContext';
@@ -13,12 +14,13 @@ interface ContextModalProps {
   onClose: () => void;
 }
 
-export const ContextModal: React.FC<ContextModalProps> = ({
-  totalTokens,
-  runningEvents = [],
-  onClose,
-}) => {
+export const ContextModal: React.FC<ContextModalProps> = ({ totalTokens, runningEvents = [], onClose }) => {
   const { theme } = useTheme();
+  const { activeProvider } = useProvider();
+
+  const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
+  const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
+  const maxTokens = activeModelInfo?.context_window || 200000;
 
   const liveTokens = useMemo(() => {
     return totalTokens + estimateTokensForEvents(runningEvents);
@@ -30,7 +32,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
     }
   });
 
-  const contextPercent = Math.min(100, Math.round((liveTokens / 200000) * 100));
+  const contextPercent = Math.min(100, Math.round((liveTokens / maxTokens) * 100));
   const totalBlocks = 20;
   const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
   const bar = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
@@ -57,7 +59,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
             [CONTEXT USAGE]{' '}
           </Text>
           <Text color={theme.colors.text.bright} bold>
-            {formatTokenCount(liveTokens)} ({contextPercent}%)
+            {formatTokenCount(liveTokens)} / {formatTokenCount(maxTokens)} ({contextPercent}%)
           </Text>
         </Box>
 
@@ -119,7 +121,16 @@ export const ContextModal: React.FC<ContextModalProps> = ({
           })
         )}
 
-        <Box marginTop={1} paddingTop={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={theme.colors.border.muted}>
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderTop={true}
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
+          borderColor={theme.colors.border.muted}
+        >
           <Text color={theme.colors.text.muted}>
             <ModalFooter shortcuts={[{ key: '[Esc]', label: 'to exit Context Window' }]} />
           </Text>

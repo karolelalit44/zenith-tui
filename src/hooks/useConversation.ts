@@ -8,6 +8,7 @@ export interface ConversationTurn {
   mode: ScenarioMode;
   events: ScenarioEvent[];
   isComplete: boolean;
+  isSaved?: boolean;
   timestamp: string;
 }
 
@@ -29,12 +30,8 @@ export function useConversation(): UseConversationReturn {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [staticKey, setStaticKey] = useState(0);
 
-  const activeTurn = turns.length > 0 && !turns[turns.length - 1].isComplete
-    ? turns[turns.length - 1]
-    : null;
-  const completedTurns = activeTurn
-    ? turns.filter((t) => t.isComplete)
-    : turns;
+  const activeTurn = turns.length > 0 && !turns[turns.length - 1].isComplete ? turns[turns.length - 1] : null;
+  const completedTurns = activeTurn ? turns.filter((t) => t.isComplete) : turns;
 
   const totalTokens = useMemo(() => {
     return turns.reduce((sum, t) => {
@@ -96,12 +93,14 @@ export function useConversation(): UseConversationReturn {
     });
   }, []);
 
-  const markTurnSaved = useCallback((_turnId: string) => {
+  const markTurnSaved = useCallback((turnId: string) => {
+    setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, isSaved: true } : t)));
   }, []);
 
   const clearTurns = useCallback(() => {
     setTurns([]);
     setStaticKey((k) => k + 1);
+    process.stdout.write('\x1B[2J\x1B[H');
   }, []);
 
   const compactTurns = useCallback(() => {

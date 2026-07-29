@@ -1,4 +1,4 @@
-from zenith.core.events import Event, EventKind
+from core.events import Event, EventKind
 
 
 def test_event_serialization():
@@ -31,7 +31,7 @@ def test_event_timestamp():
 
 
 def test_make_event():
-    from zenith.core.events import make_event
+    from core.events import make_event
     event = make_event(EventKind.ERROR, {"message": "oops"})
     assert event.kind == EventKind.ERROR
     assert event.data["message"] == "oops"

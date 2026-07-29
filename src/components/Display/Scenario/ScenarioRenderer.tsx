@@ -1,7 +1,6 @@
 import { Box, Text } from 'ink';
-import React, { Component, useMemo, type ReactNode } from 'react';
+import React, { Component, type ReactNode, useMemo } from 'react';
 import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
-import { MAX_VISIBLE_EVENTS } from '../../../constants/layout';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ScenarioEvent } from '../../../types/scenario';
@@ -65,17 +64,20 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     const { theme } = useTheme();
     const showLiveIndicator = isRunning && !isHistorical;
 
-    const renderContext = useMemo(() => ({
-      thinkingCollapsed,
-      isHistorical,
-      isRunning,
-      onRetry,
-      onDismiss,
-    }), [thinkingCollapsed, isHistorical, isRunning, onRetry, onDismiss]);
+    const renderContext = useMemo(
+      () => ({
+        thinkingCollapsed,
+        isHistorical,
+        isRunning,
+        onRetry,
+        onDismiss,
+      }),
+      [thinkingCollapsed, isHistorical, isRunning, onRetry, onDismiss],
+    );
 
-    // Use a small limit for dynamic rendering to avoid Ink scrolling bugs.
+    // Use a limit for dynamic rendering to avoid Ink scrolling bugs.
     // For historical (Static) renders, show all events.
-    const dynamicLimit = 8;
+    const dynamicLimit = 20;
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const visibleEvents = hasOverflow ? events.slice(-dynamicLimit) : events;
 
@@ -98,7 +100,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           );
         })}
 
-        {showLiveIndicator && <LiveSpinner label="Processing event stream..." />}
+        {showLiveIndicator && <LiveSpinner label={''} />}
       </Box>
     );
   },

@@ -1,11 +1,9 @@
 """Tests for context window manager and history manager."""
 
-import pytest
-from zenith.agent.context import ContextManager, TokenInfo
-from zenith.session.history import HistoryManager
-from zenith.config.settings import AppSettings
-from zenith.core.message import Message
-from zenith.providers.base import BaseProvider
+from agent.context import ContextManager, TokenInfo
+from config.settings import AppSettings
+from core.message import Message
+from session.history import HistoryManager
 
 
 class TestContextManager:
@@ -74,7 +72,7 @@ class TestContextManager:
         config = AppSettings(max_context_tokens=128000)
         ctx = ContextManager(config)
         messages = [{"role": "user", "content": "Hello, World!"}]
-        info = ctx.get_token_info(messages, "gpt-4")
+        info = ctx.get_token_info(messages, "unknown-model")
         assert isinstance(info, TokenInfo)
         assert info.used > 0
         assert info.remaining < 128000

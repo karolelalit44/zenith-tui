@@ -1,19 +1,18 @@
 """Tests for tool framework: base, registry, all tools."""
 
 import pytest
-from pathlib import Path
-from zenith.tools.base import BaseTool, ToolResult
-from zenith.tools.registry import ToolRegistry
-from zenith.tools.bash import BashTool
-from zenith.tools.file_read import FileReadTool
-from zenith.tools.file_write import FileWriteTool
-from zenith.tools.file_edit import FileEditTool
-from zenith.tools.file_delete import FileDeleteTool
-from zenith.tools.glob_tool import GlobTool
-from zenith.tools.grep_tool import GrepTool
-from zenith.tools.webfetch import WebfetchTool
-from zenith.tools import create_default_registry
 
+from tools import create_default_registry
+from tools.base import ToolResult
+from tools.bash import BashTool
+from tools.file_delete import FileDeleteTool
+from tools.file_edit import FileEditTool
+from tools.file_read import FileReadTool
+from tools.file_write import FileWriteTool
+from tools.glob_tool import GlobTool
+from tools.grep_tool import GrepTool
+from tools.registry import ToolRegistry
+from tools.webfetch import WebfetchTool
 
 # ── Tool Base & Result ──────────────────────────────────────────────
 
@@ -369,4 +368,13 @@ class TestDefaultRegistry:
         assert "glob" in tools
         assert "grep" in tools
         assert "webfetch" in tools
-        assert len(tools) == 8
+        assert "job_output" in tools
+        assert "job_kill" in tools
+        assert "multi_edit" in tools
+        assert "question" in tools
+        assert "todo" in tools
+        assert "lsp_diagnostics" in tools
+        assert "lsp_definition" in tools
+        assert "lsp_rename" in tools
+        assert "agent" in tools
+        assert len(tools) == 17

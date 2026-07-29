@@ -1,9 +1,10 @@
 import { Box, Text } from 'ink';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { APP_VERSION } from '../../constants';
 import { useProvider } from '../../hooks/useProvider';
-import { getRecentSessions } from '../../services/data/SessionRepository';
+import type { SessionSummary } from '../../services/backend/WebSocketClient';
+import { wsClient } from '../../services/backend/WebSocketClient';
 import { useTheme } from '../../theme/ThemeContext';
 import { getGreeting, WELCOME_DATA } from './data/welcomeData';
 
@@ -15,8 +16,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
   const activeWorkspace = workspace || process.cwd();
-  const recentSessions = getRecentSessions();
   const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
+  const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
+
+  useEffect(() => {
+    wsClient
+      .listSessionSummaries({ limit: 10, include_archived: false })
+      .then(setRecentSessions)
+      .catch(() => setRecentSessions([]));
+  }, []);
 
   return (
     <RoundedBox title={APP_VERSION} borderColor={theme.colors.border.active} hasShadow={true}>
@@ -104,22 +112,21 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
                   No recent sessions
                 </Text>
               ) : (
-                recentSessions.map((session, idx) => {
-                  const formattedTime = session.time.replace(/^\[\s*/, '').replace(/\s*\]$/, '');
-                  return (
-                    <Box key={idx} flexDirection="column" marginBottom={1} width="100%">
-                      <Box flexDirection="row" alignItems="center">
-                        <Text color={theme.colors.border.active}>│ </Text>
-                        <Text color={theme.colors.text.ethereal} bold wrap="truncate-end">
-                          {session.title}
-                        </Text>
-                      </Box>
-                      <Box paddingLeft={2}>
-                        <Text color={theme.colors.text.dim}>{formattedTime}</Text>
-                      </Box>
+                recentSessions.map((session, idx) => (
+                  <Box key={session.id || idx} flexDirection="column" marginBottom={1} width="100%">
+                    <Box flexDirection="row" alignItems="center">
+                      <Text color={theme.colors.border.active}>│ </Text>
+                      <Text color={theme.colors.text.ethereal} bold wrap="truncate-end">
+                        {session.title}
+                      </Text>
                     </Box>
-                  );
-                })
+                    <Box paddingLeft={2}>
+                      <Text color={theme.colors.text.dim}>
+                        {session.state} · {session.message_count} msgs · {session.total_tokens} tok
+                      </Text>
+                    </Box>
+                  </Box>
+                ))
               )}
             </Box>
           </Box>

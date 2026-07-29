@@ -2,7 +2,8 @@ import type { Scenario, ScenarioMode } from '../../types/scenario';
 import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scenario/types';
 import { wsClient } from './WebSocketClient';
 
-const STALE_TIMEOUT_MS = 300_000;
+const STALE_TIMEOUT_MS = 600_000;
+const RECONNECT_WAIT_MS = 20_000;
 
 let idCounter = 0;
 const uid = () => `evt_${Date.now()}_${++idCounter}`;
@@ -20,7 +21,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
     };
   }
 
-  execute(_scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
+  execute(scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
     this.abortFlag = false;
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
@@ -31,6 +32,8 @@ export class BackendScenarioProvider implements ScenarioProvider {
     let staleTimer: ReturnType<typeof setTimeout> | null = null;
     let lastEventKind: string | null = null;
     let mergedThinkingThoughts: string[] = [];
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let disconnectEventIndex: number | null = null;
 
     const resetStaleTimer = () => {
       if (staleTimer) clearTimeout(staleTimer);
@@ -63,8 +66,79 @@ export class BackendScenarioProvider implements ScenarioProvider {
         clearTimeout(staleTimer);
         staleTimer = null;
       }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       unsubscribe();
       statusUnsub();
+    };
+
+    const tryResumeSession = async () => {
+      if (completed || !scenario.sessionId) return false;
+      try {
+        await wsClient.send('session.resume', { session_id: scenario.sessionId });
+        if (disconnectEventIndex !== null) {
+          onEvent(
+            {
+              kind: 'warning',
+              id: uid(),
+              message: 'Connection re-established, continuing...',
+              code: 'RECONNECTED',
+            },
+            disconnectEventIndex,
+          );
+          disconnectEventIndex = null;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const handleDisconnect = () => {
+      if (completed) return;
+      if (disconnectEventIndex !== null) return; // already handling disconnect
+      disconnectEventIndex = eventIndex++;
+      onEvent(
+        {
+          kind: 'warning',
+          id: uid(),
+          message: 'Connection lost — reconnecting...',
+          code: 'RECONNECTING',
+        },
+        disconnectEventIndex,
+      );
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(async () => {
+        if (completed) return;
+        // Reconnection timed out — give up
+        onEvent(
+          {
+            kind: 'error',
+            id: uid(),
+            message: 'Connection to backend lost. Check that zenith serve is running.',
+          },
+          disconnectEventIndex ?? eventIndex++,
+        );
+        disconnectEventIndex = null;
+        finalize();
+        onComplete();
+      }, RECONNECT_WAIT_MS);
+    };
+
+    const handleReconnect = async () => {
+      if (completed) return;
+      if (disconnectEventIndex === null) return; // wasn't in disconnect state
+      const resumed = await tryResumeSession();
+      if (resumed) {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        resetStaleTimer();
+      }
+      // If resume failed, disconnectEventIndex stays set and the timer will fire
     };
 
     resetStaleTimer();
@@ -134,9 +208,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
       }
 
       // Terminal events: finalize any pending partial before emitting
-      const isTerminalEvent =
-        (kind === 'success' && typeof data?.iterations === 'number') ||
-        (kind === 'error' && !(data && typeof data === 'object' && data.recoverable === true));
+      const isTerminalEvent = (kind === 'success' && typeof data?.iterations === 'number') || kind === 'error';
 
       if (isTerminalEvent && partialMessageIndex !== null) {
         onEvent(
@@ -179,7 +251,9 @@ export class BackendScenarioProvider implements ScenarioProvider {
         } else {
           // First thinking event in a new sequence
           const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
-          mergedThinkingThoughts = newThoughts.map(t => typeof t === 'string' ? t : t.text).filter(Boolean) as string[];
+          mergedThinkingThoughts = newThoughts
+            .map((t) => (typeof t === 'string' ? t : t.text))
+            .filter(Boolean) as string[];
         }
         onEvent(mapped, eventIndex);
         eventIndex++;
@@ -192,9 +266,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         const hasIterations = typeof data?.iterations === 'number';
         isTerminal = hasIterations;
       } else if (kind === 'error') {
-        // All errors (even recoverable ones) terminate the current execution run
-        // so the UI unlocks and the user can hit Retry or type a new command.
-        isTerminal = true;
+        isTerminal = !data?.recoverable;
       }
 
       if (isTerminal) {
@@ -204,17 +276,11 @@ export class BackendScenarioProvider implements ScenarioProvider {
     });
 
     const statusUnsub = wsClient.onStatusChange((status) => {
-      if (status === 'disconnected' && !completed) {
-        onEvent(
-          {
-            kind: 'error',
-            id: uid(),
-            message: 'Connection to backend lost. Check that zenith serve is running.',
-          },
-          eventIndex++,
-        );
-        finalize();
-        onComplete();
+      if (completed) return;
+      if (status === 'disconnected' && disconnectEventIndex === null) {
+        handleDisconnect();
+      } else if (status === 'connected' && disconnectEventIndex !== null) {
+        handleReconnect();
       }
     });
 
@@ -232,6 +298,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         );
       }
     }, 2000);
+    // Ensure timerHandle is set before any synchronous event could fire
 
     return {
       abort: () => {
@@ -330,7 +397,9 @@ function mapRawEvent(
         label: String(d.label || d.status || 'Progress'),
         percent: typeof d.percent === 'number' ? d.percent : undefined,
         iteration: typeof d.iteration === 'number' ? d.iteration : undefined,
-        steps: Array.isArray(d.steps) ? d.steps as { label: string; status: 'pending' | 'active' | 'done' | 'error' }[] : [],
+        steps: Array.isArray(d.steps)
+          ? (d.steps as { label: string; status: 'pending' | 'active' | 'done' | 'error' }[])
+          : [],
       };
 
     case 'confirmation_request':
@@ -342,6 +411,14 @@ function mapRawEvent(
         reason: String(d.reason || ''),
         riskLevel: String(d.risk_level || 'medium'),
         message: String(d.message || 'Operation requires confirmation'),
+      };
+
+    case 'plan_ready':
+      return {
+        kind: 'plan_ready',
+        id,
+        plan: String(d.plan || ''),
+        sessionId: String(d.session_id || ''),
       };
 
     default:

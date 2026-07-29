@@ -1,26 +1,9 @@
+import { requireInt } from '../../config/env';
 import type { AppStartupState, ProviderSetupRequest, ProviderSetupResult, StartupResult } from '../../types/startup';
 import { providerRepository } from '../providers/ProviderRepository';
-import { requireInt } from '../../config/env';
+import { fetchJson } from './fetchJson';
 
-const BACKEND_BASE = process.env.VITE_BACKEND_URL || 'http://localhost:8765';
 const VALIDATION_TIMEOUT = requireInt('ZENITH_VALIDATION_TIMEOUT') * 1000 + 5000;
-
-function backendUrl(path: string): string {
-  return `${BACKEND_BASE.replace(/\/+$/, '')}${path}`;
-}
-
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(VALIDATION_TIMEOUT),
-    ...options,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Backend error ${res.status}: ${text || res.statusText}`);
-  }
-  return res.json() as Promise<T>;
-}
 
 export class StartupService {
   private _state: AppStartupState = {
@@ -54,12 +37,23 @@ export class StartupService {
     }
   }
 
+  private isConnectionError(err: unknown): boolean {
+    if (err instanceof TypeError && err.message === 'Failed to fetch') return true;
+    if (err instanceof Error) {
+      const m = err.message;
+      return (
+        m.includes('NetworkError') || m.includes('network') || m.includes('ECONNREFUSED') || m.includes('fetch failed')
+      );
+    }
+    return false;
+  }
+
   async initialize(): Promise<AppStartupState> {
     this._state = { phase: 'loading', result: null, error: null };
     this._notify();
 
     try {
-      const result = await fetchJson<StartupResult>(backendUrl('/startup/validate'));
+      const result = await fetchJson<StartupResult>('/startup/validate');
 
       await providerRepository.refreshFromBackend();
       this._state = { phase: result.status === 'ready' ? 'ready' : 'setup', result, error: null };
@@ -68,10 +62,7 @@ export class StartupService {
       this._state = {
         phase: 'error',
         result: null,
-        error:
-          message.includes('fetch') || message.includes('NetworkError')
-            ? 'Cannot connect to backend. Run: zenith serve'
-            : message,
+        error: this.isConnectionError(err) ? 'Cannot connect to backend. Run: zenith serve' : message,
       };
     }
 
@@ -81,9 +72,10 @@ export class StartupService {
 
   async validateProvider(request: ProviderSetupRequest): Promise<ProviderSetupResult> {
     try {
-      return await fetchJson<ProviderSetupResult>(backendUrl('/startup/validate-provider'), {
+      return await fetchJson<ProviderSetupResult>('/startup/validate-provider', {
         method: 'POST',
         body: JSON.stringify(request),
+        timeout: VALIDATION_TIMEOUT,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -93,9 +85,10 @@ export class StartupService {
 
   async saveProviderConfig(request: ProviderSetupRequest): Promise<ProviderSetupResult> {
     try {
-      return await fetchJson<ProviderSetupResult>(backendUrl('/startup/save-config'), {
+      return await fetchJson<ProviderSetupResult>('/startup/save-config', {
         method: 'POST',
         body: JSON.stringify(request),
+        timeout: VALIDATION_TIMEOUT,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';

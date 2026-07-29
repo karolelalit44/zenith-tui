@@ -86,9 +86,6 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
             </Text>
             <Box marginTop={1} flexDirection="column">
               <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/mode</Text> Switch Build / Plan
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
                 <Text color={theme.colors.status.success}>/provider</Text> AI Provider Management
               </Text>
               <Text color={theme.colors.text.ethereal}>

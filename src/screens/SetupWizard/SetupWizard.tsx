@@ -58,17 +58,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   // Re-sync modelIdx when selectedProvider changes
   React.useEffect(() => {
     setModelIdx(defaultModelIndex);
-  }, [selectedProvider.id]);
+  }, [defaultModelIndex]);
 
   const handleValidateAndSave = useCallback(async () => {
     setStep('validating');
     const userSelectedModel = models[modelIdx]?.id || selectedProvider.meta.defaultModel;
-    const validationModel = selectedProvider.meta.defaultModel;
 
     const validationRequest: ProviderSetupRequest = {
       provider: selectedProvider.id,
       api_key: apiKeyInput,
-      model: validationModel,
+      model: userSelectedModel,
       base_url: selectedProvider.config.baseUrl || '',
       max_tokens: 4096,
       temperature: 0.7,
@@ -100,6 +99,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
 
   useInput((char, key) => {
     if (step === 'intro') {
+      if (key.escape) process.exit(0);
       if (key.return || char === ' ') setStep('select_provider');
       return;
     }
@@ -522,7 +522,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   };
 
   const renderHotkeys = () => {
-    if (step === 'intro') return 'Enter — Start Setup';
+    if (step === 'intro') return 'Enter — Start Setup  |  Esc — Exit';
     if (step === 'select_provider') return '↑↓ — Navigate  |  Enter — Select  |  Esc — Back';
     if (step === 'enter_key')
       return editingField

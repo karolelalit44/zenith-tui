@@ -1,13 +1,12 @@
 """End-to-end tests: live server → WebSocket client → events → EventMapper validation.
 
-Tests the full pipeline: frontend request → backend processing → events → frontend rendering.
+Tests the full pipeline: frontend request → zenith processing → events → frontend rendering.
 Uses a real uvicorn server with a mock EchoProvider to avoid needing API keys.
 """
 
 import asyncio
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -34,7 +33,7 @@ import asyncio
 import logging
 logging.disable(logging.CRITICAL)
 
-from zenith.providers.base import BaseProvider
+from providers.base import BaseProvider
 
 class EchoProvider(BaseProvider):
     def __init__(self):
@@ -42,7 +41,7 @@ class EchoProvider(BaseProvider):
     async def complete(self, messages, tools=None):
         user_msg = messages[-1]["content"] if messages else ""
         return f"Echo: {user_msg}"
-    async def stream(self, messages, tools=None):
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages)
         for word in response.split():
             yield (word + " ", None)
@@ -59,7 +58,7 @@ def echo_server(tmp_path_factory):
     """Start a real zenith server with EchoProvider in a subprocess."""
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
-    workspace = str(tmp_path_factory.mktemp("workspace"))
+    str(tmp_path_factory.mktemp("workspace"))
 
     # Write the provider monkey-patch to a temp file
     prov_file = Path(tempfile.mktemp(suffix=".py"))
@@ -98,7 +97,7 @@ spec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-import zenith.providers.registry as reg
+import providers.registry as reg
 _orig_from_config = reg.ProviderRegistry.from_config
 
 def _patched_from_config(providers, active, **kw):
@@ -109,12 +108,12 @@ def _patched_from_config(providers, active, **kw):
 reg.ProviderRegistry.from_config = _patched_from_config
 
 # Also patch load_config result to add echo provider
-import zenith.config.loader as loader
+import config.loader as loader
 _orig_load = loader.load_config
 
 def _patched_load(*a, **kw):
     cfg = _orig_load(*a, **kw)
-    from zenith.config.providers import ProviderConfig
+    from config.providers import ProviderConfig
     if cfg.providers is None:
         cfg.providers = {{}}
     cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")
@@ -124,7 +123,7 @@ def _patched_load(*a, **kw):
 loader.load_config = _patched_load
 
 import uvicorn
-uvicorn.run("zenith.transport.server:app", host="127.0.0.1", port={port}, log_level="error")
+uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")
 '''
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
@@ -167,15 +166,16 @@ uvicorn.run("zenith.transport.server:app", host="127.0.0.1", port={port}, log_le
 @pytest.mark.asyncio
 async def test_http_health():
     """Server health endpoint returns ok."""
-    from httpx import AsyncClient, ASGITransport
-    from zenith.transport.server import create_app
-    import zenith.transport.server as srv
-    from zenith.config.settings import AppSettings
-    from zenith.config.providers import ProviderConfig
-    from zenith.db.connection import Database
-    from zenith.providers.registry import ProviderRegistry
-    from zenith.providers.base import BaseProvider
-    from zenith.transport.websocket import ZenithHandler
+    from httpx import ASGITransport, AsyncClient
+
+    import transport.server as srv
+    from config.providers import ProviderConfig
+    from config.settings import AppSettings
+    from db.connection import Database
+    from providers.base import BaseProvider
+    from providers.registry import ProviderRegistry
+    from transport.server import create_app
+    from transport.websocket import ZenithHandler
 
     class _HP(BaseProvider):
         def __init__(self):
@@ -220,15 +220,16 @@ async def test_http_health():
 @pytest.mark.asyncio
 async def test_http_status():
     """Server status endpoint returns ready with provider info."""
-    from httpx import AsyncClient, ASGITransport
-    from zenith.transport.server import create_app
-    import zenith.transport.server as srv
-    from zenith.config.settings import AppSettings
-    from zenith.config.providers import ProviderConfig
-    from zenith.db.connection import Database
-    from zenith.providers.registry import ProviderRegistry
-    from zenith.providers.base import BaseProvider
-    from zenith.transport.websocket import ZenithHandler
+    from httpx import ASGITransport, AsyncClient
+
+    import transport.server as srv
+    from config.providers import ProviderConfig
+    from config.settings import AppSettings
+    from db.connection import Database
+    from providers.base import BaseProvider
+    from providers.registry import ProviderRegistry
+    from transport.server import create_app
+    from transport.websocket import ZenithHandler
 
     class _SP(BaseProvider):
         def __init__(self):
@@ -299,7 +300,7 @@ async def _collect_events(ws, timeout: float = 15) -> list[dict]:
             data = json.loads(raw)
             if data.get("method") == "event":
                 events.append(data)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
     return events
 

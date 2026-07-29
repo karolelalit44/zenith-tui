@@ -1,9 +1,8 @@
 """Tests for agent loop: tool call parsing, formatting, multi-step."""
 
-import pytest
-from zenith.providers.parser import parse_tool_calls
-from zenith.agent.loop import _format_tool_result
-from zenith.tools.base import ToolResult
+from agent.loop import _format_tool_result
+from providers.parser import parse_tool_calls
+from tools.base import ToolResult
 
 
 class TestParseToolCalls:

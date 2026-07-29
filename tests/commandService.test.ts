@@ -5,7 +5,7 @@ describe('CommandService Dynamic options.json Loader', () => {
   const service = new CommandService();
 
   it('loads command options from options.json', () => {
-    const handled = service.dispatchCommand('/mode', {
+    const handled = service.dispatchCommand('/help', {
       openOverlay: vi.fn(),
       clearTurns: vi.fn(),
       compactTurns: vi.fn(),

@@ -9,7 +9,7 @@ interface ErrorBlockProps {
   context?: EventRenderContext;
 }
 
-const MAX_MESSAGE_LENGTH = 200;
+const _MAX_MESSAGE_LENGTH = 200;
 
 export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
@@ -42,37 +42,35 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, contex
         {event.code && (
           <Box flexDirection="row" marginTop={0}>
             <Text color={theme.colors.text.muted}>Code: </Text>
-            <Text color={theme.colors.status.warning}>
-              {event.code}
-            </Text>
+            <Text color={theme.colors.status.warning}>{event.code}</Text>
           </Box>
         )}
 
         {event.provider && (
           <Box flexDirection="row" marginTop={0}>
             <Text color={theme.colors.text.muted}>Provider: </Text>
-            <Text color={theme.colors.text.bright}>
-              {event.provider}
-            </Text>
+            <Text color={theme.colors.text.bright}>{event.provider}</Text>
           </Box>
         )}
 
         <Box flexDirection="row" alignItems="center" flexWrap="wrap" marginTop={0}>
-          <Text color={theme.colors.text.muted}>
-            {event.recoverable ? 'Recoverable' : 'Execution halted'}
-          </Text>
+          <Text color={theme.colors.text.muted}>{event.recoverable ? 'Recoverable' : 'Execution halted'}</Text>
         </Box>
 
         {event.recoverable && (context?.onRetry || context?.onDismiss) && (
           <Box flexDirection="row" marginTop={1} paddingX={1}>
             {context?.onRetry && (
               <Box marginRight={2}>
-                <Text color={theme.colors.status.success} bold>[R] Retry</Text>
+                <Text color={theme.colors.status.success} bold>
+                  [R] Retry
+                </Text>
               </Box>
             )}
             {context?.onDismiss && (
               <Box>
-                <Text color={theme.colors.text.muted} bold>[D] Dismiss</Text>
+                <Text color={theme.colors.text.muted} bold>
+                  [D] Dismiss
+                </Text>
               </Box>
             )}
           </Box>

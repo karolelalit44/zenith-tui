@@ -3,7 +3,7 @@
 import os
 import tempfile
 
-# ── Set ALL required env vars BEFORE importing anything from zenith ──
+# ── Set ALL required env vars BEFORE importing anything from ──
 _test_tmpdir = tempfile.mkdtemp()
 
 _env_defaults = {
@@ -42,12 +42,13 @@ for key, val in _env_defaults.items():
 
 # ── Now safe to import zenith modules ──
 
-import pytest
 from pathlib import Path
 
-from zenith.config.settings import AppSettings
-from zenith.db.connection import Database
-from zenith.core.events import Event, EventKind
+import pytest
+
+from config.settings import AppSettings
+from core.events import Event, EventKind
+from db.connection import Database
 
 
 @pytest.fixture

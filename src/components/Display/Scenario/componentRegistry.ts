@@ -38,6 +38,7 @@ class ComponentRegistry {
     this.register('success', SuccessCard as EventComponentType);
     this.register('progress', ProgressBar as EventComponentType);
     this.register('confirmation_request', ConfirmationCard as EventComponentType);
+    this.register('plan_ready', MessageBlock as EventComponentType);
   }
 
   public register(kind: string, component: EventComponentType): void {

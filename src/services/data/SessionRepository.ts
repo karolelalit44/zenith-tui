@@ -1,24 +1,34 @@
-interface SessionItem {
-  time: string;
+import { wsClient } from '../backend/WebSocketClient';
+
+export interface SessionItem {
+  id: string;
   title: string;
+  time: string;
+  state: string;
+  message_count: number;
+  total_tokens: number;
 }
 
-const INITIAL_SESSIONS: SessionItem[] = [{ time: '15:35, 22 July', title: 'Refactored authentication flow' }];
+export const getRecentSessions = async (limit: number = 10): Promise<SessionItem[]> => {
+  try {
+    const summaries = await wsClient.listSessionSummaries({ limit, include_archived: false });
+    return summaries.map((s: any) => ({
+      id: s.id,
+      title: s.title || 'Untitled',
+      time: s.created_at || s.updated_at || '',
+      state: s.state || '',
+      message_count: s.message_count || 0,
+      total_tokens: s.total_tokens || 0,
+    }));
+  } catch {
+    return [];
+  }
+};
 
-let sessions: SessionItem[] = [...INITIAL_SESSIONS];
-
-export const getRecentSessions = (): SessionItem[] => sessions;
-
-export const addSession = (title: string): void => {
-  const now = new Date();
-  const day = now.getDate();
-  const month = now.toLocaleString('default', { month: 'short' });
-  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-
-  const newSession: SessionItem = {
-    time: `${timeStr}, ${day} ${month}`,
-    title,
-  };
-
-  sessions = [newSession, ...sessions.filter((s) => s.title !== title)].slice(0, 3);
+export const addSession = async (title: string): Promise<void> => {
+  try {
+    await wsClient.createSession(title);
+  } catch {
+    // Silently handle — session is tracked server-side
+  }
 };

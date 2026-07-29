@@ -159,6 +159,49 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
   while (idx < rawLines.length) {
     const line = rawLines[idx];
 
+    // Intercept raw tool call dumps like [file_write path="..." content="..."]
+    const fileWriteMatch = line.trim().match(/^\[file_write\s+path=["']([^"']+)["']\s+content=["']([\s\S]*)["']\]?$/);
+    if (fileWriteMatch) {
+      const filePath = fileWriteMatch[1];
+      const rawContent = fileWriteMatch[2].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+      const ext = filePath.split('.').pop() || 'text';
+      const fileCodeLines = rawContent.split('\n');
+      const MAX_CODE_LINES = 15;
+      const isTruncated = fileCodeLines.length > MAX_CODE_LINES;
+      const visibleLines = isTruncated ? fileCodeLines.slice(0, MAX_CODE_LINES) : fileCodeLines;
+
+      blocks.push(
+        <Box key={`filewrite_${idx}`} flexDirection="column" marginY={1} width="100%">
+          <Box flexDirection="row" justifyContent="space-between" paddingX={1} backgroundColor={theme.colors.bg.modal}>
+            <Text color={theme.colors.status.success} bold>
+              ✓ [FILE_WRITE] {filePath}
+            </Text>
+            <Text color={theme.colors.text.muted}>
+              {fileCodeLines.length} {fileCodeLines.length === 1 ? 'line' : 'lines'}
+            </Text>
+          </Box>
+          <Box
+            flexDirection="column"
+            paddingX={1}
+            paddingY={0}
+            borderStyle="round"
+            borderColor={theme.colors.border.muted}
+          >
+            {visibleLines.map((cL, cIdx) => (
+              <Text key={cIdx}>{highlightCode(cL, ext)}</Text>
+            ))}
+            {isTruncated && (
+              <Text color={theme.colors.text.muted} italic>
+                ... [{fileCodeLines.length - MAX_CODE_LINES} more lines collapsed]
+              </Text>
+            )}
+          </Box>
+        </Box>,
+      );
+      idx++;
+      continue;
+    }
+
     // Code Block
     if (line.trim().startsWith('```')) {
       const lang = line.trim().replace(/^```/, '').toUpperCase() || 'CODE';
@@ -181,7 +224,8 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
               [{lang}]
             </Text>
             <Text color={theme.colors.text.muted}>
-              {codeLines.length} lines{isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
+              {codeLines.length} {codeLines.length === 1 ? 'line' : 'lines'}
+              {isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
             </Text>
           </Box>
           <Box
@@ -204,7 +248,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       );
       continue;
     }
-
 
     // Markdown Table
     if (line.trim().startsWith('|') && idx + 1 < rawLines.length && rawLines[idx + 1].includes('---')) {

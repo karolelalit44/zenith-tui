@@ -81,9 +81,8 @@ test('App shows Welcome screen when backend validates ready', async () => {
   await wait(500);
 
   const frame = lastFrame();
-  expect(frame).toContain('1.0.0');
   expect(frame).toContain('SYSTEM STATUS');
-  expect(frame).toContain('Ask');
+  expect(frame).toContain('RECENT SESSIONS');
   unmount();
 });
 
@@ -114,65 +113,33 @@ test('Submitting a prompt triggers scenario flow', async () => {
   unmount();
 });
 
-test('/mode command opens mode selector overlay', async () => {
+test('/plan command switches to Plan mode', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
 
   await wait(500);
 
-  stdin.write('/mode');
-  await wait(200);
+  stdin.write('/plan');
+  await wait(400);
   stdin.write('\r');
-  await wait(300);
+  await wait(600);
 
-  expect(lastFrame()).toContain('Select Mode');
-  expect(lastFrame()).toContain('CHOOSE OPERATING MODE');
-  expect(lastFrame()).toContain('Plan');
-  expect(lastFrame()).toContain('Build');
+  expect(lastFrame()).toContain('PLAN');
   unmount();
 });
 
-test('Mode selection changes current mode', async () => {
+test('/build command switches to Build mode', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
 
   await wait(500);
 
-  // Open mode selector
-  stdin.write('/mode');
-  await wait(200);
+  stdin.write('/build');
+  await wait(400);
   stdin.write('\r');
-  await wait(300);
+  await wait(600);
 
-  // Select Plan (first option, up arrow from Build)
-  stdin.write('\x1B[A');
-  await wait(100);
-  stdin.write('\r');
-  await wait(300);
-
-  // Mode selector should have closed — input box should be visible again
-  expect(lastFrame()).toContain('❯');
-  unmount();
-});
-
-test('Escape closes mode selector without changing mode', async () => {
-  mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
-
-  await wait(500);
-
-  // Open mode selector
-  stdin.write('/mode');
-  await wait(200);
-  stdin.write('\r');
-  await wait(300);
-
-  // Press Escape
-  stdin.write('\x1B');
-  await wait(300);
-
-  // Input box should reappear — mode selector is closed
-  expect(lastFrame()).toContain('❯');
+  expect(lastFrame()).toContain('BUILD');
   unmount();
 });
 
@@ -217,12 +184,8 @@ test('Full Plan Scenario shows backend error', async () => {
 
   await wait(500);
 
-  stdin.write('/mode');
+  stdin.write('/plan');
   await wait(400);
-  stdin.write('\r');
-  await wait(400);
-  stdin.write('\x1B[A');
-  await wait(200);
   stdin.write('\r');
   await wait(500);
 

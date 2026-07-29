@@ -1,7 +1,8 @@
 import pytest
-from zenith.core.session import Session
-from zenith.core.message import Message
-from zenith.db.repository import SessionRepository, MessageRepository
+
+from core.message import Message
+from core.session import Session
+from db.repository import MessageRepository, SessionRepository
 
 
 @pytest.mark.asyncio
@@ -72,7 +73,7 @@ async def test_message_count_tokens(db):
 
 @pytest.mark.asyncio
 async def test_message_with_events(db):
-    from zenith.core.events import Event, EventKind
+    from core.events import Event, EventKind
     s_repo = SessionRepository(db)
     m_repo = MessageRepository(db)
     session = Session(title="With Events")

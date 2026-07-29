@@ -21,9 +21,7 @@ function BashResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType
   const exitCode = typeof event.metadata.exit_code === 'number' ? event.metadata.exit_code : undefined;
   const duration = typeof event.metadata.duration_ms === 'number' ? event.metadata.duration_ms : undefined;
 
-  const cleanedOutput = outputLines
-    .map((l) => l.replace(/\r/g, ''))
-    .filter((l) => l.trim().length > 0);
+  const cleanedOutput = outputLines.map((l) => l.replace(/\r/g, '')).filter((l) => l.trim().length > 0);
 
   const width = Math.min(process.stdout.columns ?? 80, 80) - 4;
 
@@ -42,7 +40,9 @@ function BashResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType
       <Box flexDirection="column" width="100%">
         <Box flexDirection="row">
           <Text color={theme.colors.border.muted}>{'┌─'}</Text>
-          <Text color={theme.colors.text.dim} bold>{' terminal '}</Text>
+          <Text color={theme.colors.text.dim} bold>
+            {' terminal '}
+          </Text>
           <Text color={theme.colors.border.muted}>{'─'.repeat(Math.max(0, width - 14))}</Text>
           <Text color={theme.colors.border.muted}>{'┐'}</Text>
         </Box>
@@ -51,34 +51,37 @@ function BashResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType
           cleanedOutput.slice(0, 50).map((line, idx) => (
             <Box key={idx} flexDirection="row" width="100%">
               <Text color={theme.colors.border.muted}>{'│'}</Text>
-              <Text color={theme.colors.code.output} wrap="wrap">{' '}{line}</Text>
+              <Text color={theme.colors.code.output} wrap="wrap">
+                {' '}
+                {line}
+              </Text>
             </Box>
           ))
         ) : (
           <Box flexDirection="row" width="100%">
             <Text color={theme.colors.border.muted}>{'│'}</Text>
-            <Text color={theme.colors.text.muted} italic>{'  (no output)'}</Text>
+            <Text color={theme.colors.text.muted} italic>
+              {'  (no output)'}
+            </Text>
           </Box>
         )}
 
         {outputLines.length > 50 && (
           <Box flexDirection="row" width="100%">
             <Text color={theme.colors.border.muted}>{'│'}</Text>
-            <Text color={theme.colors.text.muted}>{'  ... '}{outputLines.length - 50} more lines</Text>
+            <Text color={theme.colors.text.muted}>
+              {'  ... '}
+              {outputLines.length - 50} more lines
+            </Text>
           </Box>
         )}
 
         <Box flexDirection="row" width="100%">
           <Text color={theme.colors.border.muted}>{'├─'}</Text>
-          <Text
-            color={event.success ? theme.colors.status.success : theme.colors.status.error}
-            bold
-          >
+          <Text color={event.success ? theme.colors.status.success : theme.colors.status.error} bold>
             {` exit ${exitCode ?? 0} `}
           </Text>
-          {duration !== undefined && (
-            <Text color={theme.colors.text.dim}>{(duration / 1000).toFixed(1)}s</Text>
-          )}
+          {duration !== undefined && <Text color={theme.colors.text.dim}>{(duration / 1000).toFixed(1)}s</Text>}
           <Text color={theme.colors.border.muted}>{'─'.repeat(Math.max(0, width - 20))}</Text>
           <Text color={theme.colors.border.muted}>{'┘'}</Text>
         </Box>
@@ -109,9 +112,7 @@ function FileToolResult({ event, theme }: { event: ToolResultEvent; theme: Theme
 }
 
 function DefaultResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType }) {
-  const outputPreview = event.output
-    ? event.output.split('\n').slice(0, 10).join('\n')
-    : '';
+  const outputPreview = event.output ? event.output.split('\n').slice(0, 10).join('\n') : '';
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
@@ -119,12 +120,8 @@ function DefaultResult({ event, theme }: { event: ToolResultEvent; theme: ThemeT
         <Text color={event.success ? theme.colors.status.success : theme.colors.status.error} bold>
           {event.success ? '✓' : '✗'} [{event.tool.toUpperCase()}]{' '}
         </Text>
-        <Text color={theme.colors.text.bright}>
-          {event.success ? 'Completed' : 'Failed'}
-        </Text>
-        {event.error && (
-          <Text color={theme.colors.status.error}> - {event.error}</Text>
-        )}
+        <Text color={theme.colors.text.bright}>{event.success ? 'Completed' : 'Failed'}</Text>
+        {event.error && <Text color={theme.colors.status.error}> - {event.error}</Text>}
       </Box>
       {outputPreview && (
         <Box paddingLeft={3} marginTop={0}>
@@ -136,7 +133,9 @@ function DefaultResult({ event, theme }: { event: ToolResultEvent; theme: ThemeT
       )}
       {event.truncated && (
         <Box paddingLeft={3}>
-          <Text color={theme.colors.text.muted} italic>(output truncated)</Text>
+          <Text color={theme.colors.text.muted} italic>
+            (output truncated)
+          </Text>
         </Box>
       )}
     </Box>
@@ -183,11 +182,7 @@ export const ToolResultCard: React.FC<ToolResultCardProps> = React.memo(({ event
                 {line}
               </Text>
             ))}
-            {lines.length > 30 && (
-              <Text color={theme.colors.text.muted}>
-                ... ({lines.length - 30} more lines)
-              </Text>
-            )}
+            {lines.length > 30 && <Text color={theme.colors.text.muted}>... ({lines.length - 30} more lines)</Text>}
           </Box>
         )}
       </Box>

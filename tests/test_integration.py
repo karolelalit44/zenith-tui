@@ -1,33 +1,26 @@
 """Integration tests — full workflow tests across all modules."""
 
-import pytest
-import asyncio
-import json
-import tempfile
 from pathlib import Path
-from datetime import datetime
 
-from zenith.config.settings import AppSettings
-from zenith.config.providers import ProviderConfig
-from zenith.db.connection import Database
-from zenith.db.repository import SessionRepository, MessageRepository
-from zenith.providers.registry import ProviderRegistry
-from zenith.providers.base import BaseProvider
-from zenith.core.session import Session
-from zenith.core.message import Message
-from zenith.core.events import Event, EventKind
-from zenith.tools import create_default_registry
-from zenith.tools.base import ToolResult
-from zenith.agent.loop import AgentLoop, _format_tool_result
-from zenith.agent.recovery import RecoverableAgentLoop
-from zenith.agent.context import ContextManager
-from zenith.session.export import SessionExporter
-from zenith.session.history import HistoryManager
-from zenith.workspace.tracker import FileTracker
-from zenith.workspace.repo_map import RepoMap
-from zenith.skills.loader import SkillLoader
-from zenith.transport.shutdown import GracefulShutdown
+import pytest
 
+from agent.context import ContextManager
+from agent.loop import AgentLoop
+from agent.recovery import RecoverableAgentLoop
+from config.providers import ProviderConfig
+from config.settings import AppSettings
+from core.events import Event, EventKind
+from core.message import Message
+from core.session import Session
+from db.connection import Database
+from providers.base import BaseProvider
+from providers.registry import ProviderRegistry
+from session.export import SessionExporter
+from skills.loader import SkillLoader
+from tools import create_default_registry
+from transport.shutdown import GracefulShutdown
+from workspace.repo_map import RepoMap
+from workspace.tracker import FileTracker
 
 # ── Test Provider ───────────────────────────────────────────────────
 
@@ -47,7 +40,7 @@ class EchoProvider(BaseProvider):
             return '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
         return f"Echo: {user_msg}"
 
-    async def stream(self, messages: list[dict], tools=None):
+    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)
@@ -123,7 +116,7 @@ class TestAgentWorkflow:
     async def test_plan_mode_blocks_write_tools(self, test_config):
         provider = EchoProvider()
         tool_registry = create_default_registry()
-        agent = AgentLoop(test_config, provider, tool_registry=tool_registry)
+        AgentLoop(test_config, provider, tool_registry=tool_registry)
 
         # Verify tool registry enforces plan mode
         result = await tool_registry.execute(
@@ -167,7 +160,7 @@ class TestErrorRecovery:
 
     @pytest.mark.asyncio
     async def test_recoverable_provider_error(self, test_config):
-        from zenith.core.errors import ProviderError
+        from core.errors import ProviderError
 
         class RateLimitedProvider(BaseProvider):
             def __init__(self):
@@ -192,7 +185,7 @@ class TestErrorRecovery:
             events.append(event)
 
         error_events = [e for e in events if e.kind == EventKind.ERROR]
-        warning_events = [e for e in events if e.kind == EventKind.WARNING]
+        [e for e in events if e.kind == EventKind.WARNING]
         assert len(error_events) >= 1
         # RECOVERY_HINT warnings removed — error event carries recoverable flag instead
         assert any(e.data.get("recoverable") is True for e in error_events)

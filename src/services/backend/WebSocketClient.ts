@@ -11,7 +11,7 @@ if (typeof WebSocket === 'undefined') {
   }
 }
 
-type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+export type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -39,6 +39,17 @@ export interface JsonRpcEvent {
   };
 }
 
+export interface SessionSummary {
+  id: string;
+  title: string;
+  state: string;
+  mode: string;
+  message_count: number;
+  total_tokens: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -50,9 +61,17 @@ export class WebSocketClient {
   private emitter = new EventEmitter();
   private _status: WsStatus = 'disconnected';
   private rpcTimeout = requireInt('ZENITH_WS_RPC_TIMEOUT');
+  private _connectedAt: number = 0;
 
   constructor(url?: string) {
-    this.url = url || this.detectBackendUrl();
+    this.url = url || WebSocketClient.detectBackendUrl();
+  }
+
+  private static detectBackendUrl(): string {
+    if (typeof process !== 'undefined' && process.env?.ZENITH_BACKEND_URL) {
+      return process.env.ZENITH_BACKEND_URL;
+    }
+    return 'ws://localhost:8765/ws';
   }
 
   get status(): WsStatus {
@@ -83,6 +102,7 @@ export class WebSocketClient {
         this.ws = new WebSocket(this.url);
         this.ws.onopen = () => {
           this.reconnectAttempts = 0;
+          this._connectedAt = Date.now();
           this.setStatus('connected');
           resolve();
         };
@@ -96,6 +116,10 @@ export class WebSocketClient {
         };
         this.ws.onclose = () => {
           this.setStatus('disconnected');
+          const wasStable = Date.now() - this._connectedAt > 5000;
+          if (wasStable) {
+            this.reconnectAttempts = 0;
+          }
           this.reconnect();
         };
         this.ws.onerror = (evt) => {
@@ -145,21 +169,104 @@ export class WebSocketClient {
     });
   }
 
+  // ── Session RPC methods ──────────────────────────────────────────
+
   createSession(title?: string): Promise<{ id: string; title: string }> {
     return this.send('session.create', { title });
   }
+
+  listActiveSessions(): Promise<SessionSummary[]> {
+    return this.send('session.list');
+  }
+
+  listAllSessions(params?: {
+    limit?: number;
+    offset?: number;
+    include_archived?: boolean;
+    search?: string;
+    state_filter?: string;
+  }): Promise<SessionSummary[]> {
+    return this.send('session.list_all', params || {});
+  }
+
+  listSessionSummaries(params?: { limit?: number; include_archived?: boolean }): Promise<SessionSummary[]> {
+    return this.send('session.summaries', params || {});
+  }
+
+  resumeSession(
+    sessionId: string,
+    sinceSequence?: number,
+  ): Promise<{
+    session: Record<string, unknown>;
+    messages: Record<string, unknown>[];
+    events_replayed: number;
+    sync_events: Record<string, unknown>[];
+    latest_sequence: number;
+  }> {
+    return this.send('session.resume', { session_id: sessionId, since_sequence: sinceSequence ?? 0 });
+  }
+
+  updateSession(params: {
+    session_id?: string;
+    title?: string;
+    context_used?: number;
+    context_window?: number;
+    tokens?: number;
+    cost?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.send('session.update', params);
+  }
+
+  pauseSession(sessionId: string): Promise<Record<string, unknown>> {
+    return this.send('session.pause', { session_id: sessionId });
+  }
+
+  archiveSession(sessionId: string): Promise<Record<string, unknown>> {
+    return this.send('session.archive', { session_id: sessionId });
+  }
+
+  deleteSession(sessionId: string): Promise<{ status: string }> {
+    return this.send('session.delete', { session_id: sessionId });
+  }
+
+  checkpointSession(sessionId: string): Promise<{ checkpoint_id: string }> {
+    return this.send('session.checkpoint', { session_id: sessionId });
+  }
+
+  duplicateSession(sessionId: string, title?: string): Promise<Record<string, unknown>> {
+    return this.send('session.duplicate', { session_id: sessionId, title });
+  }
+
+  restoreSession(sessionId: string): Promise<Record<string, unknown>> {
+    return this.send('session.restore', { session_id: sessionId });
+  }
+
+  getSyncEvents(
+    sessionId: string,
+    sinceSequence?: number,
+  ): Promise<{
+    events: Record<string, unknown>[];
+    latest_sequence: number;
+  }> {
+    return this.send('session.sync', { session_id: sessionId, since_sequence: sinceSequence ?? 0 });
+  }
+
+  // ── Prompt RPC methods ──────────────────────────────────────────
 
   sendPrompt(
     content: string,
     mode: string = 'build',
     sessionId?: string,
+    provider?: string,
   ): Promise<{ session_id: string; status: string }> {
-    return this.send('prompt.send', { content, mode, session_id: sessionId });
+    return this.send('prompt.send', { content, mode, session_id: sessionId, provider });
   }
 
   sendConfirmation(confirmationId: string, approved: boolean): Promise<void> {
     return this.send('confirmation.response', { confirmation_id: confirmationId, approved }) as Promise<void>;
   }
+
+  // ── Internal ────────────────────────────────────────────────────
 
   private handleMessage(data: JsonRpcResponse | JsonRpcEvent): void {
     if ('method' in data && data.method === 'event') {
@@ -191,17 +298,13 @@ export class WebSocketClient {
     this.reconnectAttempts++;
     this.setStatus('reconnecting');
 
-    const delay = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
+    const base = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
+    const jitter = Math.random() * this.reconnectDelay;
+    const delay = Math.min(base + jitter, 30_000);
+    this.url = WebSocketClient.detectBackendUrl();
     setTimeout(() => {
       this.connect().catch(() => {});
     }, delay);
-  }
-
-  private detectBackendUrl(): string {
-    if (typeof process !== 'undefined' && process.env?.ZENITH_BACKEND_URL) {
-      return process.env.ZENITH_BACKEND_URL;
-    }
-    return 'ws://localhost:8765/ws';
   }
 }
 
