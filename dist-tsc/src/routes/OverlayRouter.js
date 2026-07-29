@@ -5,6 +5,7 @@ import { HelpModal } from '../screens/Help/HelpModal';
 import { ModeSelectScreen } from '../screens/ModeSelect';
 import { SettingsModal } from '../screens/Settings/SettingsModal';
 import { SetupWizard } from '../screens/SetupWizard';
+import UsageModal from '../screens/Usage/UsageModal';
 export const OverlayRouter = ({ overlay, isOverlayOpen, selectedMode, totalTokens, events, startupState, onSelectMode, onClose, onComplete, }) => {
     if (!isOverlayOpen)
         return null;
@@ -18,5 +19,7 @@ export const OverlayRouter = ({ overlay, isOverlayOpen, selectedMode, totalToken
         overlay === 'context' && (React.createElement(Box, { flexDirection: "column", marginTop: 1, width: "100%" },
             React.createElement(ContextModal, { totalTokens: totalTokens, runningEvents: events, onClose: onClose }))),
         overlay === 'provider' && (React.createElement(Box, { flexDirection: "column", marginTop: 1, width: "100%" },
-            React.createElement(SetupWizard, { startupState: startupState, onComplete: onComplete, mode: "reconfigure" })))));
+            React.createElement(SetupWizard, { startupState: startupState, onComplete: onComplete, mode: "reconfigure" }))),
+        overlay === 'usage' && (React.createElement(Box, { flexDirection: "column", marginTop: 1, width: "100%" },
+            React.createElement(UsageModal, { onClose: onClose })))));
 };

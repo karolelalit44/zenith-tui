@@ -5,9 +5,10 @@ from __future__ import annotations
 import platform
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
 
 class PromptTemplate:
     """Simple {{variable}} substitution template."""
@@ -65,7 +66,7 @@ class PromptBuilder:
 
         # Set built-in variables
         template.set("workspace_root", workspace_root)
-        template.set("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        template.set("date", datetime.now(UTC).strftime("%Y-%m-%d"))
         template.set("platform", sys.platform)
         template.set("os", f"{platform.system()} {platform.release()}")
         template.set("python_version", platform.python_version())

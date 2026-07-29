@@ -1,13 +1,18 @@
 """Tests for provider architecture — base, registry, retry, typed interface."""
 
 import pytest
+
 from providers.base import (
-    BaseProvider, ProviderResponse, ProviderChunk,
-    TokenUsage, ToolCall, ToolCallDelta, ModelInfo,
+    BaseProvider,
+    ModelInfo,
+    ProviderChunk,
+    ProviderResponse,
+    TokenUsage,
+    ToolCall,
+    ToolCallDelta,
 )
 from providers.registry import ProviderRegistry
 from providers.retry import RetryPolicy
-
 
 # ── ProviderResponse ─────────────────────────────────────────────────────
 

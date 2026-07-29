@@ -1,7 +1,7 @@
 """Tests for agent loop: tool call parsing, formatting, multi-step."""
 
-from providers.parser import parse_tool_calls
 from agent.loop import _format_tool_result
+from providers.parser import parse_tool_calls
 from tools.base import ToolResult
 
 

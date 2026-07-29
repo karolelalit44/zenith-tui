@@ -12,7 +12,7 @@ const SUGGESTIONS = [
   'Create a new module with proper structure',
 ];
 
-export const WelcomeView: React.FC<WelcomeViewProps> = ({ workspace }) => {
+export const WelcomeView: React.FC<WelcomeViewProps> = ({ workspace: _workspace }) => {
   const { theme } = useTheme();
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">

@@ -12,9 +12,10 @@ Backward-compatible with the existing interface.
 from __future__ import annotations
 
 import uuid
-from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from .domain import ScenarioMode, SessionState
 
@@ -37,14 +38,14 @@ class Session(BaseModel):
 
     # New structured fields
     state: SessionState = SessionState.CREATED
-    parent_session_id: Optional[str] = None
+    parent_session_id: str | None = None
     child_session_ids: list[str] = Field(default_factory=list)
     plan_output: str = ""
-    plan_approved_at: Optional[datetime] = None
+    plan_approved_at: datetime | None = None
     message_count: int = 0
     total_tokens: int = 0
-    model: Optional[str] = None
-    provider: Optional[str] = None
+    model: str | None = None
+    provider: str | None = None
 
     def transition(self, new_state: SessionState) -> None:
         """Transition to a new state with validation."""

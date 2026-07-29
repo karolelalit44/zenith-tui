@@ -1,16 +1,25 @@
 """Tests for core architecture — domain, events, message, session, errors."""
 
 import pytest
+
 from core.domain import (
-    ScenarioMode, RiskLevel, AgentRole, SessionState, DeliveryMode,
+    AgentRole,
+    DeliveryMode,
+    RiskLevel,
+    ScenarioMode,
+    SessionState,
 )
-from core.events import Event, EventKind, AsyncEventBus
+from core.errors import (
+    ConfigError,
+    ProviderError,
+    RateLimitError,
+    SessionNotFound,
+    SessionTransitionError,
+    ZenithError,
+)
+from core.events import AsyncEventBus, Event, EventKind
 from core.message import Message, ToolCall
 from core.session import Session
-from core.errors import (
-    ZenithError, ConfigError, ProviderError, SessionNotFound, SessionTransitionError, RateLimitError,
-)
-
 
 # ── Domain enums ─────────────────────────────────────────────────────────
 

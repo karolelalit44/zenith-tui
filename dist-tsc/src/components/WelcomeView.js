@@ -6,7 +6,7 @@ const SUGGESTIONS = [
     'Run the test suite and show results',
     'Create a new module with proper structure',
 ];
-export const WelcomeView = ({ workspace }) => {
+export const WelcomeView = ({ workspace: _workspace }) => {
     const { theme } = useTheme();
     return (React.createElement(Box, { flexDirection: "column", paddingX: 1, paddingTop: 1, width: "100%" },
         React.createElement(Text, { color: theme.colors.text.muted, bold: true }, "Try asking:"),

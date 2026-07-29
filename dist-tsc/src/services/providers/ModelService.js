@@ -10,7 +10,7 @@ export class ModelService {
         const models = rawModels.map((m) => ({
             id: m.id,
             name: m.name,
-            contextWindow: 128000,
+            contextWindow: m.context_window || 128000,
             description: m.description,
         }));
         return {

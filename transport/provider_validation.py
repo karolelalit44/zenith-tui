@@ -5,16 +5,17 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from config.loader import load_config
 from config.env import require_int
-from providers.llm_provider import LLMProvider
-from db.repository import load_catalog
+from config.loader import load_config
 from db.connection import resolve_db_path
 from db.provider_config_repo import (
     read_provider_config_full,
     save_provider_config,
 )
-from .schemas import ProviderSetupRequest, ProviderSetupResult, ProviderConfigResponse
+from db.repository import load_catalog
+from providers.llm_provider import LLMProvider
+
+from .schemas import ProviderConfigResponse, ProviderSetupRequest, ProviderSetupResult
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ async def validate_provider_setup(request: ProviderSetupRequest, workspace_root:
                     model=model,
                     message=f"API key format looks wrong. {request.provider.title()} keys typically start with '{expected}'",
                 )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         timeout_sec = require_int("ZENITH_VALIDATION_TIMEOUT")
         logger.warning("Provider validation timed out for '%s' after %ds", request.provider, timeout_sec)
         return ProviderSetupResult(

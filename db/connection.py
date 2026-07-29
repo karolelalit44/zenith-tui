@@ -1,7 +1,8 @@
 import logging
 import os
-import aiosqlite
 from pathlib import Path
+
+import aiosqlite
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 

@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import websockets
 
-
 BACKEND_PORT = 18765
 BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 WS_URL = f"ws://localhost:{BACKEND_PORT}/ws"
@@ -118,7 +117,7 @@ async def test_prompt_submission(session_id: str, model_override: str | None = N
         while True:
             try:
                 resp = await asyncio.wait_for(ws.recv(), timeout=30)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log("Timed out waiting for events")
                 break
             data = json.loads(resp)
@@ -278,7 +277,7 @@ async def main():
         proc.terminate()
         try:
             await asyncio.wait_for(proc.wait(), timeout=5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
 
 

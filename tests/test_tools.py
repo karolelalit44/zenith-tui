@@ -1,18 +1,18 @@
 """Tests for tool framework: base, registry, all tools."""
 
 import pytest
+
+from tools import create_default_registry
 from tools.base import ToolResult
-from tools.registry import ToolRegistry
 from tools.bash import BashTool
+from tools.file_delete import FileDeleteTool
+from tools.file_edit import FileEditTool
 from tools.file_read import FileReadTool
 from tools.file_write import FileWriteTool
-from tools.file_edit import FileEditTool
-from tools.file_delete import FileDeleteTool
 from tools.glob_tool import GlobTool
 from tools.grep_tool import GrepTool
+from tools.registry import ToolRegistry
 from tools.webfetch import WebfetchTool
-from tools import create_default_registry
-
 
 # ── Tool Base & Result ──────────────────────────────────────────────
 

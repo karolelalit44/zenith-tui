@@ -1,14 +1,17 @@
 """Tests for tool middleware — base, registry, middleware chain, individual middleware."""
 
-import pytest
 from typing import Any
-from tools.base import BaseTool, ToolResult, ToolContext, ToolMiddleware
-from tools.registry import ToolRegistry
-from tools.middleware import (
-    SafetyCheckMiddleware, PermissionMiddleware,
-    ValidationMiddleware, LoggingMiddleware,
-)
 
+import pytest
+
+from tools.base import BaseTool, ToolContext, ToolMiddleware, ToolResult
+from tools.middleware import (
+    LoggingMiddleware,
+    PermissionMiddleware,
+    SafetyCheckMiddleware,
+    ValidationMiddleware,
+)
+from tools.registry import ToolRegistry
 
 # ── Test tool for middleware tests ────────────────────────────────────────
 

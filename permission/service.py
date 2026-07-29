@@ -11,12 +11,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.domain import RiskLevel, PermissionDecision
+from core.domain import PermissionDecision, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,8 @@ class PermissionGrant(BaseModel):
     """A stored permission grant."""
     tool_name: str
     decision: PermissionDecision
-    expires_at: Optional[datetime] = None
-    session_id: Optional[str] = None  # None = global
+    expires_at: datetime | None = None
+    session_id: str | None = None  # None = global
     created_at: datetime = Field(default_factory=datetime.now)
 
 

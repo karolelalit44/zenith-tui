@@ -1,13 +1,19 @@
 """Tests for transport architecture — protocol, ConnectionManager, TransportService."""
 
 import pytest
+
+from core.events import Event, EventKind
 from transport.protocol import (
-    JsonRpcMethod, JsonRpcRequest, JsonRpcResponse, Connection, TransportService,
-    make_response, make_error_response, make_event,
+    Connection,
+    JsonRpcMethod,
+    JsonRpcRequest,
+    JsonRpcResponse,
+    TransportService,
+    make_error_response,
+    make_event,
+    make_response,
 )
 from transport.websocket import ConnectionManager
-from core.events import Event, EventKind
-
 
 # ── JsonRpcMethod ────────────────────────────────────────────────────────
 

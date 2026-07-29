@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from core.session import Session
-from core.message import Message
 from core.events import Event
+from core.message import Message
+from core.session import Session
 
 
 class SessionExporter:

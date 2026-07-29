@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { backendScenarioProvider } from '../services/backend/BackendScenarioProvider';
 import { wsClient } from '../services/backend/WebSocketClient';
 import { eventBus } from '../services/eventBus';
 import type { ScenarioRunner } from '../services/scenario/types';
-import type { ConfirmationRequestEvent, ScenarioEvent, ScenarioMode } from '../types/scenario';
+import type { ConfirmationRequestEvent, Scenario, ScenarioEvent, ScenarioMode } from '../types/scenario';
 
 const SESSION_STORAGE_KEY = 'zenith_session_id';
 
 export interface UseScenarioReturn {
   events: ScenarioEvent[];
+  eventsRef: React.MutableRefObject<ScenarioEvent[]>;
   isRunning: boolean;
   startScenario: (prompt: string, mode: ScenarioMode, provider?: string) => void;
   abort: () => void;
@@ -19,6 +20,7 @@ export interface UseScenarioReturn {
 
 export function useScenario(): UseScenarioReturn {
   const [events, setEvents] = useState<ScenarioEvent[]>([]);
+  const eventsRef = useRef<ScenarioEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [activeConfirmation, setActiveConfirmation] = useState<ConfirmationRequestEvent | null>(null);
   const [lastSessionId, setLastSessionId] = useState<string | null>(null);
@@ -43,16 +45,16 @@ export function useScenario(): UseScenarioReturn {
   }, []);
 
   const handleEvent = useCallback((event: ScenarioEvent, index: number) => {
-    console.log(`[SCENARIO EVENT] kind=${event.kind} id=${event.id} index=${index}`);
     setEvents((prev) => {
+      let next: ScenarioEvent[];
       if (typeof index === 'number' && index < prev.length) {
-        console.log(`[SCENARIO UPDATE] replacing event at index ${index} (prev_kind=${prev[index]?.kind})`);
-        const updated = [...prev];
-        updated[index] = event;
-        return updated;
+        next = [...prev];
+        next[index] = event;
+      } else {
+        next = [...prev, event];
       }
-      console.log(`[SCENARIO APPEND] adding new event (total=${prev.length + 1})`);
-      return [...prev, event];
+      eventsRef.current = next;
+      return next;
     });
     if (event.kind === 'confirmation_request') {
       const conf = event as ConfirmationRequestEvent;
@@ -83,13 +85,18 @@ export function useScenario(): UseScenarioReturn {
   }, []);
 
   const reportError = useCallback((id: string, message: string) => {
-    setEvents([{ kind: 'error', id: `evt_${id}_${Date.now()}`, message }]);
+    setEvents((prev) => {
+      const next = [...prev, { kind: 'error', id: `evt_${id}_${Date.now()}`, message } as ScenarioEvent];
+      eventsRef.current = next;
+      return next;
+    });
     setIsRunning(false);
   }, []);
 
   const startScenario = useCallback(
     async (prompt: string, selectedMode: ScenarioMode, provider?: string) => {
       setEvents([]);
+      eventsRef.current = [];
       setIsRunning(true);
 
       try {
@@ -103,7 +110,11 @@ export function useScenario(): UseScenarioReturn {
         if (sessionIdRef.current) {
           // Verify saved session still exists on backend
           try {
-            await wsClient.send('session.resume', { session_id: sessionIdRef.current });
+            const resumed = await wsClient.send<{ id: string }>('session.resume', { session_id: sessionIdRef.current });
+            // Session is valid — reuse it; update the ID from backend response
+            if (resumed?.id && resumed.id !== sessionIdRef.current) {
+              sessionIdRef.current = resumed.id;
+            }
           } catch {
             // Session no longer exists — create a new one
             sessionIdRef.current = null;
@@ -120,7 +131,10 @@ export function useScenario(): UseScenarioReturn {
         return;
       }
 
-      const scenario = backendScenarioProvider.resolve(prompt, selectedMode);
+      const scenario: Scenario = {
+        ...backendScenarioProvider.resolve(prompt, selectedMode),
+        sessionId: sessionIdRef.current ?? undefined,
+      };
       runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
 
       wsClient.sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider).catch((err) => {
@@ -159,6 +173,7 @@ export function useScenario(): UseScenarioReturn {
 
   return {
     events,
+    eventsRef,
     isRunning,
     startScenario,
     abort,

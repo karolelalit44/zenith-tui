@@ -1,13 +1,14 @@
 import pytest
-from httpx import AsyncClient, ASGITransport
-from transport.server import create_app
-from config.settings import AppSettings
+from httpx import ASGITransport, AsyncClient
+
 from config.providers import ProviderConfig
-from db.connection import Database
-from providers.registry import ProviderRegistry
-from providers.base import BaseProvider
-from transport.websocket import ZenithHandler
+from config.settings import AppSettings
 from core.events import EventKind
+from db.connection import Database
+from providers.base import BaseProvider
+from providers.registry import ProviderRegistry
+from transport.server import create_app
+from transport.websocket import ZenithHandler
 
 
 class EchoProvider(BaseProvider):
@@ -82,7 +83,7 @@ async def test_e2e_session_create(test_config, test_db, test_registry):
 
 @pytest.mark.asyncio
 async def test_e2e_prompt_processing(test_config, test_db, test_registry):
-    handler = ZenithHandler(test_config, test_db, test_registry)
+    ZenithHandler(test_config, test_db, test_registry)
     agent = __import__("agent.loop", fromlist=["AgentLoop"]).AgentLoop(
         test_config, EchoProvider()
     )
@@ -101,9 +102,10 @@ async def test_e2e_prompt_processing(test_config, test_db, test_registry):
 async def test_e2e_full_workflow(test_config, test_db, test_registry):
     handler = ZenithHandler(test_config, test_db, test_registry)
 
-    from core.session import Session
-    from core.message import Message
     from datetime import datetime, timedelta
+
+    from core.message import Message
+    from core.session import Session
 
     session = Session(title="E2E Test")
     await handler.session_repo.create(session)
@@ -174,7 +176,7 @@ async def test_e2e_config_bootstrap(temp_dir):
 
 @pytest.mark.asyncio
 async def test_e2e_error_handling():
-    from core.errors import ProviderError, ConfigError
+    from core.errors import ConfigError, ProviderError
     try:
         raise ProviderError("test error", provider="openai")
     except ProviderError as e:
@@ -249,8 +251,8 @@ async def test_e2e_websocket_session_and_prompt(test_config, test_db, test_regis
 
 @pytest.mark.asyncio
 async def test_e2e_error_classification():
+    from core.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
     from providers.llm_provider import _classify_provider_error
-    from core.errors import AuthenticationError, RateLimitError, TimeoutError, ProviderError
 
     exc = _classify_provider_error(Exception("401 Unauthorized"), "test")
     assert isinstance(exc, AuthenticationError)

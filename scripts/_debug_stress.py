@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+
 import websockets
 
 WS_URL = "ws://127.0.0.1:8765/ws"
@@ -26,7 +27,7 @@ async def single_client():
                 if kind in ("success", "error"):
                     print("Terminal!")
                     break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 print(f"  timeout at {round((time.time()-t0)*1000)}ms")
                 break
 
@@ -35,7 +36,7 @@ async def stress_5():
     print("\n=== 5-client stress test ===")
 
     async def client(idx):
-        t_start = time.time()
+        time.time()
         try:
             async with websockets.connect(WS_URL) as ws:
                 await ws.send(json.dumps({"jsonrpc": "2.0", "method": "session.create", "id": idx * 10 + 1, "params": {"title": f"Stress {idx}"}}))
@@ -59,7 +60,7 @@ async def stress_5():
                             print(f"  Client {idx}: [{round((time.time()-t_prompt)*1000)}ms] result")
                         if kind in ("success", "error"):
                             break
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         print(f"  Client {idx}: timeout at {round((time.time()-t_prompt)*1000)}ms")
                         continue
                 print(f"  Client {idx}: DONE events={events}")

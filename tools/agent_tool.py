@@ -45,10 +45,10 @@ class SubAgentTool(BaseTool):
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
+        from agent.context import ContextManager
+        from agent.loop import AgentLoop
         from config.settings import AppSettings
         from tools import create_default_registry
-        from agent.loop import AgentLoop
-        from agent.context import ContextManager
 
         task = params.get("task", "")
         description = params.get("description", "sub-agent task")

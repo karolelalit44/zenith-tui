@@ -58,7 +58,7 @@ def echo_server(tmp_path_factory):
     """Start a real zenith server with EchoProvider in a subprocess."""
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
-    workspace = str(tmp_path_factory.mktemp("workspace"))
+    str(tmp_path_factory.mktemp("workspace"))
 
     # Write the provider monkey-patch to a temp file
     prov_file = Path(tempfile.mktemp(suffix=".py"))
@@ -166,14 +166,15 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
 @pytest.mark.asyncio
 async def test_http_health():
     """Server health endpoint returns ok."""
-    from httpx import AsyncClient, ASGITransport
-    from transport.server import create_app
+    from httpx import ASGITransport, AsyncClient
+
     import transport.server as srv
-    from config.settings import AppSettings
     from config.providers import ProviderConfig
+    from config.settings import AppSettings
     from db.connection import Database
-    from providers.registry import ProviderRegistry
     from providers.base import BaseProvider
+    from providers.registry import ProviderRegistry
+    from transport.server import create_app
     from transport.websocket import ZenithHandler
 
     class _HP(BaseProvider):
@@ -219,14 +220,15 @@ async def test_http_health():
 @pytest.mark.asyncio
 async def test_http_status():
     """Server status endpoint returns ready with provider info."""
-    from httpx import AsyncClient, ASGITransport
-    from transport.server import create_app
+    from httpx import ASGITransport, AsyncClient
+
     import transport.server as srv
-    from config.settings import AppSettings
     from config.providers import ProviderConfig
+    from config.settings import AppSettings
     from db.connection import Database
-    from providers.registry import ProviderRegistry
     from providers.base import BaseProvider
+    from providers.registry import ProviderRegistry
+    from transport.server import create_app
     from transport.websocket import ZenithHandler
 
     class _SP(BaseProvider):
@@ -298,7 +300,7 @@ async def _collect_events(ws, timeout: float = 15) -> list[dict]:
             data = json.loads(raw)
             if data.get("method") == "event":
                 events.append(data)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
     return events
 

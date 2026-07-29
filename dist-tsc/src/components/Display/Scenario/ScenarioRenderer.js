@@ -44,9 +44,9 @@ export const ScenarioRenderer = React.memo(({ events, isRunning, isHistorical = 
         onRetry,
         onDismiss,
     }), [thinkingCollapsed, isHistorical, isRunning, onRetry, onDismiss]);
-    // Use a small limit for dynamic rendering to avoid Ink scrolling bugs.
+    // Use a limit for dynamic rendering to avoid Ink scrolling bugs.
     // For historical (Static) renders, show all events.
-    const dynamicLimit = 8;
+    const dynamicLimit = 20;
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const visibleEvents = hasOverflow ? events.slice(-dynamicLimit) : events;
     return (React.createElement(Box, { flexDirection: "column", width: "100%" },

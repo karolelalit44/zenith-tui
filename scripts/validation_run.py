@@ -14,8 +14,8 @@ import subprocess
 import sys
 import time
 import traceback
-import urllib.request
 import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -102,7 +102,7 @@ report = ValidationReport()
 # Helpers
 # ---------------------------------------------------------------------------
 
-def run_cmd(cmd: list[str], cwd: str = None, timeout: int = 300) -> tuple[int, str, str]:
+def run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 300) -> tuple[int, str, str]:
     use_shell = os.name == "nt"
     result = subprocess.run(
         cmd if not use_shell else " ".join(cmd),
@@ -453,7 +453,7 @@ def phase_5_agent_scenario() -> PhaseResult:
                         return sid, events_received, None
                     if "result" in ev and ev.get("id") == 2:
                         return sid, events_received, None
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
             return sid, events_received, "Timed out after 60s"
 
@@ -782,7 +782,7 @@ def phase_10_stress() -> PhaseResult:
                         if kind in ("success", "error"):
                             metrics["prompt_ms"] = round((time.time() - t_prompt) * 1000, 1)
                             break
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         continue
 
         except Exception as e:
@@ -864,7 +864,7 @@ def phase_11_failure_recovery() -> PhaseResult:
             ws = await websockets.connect(WS_URL)
             await ws.send(json.dumps({"jsonrpc": "2.0", "method": "session.create", "id": 1, "params": {"title": "Disconnect Test"}}))
             resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
-            sid = resp.get("result", {}).get("id")
+            resp.get("result", {}).get("id")
             await ws.close()
 
             # Reconnect
@@ -888,7 +888,7 @@ def phase_11_failure_recovery() -> PhaseResult:
                     resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=3))
                     if "result" in resp:
                         ok_count += 1
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
             await ws.close()
             results.append(("rapid_fire", ok_count >= 8, f"ok={ok_count}/10"))
@@ -1015,7 +1015,7 @@ def main():
     ]
 
     for phase_fn in phase_funcs:
-        phase_num = phase_fn.__name__.split("_")[1]
+        phase_fn.__name__.split("_")[1]
         print(f"\n--- Running {phase_fn.__name__.replace('_', ' ').title()} ---", flush=True)
         try:
             result = phase_fn()

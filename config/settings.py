@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import Optional
-from pydantic import BaseModel, Field, field_validator
-from .providers import ProviderConfig
-from .env import optional_env, optional_int, optional_float
 
+from pydantic import BaseModel, Field, field_validator
+
+from .env import optional_env, optional_float, optional_int
+from .providers import ProviderConfig
 
 # ---------------------------------------------------------------------------
 # Agent mode configurations (inspired by Crush's Agent struct + Aider's
@@ -13,11 +13,17 @@ from .env import optional_env, optional_int, optional_float
 # Read-only tools for plan mode — comprehensive set matching the device.
 # These tools NEVER modify the filesystem or system state.
 PLAN_READ_ONLY_TOOLS = [
-    "file_read",        # Read file contents
-    "glob",             # Find files by pattern
-    "grep",             # Search file contents
-    "lsp_definition",   # Go-to-definition (language-aware)
-    "lsp_diagnostics",  # Lint/typecheck (read-only analysis)
+    "file_read",           # Read file contents
+    "glob",                # Find files by pattern
+    "grep",                # Search file contents
+    "lsp_definition",      # Go-to-definition (language-aware)
+    "lsp_diagnostics",     # Lint/typecheck (read-only analysis)
+    "lsp_symbols",         # List symbols in file/project
+    "lsp_call_hierarchy",  # Show callers/callees
+    "lsp_references",      # Find all references
+    "sourcegraph",         # Semantic code search
+    "webfetch",            # Fetch URLs (read-only)
+    "question",            # Ask user questions (read-only checkpoint)
 ]
 
 @dataclass(frozen=True)
@@ -26,6 +32,20 @@ class AgentModeConfig:
 
     Inspired by Crush's Agent{Model, AllowedTools, AllowedMCP} and
     Aider's architect/editor separation.
+
+    allowed_tools:  Tool names allowed in this mode. None = all tools.
+    allowed_mcp:    MCP access per mode:
+                    - None = all MCPs allowed (build mode).
+                    - {}   = no MCPs allowed (plan mode).
+                    - {"server": ["tool"]} = specific MCP tools.
+    model_override: Optional model name for this mode (e.g. "gpt-4o-mini"
+                    for planning). None = use session default.
+    sub_agent:      If True, spawn a fresh agent instance for this mode
+                    (Aider-style architect→editor sub-agent). The mode's
+                    output (plan) becomes the sub-agent's input message.
+
+    auto_approve_plan: If True, skip user confirmation when transitioning
+      from plan output to build execution.
 
     Stopping is dynamic — controlled by:
       1. Loop detection (Crush-style SHA-256 signature matching)
@@ -38,18 +58,25 @@ class AgentModeConfig:
     """
     name: str
     allowed_tools: list[str] | None = None  # None = all tools
+    allowed_mcp: dict[str, list[str]] | None = None  # None=all, {}=none
     description: str = ""
+    model_override: str | None = None
+    sub_agent: bool = False
 
 PLAN_MODE_CONFIG = AgentModeConfig(
     name="plan",
     allowed_tools=PLAN_READ_ONLY_TOOLS,
+    allowed_mcp={},  # No MCPs in plan mode
     description="Read-only analysis and planning. No file modifications.",
+    sub_agent=False,
 )
 
 BUILD_MODE_CONFIG = AgentModeConfig(
     name="build",
     allowed_tools=None,  # All tools
+    allowed_mcp=None,  # All MCPs
     description="Full execution with all tools.",
+    sub_agent=True,  # Spawn fresh sub-agent on plan→build transition
 )
 
 AGENT_MODES: dict[str, AgentModeConfig] = {
@@ -76,10 +103,10 @@ class ToolConfig(BaseModel):
         default=optional_int("ZENITH_STREAM_MAX_RETRIES", 3), ge=0, le=10
     )
     retry_base_delay: float = Field(
-        default=optional_float("ZENITH_RETRY_BASE_DELAY", 0.5), ge=0.1, le=30.0
+        default=optional_float("ZENITH_RETRY_BASE_DELAY", 0.125), ge=0.1, le=30.0
     )
     retry_max_delay: float = Field(
-        default=optional_float("ZENITH_RETRY_MAX_DELAY", 10.0), ge=1.0, le=300.0
+        default=optional_float("ZENITH_RETRY_MAX_DELAY", 60.0), ge=1.0, le=300.0
     )
     webfetch_timeout: int = Field(
         default=optional_int("ZENITH_WEBFETCH_TIMEOUT", 30), ge=5, le=120
@@ -117,6 +144,18 @@ class AppSettings(BaseModel):
     tools: ToolConfig = Field(default_factory=ToolConfig)
     max_context_tokens: int = DEFAULTS.max_context_tokens
     summary_threshold: float = DEFAULTS.summary_threshold
+    auto_approve_plan: bool = Field(
+        default=False,
+        description="Skip user confirmation when running a plan in build mode",
+    )
+    plan_model: str | None = Field(
+        default=None,
+        description="Optional separate model for plan mode (e.g. 'gpt-4o-mini')",
+    )
+    weak_model: str | None = Field(
+        default=None,
+        description="Optional cheap model for summaries, commit messages (two-tier strategy)",
+    )
 
     @field_validator("active_provider")
     @classmethod
@@ -132,7 +171,7 @@ class AppSettings(BaseModel):
             raise ValueError("db_path cannot be empty")
         return v
 
-    def get_active_provider_config(self) -> Optional[ProviderConfig]:
+    def get_active_provider_config(self) -> ProviderConfig | None:
         return self.providers.get(self.active_provider)
 
     def require_active_provider_config(self) -> ProviderConfig:

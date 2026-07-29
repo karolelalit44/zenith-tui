@@ -33,9 +33,52 @@ class ToolRegistry:
     def list_tools(self) -> list[str]:
         return list(self._tools.keys())
 
-    def list_tools_for_mode(self, mode: str) -> list[str]:
-        """Return tool names available in the given mode."""
-        return [name for name in self._tools if self._is_available_in_mode(name, mode)]
+    def list_tools_for_mode(
+        self,
+        mode: str,
+        allowed_mcp: dict[str, list[str]] | None = None,
+    ) -> list[str]:
+        """Return tool names available in the given mode.
+
+        allowed_mcp controls MCP tool visibility per mode (Crush-style):
+          None = all MCPs allowed
+          {}   = no MCPs allowed
+          {"server": ["tool"]} = specific MCP tools
+        """
+        tools = []
+        for name in self._tools:
+            if not self._is_available_in_mode(name, mode):
+                continue
+            if name.startswith("mcp_") and not self._is_mcp_allowed(name, allowed_mcp):
+                continue
+            tools.append(name)
+        return tools
+
+    @staticmethod
+    def _is_mcp_allowed(
+        tool_name: str,
+        allowed_mcp: dict[str, list[str]] | None,
+    ) -> bool:
+        """Check if an MCP tool is allowed by the allowed_mcp filter."""
+        if allowed_mcp is None:
+            return True  # None = all MCPs allowed
+        # allowed_mcp is a dict: {"server": ["tool1", "tool2"]}
+        # tool_name format: "mcp_<server_tool_name>"
+        # We need to check if any server in allowed_mcp allows this tool
+        for server, tools in allowed_mcp.items():
+            # Could match by server prefix or exact tool name
+            # The tool name is "mcp_<tool_name>" — we check if the suffix
+            # matches any tool in the server's list, or if the server
+            # allows all tools (wildcard)
+            for t in tools:
+                if t == "*":
+                    return True  # Server allows all tools
+                if tool_name == f"mcp_{t}":
+                    return True
+                # Also check for server-prefixed names like "mcp_server_tool"
+                if tool_name == f"mcp_{server}_{t}":
+                    return True
+        return False
 
     # ── schema queries ────────────────────────────────────────────────────
 
@@ -50,11 +93,12 @@ class ToolRegistry:
             for t in self._tools.values()
         ]
 
-    def get_schemas_for_mode(self, mode: str) -> list[dict]:
+    def get_schemas_for_mode(self, mode: str, allowed_mcp: dict[str, list[str]] | None = None) -> list[dict]:
         """Return schemas for tools available in the given mode."""
         return [
             s for s in self.get_schemas()
             if self._is_available_in_mode(s["name"], mode)
+            and not (s["name"].startswith("mcp_") and not self._is_mcp_allowed(s["name"], allowed_mcp))
         ]
 
     def _is_available_in_mode(self, tool_name: str, mode: str) -> bool:
@@ -62,9 +106,7 @@ class ToolRegistry:
         if tool is None:
             return False
         modes = tool.modes
-        if modes is not None and mode not in modes:
-            return False
-        return True
+        return not (modes is not None and mode not in modes)
 
     # ── execution with middleware chain ────────────────────────────────────
 
@@ -76,6 +118,7 @@ class ToolRegistry:
         mode: str = "build",
         request_id: str | None = None,
         session_id: str | None = None,
+        allowed_mcp: dict[str, list[str]] | None = None,
     ) -> ToolResult:
         """Execute a tool by name with mode enforcement and middleware chain."""
         tool = self.get(tool_name)
@@ -87,6 +130,13 @@ class ToolRegistry:
             return ToolResult(
                 success=False,
                 error=f"Tool '{tool_name}' not available in '{mode}' mode",
+            )
+
+        # MCP filter check
+        if tool_name.startswith("mcp_") and not self._is_mcp_allowed(tool_name, allowed_mcp):
+            return ToolResult(
+                success=False,
+                error=f"MCP tool '{tool_name}' not allowed in this mode",
             )
 
         # Param validation

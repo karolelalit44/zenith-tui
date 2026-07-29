@@ -102,7 +102,7 @@ def _check_command_chaining(command: str) -> bool:
 def _is_prefix_of_any(cmd: str, commands: list[str]) -> bool:
     """Check if cmd is a prefix of any command in the list (word-boundary aware)."""
     for banned in commands:
-        if cmd == banned or cmd.startswith(banned + " ") or cmd.startswith(banned + "-"):
+        if cmd == banned or cmd.startswith((banned + " ", banned + "-")):
             return True
     return False
 

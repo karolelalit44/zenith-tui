@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
+import type { TokenUsageStats } from '../../services/data/TokenUsageService';
 import { formatTokenCount } from '../../services/data/tokenEstimationService';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
@@ -17,6 +18,7 @@ interface SessionStatusBarProps {
   modelName?: string;
   workspaceName?: string;
   gitBranch?: string;
+  tokenUsageStats?: TokenUsageStats | null;
 }
 
 export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
@@ -29,6 +31,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   modelName,
   workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
   gitBranch,
+  tokenUsageStats,
 }) => {
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
@@ -50,6 +53,17 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
 
   const dirParts = workspaceName.replace(/\\/g, '/').split('/');
   const shortDir = dirParts.length > 2 ? `.../${dirParts.slice(-2).join('/')}` : workspaceName;
+
+  const grandTotal = tokenUsageStats?.totals?.grand_total_tokens ?? 0;
+  const grandTotalCost = tokenUsageStats?.totals?.grand_total_cost_usd ?? 0;
+  const requestCount = tokenUsageStats?.totals?.total_requests ?? 0;
+
+  const formatCost = (cost: number): string => {
+    if (cost >= 1) return `$${cost.toFixed(2)}`;
+    if (cost >= 0.01) return `$${cost.toFixed(4)}`;
+    if (cost <= 0) return '';
+    return `$${cost.toFixed(6)}`;
+  };
 
   return (
     <Box flexDirection="column" width="100%" marginTop={1}>
@@ -87,11 +101,28 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
             </>
           ) : null}
           <Text color={theme.colors.text.muted}> | </Text>
-          <Text color={theme.colors.text.muted}>{formatTokenCount(totalTokens)} tokens</Text>
+          <Text color={theme.colors.status.info}>{formatTokenCount(totalTokens)}</Text>
+          <Text color={theme.colors.text.muted}>/</Text>
+          <Text color={grandTotal > 0 ? theme.colors.text.bright : theme.colors.text.muted}>
+            {formatTokenCount(grandTotal)}
+          </Text>
+          <Text color={theme.colors.text.muted}> tokens</Text>
+          {grandTotalCost > 0 && (
+            <>
+              <Text color={theme.colors.text.muted}> </Text>
+              <Text color={theme.colors.status.info}>{formatCost(grandTotalCost)}</Text>
+            </>
+          )}
           <Text color={theme.colors.text.muted}> </Text>
           <Text color={contextPercent > 80 ? theme.colors.status.warning : theme.colors.status.success}>
             [{contextGauge}] {contextPercent}%
           </Text>
+          {requestCount > 0 && (
+            <>
+              <Text color={theme.colors.text.muted}> | </Text>
+              <Text color={theme.colors.text.muted}>{requestCount} req</Text>
+            </>
+          )}
           <Text color={theme.colors.text.muted}> | </Text>
           {isRunning ? (
             <Text color={theme.colors.status.success} bold>

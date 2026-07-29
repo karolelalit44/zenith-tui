@@ -31,6 +31,12 @@ function estimateEventTokens(event) {
     if ('command' in event && typeof event.command === 'string') {
         chars += event.command.length;
     }
+    if ('output' in event && typeof event.output === 'string') {
+        chars += event.output.length;
+    }
+    if ('error' in event && typeof event.error === 'string') {
+        chars += event.error.length;
+    }
     if ('output' in event && Array.isArray(event.output)) {
         for (const line of event.output) {
             if (typeof line === 'string')
@@ -62,6 +68,14 @@ function estimateEventTokens(event) {
         for (const v of event.verified) {
             if (typeof v === 'string')
                 chars += v.length;
+        }
+    }
+    if ('metadata' in event && typeof event.metadata === 'object' && event.metadata !== null) {
+        try {
+            chars += JSON.stringify(event.metadata).length;
+        }
+        catch {
+            /* skip */
         }
     }
     return Math.round(chars / 4);

@@ -8,6 +8,7 @@ export interface ConversationTurn {
   mode: ScenarioMode;
   events: ScenarioEvent[];
   isComplete: boolean;
+  isSaved?: boolean;
   timestamp: string;
 }
 
@@ -92,7 +93,9 @@ export function useConversation(): UseConversationReturn {
     });
   }, []);
 
-  const markTurnSaved = useCallback((_turnId: string) => {}, []);
+  const markTurnSaved = useCallback((turnId: string) => {
+    setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, isSaved: true } : t)));
+  }, []);
 
   const clearTurns = useCallback(() => {
     setTurns([]);

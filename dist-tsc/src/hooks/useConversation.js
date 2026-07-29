@@ -56,7 +56,9 @@ export function useConversation() {
             return prev;
         });
     }, []);
-    const markTurnSaved = useCallback((_turnId) => { }, []);
+    const markTurnSaved = useCallback((turnId) => {
+        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, isSaved: true } : t)));
+    }, []);
     const clearTurns = useCallback(() => {
         setTurns([]);
         setStaticKey((k) => k + 1);

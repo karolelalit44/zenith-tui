@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from core.domain import AgentRole, ScenarioMode
 from core.events import Event
 from core.message import Message
 from core.session import Session
 from session.service import SessionService
+
 from .runtime import AgentRuntime
 
 logger = logging.getLogger(__name__)

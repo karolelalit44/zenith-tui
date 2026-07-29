@@ -19,9 +19,11 @@ import asyncio
 import logging
 import time
 import uuid
-from pydantic import BaseModel, Field
-from typing import Any, AsyncIterator, Optional
+from collections.abc import AsyncIterator
 from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from .domain import DeliveryMode
 
@@ -49,6 +51,14 @@ class EventKind(StrEnum):
     SESSION_RESUMED = "session_resumed"
     SESSION_SUMMARIZED = "session_summarized"
 
+    # Plan/Approval events
+    PLAN_READY = "plan_ready"
+    PLAN_APPROVED = "plan_approved"
+    PLAN_REJECTED = "plan_rejected"
+
+    # Mode switch events
+    MODE_SWITCH = "mode_switch"
+
     # Provider events
     PROVIDER_SWITCHED = "provider_switched"
     PROVIDER_ERROR = "provider_error"
@@ -61,11 +71,11 @@ class EventKind(StrEnum):
 class Event(BaseModel):
     kind: EventKind
     id: str = Field(default_factory=lambda: f"evt_{uuid.uuid4().hex[:12]}")
-    session_id: Optional[str] = None
+    session_id: str | None = None
     timestamp: float = Field(default_factory=time.time)
     data: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    parent_event_id: Optional[str] = None
+    parent_event_id: str | None = None
 
 
 def make_event(kind: EventKind, data: dict[str, Any], session_id: str | None = None) -> Event:
@@ -83,7 +93,7 @@ class Subscription:
         self,
         sub_id: str,
         queue: asyncio.Queue[Event | None],
-        bus: "EventBus",
+        bus: EventBus,
     ):
         self.id = sub_id
         self._queue = queue
@@ -96,7 +106,7 @@ class Subscription:
         """Wait for the next event. Returns None when the subscription ends."""
         try:
             return await asyncio.wait_for(self._queue.get(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     def __aiter__(self) -> AsyncIterator[Event]:
@@ -232,9 +242,7 @@ class AsyncEventBus(EventBus):
     def _matches(self, entry: _SubscriptionEntry, event: Event) -> bool:
         if entry.event_type is not None and event.kind != entry.event_type:
             return False
-        if entry.session_id is not None and event.session_id != entry.session_id:
-            return False
-        return True
+        return not (entry.session_id is not None and event.session_id != entry.session_id)
 
 
 class _SubscriptionEntry(BaseModel):

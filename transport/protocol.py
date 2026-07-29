@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from core.events import Event
-
 
 # ── JSON-RPC method enum ─────────────────────────────────────────────────
 
@@ -58,7 +57,7 @@ class JsonRpcResponse(BaseModel):
     jsonrpc: str = "2.0"
     id: str | int
     result: Any = None
-    error: Optional[dict[str, Any]] = None
+    error: dict[str, Any] | None = None
 
 
 class JsonRpcNotification(BaseModel):
@@ -114,4 +113,4 @@ def make_error_response(request_id: str | int, code: int, message: str, data: An
 
 
 def make_event(event: Event) -> str:
-    return JsonRpcNotification(params=event.model_dump()).model_dump_json()
+    return JsonRpcNotification(params=event.model_dump(exclude={'metadata', 'parent_event_id'})).model_dump_json()

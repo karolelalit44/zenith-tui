@@ -21,7 +21,6 @@ from typing import Any
 import pytest
 import websockets
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _get_free_port() -> int:
@@ -57,7 +56,7 @@ async def _collect_events(ws, timeout: float = 15) -> list[dict]:
             data = json.loads(raw)
             if data.get("method") == "event":
                 events.append(data)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
     return events
 
@@ -72,7 +71,7 @@ async def _collect_all(ws, timeout: float = 5) -> list[dict]:
             raw = await asyncio.wait_for(ws.recv(), timeout=max(0.1, remaining))
             data = json.loads(raw)
             messages.append(data)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
     return messages
 
@@ -118,7 +117,7 @@ def echo_server(tmp_path_factory):
     """Start a real zenith server with EchoProvider in a subprocess."""
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
-    workspace = str(tmp_path_factory.mktemp("workspace"))
+    str(tmp_path_factory.mktemp("workspace"))
 
     prov_file = Path(tempfile.mktemp(suffix=".py"))
     prov_file.write_text(_ECHO_PROVIDER_CODE)
@@ -649,7 +648,7 @@ class TestSessionExport:
     async def test_session_export_after_prompt(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             create_resp = await _ws_rpc(ws, "session.create", {"title": "Export Test"})
-            sid = create_resp["result"]["id"]
+            create_resp["result"]["id"]
             await _ws_rpc(ws, "prompt.send", {"content": "Export me", "mode": "build"})
             await _collect_events(ws, timeout=10)
 

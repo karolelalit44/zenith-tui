@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .client import LspClient, DEFAULT_SERVERS
+from .client import DEFAULT_SERVERS, LspClient
 
 logger = logging.getLogger(__name__)
 

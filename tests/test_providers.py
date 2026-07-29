@@ -1,10 +1,11 @@
 """Tests for providers: token counter, retry, registry."""
 
 import pytest
-from providers.token_counter import TokenCounter
-from providers.registry import ProviderRegistry
-from providers.base import BaseProvider
+
 from config.providers import ProviderConfig
+from providers.base import BaseProvider
+from providers.registry import ProviderRegistry
+from providers.token_counter import TokenCounter
 
 
 class TestTokenCounter:

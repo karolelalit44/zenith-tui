@@ -3,6 +3,7 @@ import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scen
 import { wsClient } from './WebSocketClient';
 
 const STALE_TIMEOUT_MS = 600_000;
+const RECONNECT_WAIT_MS = 20_000;
 
 let idCounter = 0;
 const uid = () => `evt_${Date.now()}_${++idCounter}`;
@@ -20,7 +21,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
     };
   }
 
-  execute(_scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
+  execute(scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
     this.abortFlag = false;
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
@@ -31,6 +32,8 @@ export class BackendScenarioProvider implements ScenarioProvider {
     let staleTimer: ReturnType<typeof setTimeout> | null = null;
     let lastEventKind: string | null = null;
     let mergedThinkingThoughts: string[] = [];
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let disconnectEventIndex: number | null = null;
 
     const resetStaleTimer = () => {
       if (staleTimer) clearTimeout(staleTimer);
@@ -63,8 +66,79 @@ export class BackendScenarioProvider implements ScenarioProvider {
         clearTimeout(staleTimer);
         staleTimer = null;
       }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       unsubscribe();
       statusUnsub();
+    };
+
+    const tryResumeSession = async () => {
+      if (completed || !scenario.sessionId) return false;
+      try {
+        await wsClient.send('session.resume', { session_id: scenario.sessionId });
+        if (disconnectEventIndex !== null) {
+          onEvent(
+            {
+              kind: 'warning',
+              id: uid(),
+              message: 'Connection re-established, continuing...',
+              code: 'RECONNECTED',
+            },
+            disconnectEventIndex,
+          );
+          disconnectEventIndex = null;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const handleDisconnect = () => {
+      if (completed) return;
+      if (disconnectEventIndex !== null) return; // already handling disconnect
+      disconnectEventIndex = eventIndex++;
+      onEvent(
+        {
+          kind: 'warning',
+          id: uid(),
+          message: 'Connection lost — reconnecting...',
+          code: 'RECONNECTING',
+        },
+        disconnectEventIndex,
+      );
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(async () => {
+        if (completed) return;
+        // Reconnection timed out — give up
+        onEvent(
+          {
+            kind: 'error',
+            id: uid(),
+            message: 'Connection to backend lost. Check that zenith serve is running.',
+          },
+          disconnectEventIndex ?? eventIndex++,
+        );
+        disconnectEventIndex = null;
+        finalize();
+        onComplete();
+      }, RECONNECT_WAIT_MS);
+    };
+
+    const handleReconnect = async () => {
+      if (completed) return;
+      if (disconnectEventIndex === null) return; // wasn't in disconnect state
+      const resumed = await tryResumeSession();
+      if (resumed) {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        resetStaleTimer();
+      }
+      // If resume failed, disconnectEventIndex stays set and the timer will fire
     };
 
     resetStaleTimer();
@@ -75,17 +149,10 @@ export class BackendScenarioProvider implements ScenarioProvider {
       resetStaleTimer();
 
       const { kind, data, id: rpcId } = rpcEvent.params;
-      console.log(
-        `[WS EVENT] kind=${kind} id=${rpcId} data_keys=${Object.keys(data || {})} full=`,
-        JSON.stringify(data).slice(0, 300),
-      );
 
       if (kind === 'message' && data?.partial === true) {
         const token = String(data.text || '');
         accumulatedText += token;
-        console.log(
-          `[WS PARTIAL] token_len=${token.length} accumulated_len=${accumulatedText.length} preview=${token.slice(0, 100)}`,
-        );
 
         if (partialMessageIndex === null) {
           partialMessageIndex = eventIndex;
@@ -114,7 +181,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       if (kind === 'message' && !data?.partial) {
         const fullText = String(data.text || accumulatedText);
-        console.log(`[WS FINAL MSG] fullText_len=${fullText.length} preview=${fullText.slice(0, 200)}`);
 
         let targetIndex: number;
         if (partialMessageIndex !== null) {
@@ -142,9 +208,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
       }
 
       // Terminal events: finalize any pending partial before emitting
-      const isTerminalEvent =
-        (kind === 'success' && typeof data?.iterations === 'number') ||
-        (kind === 'error' && !(data && typeof data === 'object' && data.recoverable === true));
+      const isTerminalEvent = (kind === 'success' && typeof data?.iterations === 'number') || kind === 'error';
 
       if (isTerminalEvent && partialMessageIndex !== null) {
         onEvent(
@@ -161,7 +225,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
       }
 
       const mapped = mapRawEvent(kind, data, rpcId);
-      console.log(`[WS MAPPED] kind=${kind} mapped_kind=${mapped.kind} id=${mapped.id}`);
 
       // Merge consecutive thinking events into a single block
       if (kind === 'thinking' && lastEventKind === 'thinking' && eventIndex > 0) {
@@ -203,28 +266,21 @@ export class BackendScenarioProvider implements ScenarioProvider {
         const hasIterations = typeof data?.iterations === 'number';
         isTerminal = hasIterations;
       } else if (kind === 'error') {
-        isTerminal = !(data && typeof data === 'object' && data.recoverable === true);
+        isTerminal = !data?.recoverable;
       }
 
       if (isTerminal) {
-        console.log(`[WS TERMINAL] kind=${kind} - finalizing and calling onComplete`);
         finalize();
         onComplete();
       }
     });
 
     const statusUnsub = wsClient.onStatusChange((status) => {
-      if (status === 'disconnected' && !completed) {
-        onEvent(
-          {
-            kind: 'error',
-            id: uid(),
-            message: 'Connection to backend lost. Check that zenith serve is running.',
-          },
-          eventIndex++,
-        );
-        finalize();
-        onComplete();
+      if (completed) return;
+      if (status === 'disconnected' && disconnectEventIndex === null) {
+        handleDisconnect();
+      } else if (status === 'connected' && disconnectEventIndex !== null) {
+        handleReconnect();
       }
     });
 
@@ -242,6 +298,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         );
       }
     }, 2000);
+    // Ensure timerHandle is set before any synchronous event could fire
 
     return {
       abort: () => {

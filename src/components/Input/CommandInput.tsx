@@ -30,7 +30,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onSubmit,
     disabled = false,
     attachments,
-    onRemoveAttachment,
+    onRemoveAttachment: _onRemoveAttachment,
     historyUp,
     historyDown,
     totalTokens = 0,
@@ -69,7 +69,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           <Box flexDirection="row" flexWrap="wrap" marginBottom={0}>
             {attachments.map((att, idx) => (
               <Box key={idx} flexDirection="row" marginRight={1}>
-                <Text color={theme.colors.status.info}>📎</Text>
+                <Text color={theme.colors.status.info}>[ATTACH]</Text>
                 <Text color={theme.colors.text.ethereal}> {att.name}</Text>
                 <Text color={theme.colors.text.muted}> </Text>
                 <Text color={theme.colors.status.error}>(#{idx + 1})</Text>

@@ -21,8 +21,15 @@ export class WebSocketClient {
     emitter = new EventEmitter();
     _status = 'disconnected';
     rpcTimeout = requireInt('ZENITH_WS_RPC_TIMEOUT');
+    _connectedAt = 0;
     constructor(url) {
-        this.url = url || this.detectBackendUrl();
+        this.url = url || WebSocketClient.detectBackendUrl();
+    }
+    static detectBackendUrl() {
+        if (typeof process !== 'undefined' && process.env?.ZENITH_BACKEND_URL) {
+            return process.env.ZENITH_BACKEND_URL;
+        }
+        return 'ws://localhost:8765/ws';
     }
     get status() {
         return this._status;
@@ -47,7 +54,10 @@ export class WebSocketClient {
             try {
                 this.ws = new WebSocket(this.url);
                 this.ws.onopen = () => {
+                    // Only reset reconnect count if connection stays open briefly;
+                    // track connection time to detect brief open/flap patterns
                     this.reconnectAttempts = 0;
+                    this._connectedAt = Date.now();
                     this.setStatus('connected');
                     resolve();
                 };
@@ -62,6 +72,11 @@ export class WebSocketClient {
                 };
                 this.ws.onclose = () => {
                     this.setStatus('disconnected');
+                    // Detect brief connections (<5s) — likely auth failure, don't retry endlessly
+                    const wasStable = Date.now() - this._connectedAt > 5000;
+                    if (wasStable) {
+                        this.reconnectAttempts = 0;
+                    }
                     this.reconnect();
                 };
                 this.ws.onerror = (evt) => {
@@ -145,15 +160,11 @@ export class WebSocketClient {
         const base = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
         const jitter = Math.random() * this.reconnectDelay;
         const delay = Math.min(base + jitter, 30_000);
+        // Re-read the backend URL each reconnect attempt to pick up env changes
+        this.url = WebSocketClient.detectBackendUrl();
         setTimeout(() => {
             this.connect().catch(() => { });
         }, delay);
-    }
-    detectBackendUrl() {
-        if (typeof process !== 'undefined' && process.env?.ZENITH_BACKEND_URL) {
-            return process.env.ZENITH_BACKEND_URL;
-        }
-        return 'ws://localhost:8765/ws';
     }
 }
 export const wsClient = new WebSocketClient();

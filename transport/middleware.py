@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable
 
 from config.settings import AppSettings
 from core.errors import ConfigError

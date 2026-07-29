@@ -15,8 +15,8 @@ def thinking(text: str, session_id: str) -> Event:
     return event(EventKind.THINKING, {"text": text}, session_id)
 
 
-def message_event(text: str, session_id: str, partial: bool = False) -> Event:
-    return event(EventKind.MESSAGE, {"text": text, "partial": partial}, session_id)
+def message_event(text: str, session_id: str, partial: bool = False, iteration: int = 0) -> Event:
+    return event(EventKind.MESSAGE, {"text": text, "partial": partial, "iteration": iteration}, session_id)
 
 
 def tool_call(tool_name: str, params: dict, session_id: str) -> Event:
@@ -51,8 +51,11 @@ def error(message: str, session_id: str, code: str = "", recoverable: bool = Fal
     }, session_id)
 
 
-def warning(message: str, session_id: str, code: str = "") -> Event:
-    return event(EventKind.WARNING, {"message": message, "code": code}, session_id)
+def warning(message: str, session_id: str, code: str = "", extra: dict | None = None) -> Event:
+    data: dict = {"message": message, "code": code}
+    if extra:
+        data.update(extra)
+    return event(EventKind.WARNING, data, session_id)
 
 
 def success(message: str, session_id: str, iterations: int = 0, token_info: dict | None = None) -> Event:

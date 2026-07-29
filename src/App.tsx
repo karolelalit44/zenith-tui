@@ -2,6 +2,7 @@ import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
+import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
@@ -20,6 +21,8 @@ import { WelcomeScreen } from './screens/Welcome';
 import { commandService } from './services/data/CommandService';
 import { addSession } from './services/data/SessionRepository';
 import { startupService } from './services/data/StartupService';
+import type { TokenUsageStats } from './services/data/TokenUsageService';
+import { tokenUsageService } from './services/data/TokenUsageService';
 import { loadUserProfile } from './services/data/userProfileService';
 import { useTheme } from './theme/ThemeContext';
 import type { AppStartupState } from './types/startup';
@@ -28,7 +31,10 @@ export const App: React.FC = () => {
   const { theme } = useTheme();
   const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
   const tick = useTickAnimation(150, startupState.phase === 'loading');
-  const [workspace, _setWorkspace] = useState(() => process.cwd());
+  const [workspace, setWorkspace] = useState(() => process.cwd());
+  useEffect(() => {
+    setWorkspace(process.cwd());
+  }, []);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
 
   useEffect(() => {
@@ -73,8 +79,15 @@ export const App: React.FC = () => {
     removeAttachment,
   } = useAutocomplete();
 
-  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation } = useScenario();
+  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation, eventsRef } = useScenario();
   const { activeProvider } = useProvider();
+  const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
+
+  useEffect(() => {
+    if (startupState.phase === 'ready') {
+      tokenUsageService.fetchStats().then(setTokenUsageStats);
+    }
+  }, [startupState.phase]);
 
   const handleSubmit = useCallback(
     (value: string) => {
@@ -123,10 +136,10 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
-      completeActiveTurn(events);
+      completeActiveTurn(eventsRef.current);
       addSession(activeTurn.prompt);
     }
-  }, [isRunning, events, activeTurn, completeActiveTurn]);
+  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn]);
 
   const handleAutocompleteSelectWithRouter = useCallback(
     (cmd: string) => {
@@ -268,9 +281,19 @@ export const App: React.FC = () => {
           totalTokens={totalTokens}
           events={events}
           startupState={startupState}
+          tokenUsageStats={tokenUsageStats}
           onSelectMode={handleModeSelect}
           onClose={closeOverlay}
           onComplete={handleSetupComplete}
+        />
+
+        <SessionStatusBar
+          mode={selectedMode}
+          totalTokens={totalTokens}
+          isRunning={isRunning}
+          isOverlayOpen={isOverlayOpen}
+          hasEvents={events.length > 0 || turns.length > 0}
+          tokenUsageStats={tokenUsageStats}
         />
       </Box>
     </AppProvider>

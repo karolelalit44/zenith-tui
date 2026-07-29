@@ -63,12 +63,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ startupState, onComple
   const handleValidateAndSave = useCallback(async () => {
     setStep('validating');
     const userSelectedModel = models[modelIdx]?.id || selectedProvider.meta.defaultModel;
-    const validationModel = selectedProvider.meta.defaultModel;
 
     const validationRequest: ProviderSetupRequest = {
       provider: selectedProvider.id,
       api_key: apiKeyInput,
-      model: validationModel,
+      model: userSelectedModel,
       base_url: selectedProvider.config.baseUrl || '',
       max_tokens: 4096,
       temperature: 0.7,

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +41,14 @@ def _extract_string_value(text: str, key: str) -> str | None:
     multi_match = re.search(rf'"{key}"\s*:\s*(.*)"\s*\}}\s*\}}', text, re.DOTALL)
     if multi_match:
         raw = multi_match.group(1)
-        if raw.startswith('"'):
-            raw = raw[1:]
+        raw = raw.removeprefix('"')
         return raw.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
 
     # Fallback: content followed by single closing brace (e.g., at end of params)
     multi_match2 = re.search(rf'"{key}"\s*:\s*(.*)"\s*\}}', text, re.DOTALL)
     if multi_match2:
         raw = multi_match2.group(1)
-        if raw.startswith('"'):
-            raw = raw[1:]
+        raw = raw.removeprefix('"')
         return raw.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
 
     return None

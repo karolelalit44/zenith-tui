@@ -17,11 +17,12 @@ The new interface adds:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Any
+from collections.abc import AsyncIterator
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from core.domain import FinishReason
-
 
 # ---------------------------------------------------------------------------
 # Existing interface (backward compatible)
@@ -108,6 +109,10 @@ class ModelInfo(BaseModel):
     context_window: int = 128000
     supports_tools: bool = True
     supports_thinking: bool = False
+    supports_vision: bool = False
+    streaming: bool = True
+    use_system_prompt: bool = True
+    edit_format: str = "tool"
 
 
 class ProviderService(ABC):

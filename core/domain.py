@@ -4,7 +4,7 @@ These types are the foundation for all service interfaces and must not
 depend on any other backend module (only stdlib and third-party libs).
 """
 
-from enum import StrEnum, Enum
+from enum import Enum, StrEnum
 
 
 class ScenarioMode(StrEnum):

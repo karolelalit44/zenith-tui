@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { loadUserProfile, saveUserProfile } from '../services/data/userProfileService';
 import { type Theme, themes } from './theme';
 
 interface ThemeContextType {
@@ -7,16 +8,23 @@ interface ThemeContextType {
   setTheme: (themeId: string) => void;
 }
 
+const DEFAULT_THEME = 'graphite';
+
 const ThemeContext = createContext<ThemeContextType>({
-  theme: themes.graphite,
-  activeThemeId: 'graphite',
+  theme: themes[DEFAULT_THEME],
+  activeThemeId: DEFAULT_THEME,
   setTheme: () => {},
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeThemeId, setActiveThemeId] = useState<string>('graphite');
+  const initialTheme = loadUserProfile().settings.theme || DEFAULT_THEME;
+  const [activeThemeId, setActiveThemeId] = useState<string>(themes[initialTheme] ? initialTheme : DEFAULT_THEME);
 
-  const theme = themes[activeThemeId] || themes.graphite;
+  useEffect(() => {
+    saveUserProfile({ settings: { ...loadUserProfile().settings, theme: activeThemeId } });
+  }, [activeThemeId]);
+
+  const theme = themes[activeThemeId] || themes[DEFAULT_THEME];
 
   const setTheme = (themeId: string) => {
     if (themes[themeId]) {

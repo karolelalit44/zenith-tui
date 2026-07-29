@@ -25,6 +25,7 @@ class LspDiagnosticsTool(BaseTool):
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         from pathlib import Path
+
         from lsp.manager import get_lsp_manager
 
         filepath = params.get("filepath", "")

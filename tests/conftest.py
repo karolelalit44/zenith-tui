@@ -42,12 +42,13 @@ for key, val in _env_defaults.items():
 
 # ── Now safe to import zenith modules ──
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from config.settings import AppSettings
-from db.connection import Database
 from core.events import Event, EventKind
+from db.connection import Database
 
 
 @pytest.fixture

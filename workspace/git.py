@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from config.env import require_int
 
@@ -19,9 +18,9 @@ class GitOps:
 
     def __init__(self, workspace_root: str) -> None:
         self.root = Path(workspace_root).resolve()
-        self._git_root: Optional[Path] = None
+        self._git_root: Path | None = None
 
-    def find_git_root(self) -> Optional[Path]:
+    def find_git_root(self) -> Path | None:
         """Find the .git directory by walking up from workspace root."""
         if self._git_root is not None:
             return self._git_root
@@ -142,7 +141,7 @@ class GitOps:
 
     def log(self, count: int = 10) -> list[dict]:
         """Get recent commit log."""
-        code, stdout, stderr = self._run(
+        code, stdout, _stderr = self._run(
             "log", f"--max-count={count}", "--pretty=format:%H|%s|%an|%ai"
         )
         if code != 0:
@@ -168,7 +167,7 @@ class GitOps:
         if status.get("error"):
             return {"success": False, "error": status["error"]}
 
-        code, stdout, stderr = self._run("revert", "HEAD", "--no-edit")
+        code, _stdout, stderr = self._run("revert", "HEAD", "--no-edit")
         if code != 0:
             return {"success": False, "error": stderr}
 

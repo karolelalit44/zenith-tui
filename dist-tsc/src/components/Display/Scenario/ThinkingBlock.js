@@ -15,7 +15,7 @@ function formatDuration(ms) {
 }
 export const ThinkingBlock = React.memo(({ event, context }) => {
     const { theme } = useTheme();
-    const isCollapsed = context?.thinkingCollapsed ?? false;
+    const isCollapsed = context?.thinkingCollapsed ?? true;
     const historical = context?.isHistorical ?? false;
     const [visibleCount, setVisibleCount] = useState(historical ? event.thoughts.length : 0);
     useEffect(() => {
@@ -47,10 +47,8 @@ export const ThinkingBlock = React.memo(({ event, context }) => {
                 "\u25CB ",
                 isCollapsed ? '▸' : '▾'),
             React.createElement(Text, { color: theme.colors.text.muted },
-                ' ',
-                event.thoughts.length,
-                " step",
-                event.thoughts.length === 1 ? '' : 's'),
+                " ",
+                event.thoughts.length),
             event.duration > 0 && (React.createElement(React.Fragment, null,
                 React.createElement(Text, { color: theme.colors.text.muted }, " \u00B7 "),
                 React.createElement(Text, { color: theme.colors.text.muted }, formatDuration(event.duration)))),

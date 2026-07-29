@@ -434,7 +434,7 @@ class LspClient:
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending.pop(req_id, None)
             raise TimeoutError(f"LSP request '{method}' timed out after {timeout}s")
 
@@ -503,7 +503,7 @@ def _encode_message(message: dict) -> bytes:
     """Encode a JSON-RPC message with Content-Length header."""
     body = json.dumps(message)
     body_bytes = body.encode("utf-8")
-    return f"Content-Length: {len(body_bytes)}\r\n\r\n".encode("utf-8") + body_bytes
+    return f"Content-Length: {len(body_bytes)}\r\n\r\n".encode() + body_bytes
 
 
 def _severity_name(severity: int) -> str:

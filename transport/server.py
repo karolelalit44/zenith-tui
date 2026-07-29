@@ -5,13 +5,23 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from importlib.metadata import version as _get_version
+
 from fastapi import FastAPI, WebSocket
 
-from .websocket import ZenithHandler
-from .shutdown import GracefulShutdown
-from .startup import validate_startup, validate_provider_setup, save_provider_setup, get_provider_config, ProviderSetupRequest
+from db.repository import TokenUsageRepository
+
 from .middleware import wrap_handler
-from importlib.metadata import version as _get_version
+from .shutdown import GracefulShutdown
+from .startup import (
+    ProviderSetupRequest,
+    get_provider_config,
+    save_provider_setup,
+    validate_provider_setup,
+    validate_startup,
+)
+from .websocket import ZenithHandler
+
 try:
     __version__ = _get_version("zenith")
 except Exception:
@@ -73,6 +83,14 @@ async def _do_startup() -> None:
         logger.info("LSP manager initialized")
     except Exception as e:
         logger.debug("LSP manager init skipped: %s", e)
+
+    try:
+        from db.repository import TokenUsageRepository
+        pricing_repo = TokenUsageRepository(db)
+        await pricing_repo.seed_pricing()
+        logger.info("Pricing data seeded")
+    except Exception as e:
+        logger.warning("Failed to seed pricing data: %s", e)
 
     _handler.handlers.dispatch = wrap_handler(_handler.handlers.dispatch)
 
@@ -150,6 +168,117 @@ async def startup_save_config(request: ProviderSetupRequest):
 async def startup_provider_config():
     result = get_provider_config()
     return result.model_dump()
+
+
+@app.get("/usage/token-stats")
+async def token_usage_stats(since: str | None = None, until: str | None = None):
+    if _handler is None:
+        return {"models": [], "totals": {}}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        models = await repo.get_stats_by_model(since=since, until=until)
+        totals = await repo.get_total_stats(since=since, until=until)
+        return {"models": models, "totals": totals}
+    except Exception as e:
+        logger.warning("Failed to fetch token stats: %s", e)
+        return {"models": [], "totals": {}}
+
+
+@app.get("/usage/token-stats/{session_id}")
+async def token_usage_session(session_id: str):
+    if _handler is None:
+        return {"usage": []}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        usage = await repo.get_session_token_usage(session_id)
+        return {"usage": usage}
+    except Exception as e:
+        logger.warning("Failed to fetch session token usage: %s", e)
+        return {"usage": []}
+
+
+@app.get("/usage/cost-summary")
+async def token_cost_summary(period: str = "all"):
+    if _handler is None:
+        return {"data": []}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        data = await repo.get_cost_summary(period=period)
+        return {"data": data}
+    except Exception as e:
+        logger.warning("Failed to fetch cost summary: %s", e)
+        return {"data": []}
+
+
+@app.get("/usage/budget/{session_id}")
+async def token_budget_status(session_id: str):
+    if _handler is None:
+        return {"active": False}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        status = await repo.get_budget_status(session_id)
+        return status
+    except Exception as e:
+        logger.warning("Failed to fetch budget status: %s", e)
+        return {"active": False}
+
+
+@app.post("/usage/budget")
+async def token_budget_upsert(data: dict):
+    if _handler is None:
+        return {"ok": False}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        await repo.upsert_budget(
+            session_id=data["session_id"],
+            max_session_cost=float(data.get("max_session_cost", 0)),
+            max_daily_cost=float(data.get("max_daily_cost", 0)),
+            max_monthly_cost=float(data.get("max_monthly_cost", 0)),
+            active=bool(data.get("active", True)),
+        )
+        return {"ok": True}
+    except Exception as e:
+        logger.warning("Failed to upsert budget: %s", e)
+        return {"ok": False}
+
+
+@app.get("/usage/steps/{session_id}")
+async def token_usage_steps(session_id: str):
+    if _handler is None:
+        return {"steps": []}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        steps = await repo.get_per_step_stats(session_id)
+        return {"steps": steps}
+    except Exception as e:
+        logger.warning("Failed to fetch step stats: %s", e)
+        return {"steps": []}
+
+
+@app.get("/usage/efficiency/{session_id}")
+async def token_usage_efficiency(session_id: str):
+    if _handler is None:
+        return {}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        eff = await repo.get_efficiency(session_id)
+        return eff
+    except Exception as e:
+        logger.warning("Failed to fetch efficiency: %s", e)
+        return {}
+
+
+@app.post("/usage/seed-pricing")
+async def seed_pricing():
+    if _handler is None:
+        return {"ok": False}
+    try:
+        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
+        await repo.seed_pricing()
+        return {"ok": True}
+    except Exception as e:
+        logger.warning("Failed to seed pricing: %s", e)
+        return {"ok": False}
 
 
 @app.websocket("/ws")

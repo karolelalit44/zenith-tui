@@ -1,13 +1,19 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { loadUserProfile, saveUserProfile } from '../services/data/userProfileService';
 import { themes } from './theme';
+const DEFAULT_THEME = 'graphite';
 const ThemeContext = createContext({
-    theme: themes.graphite,
-    activeThemeId: 'graphite',
+    theme: themes[DEFAULT_THEME],
+    activeThemeId: DEFAULT_THEME,
     setTheme: () => { },
 });
 export const ThemeProvider = ({ children }) => {
-    const [activeThemeId, setActiveThemeId] = useState('graphite');
-    const theme = themes[activeThemeId] || themes.graphite;
+    const initialTheme = loadUserProfile().settings.theme || DEFAULT_THEME;
+    const [activeThemeId, setActiveThemeId] = useState(themes[initialTheme] ? initialTheme : DEFAULT_THEME);
+    useEffect(() => {
+        saveUserProfile({ settings: { ...loadUserProfile().settings, theme: activeThemeId } });
+    }, [activeThemeId]);
+    const theme = themes[activeThemeId] || themes[DEFAULT_THEME];
     const setTheme = (themeId) => {
         if (themes[themeId]) {
             setActiveThemeId(themeId);

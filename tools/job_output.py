@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import BaseTool, ToolResult
 from .background import get_background_manager
+from .base import BaseTool, ToolResult
 
 
 class JobOutputTool(BaseTool):

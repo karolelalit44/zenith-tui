@@ -1,4 +1,5 @@
-from providers.parser import parse_tool_calls, UnifiedResponseFormatter
+from providers.parser import UnifiedResponseFormatter, parse_tool_calls
+
 
 def test_parse_tool_calls_clean_json():
     text = '```tool\n{"tool": "file_write", "params": {"filepath": "foo.py", "content": "print(1)"}}\n```'

@@ -3,34 +3,39 @@
 from __future__ import annotations
 
 import logging
-from typing import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
-from config.settings import AppSettings, AGENT_MODES
+from config.settings import AGENT_MODES, AppSettings
+from core.domain import FinishReason
 from core.errors import ZenithError
-from core.events import Event
+from core.events import Event, EventKind
 from core.message import Message
+from providers import responder as r
 from providers.base import BaseProvider
 from providers.parser import UnifiedResponseFormatter
-from providers import responder as r
 from tools.param_normalizer import normalize_file_params
 from tools.registry import ToolRegistry
-from .context import ContextManager
-from .prompts import build_system_prompt, build_plan_system_prompt
+
+from .context import ContextManager, _get_model_context_window
+from .llm_stream import StreamState, stream_with_retries
 from .loop_detection import LoopDetector
-from .llm_stream import stream_with_retries, StreamState
-from .validation import (
-    REFLECTION_ERROR_LIMIT,
-    schemas_to_openai_tools,
-    _COMPLETION_SIGNALS as COMPLETION_SIGNALS,
-)
+from .prompts import build_plan_system_prompt, build_system_prompt
 from .tool_executor import (
-    validate_tool_calls,
-    validate_tool_rejection,
-    format_tool_result,
+    _dynamic_max_output,
+    auto_commit,
     build_tool_metadata,
     execute_tool,
+    format_tool_result,
     post_execution_hooks,
-    auto_commit,
+    validate_tool_calls,
+    validate_tool_rejection,
+)
+from .validation import (
+    _COMPLETION_SIGNALS as COMPLETION_SIGNALS,
+)
+from .validation import (
+    reflection_error_limit,
+    schemas_to_openai_tools,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,8 +86,36 @@ class AgentLoop:
         skills_section: str = "",
         confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
         plan_context: str = "",
+        model_override: str | None = None,
     ) -> AsyncIterator[Event]:
         sequence = self.accept()
+
+        # Model override per mode (Aider-style --editor-model / --architect-model)
+        _original_model = self.provider.model
+        if model_override and model_override != self.provider.model:
+            logger.info("Mode model override: %s → %s", self.provider.model, model_override)
+            self.provider.model = model_override
+        try:
+            async for ev in self._process_prompt_impl(
+                prompt, session_id, history, mode, skills_section,
+                confirm_callback, plan_context, sequence,
+            ):
+                yield ev
+        finally:
+            if model_override and model_override != _original_model:
+                self.provider.model = _original_model
+
+    async def _process_prompt_impl(
+        self,
+        prompt: str,
+        session_id: str,
+        history: list[Message],
+        mode: str = "build",
+        skills_section: str = "",
+        confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
+        plan_context: str = "",
+        sequence: int = 0,
+    ) -> AsyncIterator[Event]:
         provider_name = getattr(self.provider, 'name', '')
         model = self.provider.model
         ws = self.config.workspace_root
@@ -98,12 +131,13 @@ class AgentLoop:
             )
             # Plan mode: only read-only tools (file_read, glob, grep, bash)
             if self.tool_registry and mode_config and mode_config.allowed_tools:
-                plan_tool_names = self.tool_registry.list_tools_for_mode("plan")
+                plan_tool_names = self.tool_registry.list_tools_for_mode(
+                    "plan", allowed_mcp=mode_config.allowed_mcp,
+                )
                 registered_tools = set(plan_tool_names)
-                plan_schemas = [
-                    s for s in self._get_tool_schemas()
-                    if s["name"] in registered_tools
-                ]
+                plan_schemas = self.tool_registry.get_schemas_for_mode(
+                    "plan", allowed_mcp=mode_config.allowed_mcp,
+                )
                 openai_tools = schemas_to_openai_tools(plan_schemas)
                 logger.info("Plan mode tools: %s", sorted(registered_tools))
             else:
@@ -111,17 +145,23 @@ class AgentLoop:
                 openai_tools = []
         else:
             # Build mode: full prompt, all tools
+            allowed_mcp = mode_config.allowed_mcp if mode_config else None
+            all_tool_schemas = self.tool_registry.get_schemas_for_mode(
+                "build", allowed_mcp=allowed_mcp,
+            ) if self.tool_registry else []
+            all_tool_names = {s["name"] for s in all_tool_schemas}
             system_prompt = build_system_prompt(
-                self.config.workspace_root, mode, self._get_tool_schemas(),
+                self.config.workspace_root, mode, all_tool_schemas,
                 skills_section=skills_section,
                 max_context_tokens=self.config.max_context_tokens,
                 provider_name=provider_name,
             )
-            registered_tools = set(self.tool_registry.list_tools()) if self.tool_registry else set()
-            openai_tools = schemas_to_openai_tools(self._get_tool_schemas())
+            registered_tools = all_tool_names
+            openai_tools = schemas_to_openai_tools(all_tool_schemas)
 
         # --- Model capability check ---
         model_supports_tools = True
+        model_use_system_prompt = True
         try:
             from db.repository import load_catalog
             cat = load_catalog()
@@ -130,6 +170,7 @@ class AgentLoop:
                 if m.get("id") == model:
                     caps = m.get("model_capabilities", {})
                     model_supports_tools = caps.get("function_calling", True)
+                    model_use_system_prompt = m.get("use_system_prompt", True)
                     break
         except Exception:
             pass
@@ -138,17 +179,23 @@ class AgentLoop:
             openai_tools = []
             logger.info("Model '%s' does not support tool calling — sending without tools", model)
 
+        if not model_use_system_prompt:
+            logger.info("Model '%s' does not support system prompt — merging into user message", model)
+
+        # Dynamic reflection error limit based on model context window
+        _reflimit = reflection_error_limit(_get_model_context_window(model))
+
         # Safety net — dynamic stopping is the primary mechanism
         SAFETY_NET_MAX_ITERATIONS = 100
 
-        messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context)
+        messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context, use_system_prompt=model_use_system_prompt)
         logger.info("Context built: %d messages, system_prompt=%d chars", len(messages), len(system_prompt))
         yield r.thinking(f"Processing your request in {mode} mode...", session_id)
 
         if self.context_manager.should_summarize(messages, model):
             async for ev in self._maybe_summarize(history, session_id):
                 yield ev
-            messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context)
+            messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context, use_system_prompt=model_use_system_prompt)
 
         if self.is_cancelled(sequence):
             yield r.warning("Request was cancelled before starting", session_id)
@@ -167,6 +214,7 @@ class AgentLoop:
         task_completed = False
         post_comp_iterations = 0
         files_edited: list[str] = []
+        _total_completion_chars = 0
 
         try:
             while iteration < SAFETY_NET_MAX_ITERATIONS:
@@ -184,9 +232,10 @@ class AgentLoop:
                 token_info = self.context_manager.get_token_info(messages, model)
                 if token_info.percent > 0.85:
                     logger.warning("Context window %.1f%% full — summarizing", token_info.percent * 100)
+                    yield r.warning("Context approaching limit, summarizing...", session_id, extra={"tokenInfo": {"used": token_info.used, "remaining": token_info.remaining, "total": token_info.total, "percent": token_info.percent}})
                     async for ev in self._maybe_summarize(history, session_id):
                         yield ev
-                    messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context)
+                    messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context, use_system_prompt=model_use_system_prompt)
                     token_info = self.context_manager.get_token_info(messages, model)
                     if token_info.percent > 0.95:
                         yield r.error("Context window exhausted even after summarization", session_id, code="CONTEXT_EXHAUSTED")
@@ -195,21 +244,49 @@ class AgentLoop:
                 logger.info("Agent turn %d (dynamic stop) session=%s tokens=%.1f%%", iteration, session_id, token_info.percent * 100)
 
                 stream_state = StreamState()
+                finish_reason = FinishReason.STOP
+                context_exceeded = False
                 try:
                     async for event in stream_with_retries(
                         self.provider, messages, openai_tools, session_id, iteration, stream_state
                     ):
+                        if event.kind == EventKind.WARNING and event.data.get("context_exceeded"):
+                            context_exceeded = True
                         yield event
                 except ZenithError:
                     return
 
+                # Handle runtime context exceeded — summarize and retry
+                if context_exceeded:
+                    logger.info("Context exceeded at runtime — summarizing")
+                    yield r.warning("Context window exceeded, summarizing and retrying...", session_id)
+                    async for ev in self._maybe_summarize(history, session_id):
+                        yield ev
+                    messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context, use_system_prompt=model_use_system_prompt)
+                    token_info = self.context_manager.get_token_info(messages, model)
+                    if token_info.percent > 0.95:
+                        yield r.error("Context window exhausted even after summarization", session_id, code="CONTEXT_EXHAUSTED")
+                        return
+                    continue
+
+                # Check if stream completed due to length truncation
+                finish_reason = getattr(self.provider, '_last_finish_reason', FinishReason.STOP)
+
                 response_text = stream_state.response_text
+                _total_completion_chars += len(response_text)
                 native_tool_calls = getattr(self.provider, '_last_native_tool_calls', [])
                 clean_response, tool_calls = UnifiedResponseFormatter.process_response(response_text, native_tool_calls or None)
-                logger.info("Agent turn %d response: %d chars, %d tool calls, clean=%d chars",
-                            iteration, len(response_text), len(tool_calls), len(clean_response or ""))
+                logger.info("Agent turn %d response: %d chars, %d tool calls, clean=%d chars finish=%s",
+                            iteration, len(response_text), len(tool_calls), len(clean_response or ""), finish_reason)
                 if clean_response:
-                    yield r.message_event(clean_response, session_id, partial=False)
+                    yield r.message_event(clean_response, session_id, partial=False, iteration=iteration)
+
+                if finish_reason == FinishReason.LENGTH:
+                    logger.info("FinishReason=LENGTH on turn %d — continuing response", iteration)
+                    if iteration >= SAFETY_NET_MAX_ITERATIONS * 2:
+                        yield r.error("Response length limit exceeded repeatedly", session_id, code="LENGTH_EXCEEDED")
+                        return
+                    continue
 
                 if not tool_calls:
                     if not clean_response and not stream_state.full_response:
@@ -252,13 +329,16 @@ class AgentLoop:
                         yield r.warning(f"Tool '{tool_name}' rejected: {reject_msg}", session_id)
                         messages.append({"role": "user", "content": f"[Tool rejected] {reject_msg}"})
                         reflection_errors += 1
-                        if reflection_errors >= REFLECTION_ERROR_LIMIT:
+                        if reflection_errors >= _reflimit:
                             yield r.error(f"Too many errors ({reflection_errors}).", session_id, code="REFLECTION_LIMIT", recoverable=True)
                             return
                         continue
 
                     yield r.tool_call(tool_name, tool_params, session_id)
-                    result, duration_ms = await execute_tool(self.tool_registry, tool_name, tool_params, ws, mode)
+                    result, duration_ms = await execute_tool(
+                        self.tool_registry, tool_name, tool_params, ws, mode,
+                        allowed_mcp=mode_config.allowed_mcp if mode_config else None,
+                    )
                     yield r.tool_result(tool_name, result.success, session_id,
                         output=result.output or "", error=result.error or "",
                         metadata=build_tool_metadata(tool_name, tool_params, result, duration_ms))
@@ -272,9 +352,24 @@ class AgentLoop:
                         reflection_errors += 1
                         err_msg = result.error or f"Tool '{tool_name}' execution failed"
                         messages.append({"role": "user", "content": f"[Tool error] {tool_name} failed: {err_msg}. Try a different approach."})
-                        if reflection_errors >= REFLECTION_ERROR_LIMIT:
+                        if reflection_errors >= _reflimit:
                             yield r.error(f"Too many errors ({reflection_errors}).", session_id, code="REFLECTION_LIMIT", recoverable=True)
                             return
+
+                    # StopWhen-style context check after each step (Crush pattern)
+                    _ti = self.context_manager.get_token_info(messages, model)
+                    _remaining = _ti.total - _ti.used
+                    _threshold = 20000 if _ti.total >= 200000 else int(_ti.total * 0.2)
+                    if _remaining <= _threshold and _remaining > 0:
+                        yield r.warning(f"Context approaching limit ({_ti.percent:.0f}%), summarizing...", session_id, extra={"tokenInfo": vars(_ti)})
+                        async for _ev in self._maybe_summarize(history, session_id):
+                            yield _ev
+                        messages = self.context_manager.build_messages(history, system_prompt, prompt, model, summary=self._summary, plan_block=plan_context, use_system_prompt=model_use_system_prompt)
+                        _ti2 = self.context_manager.get_token_info(messages, model)
+                        if _ti2.percent > 0.95:
+                            yield r.error(f"Context exhausted ({_ti2.percent:.0f}%)", session_id, code="CONTEXT_EXHAUSTED", recoverable=True)
+                            return
+                        yield r.warning("Context summarized, continuing", session_id)
 
                     # Track created files + edited files
                     if result.success:
@@ -288,7 +383,10 @@ class AgentLoop:
                     for ev in await post_execution_hooks(tool_name, tool_params, result, ws, session_id):
                         yield ev
 
-                    messages.append({"role": "user", "content": format_tool_result(tool_name, result, self.config.tools.max_tool_output)})
+                    model_ctx = _get_model_context_window(model)
+                    dynamic_max = _dynamic_max_output(model_ctx)
+                    configured_max = self.config.tools.max_tool_output
+                    messages.append({"role": "user", "content": format_tool_result(tool_name, result, min(dynamic_max, configured_max))})
                     self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
 
                 # --- Dynamic stop conditions (checked after each full tool-call batch) ---
@@ -317,9 +415,19 @@ class AgentLoop:
             pass
 
         token_info = self.context_manager.get_token_info(messages, model)
+        prompt_tokens = token_info.used
+        estimated_completion = max(1, _total_completion_chars // 4)
+        cum_usage: dict = getattr(self.provider, '_cumulative_usage', {})
+        is_estimated = cum_usage.get("total_tokens", 0) == 0
         yield r.success("Request processed successfully", session_id, iteration, {
             "used": token_info.used, "remaining": token_info.remaining,
             "total": token_info.total, "percent": round(token_info.percent, 3),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": estimated_completion,
+            "cached_tokens": cum_usage.get("cached_tokens", 0),
+            "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
+            "estimated": is_estimated,
+            "mode": mode,
         })
 
     async def _maybe_summarize(self, history, session_id):
@@ -352,4 +460,4 @@ class AgentLoop:
         return cached
 
 
-from .tool_executor import format_tool_result as _format_tool_result  # noqa: E402, F401
+from .tool_executor import format_tool_result as _format_tool_result  # noqa: F401, E402

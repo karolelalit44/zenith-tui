@@ -6,7 +6,7 @@ import { formatTokenCount } from '../../services/data/tokenEstimationService';
 import { getActiveGitBranch } from '../../services/gitService';
 import { useTheme } from '../../theme/ThemeContext';
 import { MultiLineTextInput } from './MultiLineTextInput';
-export const CommandInput = React.memo(({ input, onInputChange, onSubmit, disabled = false, attachments, onRemoveAttachment, historyUp, historyDown, totalTokens = 0, maxTokens = SESSION_STATUS_DEFAULTS.maxTokens, mode = 'build', }) => {
+export const CommandInput = React.memo(({ input, onInputChange, onSubmit, disabled = false, attachments, onRemoveAttachment: _onRemoveAttachment, historyUp, historyDown, totalTokens = 0, maxTokens = SESSION_STATUS_DEFAULTS.maxTokens, mode = 'build', }) => {
     const { theme } = useTheme();
     const { activeProvider } = useProvider();
     const branch = getActiveGitBranch();
@@ -23,7 +23,7 @@ export const CommandInput = React.memo(({ input, onInputChange, onSubmit, disabl
     const isMedium = columns < 90;
     return (React.createElement(Box, { flexDirection: "column", width: "100%", borderStyle: "round", borderColor: disabled ? theme.colors.border.muted : theme.colors.border.active, paddingX: 1, paddingY: 0, marginTop: 1 },
         attachments && attachments.length > 0 && (React.createElement(Box, { flexDirection: "row", flexWrap: "wrap", marginBottom: 0 }, attachments.map((att, idx) => (React.createElement(Box, { key: idx, flexDirection: "row", marginRight: 1 },
-            React.createElement(Text, { color: theme.colors.status.info }, "\uD83D\uDCCE"),
+            React.createElement(Text, { color: theme.colors.status.info }, "[ATTACH]"),
             React.createElement(Text, { color: theme.colors.text.ethereal },
                 " ",
                 att.name),

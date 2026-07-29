@@ -10,10 +10,9 @@ into a single service interface, adding:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass, field
-
 
 logger = logging.getLogger(__name__)
 

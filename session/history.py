@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from providers.base import BaseProvider
 from config.settings import AppSettings
 from core.message import Message
+from providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class HistoryManager:
                 timeout=30.0,
             )
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Summarization timed out, using fallback")
             return self._fallback_summary(messages)
         except Exception as e:

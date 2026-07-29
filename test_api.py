@@ -1,8 +1,8 @@
 """Direct API test — verify OpenRouter free models respond."""
 import asyncio
-import time
 import os
 import sys
+import time
 
 # Load keys from .keys file
 keys_path = os.path.join(os.path.dirname(__file__), ".keys")
@@ -13,6 +13,7 @@ if os.path.isfile(keys_path):
             os.environ[k.strip()] = v.strip()
 
 import litellm
+
 litellm.drop_params = True
 
 API_KEY = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API")

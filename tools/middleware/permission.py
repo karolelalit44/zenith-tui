@@ -6,10 +6,10 @@ A production deployment can supply a PermissionService via the constructor.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from ..base import ToolContext, ToolMiddleware, ToolResult
-
 
 # Callback signature: (tool_name, params, ctx) -> bool | ToolResult
 PermissionCallback = Callable[[str, dict[str, Any], ToolContext], Awaitable[bool | ToolResult]]

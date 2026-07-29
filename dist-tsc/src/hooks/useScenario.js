@@ -2,27 +2,43 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { backendScenarioProvider } from '../services/backend/BackendScenarioProvider';
 import { wsClient } from '../services/backend/WebSocketClient';
 import { eventBus } from '../services/eventBus';
+const SESSION_STORAGE_KEY = 'zenith_session_id';
 export function useScenario() {
     const [events, setEvents] = useState([]);
+    const eventsRef = useRef([]);
     const [isRunning, setIsRunning] = useState(false);
     const [activeConfirmation, setActiveConfirmation] = useState(null);
     const [lastSessionId, setLastSessionId] = useState(null);
     const runnerRef = useRef(null);
     const sessionIdRef = useRef(null);
+    // Restore session ID from localStorage on mount
+    useEffect(() => {
+        try {
+            const savedId = localStorage.getItem(SESSION_STORAGE_KEY);
+            if (savedId) {
+                sessionIdRef.current = savedId;
+                setLastSessionId(savedId);
+            }
+        }
+        catch {
+            // localStorage not available (test environment)
+        }
+    }, []);
     useEffect(() => {
         wsClient.connect().catch(() => { });
     }, []);
     const handleEvent = useCallback((event, index) => {
-        console.log(`[SCENARIO EVENT] kind=${event.kind} id=${event.id} index=${index}`);
         setEvents((prev) => {
+            let next;
             if (typeof index === 'number' && index < prev.length) {
-                console.log(`[SCENARIO UPDATE] replacing event at index ${index} (prev_kind=${prev[index]?.kind})`);
-                const updated = [...prev];
-                updated[index] = event;
-                return updated;
+                next = [...prev];
+                next[index] = event;
             }
-            console.log(`[SCENARIO APPEND] adding new event (total=${prev.length + 1})`);
-            return [...prev, event];
+            else {
+                next = [...prev, event];
+            }
+            eventsRef.current = next;
+            return next;
         });
         if (event.kind === 'confirmation_request') {
             const conf = event;
@@ -38,17 +54,28 @@ export function useScenario() {
         const id = session.id;
         sessionIdRef.current = id;
         setLastSessionId(id);
+        try {
+            localStorage.setItem(SESSION_STORAGE_KEY, id);
+        }
+        catch {
+            /* noop */
+        }
         return id;
     }, []);
     const connectToBackend = useCallback(async () => {
         await wsClient.connect();
     }, []);
     const reportError = useCallback((id, message) => {
-        setEvents([{ kind: 'error', id: `evt_${id}_${Date.now()}`, message }]);
+        setEvents((prev) => {
+            const next = [...prev, { kind: 'error', id: `evt_${id}_${Date.now()}`, message }];
+            eventsRef.current = next;
+            return next;
+        });
         setIsRunning(false);
     }, []);
     const startScenario = useCallback(async (prompt, selectedMode, provider) => {
         setEvents([]);
+        eventsRef.current = [];
         setIsRunning(true);
         try {
             await connectToBackend();
@@ -58,6 +85,26 @@ export function useScenario() {
             return;
         }
         try {
+            if (sessionIdRef.current) {
+                // Verify saved session still exists on backend
+                try {
+                    const resumed = await wsClient.send('session.resume', { session_id: sessionIdRef.current });
+                    // Session is valid — reuse it; update the ID from backend response
+                    if (resumed?.id && resumed.id !== sessionIdRef.current) {
+                        sessionIdRef.current = resumed.id;
+                    }
+                }
+                catch {
+                    // Session no longer exists — create a new one
+                    sessionIdRef.current = null;
+                    try {
+                        localStorage.removeItem(SESSION_STORAGE_KEY);
+                    }
+                    catch {
+                        /* noop */
+                    }
+                }
+            }
             if (!sessionIdRef.current)
                 await createSession(prompt);
         }
@@ -65,7 +112,10 @@ export function useScenario() {
             reportError('sess', 'Failed to create session');
             return;
         }
-        const scenario = backendScenarioProvider.resolve(prompt, selectedMode);
+        const scenario = {
+            ...backendScenarioProvider.resolve(prompt, selectedMode),
+            sessionId: sessionIdRef.current ?? undefined,
+        };
         runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
         wsClient.sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider).catch((err) => {
             const message = err instanceof Error ? err.message : String(err);
@@ -90,6 +140,7 @@ export function useScenario() {
     }, [activeConfirmation]);
     return {
         events,
+        eventsRef,
         isRunning,
         startScenario,
         abort,

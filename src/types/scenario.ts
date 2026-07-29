@@ -137,6 +137,7 @@ export interface Scenario {
   mode: ScenarioMode;
   prompt: string;
   events: ScenarioEvent[];
+  sessionId?: string;
 }
 
 export interface FileAttachment {

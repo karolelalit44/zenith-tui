@@ -5,18 +5,19 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from core.events import Event
+from providers import responder as r
 from tools.base import ToolResult
 from tools.command_safety import assess_command
 from tools.registry import ToolRegistry
-from providers import responder as r
 from workspace.git import GitOps
+
 from .validation import (
-    detect_placeholders,
     check_python_syntax,
     detect_interactive_command,
+    detect_placeholders,
     strip_cd_prefix,
 )
 
@@ -30,6 +31,23 @@ def validate_tool_calls(tool_calls: list[dict], registered_tools: set[str]) -> t
         name = tc.get("tool", "")
         (valid if name in registered_tools else invalid).append(tc)
     return valid, invalid
+
+
+def _dynamic_max_output(context_window: int | None = None) -> int:
+    """Scale tool output truncation based on model context window.
+
+    Larger context windows can handle more verbose tool output.
+    Base: 10K chars. Scales up to 50K for 1M+ context models.
+    """
+    if context_window is None:
+        return 10000
+    if context_window >= 1_000_000:
+        return 50000
+    if context_window >= 200_000:
+        return 25000
+    if context_window >= 128_000:
+        return 15000
+    return 10000
 
 
 def format_tool_result(tool_name: str, result: ToolResult, max_output: int = 10000) -> str:
@@ -139,11 +157,12 @@ async def execute_tool(
     tool_params: dict,
     workspace_root: str,
     mode: str,
+    allowed_mcp: dict[str, list[str]] | None = None,
 ) -> tuple[ToolResult, int]:
     """Execute a tool and return (result, duration_ms). Handles auto-retry for file_write."""
     logger.info("TOOL EXECUTE: name=%s mode=%s params=%s", tool_name, mode, str(tool_params)[:300])
     start = _time.monotonic()
-    result = await tool_registry.execute(tool_name, tool_params, workspace_root, mode)
+    result = await tool_registry.execute(tool_name, tool_params, workspace_root, mode, allowed_mcp=allowed_mcp)
     duration_ms = int((_time.monotonic() - start) * 1000)
 
     logger.info("TOOL RESULT: name=%s success=%s duration=%dms output_len=%d error=%s",
@@ -178,7 +197,7 @@ async def post_execution_hooks(
 
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:
-            from tools.auto_lint import run_lint, format_lint_result
+            from tools.auto_lint import format_lint_result, run_lint
             lint_result = await run_lint(edited_path, workspace_root)
             if lint_result and not lint_result.success:
                 lint_msg = format_lint_result(lint_result)

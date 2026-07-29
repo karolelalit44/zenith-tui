@@ -1,13 +1,13 @@
-from pydantic import BaseModel, Field
-from typing import Optional
 
-from .env import optional_int, optional_float
+from pydantic import BaseModel, Field
+
+from .env import optional_float, optional_int
 
 
 class ProviderConfig(BaseModel):
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    model: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
+    model: str | None = None
     max_tokens: int = Field(
         default=optional_int("ZENITH_MAX_TOKENS", 16384), ge=1
     )
@@ -16,4 +16,4 @@ class ProviderConfig(BaseModel):
     )
     is_active: bool = True
     enable_thinking: bool = False
-    reasoning_budget: Optional[int] = None
+    reasoning_budget: int | None = None

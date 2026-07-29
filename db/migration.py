@@ -15,7 +15,7 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 class MigrationRunner:
-    def __init__(self, db: "Database") -> None:
+    def __init__(self, db: Database) -> None:
         self.db = db
 
     async def ensure_migrations_table(self) -> None:

@@ -9,7 +9,6 @@ import click
 @click.version_option(package_name="zenith")
 def cli():
     """Zenith AI Coding Assistant Backend"""
-    pass
 
 
 @cli.command()
@@ -18,10 +17,11 @@ def cli():
 def serve(host: str, port: int):
     """Start the WebSocket server"""
     import uvicorn
+
     from transport.server import create_app
 
     app = create_app()
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, ws_ping_interval=None, ws_ping_timeout=None)
 
 
 @cli.command()

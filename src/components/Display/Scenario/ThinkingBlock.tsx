@@ -27,7 +27,7 @@ function formatDuration(ms: number): string {
 
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
-  const isCollapsed = context?.thinkingCollapsed ?? false;
+  const isCollapsed = context?.thinkingCollapsed ?? true;
   const historical = context?.isHistorical ?? false;
   const [visibleCount, setVisibleCount] = useState(historical ? event.thoughts.length : 0);
 
@@ -65,10 +65,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         <Text color={theme.colors.status.accent} bold>
           ○ {isCollapsed ? '▸' : '▾'}
         </Text>
-        <Text color={theme.colors.text.muted}>
-          {' '}
-          {event.thoughts.length} step{event.thoughts.length === 1 ? '' : 's'}
-        </Text>
+        <Text color={theme.colors.text.muted}> {event.thoughts.length}</Text>
         {event.duration > 0 && (
           <>
             <Text color={theme.colors.text.muted}> · </Text>

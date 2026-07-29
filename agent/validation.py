@@ -5,8 +5,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+REFLECTION_ERROR_LIMIT = 6  # kept for backward compat; prefer reflection_error_limit()
 
-REFLECTION_ERROR_LIMIT = 6
+
+def reflection_error_limit(context_window: int = 128000) -> int:
+    """Return a reflection error limit proportional to model context window.
+    
+    Base is 3; scales by +1 per 64K tokens of context beyond 32K.
+    Examples: 8K→3, 32K→3, 64K→4, 128K→5, 200K→6, 1M→18.
+    """
+    if context_window <= 32_000:
+        return 3
+    extra = (context_window - 32_000) // 64_000
+    return min(3 + extra, 20)
 
 _PLACEHOLDER_PATTERNS_RAW = [
     (r"\[[\w\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\w\s]*\]", "placeholder pattern"),

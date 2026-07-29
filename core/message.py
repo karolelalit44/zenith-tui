@@ -12,9 +12,10 @@ modified versions.
 from __future__ import annotations
 
 import uuid
-from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from .events import Event
 
@@ -54,8 +55,8 @@ class Message(BaseModel):
 
     # New structured fields for tool calls
     tool_calls: list[ToolCall] = Field(default_factory=list)
-    tool_result: Optional[ToolResult] = None
-    parent_message_id: Optional[str] = None
+    tool_result: ToolResult | None = None
+    parent_message_id: str | None = None
 
     @property
     def is_tool_message(self) -> bool:

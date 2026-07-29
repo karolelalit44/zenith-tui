@@ -1,26 +1,26 @@
 """Integration tests — full workflow tests across all modules."""
 
-import pytest
 from pathlib import Path
 
-from config.settings import AppSettings
-from config.providers import ProviderConfig
-from db.connection import Database
-from providers.registry import ProviderRegistry
-from providers.base import BaseProvider
-from core.session import Session
-from core.message import Message
-from core.events import Event, EventKind
-from tools import create_default_registry
+import pytest
+
+from agent.context import ContextManager
 from agent.loop import AgentLoop
 from agent.recovery import RecoverableAgentLoop
-from agent.context import ContextManager
+from config.providers import ProviderConfig
+from config.settings import AppSettings
+from core.events import Event, EventKind
+from core.message import Message
+from core.session import Session
+from db.connection import Database
+from providers.base import BaseProvider
+from providers.registry import ProviderRegistry
 from session.export import SessionExporter
-from workspace.tracker import FileTracker
-from workspace.repo_map import RepoMap
 from skills.loader import SkillLoader
+from tools import create_default_registry
 from transport.shutdown import GracefulShutdown
-
+from workspace.repo_map import RepoMap
+from workspace.tracker import FileTracker
 
 # ── Test Provider ───────────────────────────────────────────────────
 
@@ -116,7 +116,7 @@ class TestAgentWorkflow:
     async def test_plan_mode_blocks_write_tools(self, test_config):
         provider = EchoProvider()
         tool_registry = create_default_registry()
-        agent = AgentLoop(test_config, provider, tool_registry=tool_registry)
+        AgentLoop(test_config, provider, tool_registry=tool_registry)
 
         # Verify tool registry enforces plan mode
         result = await tool_registry.execute(
@@ -185,7 +185,7 @@ class TestErrorRecovery:
             events.append(event)
 
         error_events = [e for e in events if e.kind == EventKind.ERROR]
-        warning_events = [e for e in events if e.kind == EventKind.WARNING]
+        [e for e in events if e.kind == EventKind.WARNING]
         assert len(error_events) >= 1
         # RECOVERY_HINT warnings removed — error event carries recoverable flag instead
         assert any(e.data.get("recoverable") is True for e in error_events)

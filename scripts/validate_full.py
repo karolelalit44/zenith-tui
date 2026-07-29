@@ -106,7 +106,7 @@ def _make_ws_helpers():
                 msg = json.loads(raw)
                 if "id" in msg:
                     return msg
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
         return None
 
@@ -116,7 +116,7 @@ def _make_ws_helpers():
         while time.time() < deadline:
             try:
                 await asyncio.wait_for(ws.recv(), min(0.2, deadline - time.time()))
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
 
     return recv_response, drain_events
@@ -208,8 +208,8 @@ def phase_1():
 
     # 1.7 Provider registry
     try:
-        from providers.registry import ProviderRegistry
         from config.loader import load_config
+        from providers.registry import ProviderRegistry
         cfg = load_config()
         reg = ProviderRegistry.from_config(cfg.providers, cfg.active_provider)
         providers = reg.list_providers()
@@ -428,7 +428,7 @@ def phase_2():
                         return True, events
                     if params.get("kind") == "error":
                         return False, events
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
         return len(events) > 0, events
 
@@ -553,7 +553,7 @@ def phase_4():
                     msg = json.loads(raw)
                     if "id" in msg:
                         return msg
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
             return None
 
@@ -562,7 +562,7 @@ def phase_4():
             while time.time() < deadline:
                 try:
                     await asyncio.wait_for(ws.recv(), min(0.2, deadline - time.time()))
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
 
         async def test_e2e_session_lifecycle():
@@ -607,7 +607,7 @@ def phase_4():
                             break
                         if kind == "error":
                             break
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         break
                 results["prompt_processing"] = got_processing
                 results["prompt_success"] = got_success
@@ -649,10 +649,10 @@ def phase_5():
 
     # 5.1 AgentLoop instantiation
     try:
-        from agent.loop import AgentLoop
-        from agent.recovery import RecoverableAgentLoop
         from agent.context import ContextManager
+        from agent.loop import AgentLoop
         from agent.prompts import build_system_prompt
+        from agent.recovery import RecoverableAgentLoop
         from config.loader import load_config
         from providers.registry import ProviderRegistry
 
@@ -661,14 +661,14 @@ def phase_5():
         provider = reg.get(cfg.active_provider)
 
         ctx = ContextManager(cfg)
-        loop = AgentLoop(cfg, provider, ctx)
+        AgentLoop(cfg, provider, ctx)
         ok("AgentLoop instantiation", f"provider={provider.name if provider else 'None'}")
     except Exception as e:
         fail("AgentLoop instantiation", str(e), "Critical")
 
     # 5.2 RecoverableAgentLoop
     try:
-        agent = RecoverableAgentLoop(cfg, provider, ctx)
+        RecoverableAgentLoop(cfg, provider, ctx)
         ok("RecoverableAgentLoop", "OK")
     except Exception as e:
         fail("RecoverableAgentLoop", str(e), "High")
@@ -728,10 +728,10 @@ def phase_6():
     start_phase(6, "Tool Framework Testing")
 
     try:
-        from tools import create_default_registry
         from config.loader import load_config
+        from tools import create_default_registry
 
-        cfg = load_config()
+        load_config()
         reg = create_default_registry()
 
         # 6.1 Registry completeness
@@ -819,10 +819,10 @@ def phase_7():
 
     # 7.1 Database CRUD
     async def test_db_crud():
-        from db.connection import Database, resolve_db_path
-        from db.repository import SessionRepository, MessageRepository
-        from core.session import Session
         from core.message import Message
+        from core.session import Session
+        from db.connection import Database, resolve_db_path
+        from db.repository import MessageRepository, SessionRepository
 
         db = Database(resolve_db_path())
         await db.connect()
@@ -916,7 +916,7 @@ def phase_7():
     # 7.6 Session export
     try:
         from session.export import SessionExporter
-        exporter = SessionExporter()
+        SessionExporter()
         ok("SessionExporter", "Instantiated OK")
     except Exception as e:
         fail("SessionExporter", str(e), "Medium")
@@ -933,7 +933,7 @@ def phase_7():
     # 7.8 LSP manager
     try:
         from lsp.manager import LspManager
-        mgr = LspManager(workspace_root=".")
+        LspManager(workspace_root=".")
         ok("LspManager", "Initialized")
     except Exception as e:
         fail("LspManager", str(e), "Medium")
@@ -947,7 +947,7 @@ def phase_7():
     # 7.10 Graceful shutdown
     try:
         from transport.shutdown import GracefulShutdown
-        gs = GracefulShutdown()
+        GracefulShutdown()
         ok("GracefulShutdown", "Instantiated")
     except Exception as e:
         fail("GracefulShutdown", str(e), "Medium")
@@ -996,7 +996,7 @@ def phase_8():
                     msg = json.loads(raw)
                     if "id" in msg:
                         return msg
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
             return None
 
@@ -1006,7 +1006,7 @@ def phase_8():
             while time.time() < deadline:
                 try:
                     await asyncio.wait_for(ws.recv(), min(0.2, deadline - time.time()))
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
 
         async def test_integration():
@@ -1035,7 +1035,7 @@ def phase_8():
                                 break
                             if msg.get("params", {}).get("kind") == "error":
                                 break
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             break
                     results[f"prompt_{i+1}_success"] = got_success
                     await drain_events(ws, 1)
@@ -1139,7 +1139,7 @@ def phase_9():
             async with websockets.connect("ws://127.0.0.1:8765/ws") as ws:
                 await ws.send(json.dumps({"jsonrpc": "2.0", "method": "session.create", "id": 100, "params": {"title": "Rapid Msg"}}))
                 resp = json.loads(await asyncio.wait_for(ws.recv(), 5))
-                sid = resp["result"]["id"]
+                resp["result"]["id"]
                 t0 = time.perf_counter()
                 for i in range(10):
                     await ws.send(json.dumps({"jsonrpc": "2.0", "method": "tools.list", "id": 200 + i, "params": {}}))
@@ -1485,7 +1485,7 @@ def phase_12():
     except ImportError:
         # Try Windows-specific
         try:
-            r = subprocess.run(["tasklist", "/FI", f"PID eq {proc.pid}", "/FO", "CSV"],
+            subprocess.run(["tasklist", "/FI", f"PID eq {proc.pid}", "/FO", "CSV"],
                              capture_output=True, text=True, timeout=5)
             ok("Server memory", "tasklist output available")
         except Exception:
@@ -1495,9 +1495,9 @@ def phase_12():
 
     # 12.5 Database performance
     async def db_perf():
+        from core.session import Session
         from db.connection import Database, resolve_db_path
         from db.repository import SessionRepository
-        from core.session import Session
 
         db = Database(resolve_db_path())
         await db.connect()

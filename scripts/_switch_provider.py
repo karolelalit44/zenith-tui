@@ -1,16 +1,18 @@
 """Switch active provider to openrouter with a specific model."""
 import asyncio
-import sys
 import os
+import sys
+
 sys.path.insert(0, r"D:\vdo\code\zenith-frontend-tui")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-for line in open(r"D:\vdo\code\zenith-frontend-tui\.keys").readlines():
+for line in open(r"D:\vdo\code\zenith-frontend-tui\.keys"):
     if "=" in line:
         k, v = line.split("=", 1)
         os.environ[k.strip()] = v.strip()
 
 from db.connection import Database, resolve_db_path
+
 
 async def fix():
     db = Database(resolve_db_path())

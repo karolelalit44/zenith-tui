@@ -1,10 +1,12 @@
 """Tests for workspace: git operations, file tracker, repo map."""
 
 import subprocess
+
 import pytest
+
 from workspace.git import GitOps
-from workspace.tracker import FileTracker
 from workspace.repo_map import RepoMap
+from workspace.tracker import FileTracker
 
 
 def _has_git() -> bool:

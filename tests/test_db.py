@@ -1,7 +1,8 @@
 import pytest
-from core.session import Session
+
 from core.message import Message
-from db.repository import SessionRepository, MessageRepository
+from core.session import Session
+from db.repository import MessageRepository, SessionRepository
 
 
 @pytest.mark.asyncio

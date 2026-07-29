@@ -124,7 +124,7 @@ class McpClient:
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending.pop(req_id, None)
             raise TimeoutError(f"MCP request '{method}' timed out")
 
@@ -169,4 +169,4 @@ class McpClient:
 
 def _encode_message(message: dict) -> bytes:
     body = json.dumps(message).encode("utf-8")
-    return f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8") + body
+    return f"Content-Length: {len(body)}\r\n\r\n".encode() + body

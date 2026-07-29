@@ -8,7 +8,8 @@ multiple-choice options or allow free-form answers.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .base import BaseTool, ToolResult
 

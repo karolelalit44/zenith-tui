@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import BaseTool, ToolResult
 from config.env import optional_int
+
+from .base import BaseTool, ToolResult
 
 _TIMEOUT = optional_int("ZENITH_WEBFETCH_TIMEOUT", 30)
 _MAX_BYTES = optional_int("ZENITH_WEBFETCH_MAX_BYTES", 100000)

@@ -5,18 +5,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from agent.context import ContextManager
+from agent.coordinator import CoordinatorService, DefaultCoordinator
+from agent.runtime import AgentRuntime, DefaultAgentRuntime
 from config.settings import AppSettings
 from core.events import AsyncEventBus, EventBus
 from db.connection import Database
-from db.repository import SessionRepository, MessageRepository
-from providers.registry import ProviderRegistry
+from db.repository import MessageRepository, SessionRepository
 from providers.base import BaseProvider
-from tools.registry import ToolRegistry
+from providers.registry import ProviderRegistry
+from session.service import DefaultSessionService, SessionService
 from tools import create_default_registry
-from agent.runtime import AgentRuntime, DefaultAgentRuntime
-from agent.coordinator import CoordinatorService, DefaultCoordinator
-from agent.context import ContextManager
-from session.service import SessionService, DefaultSessionService
+from tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class AppContainer:
     session_service: SessionService = field(default=None)  # type: ignore[assignment]
 
     @classmethod
-    def create(cls, config: AppSettings) -> "AppContainer":
+    def create(cls, config: AppSettings) -> AppContainer:
         """Create a container with all services wired (but not started)."""
         container = cls(config=config)
         container._wire()

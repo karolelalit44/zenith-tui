@@ -7,18 +7,22 @@ from pathlib import Path
 
 from config.loader import load_config
 from db.repository import load_catalog
-from .schemas import (  # noqa: F401 — re-export for backward compat
-    StartupStatus,
+
+from .provider_validation import (  # noqa: F401 — re-export
+    get_provider_config,
+    save_provider_config_endpoint,
+    validate_provider_setup,
+)
+
+# Backward-compat alias for import resolution
+save_provider_setup = save_provider_config_endpoint
+from .schemas import (  # noqa: F401, E402 — re-export for backward compat
     MissingItem,
-    StartupResult,
+    ProviderConfigResponse,
     ProviderSetupRequest,
     ProviderSetupResult,
-    ProviderConfigResponse,
-)
-from .provider_validation import (  # noqa: F401 — re-export
-    validate_provider_setup,
-    get_provider_config,
-    save_provider_config_endpoint as save_provider_setup,
+    StartupResult,
+    StartupStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,9 +47,7 @@ def validate_startup(workspace_root: str = ".") -> StartupResult:
     catalog = load_catalog()
     known_providers = set(catalog.get("providers", {}).keys())
 
-    if not providers:
-        missing.append(MissingItem.PROVIDER)
-    elif not active or (active not in providers and active not in known_providers):
+    if not providers or not active or (active not in providers and active not in known_providers):
         missing.append(MissingItem.PROVIDER)
 
     provider_config = providers.get(active) if active else None

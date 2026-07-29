@@ -1,20 +1,27 @@
-"""LLM streaming — streaming LLM responses with retry logic."""
+"""LLM streaming — streaming LLM responses with retry logic.
+
+Time-based retry (Aider-style): retries for up to RETRY_TIMEOUT seconds
+instead of a fixed number of attempts. This handles slow free-tier models
+and long rate-limit windows much better than count-based retries.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator
 
-from core.errors import RateLimitError, ProviderError
+from core.errors import ProviderError, RateLimitError
 from core.events import Event
 from providers import responder as r
 from providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
-MAX_STREAM_RETRIES = 2
+# Time-based retry window (Aider-style): retry for up to 60s
+RETRY_TIMEOUT = 60.0
 
 
 @dataclass
@@ -22,6 +29,7 @@ class StreamState:
     """Mutable state shared between caller and stream_with_retries."""
     full_response: str = ""
     response_text: str = ""
+    finish_reason: str = ""
 
 
 async def stream_with_retries(
@@ -32,7 +40,10 @@ async def stream_with_retries(
     iteration: int,
     state: StreamState | None = None,
 ) -> AsyncIterator[Event]:
-    """Stream LLM response with retry on recoverable errors.
+    """Stream LLM response with time-based retry on recoverable errors.
+
+    Retries for up to RETRY_TIMEOUT seconds (instead of a fixed number of
+    attempts). Uses exponential backoff with jitter.
 
     Yields thinking and message events. Updates state.full_response with
     the complete accumulated text. state.response_text holds the text from
@@ -42,23 +53,26 @@ async def stream_with_retries(
         state = StreamState()
     state.response_text = ""
 
-    for attempt in range(MAX_STREAM_RETRIES + 1):
+    deadline = time.monotonic() + RETRY_TIMEOUT
+    attempt = 0
+
+    while True:
+        attempt += 1
         reasoning_buffer = ""
         stream_chunk_count = 0
-        logger.info("LLM stream start: attempt=%d/%d, tools=%d, messages=%d",
-                     attempt + 1, MAX_STREAM_RETRIES + 1, len(tools), len(messages))
+        remaining = max(0, deadline - time.monotonic())
+        logger.info("LLM stream start: attempt=%d, tools=%d, messages=%d, remaining=%.1fs",
+                     attempt, len(tools), len(messages), remaining)
         try:
             async for content, reasoning in provider.stream(messages, tools=tools):
                 stream_chunk_count += 1
                 if reasoning:
                     reasoning_buffer += reasoning
-                    # logger.info("  Stream chunk #%d: REASONING len=%d total_reasoning=%d",stream_chunk_count, len(reasoning), len(reasoning_buffer))
                 if content:
                     if reasoning_buffer:
                         yield r.thinking(reasoning_buffer, session_id)
                         reasoning_buffer = ""
                     state.response_text += content
-                    # logger.info("  Stream chunk #%d: CONTENT len=%d total_content=%d preview=%r",stream_chunk_count, len(content), len(state.response_text), content[:100])
                     yield r.message_event(content, session_id, partial=True)
             if reasoning_buffer:
                 yield r.thinking(reasoning_buffer, session_id)
@@ -72,30 +86,44 @@ async def stream_with_retries(
         except asyncio.CancelledError:
             raise
         except RateLimitError as e:
-            if attempt == MAX_STREAM_RETRIES or not e.recoverable:
+            if time.monotonic() >= deadline or not e.recoverable:
                 yield r.error(str(e), session_id, code=e.code, recoverable=False)
                 return
-            logger.warning("Stream retry %d/%d after rate limit: %s", attempt + 1, MAX_STREAM_RETRIES, e)
+            delay = min(e.retry_after or min(2 ** attempt, 30), deadline - time.monotonic())
+            if delay <= 0:
+                yield r.error(str(e), session_id, code=e.code, recoverable=False)
+                return
+            logger.warning("Stream retry %d after rate limit (%.1fs): %s", attempt, delay, e)
             if state.response_text:
                 yield r.message_event(state.response_text, session_id, partial=False)
                 state.full_response += state.response_text
                 state.response_text = ""
-            yield r.thinking(f"Rate limited, retrying in {int(e.retry_after or 2)}s...", session_id)
-            await asyncio.sleep(e.retry_after or (2 ** attempt))
+            yield r.thinking(f"Rate limited, retrying in {int(delay)}s...", session_id)
+            await asyncio.sleep(delay)
         except ProviderError as e:
-            if not e.recoverable or attempt == MAX_STREAM_RETRIES:
+            if e.code == "CONTEXT_EXCEEDED":
+                yield r.warning("Context window exceeded — summarizing and retrying...", session_id, extra={"context_exceeded": True})
+                return
+            if time.monotonic() >= deadline or not e.recoverable:
                 yield r.error(str(e), session_id, code=e.code, recoverable=e.recoverable)
                 return
-            logger.warning("Stream retry %d/%d after provider error: %s", attempt + 1, MAX_STREAM_RETRIES, e)
+            delay = min(2 ** attempt, deadline - time.monotonic())
+            if delay <= 0:
+                yield r.error(str(e), session_id, code=e.code, recoverable=e.recoverable)
+                return
+            logger.warning("Stream retry %d after provider error (%.1fs): %s", attempt, delay, e)
             if state.response_text:
                 yield r.message_event(state.response_text, session_id, partial=False)
                 state.full_response += state.response_text
                 state.response_text = ""
             yield r.thinking("Retrying after provider error...", session_id)
-            await asyncio.sleep(2 ** attempt)
+            await asyncio.sleep(delay)
         except Exception as e:
             logger.error("LLM stream error on turn %d: %s", iteration, e, exc_info=True)
             yield r.error(str(e), session_id)
             return
 
-    yield r.error("Stream failed after all retries", session_id, code="STREAM_EXHAUSTED", recoverable=True)
+        if time.monotonic() >= deadline:
+            break
+
+    yield r.error("Stream failed after timeout", session_id, code="STREAM_EXHAUSTED", recoverable=True)

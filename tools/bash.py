@@ -8,8 +8,8 @@ import platform
 import shutil
 from typing import Any
 
-from .base import BaseTool, ToolResult
 from .background import get_background_manager
+from .base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ class BashTool(BaseTool):
                     process.wait(),
                     timeout=auto_bg_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if process.returncode is None:
                     # Command still running — move to background
                     manager = get_background_manager()

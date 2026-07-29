@@ -1,19 +1,21 @@
 """Debug LLM prompt.send error."""
 import asyncio
 import json
-import time
-import sys
 import os
+import sys
+import time
+
 sys.path.insert(0, r"D:\vdo\code\zenith-frontend-tui")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-for line in open(r"D:\vdo\code\zenith-frontend-tui\.keys").readlines():
+for line in open(r"D:\vdo\code\zenith-frontend-tui\.keys"):
     if "=" in line:
         k, v = line.split("=", 1)
         os.environ[k.strip()] = v.strip()
 
-from subprocess import Popen, DEVNULL, PIPE
 from pathlib import Path
+from subprocess import DEVNULL, PIPE, Popen
+
 ROOT = Path(__file__).parent.parent
 
 proc = Popen(
@@ -27,6 +29,7 @@ if proc.poll() is not None:
     sys.exit(1)
 
 import websockets
+
 
 async def test():
     async with websockets.connect("ws://127.0.0.1:8765/ws") as ws:
@@ -54,7 +57,7 @@ async def test():
                     print(f"RESULT: {json.dumps(msg['result'])[:300]}")
                 if kind in ("success", "error"):
                     break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 print(f"recv timeout ({int(time.time() - deadline + 90)}s elapsed)")
                 continue
 

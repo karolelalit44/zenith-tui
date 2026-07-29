@@ -5,20 +5,25 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+
 from fastapi import WebSocket, WebSocketDisconnect
 
-from .protocol import (
-    JsonRpcRequest, Connection, TransportService,
-    make_error_response, make_event,
-)
+from config.settings import AppSettings
 from core.events import Event
 from db.connection import Database
 from providers.registry import ProviderRegistry
-from tools.registry import ToolRegistry
 from tools import create_default_registry
-from config.settings import AppSettings
+from tools.registry import ToolRegistry
+
 from .handlers import MethodHandlers
 from .prompt import PromptExecutor
+from .protocol import (
+    Connection,
+    JsonRpcRequest,
+    TransportService,
+    make_error_response,
+    make_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +33,9 @@ class ConnectionManager(TransportService):
 
     def __init__(self) -> None:
         self.connections: dict[str, WebSocket] = {}
+        self.event_buffers: dict[str, list[str]] = {}
+        self._disconnect_at: dict[str, int] = {}
+        self.max_buffered_events = 5000
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         await websocket.accept()
@@ -39,7 +47,15 @@ class ConnectionManager(TransportService):
 
     def disconnect(self, session_id: str) -> None:
         self.connections.pop(session_id, None)
+        buf = self.event_buffers.get(session_id)
+        if buf is not None:
+            self._disconnect_at[session_id] = len(buf)
         logger.info("Client disconnected: %s", session_id)
+
+    def drop_buffer(self, session_id: str) -> None:
+        self.event_buffers.pop(session_id, None)
+        self._disconnect_at.pop(session_id, None)
+        logger.info("Buffer dropped for session %s", session_id)
 
     def get_connections(self) -> list[Connection]:
         return [Connection(session_id=sid, client=str(ws.client)) for sid, ws in self.connections.items()]
@@ -56,15 +72,37 @@ class ConnectionManager(TransportService):
             await self.send_event(sid, event)
 
     async def send_event(self, session_id: str, event: Event) -> None:
+        payload = make_event(event)
+        buf = self.event_buffers.setdefault(session_id, [])
+        buf.append(payload)
+        if len(buf) > self.max_buffered_events:
+            buf[: len(buf) - self.max_buffered_events] = []
         ws = self.connections.get(session_id)
         if ws:
             event.session_id = session_id
             try:
-                await ws.send_text(make_event(event))
+                await ws.send_text(payload)
             except Exception as exc:
                 logger.warning("WS SEND FAIL session=%s kind=%s: %s", session_id, event.kind, exc)
         else:
-            logger.warning("WS DROP session=%s kind=%s reason=no_connection", session_id, event.kind)
+            logger.debug("WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf))
+
+    async def replay_events(self, session_id: str, websocket: WebSocket) -> int:
+        """Replay events buffered since last disconnect. Returns count replayed."""
+        buf = self.event_buffers.get(session_id)
+        if not buf:
+            return 0
+        start = self._disconnect_at.pop(session_id, 0)
+        new_events = buf[start:]
+        if not new_events:
+            return 0
+        for payload in new_events:
+            try:
+                await websocket.send_text(payload)
+            except Exception:
+                break
+        logger.info("Replayed %d/%d buffered events for session %s", len(new_events), len(buf), session_id)
+        return len(new_events)
 
 
 class ZenithHandler:
@@ -110,9 +148,9 @@ class ZenithHandler:
         ping_task = None
         try:
             async def _keepalive_ping():
-                """Send WS pings every 30s to prevent idle connection drops."""
+                """Send text-based keepalive every 15s to prevent idle connection drops."""
                 while True:
-                    await asyncio.sleep(30)
+                    await asyncio.sleep(15)
                     try:
                         await websocket.send_text('{"jsonrpc":"2.0","method":"ping","params":{}}')
                     except Exception:
@@ -139,4 +177,5 @@ class ZenithHandler:
                 ping_task.cancel()
             if session_id:
                 self.manager.disconnect(session_id)
-            self._executor.cancel_active()
+            # Don't cancel executor — per-session executors continue
+            # running and buffering events for potential reconnection.

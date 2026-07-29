@@ -106,7 +106,7 @@ async def run_lint(file_path: str, workspace_root: str, timeout: int = 30) -> Li
             warning_count=warning_count,
         )
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("Auto-lint timed out for %s", file_path)
         return LintResult(
             file_path=rel_path,

@@ -9,19 +9,21 @@ from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 
-from .protocol import make_response, make_error_response
-from core.session import Session
-from core.message import Message
 from core.events import Event, EventKind
+from core.message import Message
+from core.session import Session
 from db.connection import Database
-from db.repository import SessionRepository, MessageRepository
+from db.repository import MessageRepository, SessionRepository
 from session.export import SessionExporter
 from skills.loader import SkillLoader
+
+from .protocol import make_error_response, make_response
 
 if TYPE_CHECKING:
     from config.settings import AppSettings
     from providers.registry import ProviderRegistry
     from tools.registry import ToolRegistry
+
     from .prompt import PromptExecutor
 
 logger = logging.getLogger(__name__)
@@ -47,7 +49,7 @@ class MethodHandlers:
         self._pending_confirmations: dict[str, asyncio.Future[bool]] = {}
         self.manager = None
         self._shared_executor = None
-        self._session_executors: dict[str, "PromptExecutor"] = {}
+        self._session_executors: dict[str, PromptExecutor] = {}
 
     def reload_config(self) -> None:
         from config.loader import load_config
@@ -72,6 +74,8 @@ class MethodHandlers:
             "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
             "confirmation.response": lambda: self._confirmation_response(params),
+            "plan.approve": lambda: self._plan_approve(ws, rid, session_id),
+            "plan.reject": lambda: self._plan_reject(ws, rid, session_id),
         }
         handler = handlers.get(method)
         if handler:
@@ -97,9 +101,14 @@ class MethodHandlers:
             await ws.send_text(make_error_response(rid, -32602, "Session not found"))
             return None
         messages = await self.message_repo.get_by_session(sid)
+        replayed = 0
+        if self.manager:
+            self.manager.register(sid, ws)
+            replayed = await self.manager.replay_events(sid, ws)
         await ws.send_text(make_response(rid, {
             "session": session.model_dump(mode="json"),
             "messages": [m.model_dump(mode="json") for m in messages],
+            "events_replayed": replayed,
         }))
         return sid
 
@@ -228,6 +237,42 @@ class MethodHandlers:
         if future and not future.done():
             future.set_result(params.get("approved", False))
 
+    async def _plan_approve(self, ws, rid, session_id: str | None) -> None:
+        if not session_id:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
+            return
+        session = await self.session_repo.get(session_id)
+        if not session:
+            await ws.send_text(make_error_response(rid, -32602, "Session not found"))
+            return
+        if not session.plan_output:
+            await ws.send_text(make_error_response(rid, -32602, "No plan to approve"))
+            return
+        from datetime import datetime
+        session.plan_approved_at = datetime.now()
+        session.state = "approved"
+        await self.session_repo.update(session)
+        logger.info("Plan approved for session %s", session_id)
+        await ws.send_text(make_response(rid, {"status": "approved"}))
+
+    async def _plan_reject(self, ws, rid, session_id: str | None) -> None:
+        if not session_id:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
+            return
+        session = await self.session_repo.get(session_id)
+        if not session:
+            await ws.send_text(make_error_response(rid, -32602, "Session not found"))
+            return
+        if not session.plan_output:
+            await ws.send_text(make_error_response(rid, -32602, "No plan to reject"))
+            return
+        session.plan_output = ""
+        session.plan_approved_at = None
+        session.state = "active"
+        await self.session_repo.update(session)
+        logger.info("Plan rejected for session %s", session_id)
+        await ws.send_text(make_response(rid, {"status": "rejected"}))
+
     async def request_confirmation(self, session_id: str, tool_name: str, reason: str, risk_level: str, manager) -> bool:
         confirmation_id = f"confirm_{uuid.uuid4().hex[:8]}"
         future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
@@ -241,6 +286,6 @@ class MethodHandlers:
         await manager.send_event(session_id, event)
         try:
             return await asyncio.wait_for(future, timeout=120)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending_confirmations.pop(confirmation_id, None)
             return False

@@ -6,6 +6,8 @@ import { HelpModal } from '../screens/Help/HelpModal';
 import { ModeSelectScreen } from '../screens/ModeSelect';
 import { SettingsModal } from '../screens/Settings/SettingsModal';
 import { SetupWizard } from '../screens/SetupWizard';
+import UsageModal from '../screens/Usage/UsageModal';
+import type { TokenUsageStats } from '../services/data/TokenUsageService';
 import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
 import type { AppStartupState } from '../types/startup';
 
@@ -16,6 +18,7 @@ interface OverlayRouterProps {
   totalTokens: number;
   events: ScenarioEvent[];
   startupState: AppStartupState;
+  tokenUsageStats?: TokenUsageStats | null;
   onSelectMode: (mode: ScenarioMode) => void;
   onClose: () => void;
   onComplete: () => void;
@@ -59,6 +62,11 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
       {overlay === 'provider' && (
         <Box flexDirection="column" marginTop={1} width="100%">
           <SetupWizard startupState={startupState} onComplete={onComplete} mode="reconfigure" />
+        </Box>
+      )}
+      {overlay === 'usage' && (
+        <Box flexDirection="column" marginTop={1} width="100%">
+          <UsageModal onClose={onClose} />
         </Box>
       )}
     </>

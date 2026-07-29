@@ -2,18 +2,19 @@
 
 import logging
 import os
-from .server import create_app
+
 from .protocol import (
+    Connection,
     JsonRpcMethod,
+    JsonRpcNotification,
     JsonRpcRequest,
     JsonRpcResponse,
-    JsonRpcNotification,
-    Connection,
     TransportService,
-    make_response,
     make_error_response,
     make_event,
+    make_response,
 )
+from .server import create_app
 from .websocket import ConnectionManager, ZenithHandler
 
 _log_level = os.getenv("ZENITH_LOG_LEVEL", "INFO").upper()
@@ -24,19 +25,19 @@ logging.basicConfig(
 )
 
 __all__ = [
-    # Protocol
-    "JsonRpcMethod",
-    "JsonRpcRequest",
-    "JsonRpcResponse",
-    "JsonRpcNotification",
     "Connection",
-    "TransportService",
-    "make_response",
-    "make_error_response",
-    "make_event",
     # WebSocket
     "ConnectionManager",
+    # Protocol
+    "JsonRpcMethod",
+    "JsonRpcNotification",
+    "JsonRpcRequest",
+    "JsonRpcResponse",
+    "TransportService",
     "ZenithHandler",
     # Server
     "create_app",
+    "make_error_response",
+    "make_event",
+    "make_response",
 ]

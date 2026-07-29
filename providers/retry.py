@@ -14,10 +14,11 @@ import asyncio
 import logging
 import os
 import random
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Callable, TypeVar
+from typing import Any, TypeVar
 
-from core.errors import RateLimitError, TimeoutError, ProviderError
+from core.errors import ProviderError, RateLimitError, TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,8 @@ def _env_float(key: str, default: float) -> float:
 # Defaults (safe — no crash at import time)
 _MAX_RETRIES = _env_int("ZENITH_MAX_RETRIES", 3)
 _STREAM_MAX_RETRIES = _env_int("ZENITH_STREAM_MAX_RETRIES", 3)
-_BASE_DELAY = _env_float("ZENITH_RETRY_BASE_DELAY", 0.5)
-_MAX_DELAY = _env_float("ZENITH_RETRY_MAX_DELAY", 10.0)
+_BASE_DELAY = _env_float("ZENITH_RETRY_BASE_DELAY", 0.125)
+_MAX_DELAY = _env_float("ZENITH_RETRY_MAX_DELAY", 60.0)
 
 
 @dataclass
@@ -65,8 +66,8 @@ class RetryPolicy:
         retryable_errors: Tuple of exception types that trigger a retry.
     """
     max_retries: int = 3
-    base_delay: float = 0.5
-    max_delay: float = 10.0
+    base_delay: float = 0.125
+    max_delay: float = 60.0
     jitter: bool = True
     retryable_errors: tuple[type[Exception], ...] = (RateLimitError, TimeoutError)
 

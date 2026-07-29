@@ -8,13 +8,12 @@ Provides:
 
 from __future__ import annotations
 
-from typing import Optional
-
-from .base import BaseProvider, ProviderService
-from .llm_provider import LLMProvider
 from config.providers import ProviderConfig
 from core.errors import ConfigError
 from db.repository import load_catalog
+
+from .base import BaseProvider, ProviderService
+from .llm_provider import LLMProvider
 
 
 def _get_model_info(provider_name: str, model_id: str) -> dict:
@@ -64,7 +63,7 @@ class ProviderRegistry:
     def register(self, name: str, provider: BaseProvider) -> None:
         self._providers[name] = provider
 
-    def get(self, name: str) -> Optional[BaseProvider]:
+    def get(self, name: str) -> BaseProvider | None:
         return self._providers.get(name)
 
     def require(self, name: str) -> BaseProvider:
@@ -75,7 +74,7 @@ class ProviderRegistry:
             )
         return provider
 
-    def get_typed(self, name: str) -> Optional[ProviderService]:
+    def get_typed(self, name: str) -> ProviderService | None:
         """Get provider as typed ProviderService if it implements it."""
         provider = self._providers.get(name)
         if isinstance(provider, ProviderService):

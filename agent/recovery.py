@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
 
 from config.settings import AppSettings
-from core.errors import ZenithError, ProviderError
+from core.errors import ProviderError, ZenithError
 from core.events import Event, EventKind
 from core.message import Message
 from providers.base import BaseProvider
 from tools.registry import ToolRegistry
-from .loop import AgentLoop
+
 from .context import ContextManager
+from .loop import AgentLoop
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +53,15 @@ class RecoverableAgentLoop:
         skills_section: str = "",
         confirm_callback: Callable | None = None,
         plan_context: str = "",
+        model_override: str | None = None,
     ) -> AsyncIterator[Event]:
         """Process prompt with error recovery.
 
         Catches errors from the inner agent loop and tracks them.
         Error events already contain recoverable flag for UI retry buttons.
+
+        model_override: optional model name to use for this mode
+          (Aider-style --editor-model / --architect-model separation).
         """
         self._last_error = None
 
@@ -66,6 +71,7 @@ class RecoverableAgentLoop:
                 skills_section=skills_section,
                 confirm_callback=confirm_callback,
                 plan_context=plan_context,
+                model_override=model_override,
             ):
                 if event.kind == EventKind.ERROR:
                     self._last_error = event.data.get("message", "Unknown error")

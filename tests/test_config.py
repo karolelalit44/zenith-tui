@@ -1,6 +1,7 @@
 import os
-from config.settings import AppSettings
+
 from config.loader import load_config
+from config.settings import AppSettings
 
 
 def test_default_config():

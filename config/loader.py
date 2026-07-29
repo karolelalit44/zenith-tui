@@ -1,11 +1,14 @@
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
+
 from dotenv import load_dotenv
-from .settings import AppSettings
+
 from db.connection import resolve_db_path
 from db.provider_config_repo import read_active_provider, read_providers
+
+from .settings import AppSettings
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +81,7 @@ def load_config(workspace_root: str = ".") -> AppSettings:
                 "base_url": p_info.get("base_url"),
                 "max_tokens": 4096,
                 "temperature": 0.7,
-                "is_active": True if pid == data.get("active_provider", catalog.get("default_active_provider")) else False,
+                "is_active": pid == data.get("active_provider", catalog.get("default_active_provider")),
             }
 
         # Inject API key from environment if current api_key is empty

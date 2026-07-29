@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import platform
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from workspace.context import format_context_files, load_context_files
 from workspace.git import GitOps
-from workspace.context import load_context_files, format_context_files
 
 # ---------------------------------------------------------------------------
 # Structured XML sections
@@ -591,7 +591,7 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
         f"Shell: {shell_name} ({shell_exe})",
         f"Shell version: {shell_version}",
         f"Python: {platform.python_version()}",
-        f"Today's date: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+        f"Today's date: {datetime.now(UTC).strftime('%Y-%m-%d')}",
     ])
 
     # Windows-specific reminders (reinforce the top-level prefix)
