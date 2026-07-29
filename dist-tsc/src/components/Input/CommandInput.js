@@ -25,7 +25,7 @@ export const CommandInput = React.memo(({ input, onInputChange, onSubmit, disabl
     const shortDir = dirParts.length > 2 ? `.../${dirParts.slice(-2).join('/')}` : workspaceName;
     const grandTotal = tokenUsageStats?.totals?.grand_total_tokens ?? 0;
     const requestCount = tokenUsageStats?.totals?.total_requests ?? 0;
-    const dividerWidth = Math.max(0, columns - 4);
+    const dividerWidth = Math.max(0, columns - 6);
     return (React.createElement(Box, { flexDirection: "column", width: "100%", marginTop: 1 },
         attachments && attachments.length > 0 && (React.createElement(Box, { flexDirection: "row", flexWrap: "wrap", marginBottom: 0 }, attachments.map((att, idx) => (React.createElement(Box, { key: idx, flexDirection: "row", marginRight: 1 },
             React.createElement(Text, { color: theme.colors.status.info }, "[ATTACH]"),
@@ -45,7 +45,7 @@ export const CommandInput = React.memo(({ input, onInputChange, onSubmit, disabl
                 React.createElement(Box, { flexDirection: "column", flexGrow: 1 }, disabled ? (React.createElement(Box, { flexDirection: "row", alignItems: "center", minHeight: 1 },
                     React.createElement(Text, { color: theme.colors.text.muted, italic: true }, "Processing... (Esc to cancel)"))) : (React.createElement(MultiLineTextInput, { value: input, onChange: onInputChange, onSubmit: onSubmit, placeholder: "Ask anything...", focus: !disabled, historyUp: historyUp, historyDown: historyDown })))),
             React.createElement(Box, { width: "100%", marginY: 0 },
-                React.createElement(Text, { color: theme.colors.border.muted }, '─'.repeat(dividerWidth))),
+                React.createElement(Text, { color: theme.colors.border.muted, wrap: "truncate-end" }, '─'.repeat(dividerWidth))),
             React.createElement(Box, { flexDirection: "row", width: "100%", justifyContent: "space-between", alignItems: "center" },
                 React.createElement(Box, { flexDirection: "row", flexShrink: 1 },
                     React.createElement(Text, { color: modeColor },

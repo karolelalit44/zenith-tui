@@ -1,13 +1,32 @@
+const STORAGE_KEY = 'zenith_recent_sessions';
+const MAX_SESSIONS = 3;
+
 interface SessionItem {
   time: string;
   title: string;
 }
 
-const INITIAL_SESSIONS: SessionItem[] = [];
+function loadSessions(): SessionItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      return JSON.parse(raw) as SessionItem[];
+    }
+  } catch {
+    // corrupted storage, start fresh
+  }
+  return [];
+}
 
-let sessions: SessionItem[] = [...INITIAL_SESSIONS];
+function saveSessions(sessions: SessionItem[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  } catch {
+    // storage full or unavailable — silently ignore
+  }
+}
 
-export const getRecentSessions = (): SessionItem[] => sessions;
+export const getRecentSessions = (): SessionItem[] => loadSessions();
 
 export const addSession = (title: string): void => {
   const now = new Date();
@@ -20,5 +39,7 @@ export const addSession = (title: string): void => {
     title,
   };
 
-  sessions = [newSession, ...sessions.filter((s) => s.title !== title)].slice(0, 3);
+  const existing = loadSessions();
+  const updated = [newSession, ...existing.filter((s) => s.title !== title)].slice(0, MAX_SESSIONS);
+  saveSessions(updated);
 };

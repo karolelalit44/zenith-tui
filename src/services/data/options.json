@@ -1,12 +1,6 @@
 {
   "commands": [
     {
-      "command": "/mode",
-      "action": "overlay",
-      "target": "mode",
-      "description": "Switch between Build and Plan mode"
-    },
-    {
       "command": "/help",
       "action": "overlay",
       "target": "help",

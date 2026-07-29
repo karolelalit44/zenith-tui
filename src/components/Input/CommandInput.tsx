@@ -70,7 +70,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const grandTotal = tokenUsageStats?.totals?.grand_total_tokens ?? 0;
     const requestCount = tokenUsageStats?.totals?.total_requests ?? 0;
 
-    const dividerWidth = Math.max(0, columns - 4);
+    const dividerWidth = Math.max(0, columns - 6);
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
@@ -124,7 +124,9 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
           {/* Seamless Horizontal Divider Line */}
           <Box width="100%" marginY={0}>
-            <Text color={theme.colors.border.muted}>{'─'.repeat(dividerWidth)}</Text>
+            <Text color={theme.colors.border.muted} wrap="truncate-end">
+              {'─'.repeat(dividerWidth)}
+            </Text>
           </Box>
 
           {/* Secondary Info Section */}
