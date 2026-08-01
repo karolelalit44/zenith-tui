@@ -6,10 +6,14 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from importlib.metadata import version as _get_version
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, WebSocket
 
-from db.repository import TokenUsageRepository
+from server.persistence.repositories import TokenUsageRepository
+
+if TYPE_CHECKING:
+    from server.mcp.manager import McpManager
 
 from .middleware import wrap_handler
 from .shutdown import GracefulShutdown
@@ -26,10 +30,10 @@ try:
     __version__ = _get_version("zenith")
 except Exception:
     __version__ = "0.1.0"
-from config.loader import load_config
-from db.connection import Database, resolve_db_path
-from providers.registry import ProviderRegistry
-from tools import create_default_registry
+from server.config.loader import load_config
+from server.persistence.connection import Database, resolve_db_path
+from server.providers.registry import ProviderRegistry
+from server.toolkit import create_default_registry
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,7 @@ _WS_TOKEN = os.environ.get("ZENITH_WS_TOKEN", "")
 
 _handler: ZenithHandler | None = None
 _shutdown: GracefulShutdown | None = None
+_mcp_manager: McpManager | None = None
 
 
 async def _do_startup() -> None:
@@ -50,7 +55,7 @@ async def _do_startup() -> None:
     await db.connect()
     logger.info("Database connected")
 
-    from db.repository import ProviderRepositoryDB
+    from server.persistence.repositories import ProviderRepositoryDB
     provider_repo = ProviderRepositoryDB(db)
     await provider_repo.ensure_seeded()
 
@@ -76,8 +81,24 @@ async def _do_startup() -> None:
         config=config, db=db, registry=registry, tool_registry=tool_registry
     )
 
+    # MCP servers — start and dynamically register mcp_* tools
+    global _mcp_manager
+    _mcp_manager = None
+    if config.mcp_servers:
+        from server.mcp.manager import McpManager
+        _mcp_manager = McpManager(config.mcp_servers)
+        await _mcp_manager.start()
+        for wrapper in _mcp_manager.build_wrappers():
+            tool_registry.register(wrapper)
+        logger.info(
+            "MCP servers ready: %s",
+            [{"name": s["name"], "status": s["status"], "tools": s["tools"]} for s in _mcp_manager.list_servers()],
+        )
+        if _mcp_manager.errors:
+            logger.warning("MCP servers with errors: %s", _mcp_manager.errors)
+
     try:
-        from lsp.manager import LspManager, set_lsp_manager
+        from server.lsp.manager import LspManager, set_lsp_manager
         lsp_manager = LspManager(workspace_root=config.workspace_root)
         set_lsp_manager(lsp_manager)
         logger.info("LSP manager initialized")
@@ -85,7 +106,7 @@ async def _do_startup() -> None:
         logger.debug("LSP manager init skipped: %s", e)
 
     try:
-        from db.repository import TokenUsageRepository
+        from server.persistence.repositories import TokenUsageRepository
         pricing_repo = TokenUsageRepository(db)
         await pricing_repo.seed_pricing()
         logger.info("Pricing data seeded")
@@ -99,8 +120,11 @@ async def _do_startup() -> None:
 
 
 async def _do_shutdown() -> None:
-    global _handler, _shutdown
+    global _handler, _shutdown, _mcp_manager
     logger.info("Shutting down Zenith backend...")
+    if _mcp_manager is not None:
+        await _mcp_manager.stop()
+        _mcp_manager = None
     if _shutdown:
         await _shutdown.shutdown()
     _handler = None
@@ -136,6 +160,12 @@ async def status():
         "provider": _handler.config.active_provider,
         "workspace": _handler.config.workspace_root,
         "tools": _handler.tool_registry.list_tools(),
+        "mcp": {
+            "servers": _mcp_manager.list_servers() if _mcp_manager else [],
+            "tools": [
+                name for name in _handler.tool_registry.list_tools() if name.startswith("mcp_")
+            ],
+        },
     }
 
 

@@ -22,7 +22,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.domain import FinishReason
+from server.domain.domain import FinishReason
 
 # ---------------------------------------------------------------------------
 # Existing interface (backward compatible)

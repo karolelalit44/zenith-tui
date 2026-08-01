@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from config.env import require_float, require_int
+from server.config.env import require_float, require_int
 
 _DEFAULT_MAX_TOKENS = require_int("ZENITH_MAX_TOKENS")
 _DEFAULT_TEMPERATURE = require_float("ZENITH_TEMPERATURE")

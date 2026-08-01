@@ -7,11 +7,11 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
-from core.domain import AgentRole, ScenarioMode
-from core.events import Event
-from core.message import Message
-from core.session import Session
-from session.service import SessionService
+from server.domain.domain import AgentRole, ScenarioMode
+from server.domain.events import Event
+from server.domain.message import Message
+from server.domain.session import Session
+from server.sessions.service import SessionService
 
 from .runtime import AgentRuntime
 

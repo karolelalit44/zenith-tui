@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { formatTokenCount } from '../../../services/data/tokenEstimationService';
+import { formatTokenCount } from '../../../services/api/tokenEstimationService';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { SuccessEvent } from '../../../types/scenario';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { StartupService } from '../src/services/data/StartupService';
+import { StartupService } from '../src/services/api/StartupService';
 
 const READY_RESPONSE = {
   status: 'ready',

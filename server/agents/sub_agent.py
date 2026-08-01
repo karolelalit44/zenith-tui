@@ -24,12 +24,12 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable
 
-from config.settings import AGENT_MODES, AppSettings
-from core.domain import SessionState
-from core.events import Event, EventKind
-from core.message import Message
-from providers.base import BaseProvider
-from tools.registry import ToolRegistry
+from server.config.settings import AGENT_MODES, AppSettings
+from server.domain.domain import SessionState
+from server.domain.events import Event, EventKind
+from server.domain.message import Message
+from server.providers.base import BaseProvider
+from server.toolkit.registry import ToolRegistry
 
 from .context import ContextManager
 from .recovery import RecoverableAgentLoop
@@ -151,7 +151,7 @@ class SubAgentLoop:
                 import uuid
                 return str(uuid.uuid4())
 
-            from core.session import Session
+            from server.domain.session import Session
             child = Session(
                 title=f"sub-agent-{parent.title}",
                 mode=parent.mode,

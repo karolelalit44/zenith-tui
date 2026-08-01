@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from config.loader import load_config
-from db.repository import load_catalog
+from server.config.loader import load_config
+from server.persistence.repositories import load_catalog
 
 from .provider_validation import (  # noqa: F401 — re-export
     get_provider_config,

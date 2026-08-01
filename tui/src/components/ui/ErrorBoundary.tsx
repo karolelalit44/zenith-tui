@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from 'ink';
 import React, { Component, type ErrorInfo, type ReactNode, useState } from 'react';
-import { useTheme } from '../theme/ThemeContext';
-import { RoundedBox } from './ui/RoundedBox';
+import { useTheme } from '../../theme/ThemeContext';
+import { RoundedBox } from './RoundedBox';
 
 interface Props {
   children: ReactNode;

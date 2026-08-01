@@ -3,7 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent", "config", "core", "db", "lsp", "mcp", "permission", "providers", "session", "skills", "tools", "transport", "workspace"]
+packages = ["server"]
+
+[tool.hatch.build]
+exclude = ["server/tests"]
 
 [project]
 name = "zenith"
@@ -39,24 +42,28 @@ dev = [
 ]
 
 [project.scripts]
-zenith = "main:cli"
+zenith = "server.main:cli"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["server/tests"]
+pythonpath = ["."]
 markers = [
     "slow: tests that require a live server subprocess (use: pytest -m slow)",
 ]
-addopts = "--ignore=tests/e2e_real.py --ignore=tests/test_e2e_websocket.py --ignore=tests/test_e2e_integration.py"
+addopts = "--ignore=server/tests/e2e_real.py --ignore=server/tests/test_e2e_websocket.py --ignore=server/tests/test_e2e_integration.py"
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["ref_repo"]
+
+[tool.ruff.lint.per-file-ignores]
+"server/tests/conftest.py" = ["E402"]  # env vars must be set before zenith imports
 
 [tool.mypy]
 python_version = "3.12"
 exclude = [
     "ref_repo/",
-    "scripts/",
     "test_api\\.py$",
     "\\.venv/",
 ]

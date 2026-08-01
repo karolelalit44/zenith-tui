@@ -5,22 +5,23 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
-from config.settings import AGENT_MODES, AppSettings
-from core.domain import FinishReason
-from core.errors import ZenithError
-from core.events import Event, EventKind
-from core.message import Message
-from providers import responder as r
-from providers.base import BaseProvider
-from providers.parser import UnifiedResponseFormatter
-from tools.param_normalizer import normalize_file_params
-from tools.registry import ToolRegistry
+from server.config.settings import AGENT_MODES, AppSettings
+from server.domain.domain import FinishReason
+from server.domain.errors import ZenithError
+from server.domain.events import Event, EventKind
+from server.domain.message import Message
+from server.providers import responder as r
+from server.providers.base import BaseProvider
+from server.providers.parser import UnifiedResponseFormatter
+from server.toolkit.param_normalizer import normalize_file_params
+from server.toolkit.registry import ToolRegistry
 
 from .context import ContextManager, _get_model_context_window
+from .compaction import compact_tool_output
 from .llm_stream import StreamState, stream_with_retries
 from .loop_detection import LoopDetector
 from .prompts import build_plan_system_prompt, build_system_prompt
-from .tool_executor import (
+from ..toolkit.executor import (
     _dynamic_max_output,
     auto_commit,
     build_tool_metadata,
@@ -301,7 +302,7 @@ class AgentLoop:
                     # Pre-execution validation
                     reject_msg = validate_tool_rejection(tool_name, tool_params, created_files, ws)
                     if tool_name in ("bash", "terminal") and not reject_msg and confirm_callback:
-                        from tools.command_safety import assess_command
+                        from server.toolkit.command_safety import assess_command
                         assessment = assess_command(tool_params.get("command", ""))
                         if assessment.is_risky:
                             try:
@@ -372,7 +373,16 @@ class AgentLoop:
                     model_ctx = _get_model_context_window(model)
                     dynamic_max = _dynamic_max_output(model_ctx)
                     configured_max = self.config.tools.max_tool_output
-                    messages.append({"role": "user", "content": format_tool_result(tool_name, result, min(dynamic_max, configured_max))})
+                    result_limit = min(dynamic_max, configured_max)
+                    _compacted, cstats = compact_tool_output(result.output or "", max_output=result_limit)
+                    if cstats.chars_removed > 0:
+                        yield r.context_compacted(
+                            tool_name, cstats.chars_removed, cstats.tokens_saved,
+                            cstats.reason, session_id,
+                            original_chars=cstats.original_chars,
+                            compacted_chars=cstats.compacted_chars,
+                        )
+                    messages.append({"role": "user", "content": format_tool_result(tool_name, result, result_limit)})
                     self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
 
                 # --- Dynamic stop conditions (checked after each full tool-call batch) ---
@@ -419,11 +429,11 @@ class AgentLoop:
         })
 
     async def _maybe_summarize(self, history, session_id):
-        from session.history import HistoryManager
+        from server.sessions.history import HistoryManager
         yield r.warning("Context approaching limit, summarizing...", session_id)
         try:
             history_mgr = HistoryManager(self.config, self.provider)
-            self._summary = await history_mgr.summarize(history, self.provider.model)
+            self._summary = await history_mgr.summarize(history, self.provider.model, session_id=session_id)
             yield r.warning("Context summarized", session_id)
         except Exception as e:
             yield r.warning(f"Summarization failed: {e}", session_id)
@@ -448,4 +458,4 @@ class AgentLoop:
         return cached
 
 
-from .tool_executor import format_tool_result as _format_tool_result  # noqa: F401, E402
+from ..toolkit.executor import format_tool_result as _format_tool_result  # noqa: F401, E402

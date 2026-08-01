@@ -5,18 +5,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from agent.context import ContextManager
-from agent.coordinator import CoordinatorService, DefaultCoordinator
-from agent.runtime import AgentRuntime, DefaultAgentRuntime
-from config.settings import AppSettings
-from core.events import AsyncEventBus, EventBus
-from db.connection import Database
-from db.repository import MessageRepository, SessionRepository
-from providers.base import BaseProvider
-from providers.registry import ProviderRegistry
-from session.service import DefaultSessionService, SessionService
-from tools import create_default_registry
-from tools.registry import ToolRegistry
+from server.agents.context import ContextManager
+from server.agents.coordinator import CoordinatorService, DefaultCoordinator
+from server.agents.runtime import AgentRuntime, DefaultAgentRuntime
+from server.config.settings import AppSettings
+from server.domain.events import AsyncEventBus, EventBus
+from server.persistence.connection import Database
+from server.persistence.repositories import MessageRepository, SessionRepository
+from server.providers.base import BaseProvider
+from server.providers.registry import ProviderRegistry
+from server.sessions.service import DefaultSessionService, SessionService
+from server.toolkit import create_default_registry
+from server.toolkit.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ class AppContainer:
         self.tool_registry = create_default_registry(
             timeout=self.config.tools.max_bash_timeout,
             provider=self.active_provider,
+            hooks=self.config.hooks,
         )
         logger.info("Tool registry wired: %d tools", len(self.tool_registry.list_tools()))
 
@@ -111,7 +112,7 @@ class AppContainer:
     async def start(self) -> None:
         """Start infrastructure (DB, repos, etc.)."""
         # Database
-        from db.connection import resolve_db_path
+        from server.persistence.connection import resolve_db_path
         self.db = Database(resolve_db_path())
         await self.db.connect()
         logger.info("Database connected")
@@ -121,7 +122,7 @@ class AppContainer:
         self.message_repo = MessageRepository(self.db)
 
         # Seed provider catalog
-        from db.repository import ProviderRepositoryDB
+        from server.persistence.repositories import ProviderRepositoryDB
         provider_repo = ProviderRepositoryDB(self.db)
         await provider_repo.ensure_seeded()
 
@@ -130,6 +131,7 @@ class AppContainer:
             session_repo=self.session_repo,
             message_repo=self.message_repo,
             event_bus=self.event_bus,
+            hooks=self.config.hooks,
         )
 
         # Re-wire coordinator with real session service
@@ -149,7 +151,7 @@ class AppContainer:
 
     def reload_config(self) -> None:
         """Hot-reload configuration (e.g. after setup wizard)."""
-        from config.loader import load_config
+        from server.config.loader import load_config
         self.config = load_config()
         self.provider_registry = ProviderRegistry.from_config(
             self.config.providers, self.config.active_provider

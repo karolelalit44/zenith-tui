@@ -149,7 +149,12 @@ class Session(BaseModel):
 # ---------------------------------------------------------------------------
 
 _VALID_TRANSITIONS: dict[SessionState, set[SessionState]] = {
-    SessionState.CREATED: {SessionState.INITIALIZING, SessionState.DRAFT, SessionState.ARCHIVED},
+    SessionState.CREATED: {
+        SessionState.INITIALIZING,
+        SessionState.DRAFT,
+        SessionState.ACTIVE,
+        SessionState.ARCHIVED,
+    },
     SessionState.DRAFT: {SessionState.ACTIVE, SessionState.ARCHIVED},
     SessionState.INITIALIZING: {SessionState.ACTIVE, SessionState.ERROR, SessionState.ARCHIVED},
     SessionState.ACTIVE: {

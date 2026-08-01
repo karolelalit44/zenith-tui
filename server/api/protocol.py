@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.events import Event
+from server.domain.events import Event
 
 # ── JSON-RPC method enum ─────────────────────────────────────────────────
 
@@ -18,6 +18,7 @@ class JsonRpcMethod(StrEnum):
     SESSION_LIST = "session.list"
     SESSION_RESUME = "session.resume"
     SESSION_EXPORT = "session.export"
+    SESSION_SEARCH = "session.search"
 
     # Prompt methods
     PROMPT_SEND = "prompt.send"
@@ -39,6 +40,9 @@ class JsonRpcMethod(StrEnum):
 
     # Permission methods
     PERMISSION_RESPONSE = "permission.response"
+    PERMISSION_GRANT = "permission.grant"
+    PERMISSION_REVOKE = "permission.revoke"
+    PERMISSION_LIST = "permission.list"
 
     # Health
     HEALTH = "health"

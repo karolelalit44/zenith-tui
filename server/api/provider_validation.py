@@ -5,15 +5,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from config.env import require_int
-from config.loader import load_config
-from db.connection import resolve_db_path
-from db.provider_config_repo import (
+from server.config.env import require_int
+from server.config.loader import load_config
+from server.persistence.connection import resolve_db_path
+from server.persistence.provider_config_repo import (
     read_provider_config_full,
     save_provider_config,
 )
-from db.repository import load_catalog
-from providers.llm_provider import LLMProvider
+from server.persistence.repositories import load_catalog
+from server.providers.llm_provider import LLMProvider
 
 from .schemas import ProviderConfigResponse, ProviderSetupRequest, ProviderSetupResult
 

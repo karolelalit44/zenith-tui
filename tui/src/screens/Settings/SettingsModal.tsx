@@ -2,7 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
 import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
-import { loadUserProfile, saveUserProfile, type UserProfile } from '../../services/data/userProfileService';
+import { loadUserProfile, saveUserProfile, type UserProfile } from '../../services/api/userProfileService';
 import { useTheme } from '../../theme/ThemeContext';
 
 interface SettingsModalProps {

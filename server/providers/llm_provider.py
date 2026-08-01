@@ -16,9 +16,9 @@ import re
 import time
 from collections.abc import AsyncIterator
 
-from core.domain import FinishReason
-from core.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
-from db.repository import load_catalog
+from server.domain.domain import FinishReason
+from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
+from server.persistence.repositories import load_catalog
 
 from .base import (
     BaseProvider,

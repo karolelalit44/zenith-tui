@@ -143,20 +143,24 @@ describe('E2E: Full event sequence as sent by backend', () => {
     const events = [
       makeEvent('thinking', { thoughts: ['Processing your request in build mode...'], duration: 500 }),
       makeEvent('tool_call', { tool: 'bash', params: { command: 'ls -la' } }),
-      makeEvent('tool_result', { tool: 'bash', success: true, output: 'file1\nfile2', error: '', metadata: { command: 'ls -la', exit_code: 0 } }),
+      makeEvent('tool_result', {
+        tool: 'bash',
+        success: true,
+        output: 'file1\nfile2',
+        error: '',
+        metadata: { command: 'ls -la', exit_code: 0 },
+      }),
       makeEvent('message', { text: 'Here are the files...', partial: false }),
-      makeEvent('success', { message: 'Request processed successfully', iterations: 1, tokenInfo: { used: 100, remaining: 127900, total: 128000, percent: 0.0008 } }),
+      makeEvent('success', {
+        message: 'Request processed successfully',
+        iterations: 1,
+        tokenInfo: { used: 100, remaining: 127900, total: 128000, percent: 0.0008 },
+      }),
     ];
 
     const kinds = events.map((e) => e.kind);
 
-    expect(kinds).toEqual([
-      'thinking',
-      'tool_call',
-      'tool_result',
-      'message',
-      'success',
-    ]);
+    expect(kinds).toEqual(['thinking', 'tool_call', 'tool_result', 'message', 'success']);
 
     expect(events[0].id).toBeTruthy();
     expect(events[1].id).toBeTruthy();

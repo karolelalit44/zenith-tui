@@ -1,7 +1,7 @@
 """Core domain types — re-exported for convenient imports.
 
 Usage:
-    from core import Event, Message, Session, ScenarioMode
+    from server.domain import Event, Message, Session, ScenarioMode
 """
 
 from .domain import (

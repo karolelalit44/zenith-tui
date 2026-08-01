@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from config.settings import AppSettings
-from core.message import Message
-from providers.base import BaseProvider
+from server.config.settings import AppSettings
+from server.domain.message import Message
+from server.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
+
+NO_CONTEXT_SENTINEL = "No prior context available."
 
 
 class HistoryManager:
@@ -19,11 +21,14 @@ class HistoryManager:
         self.config = config
         self.provider = provider
 
-    async def summarize(self, messages: list[Message], model: str) -> str:
+    async def summarize(self, messages: list[Message], model: str, session_id: str = "") -> str:
         """Summarize a list of messages using the LLM provider.
 
         Runs summarization in a background thread to avoid blocking the
         agent loop. Falls back to a truncated summary on failure.
+
+        Durable facts from the compaction are appended to the workspace
+        memory store (HP-7) so they survive across sessions.
         """
         if not messages:
             return ""
@@ -47,13 +52,22 @@ class HistoryManager:
                 ),
                 timeout=30.0,
             )
-            return result
         except TimeoutError:
             logger.warning("Summarization timed out, using fallback")
-            return self._fallback_summary(messages)
+            result = self._fallback_summary(messages)
         except Exception as e:
             logger.warning("Summarization failed: %s", e)
-            return self._fallback_summary(messages)
+            result = self._fallback_summary(messages)
+
+        # Persist durable facts extracted during compaction (HP-7)
+        if result and result != NO_CONTEXT_SENTINEL:
+            try:
+                from server.sessions.memory import MemoryStore
+                MemoryStore(self.config.workspace_root).append(session_id, result)
+            except Exception as e:
+                logger.warning("Failed to persist durable memory: %s", e)
+
+        return result
 
     @staticmethod
     def _fallback_summary(messages: list[Message], max_messages: int = 5) -> str:

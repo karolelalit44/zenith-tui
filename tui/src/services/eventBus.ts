@@ -12,7 +12,7 @@ interface EventMap {
   'scenario:event': import('../types/scenario').ScenarioEvent;
   'scenario:complete': undefined;
   'scenario:error': { message: string; code?: string };
-  'connection:status': import('./backend/WebSocketClient').WsStatus;
+  'connection:status': import('./transport/WebSocketClient').WsStatus;
   'confirmation:request': import('../types/scenario').ConfirmationRequestEvent;
   'confirmation:response': { confirmationId: string; approved: boolean };
   'app:mode-change': import('../types/scenario').ScenarioMode;

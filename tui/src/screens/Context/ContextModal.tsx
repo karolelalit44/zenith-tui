@@ -3,8 +3,8 @@ import React, { useMemo } from 'react';
 import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { useProvider } from '../../hooks/useProvider';
-import { estimateTokensForEvents, formatTokenCount } from '../../services/data/tokenEstimationService';
-import { WORKSPACE_FILES } from '../../services/fileExplorerService';
+import { estimateTokensForEvents, formatTokenCount } from '../../services/api/tokenEstimationService';
+import { WORKSPACE_FILES } from '../../services/fileExplorer';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioEvent } from '../../types/scenario';
 

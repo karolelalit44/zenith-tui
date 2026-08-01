@@ -3,8 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { APP_VERSION } from '../../constants';
 import { useProvider } from '../../hooks/useProvider';
-import type { SessionSummary } from '../../services/backend/WebSocketClient';
-import { wsClient } from '../../services/backend/WebSocketClient';
+import type { SessionSummary } from '../../services/transport/WebSocketClient';
+import { wsClient } from '../../services/transport/WebSocketClient';
 import { useTheme } from '../../theme/ThemeContext';
 import { getGreeting, WELCOME_DATA } from './data/welcomeData';
 

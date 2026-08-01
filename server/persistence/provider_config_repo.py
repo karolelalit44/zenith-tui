@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db.connection import resolve_db_path
+from server.persistence.connection import resolve_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def read_provider_config_full(db_path: str | None = None) -> tuple[str, dict[str
     if not Path(db_path).exists():
         return "nvidia", {}
 
-    from db.repository import load_catalog
+    from server.persistence.repositories import load_catalog
 
     try:
         conn, cur = _get_conn(db_path)

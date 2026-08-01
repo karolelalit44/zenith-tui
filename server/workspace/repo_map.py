@@ -192,7 +192,7 @@ class RepoMap:
             source = file_path.read_text(encoding="utf-8", errors="replace")
             source_bytes = source.encode("utf-8")
 
-            from tree_sitter import Parser, Query
+            from tree_sitter import Parser, Query, QueryCursor
             parser = Parser(lang)
             tree = parser.parse(source_bytes)
 
@@ -203,13 +203,22 @@ class RepoMap:
                 query_scm = query_patterns
 
             query = Query(lang, query_scm)
-            captures = query.captures(tree.root_node)
+
+            # tree-sitter >= 0.25 removed Query.captures(); prefer QueryCursor
+            captures: dict[str, list[Any]] = {}
+            if hasattr(query, "captures"):
+                captures = query.captures(tree.root_node)
+            else:
+                cursor = QueryCursor(query)
+                for _pattern_index, groups in cursor.matches(tree.root_node):
+                    for cap_name, nodes in groups.items():
+                        captures.setdefault(cap_name, []).extend(nodes)
 
             symbols: list[dict[str, Any]] = []
             seen_names: set[str] = set()
 
             for capture_name, nodes in captures.items():
-                if not capture_name.startswith("name."):
+                if not (capture_name == "name" or capture_name.startswith("name.")):
                     continue
                 kind = "def" if ".definition." in capture_name or capture_name == "name" else "ref"
 
@@ -436,26 +445,33 @@ class RepoMap:
 
         if all_source_files:
             ranked = self._rank_files(all_source_files, chat_files)
+            # Token-budgeted symbol packing (Aider-style): include the
+            # highest-ranked files first, dropping lower-ranked files until
+            # the estimated token budget is met. Rough estimate: 1 token ≈ 4 chars.
+            budget_chars = max_tokens * 4
+            used_chars = sum(len(p) + 2 for p in parts)
             symbol_lines: list[str] = []
-            for rel_path in ranked[:30]:  # Top 30 files by relevance
+            for rel_path in ranked[:50]:  # Top 50 files by relevance
                 file_path = self.root / rel_path
                 symbols = self._extract_symbols(file_path)
                 defs = [s for s in symbols if s["kind"] == "def"]
                 if defs:
                     def_names = [f"  {d['name']} (line {d['line']})" for d in defs[:10]]
-                    symbol_lines.append(f"\n{rel_path}:\n" + "\n".join(def_names))
+                    block = f"\n{rel_path}:\n" + "\n".join(def_names)
+                    if used_chars + len(block) > budget_chars:
+                        break
+                    symbol_lines.append(block)
+                    used_chars += len(block)
 
             if symbol_lines:
                 parts.append("Key Definitions:" + "".join(symbol_lines))
 
         result = "\n\n".join(parts)
 
-        # Rough token estimation (1 token ≈ 4 chars)
+        # Hard fallback: if still over budget, truncate to the char budget
         estimated_tokens = len(result) // 4
         if estimated_tokens > max_tokens:
-            # Truncate symbol section
-            max_chars = max_tokens * 4
-            result = result[:max_chars] + f"\n\n... (truncated, ~{estimated_tokens} tokens estimated)"
+            result = result[:max_tokens * 4] + "\n\n... (truncated, ~%d tokens estimated)" % estimated_tokens
 
         return result
 

@@ -1,25 +1,25 @@
 """Tools module — provides all built-in tools."""
 
-from .agent_tool import SubAgentTool
+from .tools.agent_tool import SubAgentTool
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
-from .bash import BashTool
-from .file_delete import FileDeleteTool
-from .file_edit import FileEditTool
-from .file_read import FileReadTool
-from .file_write import FileWriteTool
-from .glob_tool import GlobTool
-from .grep_tool import GrepTool
-from .job_kill import JobKillTool
-from .job_output import JobOutputTool
-from .lsp_definition import LspDefinitionTool
-from .lsp_diagnostics import LspDiagnosticsTool
-from .lsp_rename import LspRenameTool
-from .mcp_tool import McpToolWrapper
-from .multi_edit import MultiEditTool
-from .question import QuestionTool
+from .tools.bash import BashTool
+from .tools.file_delete import FileDeleteTool
+from .tools.file_edit import FileEditTool
+from .tools.file_read import FileReadTool
+from .tools.file_write import FileWriteTool
+from .tools.glob import GlobTool
+from .tools.grep import GrepTool
+from .tools.job_kill import JobKillTool
+from .tools.job_output import JobOutputTool
+from .tools.lsp_definition import LspDefinitionTool
+from .tools.lsp_diagnostics import LspDiagnosticsTool
+from .tools.lsp_rename import LspRenameTool
+from .tools.mcp_tool import McpToolWrapper
+from .tools.multi_edit import MultiEditTool
+from .tools.question import QuestionTool
 from .registry import ToolRegistry
-from .todo import TodoTool
-from .webfetch import WebfetchTool
+from .tools.todo import TodoTool
+from .tools.webfetch import WebfetchTool
 
 __all__ = [
     "BaseTool",
@@ -48,8 +48,23 @@ __all__ = [
 ]
 
 
-def create_default_registry(timeout: int = 30, provider: object | None = None) -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered."""
+def create_default_registry(
+    timeout: int = 30,
+    provider: object | None = None,
+    permission_service: object | None = None,
+    hooks: object | None = None,
+) -> ToolRegistry:
+    """Create a ToolRegistry with all built-in tools registered.
+
+    HP-8: the safety middleware is always wired; the permission middleware is
+    wired when a ``permission_service`` is supplied, so persisted deny rules
+    block tools without a UI round-trip.
+
+    HP-10: the hook middleware is wired when a ``hooks`` config is supplied,
+    so PreToolUse/PostToolUse shell hooks gate tool execution.
+    """
+    from .middleware import HookMiddleware, PermissionMiddleware, SafetyCheckMiddleware
+
     registry = ToolRegistry()
     registry.register(BashTool(timeout=timeout))
     registry.register(FileReadTool())
@@ -69,4 +84,10 @@ def create_default_registry(timeout: int = 30, provider: object | None = None) -
     registry.register(LspRenameTool())
     agent_tool = SubAgentTool(provider=provider)
     registry.register(agent_tool)
+    if hooks is not None:
+        from server.domain.hooks import HookRunner
+        registry.register_middleware(HookMiddleware(HookRunner(hooks)))
+    registry.register_middleware(SafetyCheckMiddleware())
+    if permission_service is not None:
+        registry.register_middleware(PermissionMiddleware(service=permission_service))
     return registry

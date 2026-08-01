@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from db.connection import Database
+    from server.persistence.connection import Database
 
 logger = logging.getLogger(__name__)
 

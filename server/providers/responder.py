@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from core.events import Event, EventKind
+from server.domain.events import Event, EventKind
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,26 @@ def success(message: str, session_id: str, iterations: int = 0, token_info: dict
 def progress(percent: int, status: str, session_id: str, iteration: int = 0) -> Event:
     return event(EventKind.PROGRESS, {
         "percent": percent, "label": status, "steps": [], "iteration": iteration,
+    }, session_id)
+
+
+def context_compacted(
+    tool: str,
+    chars_removed: int,
+    tokens_saved: int,
+    reason: str,
+    session_id: str,
+    original_chars: int = 0,
+    compacted_chars: int = 0,
+) -> Event:
+    """Emit a CONTEXT_COMPACTED event with exact compaction counts (HP-4)."""
+    return event(EventKind.CONTEXT_COMPACTED, {
+        "tool": tool,
+        "charsRemoved": chars_removed,
+        "tokensSaved": tokens_saved,
+        "reason": reason,
+        "originalChars": original_chars,
+        "compactedChars": compacted_chars,
     }, session_id)
 
 

@@ -1,4 +1,4 @@
-import { wsClient } from '../backend/WebSocketClient';
+import { wsClient } from '../transport/WebSocketClient';
 
 export interface SessionItem {
   id: string;

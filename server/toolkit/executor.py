@@ -7,14 +7,14 @@ import logging
 import time as _time
 from collections.abc import Awaitable, Callable
 
-from core.events import Event
-from providers import responder as r
-from tools.base import ToolResult
-from tools.command_safety import assess_command
-from tools.registry import ToolRegistry
-from workspace.git import GitOps
+from server.domain.events import Event
+from server.providers import responder as r
+from server.toolkit.base import ToolResult
+from server.toolkit.command_safety import assess_command
+from server.toolkit.registry import ToolRegistry
+from server.workspace.git import GitOps
 
-from .validation import (
+from server.agents.validation import (
     check_python_syntax,
     detect_interactive_command,
     detect_placeholders,
@@ -51,14 +51,18 @@ def _dynamic_max_output(context_window: int | None = None) -> int:
 
 
 def format_tool_result(tool_name: str, result: ToolResult, max_output: int = 10000) -> str:
-    """Format a tool result for LLM consumption."""
+    """Format a tool result for LLM consumption (with micro-compaction, HP-4).
+
+    Raw output passes through the compaction pipeline (ANSI strip + head/tail
+    trim) so oversized results stay within budget while preserving facts.
+    """
+    from server.agents.compaction import compact_tool_output
+
     status = "SUCCESS" if result.success else "FAILED"
     lines = [f"[Tool: {tool_name} | Status: {status}]"]
     if result.output:
-        output = result.output
-        if len(output) > max_output:
-            output = output[:max_output] + f"\n... (truncated, {len(result.output)} total chars)"
-        lines.append(output)
+        compacted, _stats = compact_tool_output(result.output, max_output=max_output)
+        lines.append(compacted)
     if result.error:
         lines.append(f"Error: {result.error}")
     if result.metadata:
@@ -197,7 +201,7 @@ async def post_execution_hooks(
 
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:
-            from tools.auto_lint import format_lint_result, run_lint
+            from server.toolkit.auto_lint import format_lint_result, run_lint
             lint_result = await run_lint(edited_path, workspace_root)
             if lint_result and not lint_result.success:
                 lint_msg = format_lint_result(lint_result)

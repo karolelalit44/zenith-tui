@@ -161,7 +161,7 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
 
 def parse_tool_calls(text: str) -> list[dict]:
     """Extract and parse all tool calls from a text response."""
-    from tools.param_normalizer import normalize_file_params
+    from server.toolkit.param_normalizer import normalize_file_params
 
     calls: list[dict] = []
     seen: set[str] = set()

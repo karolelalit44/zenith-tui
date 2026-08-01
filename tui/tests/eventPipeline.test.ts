@@ -42,9 +42,15 @@ describe('All EventKind types are valid ScenarioEvents', () => {
     { kind: 'tool_result', data: { tool: 'bash', success: true, output: 'file1\nfile2', error: '', metadata: {} } },
     { kind: 'error', data: { message: 'Something failed', code: 'ERR_1', recoverable: true } },
     { kind: 'warning', data: { message: 'Deprecated API used' } },
-    { kind: 'success', data: { message: 'Done!', iterations: 3, tokenInfo: { used: 100, remaining: 900, total: 1000, percent: 0.1 } } },
+    {
+      kind: 'success',
+      data: { message: 'Done!', iterations: 3, tokenInfo: { used: 100, remaining: 900, total: 1000, percent: 0.1 } },
+    },
     { kind: 'progress', data: { label: 'Running...', percent: 50, iteration: 2, steps: [] } },
-    { kind: 'confirmation_request', data: { confirmationId: 'conf-1', tool: 'bash', reason: 'Risky', riskLevel: 'high', message: 'Confirm?' } },
+    {
+      kind: 'confirmation_request',
+      data: { confirmationId: 'conf-1', tool: 'bash', reason: 'Risky', riskLevel: 'high', message: 'Confirm?' },
+    },
   ];
 
   for (const { kind, data } of testCases) {

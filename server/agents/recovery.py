@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable
 
-from config.settings import AppSettings
-from core.errors import ProviderError, ZenithError
-from core.events import Event, EventKind
-from core.message import Message
-from providers.base import BaseProvider
-from tools.registry import ToolRegistry
+from server.config.settings import AppSettings
+from server.domain.errors import ProviderError, ZenithError
+from server.domain.events import Event, EventKind
+from server.domain.message import Message
+from server.providers.base import BaseProvider
+from server.toolkit.registry import ToolRegistry
 
 from .context import ContextManager
 from .loop import AgentLoop

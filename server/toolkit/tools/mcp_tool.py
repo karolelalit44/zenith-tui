@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .base import BaseTool, ToolResult
+from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +17,15 @@ class McpToolWrapper(BaseTool):
     def risk_level(self) -> str:
         return "low"
 
-    def __init__(self, mcp_tool: dict, mcp_client: Any) -> None:
+    def __init__(self, mcp_tool: dict, mcp_client: Any, server_name: str = "") -> None:
         self._mcp_tool = mcp_tool
         self._mcp_client = mcp_client
-        self.name = f"mcp_{mcp_tool.get('name', 'unknown')}"
+        self.server_name = server_name
+        raw = mcp_tool.get("name", "unknown")
+        # Server-prefixed names avoid collisions between servers and match the
+        # registry's allowed_mcp filter ("mcp_<server>_<tool>"). For direct
+        # usage without a server, fall back to "mcp_<tool>".
+        self.name = f"mcp_{server_name}_{raw}" if server_name else f"mcp_{raw}"
         self.description = mcp_tool.get("description", "")
 
     def get_schema(self) -> dict:

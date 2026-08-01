@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CommandService } from '../src/services/data/CommandService';
+import { CommandService } from '../src/services/api/CommandService';
 
 describe('CommandService Dynamic options.json Loader', () => {
   const service = new CommandService();

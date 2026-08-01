@@ -3,11 +3,12 @@ import uuid as _uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from core.events import Event
-from core.domain import SessionState
-from core.message import Message
-from core.session import Session
+from server.domain.events import Event
+from server.domain.domain import SessionState
+from server.domain.message import Message
+from server.domain.session import Session
 
+from .blob_store import BlobStore
 from .connection import Database
 
 CATALOG_PATH = Path(__file__).parent.parent / "config" / "provider_catalog.json"
@@ -60,7 +61,7 @@ class SessionRepository:
         return session
 
     def _row_to_session(self, row: dict) -> Session:
-        from core.domain import ScenarioMode
+        from server.domain.domain import ScenarioMode
         plan_approved = datetime.fromisoformat(row["plan_approved_at"]) if row.get("plan_approved_at") else None
         exported_at = datetime.fromisoformat(row["exported_at"]) if row.get("exported_at") else None
         return Session(
@@ -215,9 +216,11 @@ class SessionRepository:
 class MessageRepository:
     def __init__(self, db: Database):
         self.db = db
+        self._blob_store = BlobStore.from_db_path(db.db_path)
 
     async def create(self, message: Message) -> Message:
-        events_json = json.dumps([e.model_dump() for e in message.events])
+        packed_events = [self._blob_store.pack(e.model_dump()) for e in message.events]
+        events_json = json.dumps(packed_events)
         await self.db.execute(
             "INSERT INTO messages (id, session_id, role, content, events_json, token_count, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
@@ -242,7 +245,7 @@ class MessageRepository:
         messages = []
         for r in reversed(rows):
             events_data = json.loads(r["events_json"])
-            events = [Event(**e) for e in events_data]
+            events = [Event(**self._blob_store.unpack(e)) for e in events_data]
             messages.append(
                 Message(
                     id=r["id"],
@@ -872,13 +875,21 @@ class CheckpointRepository:
 class SyncEventRepository:
     def __init__(self, db: Database):
         self.db = db
+        self._blob_store = BlobStore.from_db_path(db.db_path)
 
-    async def record(self, session_id: str, event_type: str, event_data: dict) -> str:
-        seq = await self._next_sequence(session_id)
+    async def record(
+        self,
+        session_id: str,
+        event_type: str,
+        event_data: dict,
+        sequence: int | None = None,
+        created_at: str | None = None,
+    ) -> str:
+        seq = sequence if sequence is not None else await self._next_sequence(session_id)
         eid = str(_uuid.uuid4())
         await self.db.execute(
             "INSERT INTO sync_events (id, session_id, event_type, event_data, sequence, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (eid, session_id, event_type, json.dumps(event_data), seq, datetime.now().isoformat()),
+            (eid, session_id, event_type, json.dumps(self._blob_store.pack(event_data)), seq, created_at or datetime.now().isoformat()),
         )
         await self.db.commit()
         return eid
@@ -898,7 +909,7 @@ class SyncEventRepository:
         result = []
         for r in rows:
             d = dict(r)
-            d["event_data"] = json.loads(d["event_data"])
+            d["event_data"] = self._blob_store.unpack(json.loads(d["event_data"]))
             result.append(d)
         return result
 

@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useMemo, useState } from 'react';
-import { type FileNode, getDirectoryContents, searchFiles } from '../../../services/fileExplorerService';
+import { type FileNode, getDirectoryContents, searchFiles } from '../../../services/fileExplorer';
 import { useTheme } from '../../../theme/ThemeContext';
 import { FileList } from './FileList';
 

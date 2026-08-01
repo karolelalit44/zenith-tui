@@ -119,19 +119,19 @@ class DefaultWorkspaceService(WorkspaceService):
 
     def _get_git(self):
         if self._git is None:
-            from workspace.git import GitOps
+            from server.workspace.git import GitOps
             self._git = GitOps(str(self._root))
         return self._git
 
     def _get_tracker(self):
         if self._tracker is None:
-            from workspace.tracker import FileTracker
+            from server.workspace.tracker import FileTracker
             self._tracker = FileTracker(str(self._root))
         return self._tracker
 
     def _get_repo_map(self):
         if self._repo_map is None:
-            from workspace.repo_map import RepoMap
+            from server.workspace.repo_map import RepoMap
             self._repo_map = RepoMap(str(self._root))
         return self._repo_map
 
@@ -207,12 +207,12 @@ class DefaultWorkspaceService(WorkspaceService):
         return tracker.get_summary()
 
     async def get_context_files(self) -> list[dict[str, str]]:
-        from workspace.context import load_context_files
+        from server.workspace.context import load_context_files
         files = load_context_files(str(self._root))
         return [{"path": f.path, "content": f.content, "scope": f.scope} for f in files]
 
     async def run_linter(self, file_path: str, linter: str | None = None) -> LintResult:
-        from tools.auto_lint import run_lint
+        from server.toolkit.auto_lint import run_lint
         try:
             result = await run_lint(file_path, str(self._root))
             return LintResult(

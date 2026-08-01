@@ -2,9 +2,9 @@ import { Box, Text, useInput } from 'ink';
 import React, { useEffect, useState } from 'react';
 import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
-import type { BudgetStatus, CostSummaryItem, TokenUsageStats } from '../../services/data/TokenUsageService';
-import { tokenUsageService } from '../../services/data/TokenUsageService';
-import { formatTokenCount } from '../../services/data/tokenEstimationService';
+import type { BudgetStatus, CostSummaryItem, TokenUsageStats } from '../../services/api/TokenUsageService';
+import { tokenUsageService } from '../../services/api/TokenUsageService';
+import { formatTokenCount } from '../../services/api/tokenEstimationService';
 import { useTheme } from '../../theme/ThemeContext';
 
 interface UsageModalProps {

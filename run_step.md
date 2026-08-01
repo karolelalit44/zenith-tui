@@ -17,7 +17,7 @@ Communication: JSON-RPC over `ws://localhost:8765/ws`.
 
 ## Prerequisites
 
-Python 3.11+, Node.js 18+, npm 9+, Git.
+Python 3.11+, Node.js 18+, pnpm, Git.
 
 ---
 
@@ -43,7 +43,7 @@ pip install -e ".[llm,git,dev]"
 
 ```bash
 cd zenith-frontend-tui
-npm install
+pnpm install
 ```
 
 ---
@@ -61,30 +61,23 @@ Supported: `nvidia`, `openai`, `anthropic`, `google`, `groq`, `openrouter`, `oll
 
 ---
 
-## Run
+## Dev Server
 
-Two terminals:
-
-```powershell
-# Terminal 1 — Backend
-cd zenith-frontend-tui
-.\.venv\Scripts\Activate.ps1
-zenith serve --port 8765
-```
-
-```powershell
-# Terminal 2 — Frontend
-cd zenith-frontend-tui
-npm start
-```
+Run the whole app with one command:
 
 ```bash
-# macOS / Linux
-# Terminal 1
-source .venv/bin/activate && zenith serve --port 8765
+pnpm dev
+```
 
-# Terminal 2
-npm start
+- Starts the backend in the background (logs to `zenith_server.log`), then launches the TUI.
+- Backend: `http://localhost:8765` — health check: `/health`.
+- Quit the TUI (or press Ctrl+C) to stop the backend too.
+
+Or run each part individually:
+
+```bash
+pnpm dev:server   # backend only (foreground, :8765)
+pnpm dev:tui      # TUI only (backend must already be running)
 ```
 
 ---
@@ -152,11 +145,10 @@ No virtual scroll, no permission prompts, 9 themes.
 ## Tests
 
 ```bash
-python -m pytest tests/ -v          # 163 backend tests
-npx vitest run                      # 103 frontend tests
-npx tsc --noEmit                    # type check
-npx biome check src/                # lint
-npx biome check --write src/        # auto-fix
+pnpm test          # pytest (server/tests) + vitest (tui/tests)
+pnpm lint          # ruff (server) + biome (tui)
+pnpm typecheck     # tsc --noEmit (tui)
+pnpm build         # tsc emit to tui/dist
 ```
 
 ---
@@ -169,5 +161,5 @@ npx biome check --write src/        # auto-fix
 | `curl /health` fails | Port blocked? Try `--port 9000` |
 | Frontend "Connection refused" | Start backend first on `localhost:8765` |
 | Frontend shows Setup Wizard | Configure `ZENITH_ACTIVE_PROVIDER` + API key env vars |
-| `tsx` not found | Run `npm install` |
+| `tsx` not found | Run `pnpm install` |
 | Port in use | `--port <other>` or kill the occupying process |

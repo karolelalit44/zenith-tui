@@ -9,7 +9,7 @@ import shutil
 from typing import Any
 
 from .background import get_background_manager
-from .base import BaseTool, ToolResult
+from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 

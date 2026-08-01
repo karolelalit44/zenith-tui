@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import type { FileNode } from '../../../services/fileExplorerService';
+import type { FileNode } from '../../../services/fileExplorer';
 import { useTheme } from '../../../theme/ThemeContext';
 
 interface FileListProps {

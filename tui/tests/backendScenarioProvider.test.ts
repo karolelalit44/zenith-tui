@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { backendScenarioProvider } from '../src/services/backend/BackendScenarioProvider';
-import { wsClient, type JsonRpcEvent } from '../src/services/backend/WebSocketClient';
+import { describe, expect, it } from 'vitest';
+import { backendScenarioProvider } from '../src/services/transport/BackendScenarioProvider';
+import { type JsonRpcEvent, wsClient } from '../src/services/transport/WebSocketClient';
 
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
   return {
@@ -20,7 +20,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     const eventsRecv: unknown[] = [];
 
     const scenario = backendScenarioProvider.resolve('test prompt', 'build');
-    const runner = backendScenarioProvider.execute(
+    const _runner = backendScenarioProvider.execute(
       scenario,
       (evt) => {
         eventsRecv.push(evt);
@@ -45,7 +45,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     expect(eventsRecv.length).toBe(1);
     expect(completed).toBe(false); // MUST NOT BE COMPLETED!
 
-    runner.abort();
+    _runner.abort();
   });
 
   it('does not finalize on recoverable tool error events', () => {
@@ -53,7 +53,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     const eventsRecv: unknown[] = [];
 
     const scenario = backendScenarioProvider.resolve('test prompt', 'build');
-    const runner = backendScenarioProvider.execute(
+    const _runner = backendScenarioProvider.execute(
       scenario,
       (evt) => {
         eventsRecv.push(evt);
@@ -78,7 +78,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     expect(eventsRecv.length).toBe(1);
     expect(completed).toBe(false); // MUST NOT BE COMPLETED!
 
-    runner.abort();
+    _runner.abort();
   });
 
   it('finalizes on final prompt success event', () => {
@@ -86,7 +86,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     const eventsRecv: unknown[] = [];
 
     const scenario = backendScenarioProvider.resolve('test prompt', 'build');
-    const runner = backendScenarioProvider.execute(
+    const _runner = backendScenarioProvider.execute(
       scenario,
       (evt) => {
         eventsRecv.push(evt);
@@ -127,7 +127,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     const eventsRecv: unknown[] = [];
 
     const scenario = backendScenarioProvider.resolve('test prompt', 'build');
-    const runner = backendScenarioProvider.execute(
+    const _runner = backendScenarioProvider.execute(
       scenario,
       (evt) => {
         eventsRecv.push(evt);

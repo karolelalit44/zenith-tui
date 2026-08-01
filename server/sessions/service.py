@@ -12,16 +12,15 @@ Provides:
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 from typing import Any
 
-from core.domain import ScenarioMode, SessionState
-from core.errors import SessionNotFound
-from core.events import EventBus, EventKind, make_event
-from core.message import Message
-from core.session import Session
+from server.domain.domain import ScenarioMode, SessionState
+from server.domain.errors import SessionNotFound
+from server.domain.events import EventBus, EventKind, make_event
+from server.domain.message import Message
+from server.domain.session import Session
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +138,7 @@ class SessionService:
     async def get_latest_sync_sequence(self, session_id: str) -> int:
         ...
 
-    async def record_sync_event(self, session_id: str, event_type: str, event_data: dict) -> str:
+    async def record_sync_event(self, session_id: str, event_type: str, event_data: dict, sequence: int | None = None) -> str:
         ...
 
 
@@ -156,6 +155,7 @@ class DefaultSessionService(SessionService):
         status_history_repo: Any | None = None,
         draft_repo: Any | None = None,
         event_bus: EventBus | None = None,
+        hooks: Any | None = None,
     ) -> None:
         self._session_repo = session_repo
         self._message_repo = message_repo
@@ -165,6 +165,9 @@ class DefaultSessionService(SessionService):
         self._status_history_repo = status_history_repo
         self._draft_repo = draft_repo
         self._event_bus = event_bus
+        # HP-10: config-driven SessionStart hook runner.
+        from server.domain.hooks import HookRunner
+        self._hook_runner = HookRunner(hooks) if hooks is not None else None
 
     # ── lifecycle transitions ──────────────────────────────────────────
 
@@ -218,7 +221,30 @@ class DefaultSessionService(SessionService):
             "mode": session.mode.value if hasattr(session.mode, 'value') else session.mode,
         }, session_id=session.id)
         logger.info("Created session %s: %s", session.id, session.title)
+        await self._run_session_start(session)
         return session
+
+    async def _run_session_start(self, session: Session) -> None:
+        """Fire configured SessionStart hooks (HP-10). Non-zero exits are logged."""
+        runner = getattr(self, "_hook_runner", None)
+        if runner is None or not runner.enabled:
+            return
+        try:
+            results = await runner.run_session_start(
+                session.id,
+                title=session.title,
+                mode=session.mode.value if hasattr(session.mode, "value") else str(session.mode),
+                provider=session.provider or "",
+                workspace_root=session.workspace_root or ".",
+            )
+            for r in results:
+                if r["exit_code"] != 0:
+                    logger.warning(
+                        "SessionStart hook '%s' failed (exit %s): %s",
+                        r["command"], r["exit_code"], r["stderr"],
+                    )
+        except Exception as e:
+            logger.warning("SessionStart hook error for '%s': %s", session.id, e)
 
     async def get(self, session_id: str) -> Session | None:
         return await self._session_repo.get(session_id)
@@ -448,7 +474,7 @@ class DefaultSessionService(SessionService):
     # ── export / import ────────────────────────────────────────────────
 
     async def export_markdown(self, session_id: str) -> str:
-        from session.export import SessionExporter
+        from server.sessions.export import SessionExporter
         session = await self.require(session_id)
         messages = await self.get_history(session_id)
         exporter = SessionExporter()
@@ -499,7 +525,7 @@ class DefaultSessionService(SessionService):
             return 0
         return await self._sync_event_repo.get_latest_sequence(session_id)
 
-    async def record_sync_event(self, session_id: str, event_type: str, event_data: dict) -> str:
+    async def record_sync_event(self, session_id: str, event_type: str, event_data: dict, sequence: int | None = None) -> str:
         if self._sync_event_repo is None:
             raise RuntimeError("Sync event repository not available")
-        return await self._sync_event_repo.record(session_id, event_type, event_data)
+        return await self._sync_event_repo.record(session_id, event_type, event_data, sequence=sequence)

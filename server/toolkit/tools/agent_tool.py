@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .base import BaseTool, ToolResult
+from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,10 @@ class SubAgentTool(BaseTool):
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        from agent.context import ContextManager
-        from agent.loop import AgentLoop
-        from config.settings import AppSettings
-        from tools import create_default_registry
+        from server.agents.context import ContextManager
+        from server.agents.loop import AgentLoop
+        from server.config.settings import AppSettings
+        from server.toolkit import create_default_registry
 
         task = params.get("task", "")
         description = params.get("description", "sub-agent task")

@@ -6,7 +6,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-from config.env import require_int
+from server.config.env import require_int
 
 logger = logging.getLogger(__name__)
 

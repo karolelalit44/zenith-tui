@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .base import BaseTool, ToolResult
-from .path_validator import validate_path
+from ..base import BaseTool, ToolResult
+from ..path_validator import validate_path
 
 # Patterns indicating placeholder content instead of real content
 _PLACEHOLDER_RE = re.compile(

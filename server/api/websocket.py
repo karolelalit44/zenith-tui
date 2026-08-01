@@ -8,15 +8,16 @@ import logging
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from config.settings import AppSettings
-from core.events import Event, EventKind
-from db.connection import Database
-from providers.registry import ProviderRegistry
-from tools import create_default_registry
-from tools.registry import ToolRegistry
+from server.config.settings import AppSettings
+from server.domain.events import Event, EventKind
+from server.persistence.connection import Database
+from server.providers.registry import ProviderRegistry
+from server.toolkit import create_default_registry
+from server.toolkit.middleware import PermissionMiddleware
+from server.toolkit.registry import ToolRegistry
 
 from .handlers import MethodHandlers
-from .prompt import PromptExecutor
+from ..agents.prompt_executor import PromptExecutor
 from .protocol import (
     Connection,
     JsonRpcRequest,
@@ -52,14 +53,25 @@ class ConnectionManager(TransportService):
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         await websocket.accept()
         self.connections[session_id] = websocket
-        if session_id not in self._sequences:
-            self._sequences[session_id] = 0
+        await self._init_sequence(session_id)
         logger.info("Client connected: %s", session_id)
 
-    def register(self, session_id: str, websocket: WebSocket) -> None:
+    async def register(self, session_id: str, websocket: WebSocket) -> None:
         self.connections[session_id] = websocket
-        if session_id not in self._sequences:
-            self._sequences[session_id] = 0
+        await self._init_sequence(session_id)
+
+    async def _init_sequence(self, session_id: str) -> None:
+        """Align the in-memory sequence counter with the durable log so that
+        sequences stay monotonic across server restarts."""
+        if session_id in self._sequences:
+            return
+        db_latest = 0
+        if self._session_service:
+            try:
+                db_latest = await self._session_service.get_latest_sync_sequence(session_id)
+            except Exception:
+                logger.debug("Failed to load sync sequence for session %s", session_id)
+        self._sequences[session_id] = db_latest
 
     def disconnect(self, session_id: str) -> None:
         self.connections.pop(session_id, None)
@@ -101,6 +113,7 @@ class ConnectionManager(TransportService):
         buf.append(payload)
         if len(buf) > self.max_buffered_events:
             buf[: len(buf) - self.max_buffered_events] = []
+        await self._persist_event(session_id, event, seq)
         ws = self.connections.get(session_id)
         if ws:
             event.session_id = session_id
@@ -111,8 +124,37 @@ class ConnectionManager(TransportService):
         else:
             logger.debug("WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf))
 
+    def _should_persist(self, event: Event) -> bool:
+        """Decide whether an event belongs in the durable transcript.
+
+        Streaming noise (thought chunks and partial message deltas) is kept
+        in the live buffer only; final messages and tool/lifecycle events are
+        persisted so they survive a server restart.
+        """
+        if event.kind == EventKind.THINKING:
+            return False
+        if event.kind == EventKind.MESSAGE and event.data.get("partial"):
+            return False
+        return True
+
+    async def _persist_event(self, session_id: str, event: Event, seq: int) -> None:
+        if not session_id or self._session_service is None:
+            return
+        if not self._should_persist(event):
+            return
+        try:
+            await self._session_service.record_sync_event(
+                session_id,
+                str(event.kind),
+                event.data,
+                sequence=seq,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist sync event %s (session=%s): %s", event.kind, session_id, exc)
+
     async def schedule_session_event(self, session_id: str, kind: str | EventKind, event_data: dict) -> None:
-        """Persist a sync event and broadcast it to the client."""
+        """Broadcast a session lifecycle event. Durability is handled by
+        ``send_event`` (which persists to sync_events via the session service)."""
         if isinstance(kind, str):
             kind_map = {
                 "session.created": EventKind.SESSION_CREATED,
@@ -125,11 +167,6 @@ class ConnectionManager(TransportService):
                 return
         else:
             event_kind = kind
-        if self._session_service:
-            try:
-                await self._session_service.record_sync_event(session_id, str(event_kind), event_data)
-            except Exception as exc:
-                logger.warning("Failed to persist sync event %s: %s", event_kind, exc)
         evt = Event(
             kind=event_kind,
             data=event_data,
@@ -170,9 +207,17 @@ class ZenithHandler:
         self.tool_registry = tool_registry or create_default_registry(
             timeout=config.tools.max_bash_timeout,
             provider=registry.get(config.active_provider),
+            hooks=config.hooks,
         )
+        # HP-8: wire the permission middleware with a DB-backed service so
+        # persisted deny rules block tools without a UI round-trip.
+        from server.persistence.permission_repo import PermissionRepository
+        from server.permissions import DefaultPermissionService
+
+        self.permission_service = DefaultPermissionService(repo=PermissionRepository(db))
+        self.tool_registry.register_middleware(PermissionMiddleware(service=self.permission_service))
         # Build dependencies for session service
-        from db.repository import (
+        from server.persistence.repositories import (
             CheckpointRepository,
             DraftRepository,
             MessageRepository,
@@ -181,10 +226,11 @@ class ZenithHandler:
             SyncEventRepository,
             TokenUsageRepository,
         )
-        from session.service import DefaultSessionService
+        from server.sessions.service import DefaultSessionService
 
         self.manager = ConnectionManager()
         self.handlers = MethodHandlers(config, db, registry, self.tool_registry)
+        self.handlers._permission_service = self.permission_service
         self._executor = PromptExecutor(
             config, registry.get(config.active_provider), self.tool_registry,
             self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader,
@@ -200,13 +246,13 @@ class ZenithHandler:
             sync_event_repo=SyncEventRepository(db),
             status_history_repo=SessionStatusHistoryRepository(db),
             draft_repo=DraftRepository(db),
+            hooks=config.hooks,
         )
         self.handlers._session_service = self._session_service
         self.manager.set_session_service(self._session_service)
 
     def _reload_config(self) -> None:
         self.handlers.reload_config()
-        from providers.registry import ProviderRegistry
         self._executor = PromptExecutor(
             self.handlers.config, self.handlers.registry.get(self.handlers.config.active_provider),
             self.tool_registry, self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader,
@@ -241,7 +287,7 @@ class ZenithHandler:
                     request = JsonRpcRequest(**data)
                     session_id = await self.handlers.dispatch(websocket, request.method, request.id, request.params, session_id)
                     if session_id:
-                        self.manager.register(session_id, websocket)
+                        await self.manager.register(session_id, websocket)
                 except json.JSONDecodeError as e:
                     await websocket.send_text(make_error_response(0, -32700, f"Parse error: {e}"))
                 except Exception as e:

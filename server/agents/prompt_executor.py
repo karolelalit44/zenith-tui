@@ -14,23 +14,23 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-import providers.responder as r
-from agent.context import ContextManager
-from agent.recovery import RecoverableAgentLoop
-from agent.sub_agent import SubAgentLoop
-from config.settings import AGENT_MODES
-from core.domain import SessionState
-from core.events import Event, EventKind
-from core.message import Message
-from db.repository import TokenUsageRepository
+import server.providers.responder as r
+from server.agents.context import ContextManager
+from server.agents.recovery import RecoverableAgentLoop
+from server.agents.sub_agent import SubAgentLoop
+from server.config.settings import AGENT_MODES
+from server.domain.domain import SessionState
+from server.domain.events import Event, EventKind
+from server.domain.message import Message
+from server.persistence.repositories import TokenUsageRepository
 
 if TYPE_CHECKING:
-    from config.settings import AppSettings
-    from db.repository import MessageRepository, SessionRepository
-    from providers.base import BaseProvider
-    from skills.loader import SkillLoader
-    from tools.registry import ToolRegistry
-    from transport.handlers import MethodHandlers
+    from server.config.settings import AppSettings
+    from server.persistence.repositories import MessageRepository, SessionRepository
+    from server.providers.base import BaseProvider
+    from server.skills.loader import SkillLoader
+    from server.toolkit.registry import ToolRegistry
+    from server.api.handlers import MethodHandlers
 
 logger = logging.getLogger(__name__)
 

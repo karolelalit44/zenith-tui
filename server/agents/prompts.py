@@ -7,8 +7,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
-from workspace.context import format_context_files, load_context_files
-from workspace.git import GitOps
+from server.workspace.context import format_context_files, load_context_files
+from server.workspace.git import GitOps
 
 # ---------------------------------------------------------------------------
 # Structured XML sections
@@ -182,7 +182,7 @@ Done
 
 user: Run the test suite
 
-assistant: [bash command="python -m pytest tests/ -v"]
+assistant: [bash command="python -m pytest server/tests/ -v"]
 [sees 3 failures, reads the failing test files]
 [file_edit to fix the source code]
 [re-runs tests]
@@ -195,7 +195,7 @@ user: The login function should also validate email format
 assistant: [grep pattern="def login" include="*.py"]
 [file_read the auth.py file at the login function]
 [file_edit to add email validation regex]
-[bash command="python -m pytest tests/test_auth.py -v"]
+[bash command="python -m pytest server/tests/test_auth.py -v"]
 Done — added email format validation using RFC 5322 regex pattern
 
 ## What NOT to do (these patterns cause errors):

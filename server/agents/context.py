@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from config.settings import AppSettings
-from core.message import Message
-from db.repository import load_catalog
-from providers.token_counter import TokenCounter
+from server.config.settings import AppSettings
+from server.domain.message import Message
+from server.persistence.repositories import load_catalog
+from server.providers.token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +64,52 @@ class ContextManager:
     def __init__(self, config: AppSettings) -> None:
         self.config = config
         self.token_counter = TokenCounter()
+        self._repo_map_cache: str | None = None
+        self._memory_cache: str | None = None
 
     def _resolve_context_window(self, model: str) -> int:
         """Get context window for a model, capped by global config."""
         from_catalog = _get_model_context_window(model)
         return min(from_catalog, self.config.max_context_tokens)
+
+    def get_repo_map(self, chat_files: list[str] | None = None) -> str:
+        """Build a token-budgeted, ranked repo map (Aider-style), cached per instance.
+
+        Returns an empty string when disabled or unavailable, so callers can
+        safely inject the result into the system prompt.
+        """
+        if not self.config.repo_map_enabled:
+            return ""
+        if self._repo_map_cache is not None:
+            return self._repo_map_cache
+        try:
+            from server.workspace.repo_map import RepoMap
+            repo = RepoMap(self.config.workspace_root)
+            self._repo_map_cache = repo.get_repo_map(
+                chat_files=chat_files,
+                max_tokens=self.config.repo_map_tokens,
+            )
+        except Exception as e:
+            logger.warning("Failed to build repo map: %s", e)
+            self._repo_map_cache = ""
+        return self._repo_map_cache
+
+    def get_memory(self) -> str:
+        """Load durable workspace memory (`memory/*.md`), cached per instance.
+
+        Returns an empty string when disabled or unavailable.
+        """
+        if not self.config.memory_enabled:
+            return ""
+        if self._memory_cache is not None:
+            return self._memory_cache
+        try:
+            from server.sessions.memory import MemoryStore
+            self._memory_cache = MemoryStore(self.config.workspace_root).load()
+        except Exception as e:
+            logger.warning("Failed to load memory: %s", e)
+            self._memory_cache = ""
+        return self._memory_cache
 
     def build_messages(
         self,
@@ -79,10 +120,12 @@ class ContextManager:
         summary: str | None = None,
         plan_block: str | None = None,
         use_system_prompt: bool = True,
+        repo_map: str | None = None,
+        memory: str | None = None,
     ) -> list[dict]:
         """Build the messages list for the LLM, staying within context budget.
 
-        Priority: system_prompt (if use_system_prompt) + plan_block (exempt from truncation) + summary + most recent history + new_prompt.
+        Priority: system_prompt (if use_system_prompt) + repo_map + memory + plan_block (exempt from truncation) + summary + most recent history + new_prompt.
         Older history is dropped first when approaching the limit.
         The plan_block is injected with high priority so it is never truncated.
 
@@ -96,6 +139,18 @@ class ContextManager:
         messages: list[dict] = []
         pbuf = _prompt_buffer(system_prompt)
 
+        # Repo map block — bounded by config.repo_map_tokens, injected right
+        # after the system prompt (Aider-style) so the model sees the repo
+        # structure before instructions/history.
+        repo_map_text = repo_map if repo_map is not None else self.get_repo_map()
+        repo_map_block = f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else ""
+        repo_map_tokens = self.token_counter.count(repo_map_block, model) if repo_map_block else 0
+
+        # Durable memory block (HP-7) — workspace facts from memory/*.md.
+        memory_text = memory if memory is not None else self.get_memory()
+        memory_block = f"<memory>\n{memory_text}\n</memory>" if memory_text.strip() else ""
+        memory_tokens = self.token_counter.count(memory_block, model) if memory_block else 0
+
         # 1. System prompt (skipped for models that don't support system role)
         if use_system_prompt:
             system_tokens = self.token_counter.count(system_prompt, model)
@@ -103,6 +158,20 @@ class ContextManager:
             used = system_tokens
         else:
             used = 0
+
+        # 1b. Repo map + memory (system messages when the model supports them;
+        # otherwise folded into the merged user message below)
+        if use_system_prompt:
+            if repo_map_block:
+                messages.append({"role": "system", "content": repo_map_block})
+                used += repo_map_tokens
+                logger.info("Repo map injected into context: %d chars, %d tokens", len(repo_map_text), repo_map_tokens)
+            if memory_block:
+                messages.append({"role": "system", "content": memory_block})
+                used += memory_tokens
+                logger.info("Memory injected into context: %d chars, %d tokens", len(memory_text), memory_tokens)
+        else:
+            used += repo_map_tokens + memory_tokens
 
         # 2. Plan block (injected as system message — exempt from truncation, high priority)
         if plan_block:
@@ -150,7 +219,13 @@ class ContextManager:
 
         # 5. New prompt (always included)
         if not use_system_prompt:
-            new_entry = {"role": "user", "content": f"{system_prompt}\n\n{new_prompt}"}
+            parts = [system_prompt]
+            if repo_map_block:
+                parts.append(repo_map_block)
+            if memory_block:
+                parts.append(memory_block)
+            parts.append(new_prompt)
+            new_entry = {"role": "user", "content": "\n\n".join(parts)}
         else:
             new_entry = {"role": "user", "content": new_prompt}
 

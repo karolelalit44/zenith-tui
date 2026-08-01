@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { estimateTokensForEvents } from '../services/data/tokenEstimationService';
+import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
 import type { ScenarioEvent, ScenarioMode, SuccessEvent } from '../types/scenario';
 
 export interface ConversationTurn {

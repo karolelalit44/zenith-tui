@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { backendScenarioProvider } from '../services/backend/BackendScenarioProvider';
-import { wsClient } from '../services/backend/WebSocketClient';
 import { eventBus } from '../services/eventBus';
 import type { ScenarioRunner } from '../services/scenario/types';
+import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
+import { wsClient } from '../services/transport/WebSocketClient';
 import type { ConfirmationRequestEvent, Scenario, ScenarioEvent, ScenarioMode } from '../types/scenario';
 
 export interface UseScenarioReturn {

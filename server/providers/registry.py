@@ -8,9 +8,9 @@ Provides:
 
 from __future__ import annotations
 
-from config.providers import ProviderConfig
-from core.errors import ConfigError
-from db.repository import load_catalog
+from server.config.providers import ProviderConfig
+from server.domain.errors import ConfigError
+from server.persistence.repositories import load_catalog
 
 from .base import BaseProvider, ProviderService
 from .llm_provider import LLMProvider

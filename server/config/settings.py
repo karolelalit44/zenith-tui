@@ -121,6 +121,36 @@ class ToolConfig(BaseModel):
     )
 
 
+class McpServerConfig(BaseModel):
+    """Configuration for a single MCP (Model Context Protocol) server.
+
+    command:  Executable to spawn (e.g. "npx").
+    args:     Arguments passed to the executable.
+    env:      Optional extra environment variables for the subprocess.
+    """
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+
+
+class HooksConfig(BaseModel):
+    """Config-driven lifecycle hooks (HP-10).
+
+    Each entry is a shell command run as a subprocess in the workspace root.
+    Template fields ({tool_name}, {session_id}, {params}, ...) are substituted
+    and the full JSON payload is written to the command's stdin.
+
+    pre_tool_use:   run before a tool executes; a non-zero exit blocks the tool.
+    post_tool_use:  run after a tool executes; non-zero exit is logged only.
+    session_start:  run once when a session is created; non-zero exit is logged.
+    timeout:        per-hook timeout in seconds.
+    """
+    pre_tool_use: list[str] = Field(default_factory=list)
+    post_tool_use: list[str] = Field(default_factory=list)
+    session_start: list[str] = Field(default_factory=list)
+    timeout: int = Field(default=30, ge=1, le=300)
+
+
 class BootstrapDefaults(BaseModel):
     active_provider: str = optional_env("ZENITH_ACTIVE_PROVIDER", "nvidia")
     db_path: str = optional_env("ZENITH_DB_PATH", "data/zenith.db")
@@ -157,6 +187,19 @@ class AppSettings(BaseModel):
     weak_model: str | None = Field(
         default=None,
         description="Optional cheap model for summaries, commit messages (two-tier strategy)",
+    )
+    repo_map_enabled: bool = True
+    repo_map_tokens: int = Field(
+        default=optional_int("ZENITH_REPO_MAP_TOKENS", 4096), ge=256, le=32000
+    )
+    memory_enabled: bool = True
+    mcp_servers: dict[str, McpServerConfig] = Field(
+        default_factory=dict,
+        description="MCP servers: {name: McpServerConfig}. Loaded from ZENITH_MCP_SERVERS (JSON).",
+    )
+    hooks: HooksConfig = Field(
+        default_factory=HooksConfig,
+        description="Lifecycle hooks (PreToolUse/PostToolUse/SessionStart). Loaded from ZENITH_HOOKS (JSON).",
     )
 
     @field_validator("active_provider")

@@ -9,24 +9,23 @@ from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 
-from core.domain import SessionState
-from core.events import Event, EventKind
-from core.message import Message
-from core.session import Session
-from db.connection import Database
-from db.repository import MessageRepository, SessionRepository
-from session.export import SessionExporter
-from session.service import DefaultSessionService, SessionService
-from skills.loader import SkillLoader
+from server.domain.domain import SessionState
+from server.domain.events import Event, EventKind
+from server.domain.message import Message
+from server.persistence.connection import Database
+from server.persistence.repositories import MessageRepository, SessionRepository
+from server.sessions.export import SessionExporter
+from server.sessions.service import DefaultSessionService, SessionService
+from server.skills.loader import SkillLoader
 
 from .protocol import make_error_response, make_response
 
 if TYPE_CHECKING:
-    from config.settings import AppSettings
-    from providers.registry import ProviderRegistry
-    from tools.registry import ToolRegistry
+    from server.config.settings import AppSettings
+    from server.providers.registry import ProviderRegistry
+    from server.toolkit.registry import ToolRegistry
 
-    from .prompt import PromptExecutor
+    from ..agents.prompt_executor import PromptExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +55,8 @@ class MethodHandlers:
         self._session_service = session_service
 
     def reload_config(self) -> None:
-        from config.loader import load_config
-        from providers.registry import ProviderRegistry
+        from server.config.loader import load_config
+        from server.providers.registry import ProviderRegistry
         self.config = load_config()
         self.registry = ProviderRegistry.from_config(self.config.providers, self.config.active_provider)
         self.skill_loader = SkillLoader(self.config.workspace_root)
@@ -78,6 +77,7 @@ class MethodHandlers:
             "session.restore": lambda: self._session_restore(ws, rid, params),
             "session.export": lambda: self._session_export(ws, rid, params, session_id),
             "session.sync": lambda: self._session_sync(ws, rid, params, session_id),
+            "session.search": lambda: self._session_search(ws, rid, params, session_id),
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
             "provider.validate": lambda: self._provider_validate(ws, rid, params),
             "provider.models": lambda: self._provider_models(ws, rid, params),
@@ -88,6 +88,9 @@ class MethodHandlers:
             "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
             "confirmation.response": lambda: self._confirmation_response(params),
+            "permission.grant": lambda: self._permission_grant(ws, rid, params, session_id),
+            "permission.revoke": lambda: self._permission_revoke(ws, rid, params, session_id),
+            "permission.list": lambda: self._permission_list(ws, rid, params, session_id),
             "plan.approve": lambda: self._plan_approve(ws, rid, session_id),
             "plan.reject": lambda: self._plan_reject(ws, rid, session_id),
         }
@@ -100,7 +103,7 @@ class MethodHandlers:
 
     async def _session_create(self, ws, rid, params) -> str:
         svc = self._resolve_service()
-        from core.domain import ScenarioMode
+        from server.domain.domain import ScenarioMode
         session = await svc.create(
             title=params.get("title", "New Session"),
             mode=params.get("mode", ScenarioMode.BUILD),
@@ -151,7 +154,7 @@ class MethodHandlers:
         messages = await svc.get_history(sid)
         replayed = 0
         if self.manager:
-            self.manager.register(sid, ws)
+            await self.manager.register(sid, ws)
             replayed = await self.manager.replay_events(sid, ws)
         # Sync events since last sequence
         since = params.get("since_sequence", 0)
@@ -278,8 +281,31 @@ class MethodHandlers:
             "latest_sequence": latest,
         }))
 
+    async def _session_search(self, ws, rid, params, session_id) -> None:
+        from server.persistence.search import SearchRepository
+        query = (params.get("query", "") or "").strip()
+        if not query:
+            await ws.send_text(make_error_response(rid, -32602, "query is required"))
+            return
+        sid = params.get("session_id", session_id)
+        limit = int(params.get("limit", 20))
+        repo = SearchRepository(self.session_repo.db)
+        try:
+            hits = await repo.search(query, limit=limit, session_id=sid)
+            parity = await repo.index_parity()
+        except Exception as e:
+            logger.warning("Search failed: %s", e)
+            await ws.send_text(make_error_response(rid, -32603, f"Search failed: {e}"))
+            return
+        await ws.send_text(make_response(rid, {
+            "query": query,
+            "hits": hits,
+            "count": len(hits),
+            "index_parity": parity,
+        }))
+
     async def _prompt(self, ws, rid, params, session_id) -> str | None:
-        from .prompt import PromptExecutor
+        from ..agents.prompt_executor import PromptExecutor
         content = params.get("content", "") or params.get("prompt", "")
         provider_name = params.get("provider", "") or self.config.active_provider
         logger.info(
@@ -356,22 +382,22 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"tools": schemas}))
 
     async def _workspace_status(self, ws, rid) -> None:
-        from workspace.git import GitOps
+        from server.workspace.git import GitOps
         await ws.send_text(make_response(rid, GitOps(self.config.workspace_root).status()))
 
     async def _workspace_diff(self, ws, rid, params) -> None:
-        from workspace.git import GitOps
+        from server.workspace.git import GitOps
         git = GitOps(self.config.workspace_root)
         diff = git.diff_staged() if params.get("staged", False) else git.diff(params.get("path"))
         await ws.send_text(make_response(rid, {"diff": diff}))
 
     async def _workspace_log(self, ws, rid, params) -> None:
-        from workspace.git import GitOps
+        from server.workspace.git import GitOps
         log = GitOps(self.config.workspace_root).log(params.get("count", 10))
         await ws.send_text(make_response(rid, {"log": log}))
 
     async def _workspace_repo_map(self, ws, rid, params) -> None:
-        from workspace.repo_map import RepoMap
+        from server.workspace.repo_map import RepoMap
         repo = RepoMap(self.config.workspace_root)
         await ws.send_text(make_response(rid, {
             "structure": repo.get_structure(params.get("depth", 3)),
@@ -384,6 +410,60 @@ class MethodHandlers:
         future = self._pending_confirmations.pop(confirmation_id, None)
         if future and not future.done():
             future.set_result(params.get("approved", False))
+
+    async def _permission_grant(self, ws, rid, params, session_id: str | None) -> None:
+        from server.domain.domain import PermissionDecision
+        tool_name = params.get("tool", "")
+        decision = params.get("decision", "allow")
+        persistent = bool(params.get("persistent", True))
+        if not tool_name or decision not in ("allow", "deny"):
+            await ws.send_text(make_error_response(rid, -32602, "tool and decision (allow|deny) are required"))
+            return
+        svc = self._resolve_permission_service()
+        if svc is None:
+            await ws.send_text(make_error_response(rid, -32603, "Permission service not wired"))
+            return
+        target_session = session_id if not persistent else None
+        await svc.grant_persistent(tool_name, PermissionDecision(decision), target_session)
+        await ws.send_text(make_response(rid, {"status": "granted", "tool": tool_name, "decision": decision}))
+
+    async def _permission_revoke(self, ws, rid, params, session_id: str | None) -> None:
+        tool_name = params.get("tool", "")
+        if not tool_name:
+            await ws.send_text(make_error_response(rid, -32602, "tool is required"))
+            return
+        svc = self._resolve_permission_service()
+        if svc is None:
+            await ws.send_text(make_error_response(rid, -32603, "Permission service not wired"))
+            return
+        await svc.revoke_persistent(tool_name, None)
+        await ws.send_text(make_response(rid, {"status": "revoked", "tool": tool_name}))
+
+    async def _permission_list(self, ws, rid, params, session_id: str | None) -> None:
+        svc = self._resolve_permission_service()
+        if svc is None:
+            await ws.send_text(make_error_response(rid, -32603, "Permission service not wired"))
+            return
+        await svc.refresh()
+        grants = svc.get_grants(session_id or "")
+        await ws.send_text(make_response(rid, {
+            "grants": [
+                {
+                    "tool": g.tool_name,
+                    "decision": g.decision.value if hasattr(g.decision, "value") else str(g.decision),
+                    "session_id": g.session_id,
+                    "created_at": g.created_at.isoformat(),
+                }
+                for g in grants
+            ]
+        }))
+
+    def _resolve_permission_service(self):
+        """Return the DB-backed permission service wired by the handler owner."""
+        service = getattr(self, "_permission_service", None)
+        if service is not None:
+            return service
+        return None
 
     async def _plan_approve(self, ws, rid, session_id: str | None) -> None:
         if not session_id:

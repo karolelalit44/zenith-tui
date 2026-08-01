@@ -13,10 +13,10 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from core.errors import ProviderError, RateLimitError
-from core.events import Event
-from providers import responder as r
-from providers.base import BaseProvider
+from server.domain.errors import ProviderError, RateLimitError
+from server.domain.events import Event
+from server.providers import responder as r
+from server.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 

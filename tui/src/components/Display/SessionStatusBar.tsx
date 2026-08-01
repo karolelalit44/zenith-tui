@@ -1,5 +1,5 @@
 import React from 'react';
-import type { TokenUsageStats } from '../../services/data/TokenUsageService';
+import type { TokenUsageStats } from '../../services/api/TokenUsageService';
 import type { ScenarioMode } from '../../types';
 
 interface SessionStatusBarProps {

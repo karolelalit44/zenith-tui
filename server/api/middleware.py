@@ -6,8 +6,8 @@ import logging
 from collections.abc import Callable
 from functools import wraps
 
-from config.settings import AppSettings
-from core.errors import ConfigError
+from server.config.settings import AppSettings
+from server.domain.errors import ConfigError
 
 logger = logging.getLogger(__name__)
 

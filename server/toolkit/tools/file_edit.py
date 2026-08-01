@@ -9,8 +9,8 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Any
 
-from .base import BaseTool, ToolResult
-from .path_validator import validate_path
+from ..base import BaseTool, ToolResult
+from ..path_validator import validate_path
 
 # Minimum similarity ratio (0-1) for fuzzy match to be considered valid
 FUZZY_THRESHOLD = 0.85

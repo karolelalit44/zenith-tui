@@ -4,7 +4,7 @@ import React, { useCallback, useState } from 'react';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { ASCII_SPINNER_FRAMES } from '../../constants/animation';
 import { useTickAnimation } from '../../hooks/useTickAnimation';
-import { startupService } from '../../services/data/StartupService';
+import { startupService } from '../../services/api/StartupService';
 import { providerService } from '../../services/providers/ProviderService';
 import type { ProviderState } from '../../services/providers/types';
 import { useTheme } from '../../theme/ThemeContext';

@@ -92,8 +92,12 @@ class SkillLoader:
 
         return skills
 
-    def get_skill_prompt(self) -> str:
-        """Build a prompt section from all loaded skills (brief summaries only)."""
+    def get_skill_prompt(self, max_chars_per_skill: int = 6000) -> str:
+        """Build a prompt section from all loaded skills.
+
+        Each skill's full content is embedded (capped per skill) so the model
+        can use the skill without an extra read round-trip.
+        """
         skills = self.find_skills()
         if not skills:
             return ""
@@ -101,15 +105,17 @@ class SkillLoader:
         parts = [
             "## Loaded Skills",
             "",
-            "Below are available skills. Each skill's full content is available on disk",
-            "at the listed source path. The model can read the full skill file if needed.",
+            "Each skill below is available in full below its source path.",
             "",
         ]
         for skill in skills:
             parts.append(f"### Skill: {skill['directory']}")
             parts.append(f"*Source: {skill['path']}*")
-            if skill.get("summary"):
-                parts.append(skill["summary"])
+            content = skill.get("content") or ""
+            if len(content) > max_chars_per_skill:
+                content = content[:max_chars_per_skill]
+                parts.append("[skill content truncated]")
+            parts.append(content or skill.get("summary", ""))
             parts.append("")
 
         return "\n".join(parts)

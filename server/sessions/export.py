@@ -6,9 +6,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from core.events import Event
-from core.message import Message
-from core.session import Session
+from server.domain.events import Event
+from server.domain.message import Message
+from server.domain.session import Session
 
 
 class SessionExporter:

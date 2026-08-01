@@ -3,7 +3,7 @@ import { render } from 'ink-testing-library';
 import React from 'react';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { App } from '../src/App';
-import { startupService } from '../src/services/data/StartupService';
+import { startupService } from '../src/services/api/StartupService';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from core.errors import ProviderError, RateLimitError, TimeoutError
+from server.domain.errors import ProviderError, RateLimitError, TimeoutError
 
 logger = logging.getLogger(__name__)
 

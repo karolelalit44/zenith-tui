@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .base import BaseTool, ToolResult
+from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 

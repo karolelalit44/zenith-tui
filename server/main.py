@@ -18,7 +18,7 @@ def serve(host: str, port: int):
     """Start the WebSocket server"""
     import uvicorn
 
-    from transport.server import create_app
+    from server.api.server import create_app
 
     app = create_app()
     uvicorn.run(app, host=host, port=port, ws_ping_interval=None, ws_ping_timeout=None)
@@ -27,8 +27,8 @@ def serve(host: str, port: int):
 @cli.command()
 def status():
     """Show current configuration and provider status"""
-    from config.loader import load_config
-    from providers.registry import ProviderRegistry
+    from server.config.loader import load_config
+    from server.providers.registry import ProviderRegistry
 
     config = load_config()
     registry = ProviderRegistry.from_config(config.providers, config.active_provider)
@@ -48,7 +48,7 @@ def status():
 @cli.command()
 def tools():
     """List available tools"""
-    from tools import create_default_registry
+    from server.toolkit import create_default_registry
 
     registry = create_default_registry()
     schemas = registry.get_schemas()

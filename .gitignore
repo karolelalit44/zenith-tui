@@ -1,5 +1,7 @@
 node_modules
 dist
+dist-tsc
+.turbo
 *.pyc
 .pytest_cache
 __pycache__

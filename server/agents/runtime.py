@@ -7,11 +7,11 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
-from core.domain import AgentState
-from core.events import Event
-from core.message import Message
-from providers.base import BaseProvider
-from tools.registry import ToolRegistry
+from server.domain.domain import AgentState
+from server.domain.events import Event
+from server.domain.message import Message
+from server.providers.base import BaseProvider
+from server.toolkit.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +64,8 @@ class DefaultAgentRuntime(AgentRuntime):
         provider: BaseProvider,
         tool_registry: ToolRegistry | None = None,
     ) -> None:
-        from agent.context import ContextManager
-        from agent.loop import AgentLoop
+        from server.agents.context import ContextManager
+        from server.agents.loop import AgentLoop
 
         self._config = config
         self._provider = provider

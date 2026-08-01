@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loadUserProfile, saveUserProfile } from '../services/data/userProfileService';
+import { loadUserProfile, saveUserProfile } from '../services/api/userProfileService';
 import { type Theme, themes } from './theme';
 
 interface ThemeContextType {

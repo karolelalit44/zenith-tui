@@ -7,7 +7,7 @@ import { ModeSelectScreen } from '../screens/ModeSelect';
 import { SettingsModal } from '../screens/Settings/SettingsModal';
 import { SetupWizard } from '../screens/SetupWizard';
 import UsageModal from '../screens/Usage/UsageModal';
-import type { TokenUsageStats } from '../services/data/TokenUsageService';
+import type { TokenUsageStats } from '../services/api/TokenUsageService';
 import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
 import type { AppStartupState } from '../types/startup';
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import BaseTool, ToolResult
+from ..base import BaseTool, ToolResult
 
 
 class LspDefinitionTool(BaseTool):
@@ -34,7 +34,7 @@ class LspDefinitionTool(BaseTool):
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         from pathlib import Path
 
-        from lsp.manager import get_lsp_manager
+        from server.lsp.manager import get_lsp_manager
 
         filepath = params.get("filepath", "")
         line = params.get("line", 0)
