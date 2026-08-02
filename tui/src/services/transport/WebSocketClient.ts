@@ -68,10 +68,15 @@ export class WebSocketClient {
   }
 
   private static detectBackendUrl(): string {
-    if (typeof process !== 'undefined' && process.env?.ZENITH_BACKEND_URL) {
-      return process.env.ZENITH_BACKEND_URL;
-    }
-    return 'ws://localhost:8765/ws';
+    const base = typeof process !== 'undefined' ? process.env?.ZENITH_BACKEND_URL : undefined;
+    if (!base) return 'ws://127.0.0.1:8765/ws';
+    // ZENITH_BACKEND_URL is an HTTP base (shared with the REST client), so map
+    // the scheme to ws/wss and append the /ws path unless it is already there.
+    const ws = base
+      .replace(/^http:/i, 'ws:')
+      .replace(/^https:/i, 'wss:')
+      .replace(/\/+$/, '');
+    return /\/ws$/.test(ws) ? ws : `${ws}/ws`;
   }
 
   get status(): WsStatus {
@@ -264,6 +269,14 @@ export class WebSocketClient {
 
   sendConfirmation(confirmationId: string, approved: boolean): Promise<void> {
     return this.send('confirmation.response', { confirmation_id: confirmationId, approved }) as Promise<void>;
+  }
+
+  contextCompact(sessionId: string): Promise<{ summary: string; cleared: number }> {
+    return this.send('context.compact', { session_id: sessionId });
+  }
+
+  contextClearTools(sessionId: string): Promise<{ removed: number; rows: number; stripped: number }> {
+    return this.send('context.clear_tools', { session_id: sessionId });
   }
 
   // ── Internal ────────────────────────────────────────────────────

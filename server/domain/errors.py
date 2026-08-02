@@ -33,8 +33,13 @@ The hierarchy follows:
     ├── McpError
     │   ├── McpNotConnected
     │   └── McpHandshakeFailed
-    └── PermissionError
-        └── PermissionDenied
+    ├── PermissionError
+    │   └── PermissionDenied
+    └── PersistenceError
+        ├── PersistenceUnavailableError
+        ├── PersistenceOperationError
+        ├── PersistenceIntegrityError
+        └── MigrationError
 """
 
 from __future__ import annotations
@@ -267,3 +272,76 @@ class PermissionDenied(PermissionError):
     def __init__(self, tool: str, reason: str = "Permission denied"):
         super().__init__(reason, tool=tool, recoverable=False)
         self.code = "PERMISSION_DENIED"
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+class PersistenceError(ZenithError):
+    """Base error for all database failures.
+
+    Raised at repository boundaries (never raw sqlite/SQLAlchemy exceptions)
+    so handlers can return user-friendly responses while the root cause is
+    logged with full context.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        operation: str = "",
+        table: str = "",
+        recoverable: bool = True,
+        cause: Exception | None = None,
+    ):
+        super().__init__(message, code="PERSISTENCE_ERROR", recoverable=recoverable, cause=cause)
+        self.operation = operation
+        self.table = table
+
+
+class PersistenceUnavailableError(PersistenceError):
+    """Database unreachable / not connected."""
+
+    def __init__(self, message: str = "Database unavailable", operation: str = "", cause: Exception | None = None):
+        super().__init__(message, operation=operation, recoverable=True, cause=cause)
+        self.code = "PERSISTENCE_UNAVAILABLE"
+
+
+class PersistenceOperationError(PersistenceError):
+    """A database operation failed (query, insert, update, delete)."""
+
+    def __init__(
+        self,
+        message: str = "Database operation failed",
+        operation: str = "",
+        table: str = "",
+        cause: Exception | None = None,
+    ):
+        super().__init__(message, operation=operation, table=table, recoverable=True, cause=cause)
+        self.code = "PERSISTENCE_OPERATION"
+
+
+class PersistenceIntegrityError(PersistenceError):
+    """A constraint was violated (e.g. FK, unique, NOT NULL)."""
+
+    def __init__(
+        self,
+        message: str = "Database integrity constraint violated",
+        operation: str = "",
+        table: str = "",
+        cause: Exception | None = None,
+    ):
+        super().__init__(message, operation=operation, table=table, recoverable=False, cause=cause)
+        self.code = "PERSISTENCE_INTEGRITY"
+
+
+class MigrationError(PersistenceError):
+    """Schema migration failed."""
+
+    def __init__(
+        self,
+        message: str = "Database migration failed",
+        cause: Exception | None = None,
+    ):
+        super().__init__(message, operation="migrate", recoverable=False, cause=cause)
+        self.code = "MIGRATION_ERROR"

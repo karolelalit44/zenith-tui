@@ -21,7 +21,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
 
   useEffect(() => {
     wsClient
-      .listSessionSummaries({ limit: 10, include_archived: false })
+      .listSessionSummaries({ limit: 5, include_archived: false })
       .then(setRecentSessions)
       .catch(() => setRecentSessions([]));
   }, []);

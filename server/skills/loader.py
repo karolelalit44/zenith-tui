@@ -9,6 +9,17 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Skills are only discovered under these workspace-relative directories
+# (opencode/pi/crush convention). This prevents arbitrary SKILL.md files
+# vendored inside dependencies (e.g. .venv site-packages) from polluting
+# the system prompt.
+SKILL_ROOTS = ("skills", "agents/skills", ".zenith/skills", ".agent/skills")
+
+# Skills are injected metadata-only: name, source path, one-line summary.
+# The full body is loaded on demand (e.g. via file_read of the source path),
+# so a skill can never blow the prompt budget. Mirrors opencode/pi/crush.
+MAX_SKILLS_IN_PROMPT = 20
+
 
 def _extract_yaml_field(content: str, field: str) -> str | None:
     """Extract a YAML frontmatter field value."""
@@ -68,35 +79,39 @@ class SkillLoader:
         self.root = Path(workspace_root).resolve()
 
     def find_skills(self) -> list[dict[str, Any]]:
-        """Find all SKILL.md files in the workspace."""
+        """Find all SKILL.md files under the configured skill directories."""
         skills: list[dict[str, Any]] = []
 
-        for skill_file in self.root.rglob("SKILL.md"):
-            if not skill_file.is_file():
+        for root_name in SKILL_ROOTS:
+            root_dir = self.root / root_name
+            if not root_dir.is_dir():
                 continue
-            # Skip hidden directories
-            if any(part.startswith(".") for part in skill_file.relative_to(self.root).parts):
-                continue
+            for skill_file in root_dir.rglob("SKILL.md"):
+                if not skill_file.is_file():
+                    continue
+                # Skip hidden directories
+                if any(part.startswith(".") for part in skill_file.relative_to(self.root).parts):
+                    continue
 
-            try:
-                content = skill_file.read_text(encoding="utf-8")
-                skills.append({
-                    "path": str(skill_file.relative_to(self.root)),
-                    "content": content,
-                    "directory": str(skill_file.parent.relative_to(self.root)),
-                    "size": len(content),
-                    "summary": _summarize_skill(content),
-                })
-            except Exception as e:
-                logger.warning("Failed to read skill file %s: %s", skill_file, e)
+                try:
+                    content = skill_file.read_text(encoding="utf-8")
+                    skills.append({
+                        "path": skill_file.relative_to(self.root).as_posix(),
+                        "content": content,
+                        "directory": skill_file.parent.relative_to(self.root).as_posix(),
+                        "size": len(content),
+                        "summary": _summarize_skill(content),
+                    })
+                except Exception as e:
+                    logger.warning("Failed to read skill file %s: %s", skill_file, e)
 
         return skills
 
-    def get_skill_prompt(self, max_chars_per_skill: int = 6000) -> str:
-        """Build a prompt section from all loaded skills.
+    def get_skill_prompt(self, max_skills: int = MAX_SKILLS_IN_PROMPT) -> str:
+        """Build a metadata-only prompt section from all loaded skills.
 
-        Each skill's full content is embedded (capped per skill) so the model
-        can use the skill without an extra read round-trip.
+        Only the source path + summary are embedded so the prompt stays tiny;
+        the model reads the full SKILL.md on demand (the source path is given).
         """
         skills = self.find_skills()
         if not skills:
@@ -105,17 +120,15 @@ class SkillLoader:
         parts = [
             "## Loaded Skills",
             "",
-            "Each skill below is available in full below its source path.",
+            "Each skill below is available — read its source file to use it.",
             "",
         ]
-        for skill in skills:
+        for skill in skills[:max_skills]:
             parts.append(f"### Skill: {skill['directory']}")
             parts.append(f"*Source: {skill['path']}*")
-            content = skill.get("content") or ""
-            if len(content) > max_chars_per_skill:
-                content = content[:max_chars_per_skill]
-                parts.append("[skill content truncated]")
-            parts.append(content or skill.get("summary", ""))
+            summary = skill.get("summary") or ""
+            if summary:
+                parts.append(summary)
             parts.append("")
 
         return "\n".join(parts)

@@ -29,28 +29,85 @@ export function useScenario(): UseScenarioReturn {
     wsClient.connect().catch(() => {});
   }, []);
 
-  const handleEvent = useCallback((event: ScenarioEvent, index: number) => {
+  const batchQueueRef = useRef<{ event: ScenarioEvent; index: number }[]>([]);
+  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushBatch = useCallback(() => {
+    if (batchQueueRef.current.length === 0) return;
+    const queue = [...batchQueueRef.current];
+    batchQueueRef.current = [];
+
     setEvents((prev) => {
-      let next: ScenarioEvent[];
-      if (typeof index === 'number' && index < prev.length) {
-        next = [...prev];
-        next[index] = event;
-      } else {
-        next = [...prev, event];
+      const next = [...prev];
+      const existingIds = new Set(prev.map((e) => e.id));
+
+      for (const { event, index } of queue) {
+        // Deduplication: skip if event with same ID already exists
+        if (event.id && existingIds.has(event.id)) {
+          continue;
+        }
+
+        if (typeof index === 'number' && index < next.length) {
+          next[index] = event;
+        } else {
+          next.push(event);
+        }
+        if (event.id) {
+          existingIds.add(event.id);
+        }
       }
       eventsRef.current = next;
       return next;
     });
-    if (event.kind === 'confirmation_request') {
-      const conf = event as ConfirmationRequestEvent;
-      setActiveConfirmation(conf.answered ? null : conf);
-    }
   }, []);
 
+  const handleEvent = useCallback(
+    (event: ScenarioEvent, index: number) => {
+      // Immediate handling for interactive events
+      if (event.kind === 'confirmation_request') {
+        const conf = event as ConfirmationRequestEvent;
+        setActiveConfirmation(conf.answered ? null : conf);
+      }
+
+      // Batch rapid streaming events (message and thinking chunks) into 16ms frame windows (60Hz)
+      if (event.kind === 'message' || event.kind === 'thinking') {
+        batchQueueRef.current.push({ event, index });
+        if (!batchTimerRef.current) {
+          batchTimerRef.current = setTimeout(() => {
+            batchTimerRef.current = null;
+            flushBatch();
+          }, 16);
+        }
+      } else {
+        // Immediate flush for tool calls, errors, tool results
+        flushBatch();
+        setEvents((prev) => {
+          // Deduplication: skip if event with same ID already exists
+          const existingIds = new Set(prev.map((e) => e.id));
+          if (event.id && existingIds.has(event.id)) {
+            return prev;
+          }
+
+          let next: ScenarioEvent[];
+          if (typeof index === 'number' && index < prev.length) {
+            next = [...prev];
+            next[index] = event;
+          } else {
+            next = [...prev, event];
+          }
+          eventsRef.current = next;
+          return next;
+        });
+      }
+    },
+    [flushBatch],
+  );
+
   const handleComplete = useCallback(() => {
+    flushBatch();
     setIsRunning(false);
     setActiveConfirmation(null);
-  }, []);
+  }, [flushBatch]);
 
   const connectToBackend = useCallback(async () => {
     await wsClient.connect();
@@ -91,12 +148,20 @@ export function useScenario(): UseScenarioReturn {
           }
         }
         if (!sessionIdRef.current) {
-          const session = await wsClient.createSession(prompt.slice(0, 50));
-          sessionIdRef.current = session.id;
-          setLastSessionId(session.id);
+          try {
+            const session = await wsClient.createSession(prompt.slice(0, 50));
+            sessionIdRef.current = session.id;
+            setLastSessionId(session.id);
+          } catch {
+            await connectToBackend();
+            const session = await wsClient.createSession(prompt.slice(0, 50));
+            sessionIdRef.current = session.id;
+            setLastSessionId(session.id);
+          }
         }
-      } catch {
-        reportError('sess', 'Failed to create session');
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        reportError('sess', `Failed to create session: ${message}`);
         return;
       }
 

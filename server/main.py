@@ -12,16 +12,98 @@ def cli():
 
 
 @cli.command()
-@click.option("--host", default="localhost", help="Host to bind to")
-@click.option("--port", default=8765, type=int, help="Port to listen on")
-def serve(host: str, port: int):
+@click.option("--host", default=None, help="Host to bind to")
+@click.option("--port", default=None, type=int, help="Port to listen on")
+def serve(host: str | None, port: int | None):
     """Start the WebSocket server"""
+    import os
+
     import uvicorn
 
     from server.api.server import create_app
 
     app = create_app()
-    uvicorn.run(app, host=host, port=port, ws_ping_interval=None, ws_ping_timeout=None)
+    uvicorn.run(
+        app,
+        host=host or os.environ.get("ZENITH_HOST", "127.0.0.1"),
+        port=port or int(os.environ.get("ZENITH_PORT", "8765")),
+        ws_ping_interval=None,
+        ws_ping_timeout=None,
+    )
+
+
+@cli.group()
+def db():
+    """Database migration commands (SQL-file runner)."""
+
+
+def _resolve_db_option(db_path: str | None) -> str:
+    from server.persistence.connection import resolve_db_path
+
+    return db_path or resolve_db_path()
+
+
+@db.command()
+@click.option("--db-path", default=None, help="Override database path")
+def init(db_path: str | None):
+    """Create the database and migrate it to the latest schema"""
+    from server.persistence.startup import DatabaseStartupService
+
+    target = _resolve_db_option(db_path)
+    result = DatabaseStartupService(target).run()
+    click.echo(
+        f"Database ready: mode={result['mode']} version={result['version']} path={target}"
+    )
+
+
+@db.command()
+@click.option("--db-path", default=None, help="Override database path")
+def migrate(db_path: str | None):
+    """Migrate the database to the latest schema"""
+    from server.persistence.startup import DatabaseStartupService
+
+    target = _resolve_db_option(db_path)
+    result = DatabaseStartupService(target).run()
+    click.echo(
+        f"Migrated: mode={result['mode']} version={result['version']} applied={result['applied']}"
+    )
+
+
+@db.command()
+@click.option("--db-path", default=None, help="Override database path")
+def current(db_path: str | None):
+    """Show the current migration revision"""
+    from server.persistence.startup import get_current_version
+
+    target = _resolve_db_option(db_path)
+    version = get_current_version(target)
+    click.echo(f"DB: {target}")
+    click.echo(f"Current revision: {version or '(not migrated)'}")
+
+
+@db.command()
+@click.option("--db-path", default=None, help="Override database path")
+def history(db_path: str | None):
+    """Show every migration file with its applied/pending status"""
+    from server.persistence.migrations import runner
+
+    target = _resolve_db_option(db_path)
+    applied = set(runner.get_applied(target))
+    click.echo(f"DB: {target}")
+    for m in runner.discover():
+        state = "applied " if m["version"] in applied else "pending "
+        click.echo(f"  [{state}] {m['version']}  {m['title']}  ({m['filename']})")
+
+
+@db.command()
+@click.option("--db-path", default=None, help="Override database path")
+def downgrade(db_path: str | None):
+    """Downgrade is not supported for SQL-file migrations"""
+    target = _resolve_db_option(db_path)
+    click.echo(
+        f"Downgrade is not supported. DB: {target} — "
+        "revert schema changes with a new forward migration instead."
+    )
 
 
 @cli.command()

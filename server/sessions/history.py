@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from server.config.settings import AppSettings
@@ -21,53 +20,23 @@ class HistoryManager:
         self.config = config
         self.provider = provider
 
-    async def summarize(self, messages: list[Message], model: str, session_id: str = "") -> str:
-        """Summarize a list of messages using the LLM provider.
+    async def summarize(
+        self,
+        messages: list[Message],
+        model: str,
+        session_id: str = "",
+        previous_summary: str | None = None,
+    ) -> str:
+        """Summarize a list of messages using the anchored ConversationSummarizer.
 
-        Runs summarization in a background thread to avoid blocking the
-        agent loop. Falls back to a truncated summary on failure.
-
-        Durable facts from the compaction are appended to the workspace
-        memory store (HP-7) so they survive across sessions.
+        The summarization runs on the configured weak_model in a background
+        thread so the main agent loop is never blocked by the same provider.
+        Falls back to a truncated summary on failure.
         """
-        if not messages:
-            return ""
-
-        conversation = "\n".join(f"[{m.role}]: {m.content}" for m in messages)
-        summary_prompt = (
-            "Summarize this conversation concisely. "
-            "Preserve key decisions, context, user intent, and any important technical details.\n\n"
-            f"{conversation}"
+        from server.agents.summarizer import ConversationSummarizer
+        return await ConversationSummarizer(self.config, self.provider).summarize(
+            messages, model, session_id=session_id, previous_summary=previous_summary,
         )
-
-        try:
-            # Run summarization in a background thread so the main agent
-            # loop isn't blocked by a slow LLM call to the same provider.
-            result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    asyncio.run,
-                    self.provider.complete(
-                        [{"role": "user", "content": summary_prompt}]
-                    ),
-                ),
-                timeout=30.0,
-            )
-        except TimeoutError:
-            logger.warning("Summarization timed out, using fallback")
-            result = self._fallback_summary(messages)
-        except Exception as e:
-            logger.warning("Summarization failed: %s", e)
-            result = self._fallback_summary(messages)
-
-        # Persist durable facts extracted during compaction (HP-7)
-        if result and result != NO_CONTEXT_SENTINEL:
-            try:
-                from server.sessions.memory import MemoryStore
-                MemoryStore(self.config.workspace_root).append(session_id, result)
-            except Exception as e:
-                logger.warning("Failed to persist durable memory: %s", e)
-
-        return result
 
     @staticmethod
     def _fallback_summary(messages: list[Message], max_messages: int = 5) -> str:

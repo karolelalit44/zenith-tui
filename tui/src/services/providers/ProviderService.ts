@@ -3,6 +3,18 @@ import type { ProviderConfig, ProviderId, ProviderState } from './types';
 
 type ProviderListener = (activeProvider: ProviderState) => void;
 
+const FALLBACK_IDS: ProviderId[] = [
+  'nvidia',
+  'openrouter',
+  'tokenrouter',
+  'openai_compatible',
+  'openai',
+  'anthropic',
+  'google',
+  'groq',
+  'custom',
+];
+
 export class ProviderService {
   private repo: ProviderRepository;
   private listeners: Set<ProviderListener> = new Set();
@@ -30,6 +42,7 @@ export class ProviderService {
   public getProviderState(id: ProviderId): ProviderState {
     const meta = this.repo.getProviderMeta(id);
     const config = this.repo.getProviderConfig(id);
+    const details = this.repo.getProviderStateDetails(id);
     const activeId = this.getActiveProviderId();
 
     return {
@@ -38,12 +51,23 @@ export class ProviderService {
       config,
       isActive: id === activeId,
       isConfigured: this.validateConfig(id, config).valid,
+      hasApiKey: details.hasApiKey,
+      apiKeyMasked: details.apiKeyMasked,
+      validationStatus: details.validationStatus,
+      lastValidationError: details.lastValidationError,
     };
   }
 
+  /** Derive the provider list from the backend `ProviderListResponse` when
+   * available; otherwise fall back to the catalog default set. Fixes P-7. */
   public getAllProviders(): ProviderState[] {
-    const ids: ProviderId[] = ['nvidia', 'openrouter', 'openai', 'anthropic', 'google', 'groq', 'custom'];
+    const list = this.repo.getProviderInfoList();
+    const ids = list.length ? list.map((item) => item.id) : FALLBACK_IDS;
     return ids.map((id) => this.getProviderState(id));
+  }
+
+  public getConnectedIds(): string[] {
+    return this.repo.getConnectedIds();
   }
 
   public setActiveProvider(id: ProviderId): ProviderState {
@@ -68,6 +92,13 @@ export class ProviderService {
     const updatedState = this.getProviderState(id);
     this.notifyListeners(this.getActiveProvider());
     return updatedState;
+  }
+
+  /** Re-publish the active provider state after an async provider mutation. */
+  public notifyChange(): ProviderState {
+    const active = this.getActiveProvider();
+    this.notifyListeners(active);
+    return active;
   }
 
   public validateConfig(id: ProviderId, configOverride?: ProviderConfig): { valid: boolean; error?: string } {

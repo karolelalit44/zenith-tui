@@ -1,1 +1,0 @@
-ALTER TABLE token_usage ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0;

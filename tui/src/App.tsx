@@ -2,6 +2,7 @@ import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
+import { ScrollIndicator } from './components/Display/ScrollIndicator';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
@@ -13,6 +14,7 @@ import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
 import { useProvider } from './hooks/useProvider';
 import { useScenario } from './hooks/useScenario';
+import { useScrollState } from './hooks/useScrollState';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { useTickAnimation } from './hooks/useTickAnimation';
 import { OverlayRouter } from './routes/OverlayRouter';
@@ -25,7 +27,10 @@ import type { TokenUsageStats } from './services/api/TokenUsageService';
 import { tokenUsageService } from './services/api/TokenUsageService';
 import { estimateTokensForEvents } from './services/api/tokenEstimationService';
 import { loadUserProfile } from './services/api/userProfileService';
+import { providerRepository } from './services/providers/ProviderRepository';
+import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
+import type { ScenarioEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
 
 export const App: React.FC = () => {
@@ -60,8 +65,27 @@ export const App: React.FC = () => {
     compactTurns,
   } = useConversation();
 
+  const { scrollState, scrollUp, scrollDown, scrollToTop, scrollToBottom, resetScroll, updateContentHeight } =
+    useScrollState();
+
   const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, closeAllOverlays, handleModeSelect } =
     useOverlayManager();
+
+  // First-run empty state: when startup is ready but no provider has an API key,
+  // auto-open the provider picker so the user can connect one.
+  useEffect(() => {
+    if (startupState.phase !== 'ready') return;
+    let cancelled = false;
+    providerRepository.fetchProviderList().then((list) => {
+      if (cancelled) return;
+      if (list && list.connected.length === 0) {
+        openOverlay('provider');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [startupState.phase, openOverlay]);
 
   const {
     input,
@@ -80,7 +104,8 @@ export const App: React.FC = () => {
     removeAttachment,
   } = useAutocomplete();
 
-  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation, eventsRef } = useScenario();
+  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation, eventsRef, lastSessionId } =
+    useScenario();
   const { activeProvider } = useProvider();
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
@@ -98,13 +123,57 @@ export const App: React.FC = () => {
     return totalTokens + (isRunning ? estimateTokensForEvents(events) : 0);
   }, [totalTokens, isRunning, events]);
 
+  useEffect(() => {
+    const estimatedHeight = completedTurns.length * 15 + (isRunning ? events.length * 2 : 0);
+    updateContentHeight(estimatedHeight);
+  }, [completedTurns.length, events.length, isRunning, updateContentHeight]);
+
+  useEffect(() => {
+    if (!isRunning && activeTurn?.isComplete) {
+      resetScroll();
+    }
+  }, [isRunning, activeTurn?.isComplete, resetScroll]);
+
+  const handleCompact = useCallback(() => {
+    compactTurns();
+    if (lastSessionId) {
+      wsClient.contextCompact(lastSessionId).catch(() => {});
+    }
+  }, [compactTurns, lastSessionId]);
+
+  const handleClearTools = useCallback(() => {
+    if (!lastSessionId) return;
+    wsClient
+      .contextClearTools(lastSessionId)
+      .then((res) => {
+        if (res.removed > 0) {
+          addTurn('/clear-tools', selectedMode);
+          completeActiveTurn([
+            {
+              kind: 'message',
+              id: `evt_cleartools_${Date.now()}`,
+              text: `Cleared tool output from ${res.removed} message(s)`,
+              partial: false,
+            } as ScenarioEvent,
+          ]);
+        }
+      })
+      .catch(() => {});
+  }, [lastSessionId, addTurn, completeActiveTurn, selectedMode]);
+
   const handleSubmit = useCallback(
     (value: string) => {
       const trimmed = value.trim();
       if (!trimmed) return;
       if (trimmed.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(trimmed, { openOverlay, clearTurns, compactTurns, setMode: handleModeSelect });
+        commandService.dispatchCommand(trimmed, {
+          openOverlay,
+          clearTurns,
+          compactTurns: handleCompact,
+          clearTools: handleClearTools,
+          setMode: handleModeSelect,
+        });
         return;
       }
       addHistory(trimmed);
@@ -120,7 +189,8 @@ export const App: React.FC = () => {
       clearInput,
       openOverlay,
       clearTurns,
-      compactTurns,
+      handleCompact,
+      handleClearTools,
       handleModeSelect,
       addHistory,
     ],
@@ -141,6 +211,10 @@ export const App: React.FC = () => {
     onToggleThinking: toggleThinking,
     activeConfirmation,
     respondConfirmation,
+    scrollUp,
+    scrollDown,
+    scrollToTop,
+    scrollToBottom,
   });
 
   useEffect(() => {
@@ -155,12 +229,18 @@ export const App: React.FC = () => {
     (cmd: string) => {
       if (cmd.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(cmd, { openOverlay, clearTurns, compactTurns, setMode: handleModeSelect });
+        commandService.dispatchCommand(cmd, {
+          openOverlay,
+          clearTurns,
+          compactTurns: handleCompact,
+          clearTools: handleClearTools,
+          setMode: handleModeSelect,
+        });
       } else {
         handleAutocompleteSelect(cmd);
       }
     },
-    [clearInput, openOverlay, clearTurns, compactTurns, handleModeSelect, handleAutocompleteSelect],
+    [clearInput, openOverlay, clearTurns, handleCompact, handleClearTools, handleModeSelect, handleAutocompleteSelect],
   );
 
   const handleRetry = useCallback(() => {
@@ -170,6 +250,22 @@ export const App: React.FC = () => {
   const handleSetupComplete = useCallback(() => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });
   }, [startupState]);
+
+  // Calculate visible turns based on scroll offset (must be before conditional returns)
+  const visibleTurns = useMemo(() => {
+    if (!scrollState.isUserScrolled || isRunning) {
+      return completedTurns;
+    }
+
+    const viewportTurns = scrollState.viewportHeight / 15;
+    const startIdx = Math.floor(scrollState.scrollOffset / 15);
+    const endIdx = Math.min(completedTurns.length, startIdx + Math.ceil(viewportTurns) + 2);
+
+    return completedTurns.slice(Math.max(0, startIdx), endIdx);
+  }, [completedTurns, scrollState.isUserScrolled, scrollState.scrollOffset, scrollState.viewportHeight, isRunning]);
+
+  const hiddenAbove = completedTurns.length - visibleTurns.length - (completedTurns.indexOf(visibleTurns[0]) || 0);
+  const showScrollIndicator = scrollState.isUserScrolled && (isRunning || completedTurns.length > 0);
 
   // Loading screen
   if (startupState.phase === 'loading') {
@@ -215,7 +311,15 @@ export const App: React.FC = () => {
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
         {turns.length === 0 && !isRunning && <WelcomeScreen workspace={workspace} />}
 
-        <Static key={staticKey} items={completedTurns}>
+        {scrollState.isUserScrolled && hiddenAbove > 0 && (
+          <Box paddingX={1} marginBottom={1}>
+            <Text color={theme.colors.text.muted} dimColor>
+              ... {hiddenAbove} earlier turns hidden (scroll up to view)
+            </Text>
+          </Box>
+        )}
+
+        <Static key={staticKey} items={visibleTurns}>
           {(turn, idx) => (
             <Box key={turn.id} flexDirection="column" width="100%">
               {idx > 0 && (
@@ -287,13 +391,20 @@ export const App: React.FC = () => {
           </Box>
         )}
 
+        {showScrollIndicator && (
+          <ScrollIndicator
+            visible={true}
+            scrollOffset={scrollState.scrollOffset}
+            totalLines={scrollState.contentHeight}
+          />
+        )}
+
         <OverlayRouter
           overlay={overlay}
           isOverlayOpen={isOverlayOpen}
           selectedMode={selectedMode}
           totalTokens={totalTokens}
           events={events}
-          startupState={startupState}
           tokenUsageStats={tokenUsageStats}
           onSelectMode={handleModeSelect}
           onClose={closeOverlay}

@@ -2,24 +2,14 @@
   "name": "zenith",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "pnpm@10.34.5",
+  "packageManager": "npm@10.0.0",
+  "workspaces": ["tui", "server"],
   "scripts": {
-    "dev": "node dev.mjs",
-    "dev:server": "pnpm --filter server dev",
-    "dev:tui": "pnpm --filter tui dev",
-    "build": "turbo run build",
-    "lint": "turbo run lint",
-    "lint:fix": "turbo run lint:fix",
-    "format": "turbo run format",
-    "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
-    "test:coverage": "turbo run test:coverage",
-    "clean": "turbo run clean"
-  },
-  "devDependencies": {
-    "turbo": "^2.5.4"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "dev:backend": "npm run start --workspace server",
+    "dev:frontend": "npm run dev --workspace tui",
+    "run": "npm run dev:backend & npm run dev:frontend",
+    "lint": "npm run lint --workspace tui && npm run lint --workspace server",
+    "build": "npm run build --workspace tui",
+    "test": "npm run test --workspace tui && npm run test --workspace server"
   }
 }

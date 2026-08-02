@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 
+import server.providers.responder as r
 from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
@@ -79,6 +80,8 @@ class MethodHandlers:
             "session.sync": lambda: self._session_sync(ws, rid, params, session_id),
             "session.search": lambda: self._session_search(ws, rid, params, session_id),
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
+            "context.compact": lambda: self._context_compact(ws, rid, session_id),
+            "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id),
             "provider.validate": lambda: self._provider_validate(ws, rid, params),
             "provider.models": lambda: self._provider_models(ws, rid, params),
             "tools.list": lambda: self._tools_list(ws, rid, params),
@@ -96,10 +99,17 @@ class MethodHandlers:
         }
         handler = handlers.get(method)
         if handler:
-            result = await handler()
-            return result if isinstance(result, str) else session_id
+            try:
+                result = await handler()
+                return result if isinstance(result, str) else session_id
+            except Exception as e:
+                logger.error("Handler error for method '%s': %s", method, e, exc_info=True)
+                if rid is not None:
+                    await ws.send_text(make_error_response(rid, -32603, f"Internal error executing {method}: {str(e)}"))
+                return session_id
         await ws.send_text(make_error_response(rid, -32601, f"Method not found: {method}"))
         return session_id
+
 
     async def _session_create(self, ws, rid, params) -> str:
         svc = self._resolve_service()
@@ -366,6 +376,58 @@ class MethodHandlers:
         except Exception:
             logger.exception("Prompt execution failed for session %s", session_id)
         return session_id
+
+    async def _context_compact(self, ws, rid, session_id) -> str | None:
+        """Manually compact the session: summarize history, persist the summary,
+        and clear the raw transcript (aider /compact analogue)."""
+        if not session_id:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
+            return None
+        svc = self._resolve_service()
+        provider = self.registry.get(self.config.active_provider)
+        if not provider:
+            await ws.send_text(make_error_response(rid, -32602, "No active provider configured"))
+            return session_id
+        session = await svc.require(session_id)
+        history = await svc.get_history(session_id)
+        model = getattr(provider, "model", "?")
+        if self.manager:
+            await self.manager.send_event(session_id, r.context_compaction_started(session_id, "manual"))
+        try:
+            from server.agents.summarizer import ConversationSummarizer
+            previous = (session.metadata or {}).get("summary") or ""
+            summary = await ConversationSummarizer(self.config, provider).summarize(
+                history, model, session_id=session_id, previous_summary=previous,
+            )
+            session.metadata["summary"] = summary
+            await svc.update(session)
+            await self.message_repo.delete_by_session(session_id)
+            if self.manager:
+                await self.manager.send_event(session_id, r.context_compaction_ended(
+                    session_id, "manual", tokens_saved=0, summary_chars=len(summary),
+                ))
+            await ws.send_text(make_response(rid, {"summary": summary, "cleared": len(history)}))
+        except Exception as e:
+            logger.exception("Manual compact failed for session %s", session_id)
+            await ws.send_text(make_error_response(rid, -32603, f"Compaction failed: {e}"))
+        return session_id
+
+    async def _context_clear_tools(self, ws, rid, session_id) -> None:
+        """Remove tool-result content from the session transcript (Claude Code
+        clear_tool_uses analogue)."""
+        if not session_id:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
+            return
+        try:
+            removed_rows = await self.message_repo.delete_tool_results(session_id)
+            stripped = await self.message_repo.strip_tool_events(session_id)
+            total = removed_rows + stripped
+            if self.manager and total > 0:
+                await self.manager.send_event(session_id, r.warning(f"Cleared tool output from {total} message(s)", session_id))
+            await ws.send_text(make_response(rid, {"removed": total, "rows": removed_rows, "stripped": stripped}))
+        except Exception as e:
+            logger.exception("clear_tools failed for session %s", session_id)
+            await ws.send_text(make_error_response(rid, -32603, f"clear_tools failed: {e}"))
 
     async def _provider_validate(self, ws, rid, params) -> None:
         provider = self.registry.get(params.get("provider", self.config.active_provider))

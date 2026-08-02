@@ -54,6 +54,10 @@ class PromptExecutor:
         self._message_repo = message_repo
         self._skill_loader = skill_loader
         self._active_task: asyncio.Task | None = None
+        # One ContextManager per executor (long-lived per session) so the repo
+        # map / memory caches survive across turns instead of being rebuilt and
+        # re-injected (and re-billed) on every prompt.
+        self._context_manager = ContextManager(self._config)
 
     def cancel_active(self) -> None:
         if self._active_task and not self._active_task.done():
@@ -87,7 +91,8 @@ class PromptExecutor:
         manager,
     ) -> None:
         logger.info("=" * 60)
-        logger.info("_execute START session=%s mode=%s prompt=%r", session_id, mode, content[:200])
+        logger.info("_execute START session=%s mode=%s prompt=%r", session_id, mode, content)
+
         collected_events: list[Event] = []
         response_text = ""
         event_count = 0
@@ -163,7 +168,7 @@ class PromptExecutor:
                 logger.info("SubAgentLoop completed for session %s: %d events", session_id, event_count)
                 return  # Sub-agent handled this turn
 
-            context_manager = ContextManager(self._config)
+            context_manager = self._context_manager
             agent = RecoverableAgentLoop(self._config, self._provider, context_manager, self._tool_registry)
             skills_section = self._skill_loader.get_skill_prompt()
             logger.info("Agent initialized, skills loaded=%d chars", len(skills_section))
@@ -186,23 +191,31 @@ class PromptExecutor:
                 skills_section=skills_section, confirm_callback=_confirm,
                 plan_context=plan_context,
                 model_override=plan_model_override,
+                # Aider-style: architect/plan mode uses no repo map (map_tokens=0)
+                # so the planning model spends its window on the plan, not the map.
+                repo_map="" if mode == "plan" else None,
             ):
                 event_count += 1
                 collected_events.append(event)
                 if event.kind == EventKind.MESSAGE:
-                    if not event.data.get("partial") and event.data.get("iteration"):
-                        _step_count += 1
+                    if not event.data.get("partial"):
+                        if event.data.get("iteration"):
+                            _step_count += 1
+                        logger.info("  [ASSISTANT MESSAGE]: %s", event.data.get("text", ""))
                 elif event.kind == EventKind.THINKING:
-                    logger.info("  THINKING: %s", event.data.get("text", "")[:200])
+                    logger.info("  [THINKING]: %s", event.data.get("text", ""))
                 elif event.kind == EventKind.TOOL_CALL:
-                    logger.info("  TOOL_CALL: tool=%s params=%s",
-                                event.data.get("tool", ""), str(event.data.get("params", {}))[:200])
+                    logger.info("  [TOOL CALL]: tool=%s params=%s",
+                                event.data.get("tool", ""), str(event.data.get("params", {})))
                 elif event.kind == EventKind.TOOL_RESULT:
-                    logger.info("  TOOL_RESULT: tool=%s success=%s output_len=%d error=%s",
+                    out = str(event.data.get("output", ""))
+                    logger.info("  [TOOL RESULT]: tool=%s success=%s output_len=%d error=%s\n%s",
                                 event.data.get("tool", ""),
                                 event.data.get("success"),
-                                len(event.data.get("output", "")),
-                                event.data.get("error", "")[:100])
+                                len(out),
+                                event.data.get("error", ""),
+                                out)
+
                 elif event.kind == EventKind.ERROR:
                     logger.info("  ERROR: message=%s code=%s recoverable=%s",
                                 event.data.get("message", ""), event.data.get("code"),
@@ -270,6 +283,11 @@ class PromptExecutor:
                             token_usage_recorded = True
                             logger.info("Token usage recorded: provider=%s model=%s tokens=%d/%d cache_read=%d cache_creation=%d",
                                         provider_name, model_name, used, ctx_window, cache_read_t, cache_creation_t)
+                            # Update session total_tokens counter
+                            try:
+                                await self._session_repo.add_tokens(session_id, used)
+                            except Exception as e:
+                                logger.warning("Failed to update session token count: %s", e)
                         except Exception as e:
                             logger.warning("Failed to record token usage: %s", e)
                 elif event.kind == EventKind.WARNING:

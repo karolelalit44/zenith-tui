@@ -1,4 +1,4 @@
-const BACKEND_BASE = process.env.ZENITH_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://localhost:8765';
+const BACKEND_BASE = process.env.ZENITH_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8765';
 
 function backendUrl(path: string): string {
   return `${BACKEND_BASE.replace(/\/+$/, '')}${path}`;

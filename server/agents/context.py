@@ -58,6 +58,22 @@ class TokenInfo:
     percent: float
 
 
+# Shared RepoMap instances keyed by workspace root, so per-file symbol caches
+# and mtime-tagged results survive across ContextManager instantiations.
+_REPO_MAP_INSTANCES: dict[str, object] = {}
+
+
+def _get_repo_map_instance(workspace_root: str, refresh: str = "files"):
+    """Return a process-shared RepoMap for the workspace (lazy import)."""
+    key = f"{workspace_root}|{refresh}"
+    repo = _REPO_MAP_INSTANCES.get(key)
+    if repo is None:
+        from server.workspace.repo_map import RepoMap
+        repo = RepoMap(workspace_root, refresh=refresh)
+        _REPO_MAP_INSTANCES[key] = repo
+    return repo
+
+
 class ContextManager:
     """Manages context window: builds message lists within token limits, tracks usage, detects when to summarize."""
 
@@ -72,7 +88,18 @@ class ContextManager:
         from_catalog = _get_model_context_window(model)
         return min(from_catalog, self.config.max_context_tokens)
 
-    def get_repo_map(self, chat_files: list[str] | None = None) -> str:
+    def _resolve_repo_map_tokens(self, model: str) -> int:
+        """Repo map budget: explicit config wins, else clamp(context/8, 1024, 4096).
+
+        Aider-style: default budget scales with the model's context window so a
+        cheap model never wastes a large fraction of its window on the map.
+        """
+        if self.config.repo_map_tokens is not None:
+            return self.config.repo_map_tokens
+        ctx = self._resolve_context_window(model)
+        return min(4096, max(1024, ctx // 8))
+
+    def get_repo_map(self, chat_files: list[str] | None = None, model: str = "cl100k_base") -> str:
         """Build a token-budgeted, ranked repo map (Aider-style), cached per instance.
 
         Returns an empty string when disabled or unavailable, so callers can
@@ -83,11 +110,10 @@ class ContextManager:
         if self._repo_map_cache is not None:
             return self._repo_map_cache
         try:
-            from server.workspace.repo_map import RepoMap
-            repo = RepoMap(self.config.workspace_root)
+            repo = _get_repo_map_instance(self.config.workspace_root, refresh="files")
             self._repo_map_cache = repo.get_repo_map(
                 chat_files=chat_files,
-                max_tokens=self.config.repo_map_tokens,
+                max_tokens=self._resolve_repo_map_tokens(model),
             )
         except Exception as e:
             logger.warning("Failed to build repo map: %s", e)
@@ -139,10 +165,10 @@ class ContextManager:
         messages: list[dict] = []
         pbuf = _prompt_buffer(system_prompt)
 
-        # Repo map block — bounded by config.repo_map_tokens, injected right
-        # after the system prompt (Aider-style) so the model sees the repo
-        # structure before instructions/history.
-        repo_map_text = repo_map if repo_map is not None else self.get_repo_map()
+        # Repo map block — bounded by the resolved map token budget, injected
+        # right after the system prompt (Aider-style) so the model sees the
+        # repo structure before instructions/history.
+        repo_map_text = repo_map if repo_map is not None else self.get_repo_map(model=model)
         repo_map_block = f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else ""
         repo_map_tokens = self.token_counter.count(repo_map_block, model) if repo_map_block else 0
 
@@ -160,18 +186,29 @@ class ContextManager:
             used = 0
 
         # 1b. Repo map + memory (system messages when the model supports them;
-        # otherwise folded into the merged user message below)
+        # otherwise folded into the merged user message below). Memory is
+        # budget-gated (P0.3) like the plan block so it never crowds out
+        # history or the new prompt.
+        memory_injected = False
         if use_system_prompt:
             if repo_map_block:
                 messages.append({"role": "system", "content": repo_map_block})
                 used += repo_map_tokens
                 logger.info("Repo map injected into context: %d chars, %d tokens", len(repo_map_text), repo_map_tokens)
-            if memory_block:
+            if memory_block and used + memory_tokens + pbuf <= budget:
                 messages.append({"role": "system", "content": memory_block})
                 used += memory_tokens
+                memory_injected = True
                 logger.info("Memory injected into context: %d chars, %d tokens", len(memory_text), memory_tokens)
+            elif memory_block:
+                logger.warning("Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget)
         else:
-            used += repo_map_tokens + memory_tokens
+            used += repo_map_tokens
+            if memory_block and used + memory_tokens + pbuf <= budget:
+                used += memory_tokens
+                memory_injected = True
+            elif memory_block:
+                logger.warning("Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget)
 
         # 2. Plan block (injected as system message — exempt from truncation, high priority)
         if plan_block:
@@ -194,11 +231,16 @@ class ContextManager:
                 messages.append({"role": "assistant", "content": "Understood."})
                 used += summary_tokens + SUMMARY_FRAMING_TOKENS
 
-        # 4. History — skip empty assistant messages and dedup consecutive duplicates
-        history_msgs: list[dict] = []
+        # 4. History — turn-aware, token-budgeted prefix drop (P0.1). Keep the
+        # most recent history that fits the budget; the dropped prefix is a
+        # contiguous slice ending at a turn boundary, so an assistant tool call
+        # is never separated from its tool result. Skip genuinely empty
+        # assistant messages (keeping tool-call messages even with blank
+        # content) and dedup consecutive duplicates.
+        history_msgs: list[tuple[dict, int]] = []
         last_key: tuple[str, str] | None = None
         for msg in history:
-            if msg.role == "assistant" and not msg.content:
+            if msg.role == "assistant" and not msg.content and not msg.has_tool_calls:
                 continue
             key = (msg.role, msg.content)
             if key == last_key:
@@ -208,21 +250,28 @@ class ContextManager:
             entry_tokens = self.token_counter.count(msg.content, model)
             history_msgs.append((entry, entry_tokens))
 
-        included: list[dict] = []
+        included: list[tuple[dict, int]] = []
         for entry, tokens in reversed(history_msgs):
             if used + tokens + pbuf > budget:
                 break
-            included.insert(0, entry)
+            included.append((entry, tokens))  # newest-first
             used += tokens
 
-        messages.extend(included)
+        # Turn-boundary fix-up: if the oldest kept message is an orphaned tool
+        # result whose assistant tool call was dropped, drop it too (and any
+        # following tool results) so the kept suffix starts at a turn boundary.
+        while included and included[-1][0]["role"] == "tool":
+            _, tokens = included.pop()
+            used -= tokens
+
+        messages.extend(entry for entry, _ in reversed(included))
 
         # 5. New prompt (always included)
         if not use_system_prompt:
             parts = [system_prompt]
             if repo_map_block:
                 parts.append(repo_map_block)
-            if memory_block:
+            if memory_injected:
                 parts.append(memory_block)
             parts.append(new_prompt)
             new_entry = {"role": "user", "content": "\n\n".join(parts)}
@@ -235,20 +284,35 @@ class ContextManager:
 
         return messages
 
-    def should_summarize(self, messages: list[dict], model: str) -> bool:
-        """Check if messages exceed the adaptive summary threshold."""
-        total = self.token_counter.count_messages(messages, model)
+    def should_summarize(self, messages: list[dict], model: str, provider=None) -> bool:
+        """Check if usage approaches the input limit minus the adaptive reserve.
+
+        Prefers provider-reported total tokens from `_cumulative_usage` when
+        available, else falls back to TokenCounter estimation (P2.10).
+        """
+        used = self.usage_tokens(messages, model, provider)
         max_tokens = self._resolve_context_window(model)
         threshold = max_tokens * _adaptive_summary_threshold(model, max_tokens)
-        return total > threshold
+        reserve = _adaptive_reserve(model, max_tokens)
+        return used >= threshold or used >= max_tokens - reserve
 
-    def get_token_info(self, messages: list[dict], model: str) -> TokenInfo:
-        """Get token usage information for a message list."""
-        used = self.token_counter.count_messages(messages, model)
+    def get_token_info(self, messages: list[dict], model: str, provider=None) -> TokenInfo:
+        """Get token usage information for a message list (P2.10)."""
+        used = self.usage_tokens(messages, model, provider)
         total = self._resolve_context_window(model)
         remaining = max(0, total - used)
         percent = used / total if total > 0 else 0.0
         return TokenInfo(used=used, remaining=remaining, total=total, percent=percent)
+
+    def usage_tokens(self, messages: list[dict], model: str, provider=None) -> int:
+        """Provider-reported total usage (prompt+completion) when available,
+        else a TokenCounter estimate of the message list."""
+        if provider is not None:
+            cum = getattr(provider, "_cumulative_usage", None) or {}
+            reported = int(cum.get("total_tokens") or 0)
+            if reported > 0:
+                return reported
+        return self.token_counter.count_messages(messages, model)
 
     def count_tokens(self, text: str, model: str) -> int:
         """Count tokens in a single text string."""

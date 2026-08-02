@@ -2,7 +2,7 @@
 
 from server.agents.context import ContextManager, TokenInfo
 from server.config.settings import AppSettings
-from server.domain.message import Message
+from server.domain.message import Message, ToolCall
 from server.sessions.history import HistoryManager
 
 
@@ -54,6 +54,40 @@ class TestContextManager:
         ctx = ContextManager(config)
         messages = ctx.build_messages([], "System.", "Hello.", "gpt-4")
         assert len(messages) == 2  # system + user
+
+    def test_build_messages_keeps_tool_call_with_results(self):
+        config = AppSettings(max_context_tokens=128000, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        tc = ToolCall(id="call_1", name="bash", arguments={"command": "ls"})
+        history = [
+            Message(session_id="s1", role="assistant", content="", tool_calls=[tc]),
+            Message(session_id="s1", role="tool", content="file.txt"),
+        ]
+        messages = ctx.build_messages(history, "System.", "Next.", "gpt-4")
+        roles = [m["role"] for m in messages]
+        assert "tool" in roles
+        idx = roles.index("tool")
+        assert roles[idx - 1] == "assistant"
+        assert messages[idx]["content"] == "file.txt"
+
+    def test_build_messages_never_orphans_tool_result(self):
+        config = AppSettings(max_context_tokens=8000, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        tc = ToolCall(id="call_2", name="file_read", arguments={"filepath": "a.py"})
+        history = [
+            Message(session_id="s1", role="assistant", content="x " * 12000, tool_calls=[tc]),
+            Message(session_id="s1", role="tool", content="tiny result"),
+            Message(session_id="s1", role="user", content="next"),
+            Message(session_id="s1", role="assistant", content="done"),
+        ]
+        messages = ctx.build_messages(history, "System.", "More.", "gpt-4")
+        roles = [m["role"] for m in messages]
+        # The oversized assistant tool-call was dropped along with its tool
+        # result — a kept suffix must start at a turn boundary, never an orphan.
+        assert "tool" not in roles
+        for i, role in enumerate(roles):
+            if role == "tool":
+                assert roles[i - 1] == "assistant"
 
     def test_should_summarize(self):
         config = AppSettings(max_context_tokens=100, summary_threshold=0.5)
@@ -116,3 +150,52 @@ class TestHistoryManager:
     def test_fallback_summary_empty(self):
         summary = HistoryManager._fallback_summary([])
         assert summary == "No prior context available."
+
+
+class _FakeUsageProvider:
+    """Provider stub exposing a cumulative-usage dict like LLMProvider."""
+
+    def __init__(self, total_tokens: int = 0):
+        self._cumulative_usage = {"total_tokens": total_tokens}
+
+
+class TestUsageBasedTriggers:
+    """P2.10 — usage-based triggers prefer provider totalTokens, fall back to estimation."""
+
+    def test_usage_tokens_prefers_provider_report(self):
+        ctx = ContextManager(AppSettings(max_context_tokens=128000))
+        provider = _FakeUsageProvider(total_tokens=9999)
+        tokens = ctx.usage_tokens([], "gpt-4", provider)
+        assert tokens == 9999
+
+    def test_usage_tokens_falls_back_to_estimation(self):
+        ctx = ContextManager(AppSettings(max_context_tokens=128000))
+        tokens = ctx.usage_tokens([{"role": "user", "content": "x " * 100}], "gpt-4", None)
+        assert 0 < tokens < 9999
+
+    def test_usage_tokens_ignores_zero_report(self):
+        ctx = ContextManager(AppSettings(max_context_tokens=128000))
+        provider = _FakeUsageProvider(total_tokens=0)
+        tokens = ctx.usage_tokens([{"role": "user", "content": "y " * 100}], "gpt-4", provider)
+        assert tokens > 0
+
+    def test_should_summarize_when_used_near_limit(self):
+        config = AppSettings(max_context_tokens=128000)
+        ctx = ContextManager(config)
+        provider = _FakeUsageProvider(total_tokens=120000)
+        assert ctx.should_summarize([], "gpt-4", provider) is True
+
+    def test_should_summarize_false_when_low_usage(self):
+        config = AppSettings(max_context_tokens=128000)
+        ctx = ContextManager(config)
+        provider = _FakeUsageProvider(total_tokens=1000)
+        assert ctx.should_summarize([], "gpt-4", provider) is False
+
+    def test_get_token_info_uses_reported_usage(self):
+        config = AppSettings(max_context_tokens=128000)
+        ctx = ContextManager(config)
+        provider = _FakeUsageProvider(total_tokens=64000)
+        info = ctx.get_token_info([], "no-such-model", provider)
+        assert info.used == 64000
+        assert info.remaining == 64000
+        assert abs(info.percent - 0.5) < 0.01

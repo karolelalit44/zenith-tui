@@ -133,7 +133,89 @@
         }
       ]
     },
+    "tokenrouter": {
+      "id": "tokenrouter",
+      "name": "TokenRouter",
+      "description": "TokenRouter unified OpenAI-compatible LLM gateway with Moonshot AI Kimi K3 and other models",
+      "adapter": "openai_compatible",
+      "litellm_prefix": "openai/",
+      "default_model": "moonshotai/kimi-k3-free",
+      "base_url": "https://api.tokenrouter.com/v1",
+      "api_key_prefix": "sk-",
+      "requires_api_key": true,
+      "swatch": ["#00A67E", "#008C6A", "#00664D"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "baseUrl", "label": "Base URL", "type": "text", "required": true, "defaultValue": "https://api.tokenrouter.com/v1", "placeholder": "https://api.tokenrouter.com/v1" },
+        { "key": "apiKey", "label": "TokenRouter API Key", "type": "password", "required": true, "placeholder": "sk-...", "description": "This key is stored locally and only used to make API requests from this extension." },
+        { "key": "model", "label": "Model ID", "type": "text", "required": true, "defaultValue": "moonshotai/kimi-k3-free", "placeholder": "moonshotai/kimi-k3-free" }
+      ],
+      "models": [
+        {
+          "id": "moonshotai/kimi-k3-free",
+          "name": "Kimi K3 Free (Moonshot)",
+          "description": "Free compute capacity is limited. Service stability and concurrency are not guaranteed.",
+          "context_window": 128000,
+          "is_default": true,
+          "speed_tier": "fast",
+          "best_for": ["reasoning", "coding", "general"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": true,
+            "reasoning": true,
+            "thinking": true
+          },
+          "pricing": { "input": 0.0, "output": 0.0 }
+        }
+      ]
+    },
+    "openai_compatible": {
+
+      "id": "openai_compatible",
+      "name": "OpenAI Compatible",
+      "description": "Custom OpenAI-compatible API endpoint (TokenRouter, vLLM, Ollama, LM Studio, etc.)",
+      "adapter": "openai_compatible",
+      "litellm_prefix": "openai/",
+      "default_model": "moonshotai/kimi-k3-free",
+      "base_url": "https://api.tokenrouter.com/v1",
+      "api_key_prefix": "sk-",
+      "requires_api_key": true,
+      "swatch": ["#00A67E", "#008C6A", "#00664D"],
+      "capabilities": {
+        "streaming": true,
+        "thinking": true,
+        "function_calling": true
+      },
+      "config_fields": [
+        { "key": "baseUrl", "label": "Base URL", "type": "text", "required": true, "defaultValue": "https://api.tokenrouter.com/v1", "placeholder": "https://api.tokenrouter.com/v1" },
+        { "key": "apiKey", "label": "OpenAI Compatible API Key", "type": "password", "required": true, "placeholder": "••••••••••••••••••••", "description": "This key is stored locally and only used to make API requests from this extension." },
+        { "key": "model", "label": "Model ID", "type": "text", "required": true, "defaultValue": "moonshotai/kimi-k3-free", "placeholder": "moonshotai/kimi-k3-free" }
+      ],
+      "models": [
+        {
+          "id": "moonshotai/kimi-k3-free",
+          "name": "Kimi K3 Free (Moonshot)",
+          "description": "Free compute capacity is limited. Service stability and concurrency are not guaranteed.",
+          "context_window": 128000,
+          "is_default": true,
+          "speed_tier": "fast",
+          "best_for": ["reasoning", "coding", "general"],
+          "model_capabilities": {
+            "function_calling": true,
+            "structured_output": true,
+            "reasoning": true,
+            "thinking": true
+          },
+          "pricing": { "input": 0.0, "output": 0.0 }
+        }
+      ]
+    },
     "openai": {
+
       "id": "openai",
       "name": "OpenAI",
       "description": "Official OpenAI GPT series models",
@@ -170,7 +252,7 @@
       "name": "NVIDIA AI",
       "description": "NVIDIA NIM microservices & high-performance LLM catalog",
       "adapter": "nvidia",
-      "litellm_prefix": "nvidia/",
+      "litellm_prefix": "nvidia_nim/",
       "default_model": "nvidia/nemotron-3-ultra-550b-a55b",
       "base_url": "https://integrate.api.nvidia.com/v1",
       "api_key_prefix": "nvapi-",
@@ -967,10 +1049,9 @@
         { "key": "timeout", "label": "Timeout (ms)", "type": "number", "defaultValue": 30000 }
       ],
       "models": [
-        { "id": "llama3", "name": "Llama 3", "context_window": 8192, "is_default": true, "pricing": { "input": 0.0, "output": 0.0 } },
-        { "id": "codellama", "name": "CodeLlama", "context_window": 16384, "pricing": { "input": 0.0, "output": 0.0 } },
-        { "id": "mistral", "name": "Mistral", "context_window": 32768, "pricing": { "input": 0.0, "output": 0.0 } }
+        { "id": "llama3", "name": "Llama 3", "context_window": 8192, "is_default": true, "pricing": { "input": 0.0, "output": 0.0 } }
       ]
     }
   }
 }
+

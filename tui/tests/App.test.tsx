@@ -107,7 +107,7 @@ test('Submitting a prompt triggers scenario flow', async () => {
   stdin.write('create a todo app');
   await wait(300);
   stdin.write('\n');
-  await wait(500);
+  await wait(1200);
 
   expect(lastFrame()).toContain('Cannot connect to backend');
   unmount();

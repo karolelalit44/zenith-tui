@@ -8,7 +8,8 @@ from contextlib import asynccontextmanager
 from importlib.metadata import version as _get_version
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi.responses import StreamingResponse
 
 from server.persistence.repositories import TokenUsageRepository
 
@@ -24,6 +25,17 @@ from .startup import (
     validate_provider_setup,
     validate_startup,
 )
+from .provider_validation import (
+    get_provider_list,
+    ndjson_validate_stream,
+    set_provider_auth,
+    set_provider_model,
+)
+from .schemas import (
+    ProviderAuthRequest,
+    ProviderModelRequest,
+    ProviderValidationRequest,
+)
 from .websocket import ZenithHandler
 
 try:
@@ -32,6 +44,7 @@ except Exception:
     __version__ = "0.1.0"
 from server.config.loader import load_config
 from server.persistence.connection import Database, resolve_db_path
+from server.persistence.logging import db_log
 from server.providers.registry import ProviderRegistry
 from server.toolkit import create_default_registry
 
@@ -43,17 +56,26 @@ _WS_TOKEN = os.environ.get("ZENITH_WS_TOKEN", "")
 _handler: ZenithHandler | None = None
 _shutdown: GracefulShutdown | None = None
 _mcp_manager: McpManager | None = None
+_database: Database | None = None
 
 
 async def _do_startup() -> None:
-    global _handler, _shutdown
+    global _handler, _shutdown, _database
     logger.info("Starting Zenith backend...")
 
     _shutdown = GracefulShutdown()
 
     db = Database(resolve_db_path())
+    _database = db
     await db.connect()
     logger.info("Database connected")
+    db_log(
+        "startup",
+        status="ok",
+        version=db.get_current_version() or "",
+        mode=db.startup_result.get("mode", "") if db.startup_result else "",
+        db=db.db_path,
+    )
 
     from server.persistence.repositories import ProviderRepositoryDB
     provider_repo = ProviderRepositoryDB(db)
@@ -144,10 +166,20 @@ app = FastAPI(title="Zenith Backend", version=__version__, lifespan=lifespan)
 
 @app.get("/health")
 async def health():
+    db_status = "ok"
+    db_version: str | None = None
+    if _database is not None:
+        db_version = _database.get_current_version()
+        if not await _database.health_check():
+            db_status = "error"
     return {
         "status": "ok",
         "handler": _handler is not None,
         "version": __version__,
+        "db": {
+            "status": db_status,
+            "version": db_version,
+        },
     }
 
 
@@ -160,6 +192,11 @@ async def status():
         "provider": _handler.config.active_provider,
         "workspace": _handler.config.workspace_root,
         "tools": _handler.tool_registry.list_tools(),
+        "db": {
+            "status": "ok" if (_database and await _database.health_check()) else "error",
+            "version": _database.get_current_version() if _database else None,
+            "path": _database.db_path if _database else None,
+        },
         "mcp": {
             "servers": _mcp_manager.list_servers() if _mcp_manager else [],
             "tools": [
@@ -170,7 +207,10 @@ async def status():
 
 
 @app.get("/startup/validate")
-async def startup_validate():
+def startup_validate():
+    # Sync def on purpose: validate_startup() -> load_config() does blocking
+    # sqlite reads + schema reflection. Declaring it async would run that on the
+    # event loop and stall every other request (including readiness probes).
     result = validate_startup()
     return result.model_dump()
 
@@ -182,7 +222,7 @@ async def startup_validate_provider(request: ProviderSetupRequest):
 
 
 @app.post("/startup/save-config")
-async def startup_save_config(request: ProviderSetupRequest):
+def startup_save_config(request: ProviderSetupRequest):
     result = save_provider_setup(request)
     if result.valid and _handler is not None:
         _handler._reload_config()
@@ -195,9 +235,68 @@ async def startup_save_config(request: ProviderSetupRequest):
 
 
 @app.get("/startup/provider-config")
-async def startup_provider_config():
+def startup_provider_config():
     result = get_provider_config()
     return result.model_dump()
+
+
+@app.get("/startup/providers")
+def startup_providers_list():
+    return get_provider_list().model_dump()
+
+
+@app.post("/startup/providers/{provider_id}/auth")
+async def startup_providers_auth(provider_id: str, request: ProviderAuthRequest):
+    try:
+        info = set_provider_auth(provider_id, request)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.warning("Failed to save API key for '%s': %s", provider_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to save API key: {e}")
+    return info.model_dump()
+
+
+@app.post("/startup/providers/{provider_id}/validate")
+async def startup_providers_validate(
+    provider_id: str,
+    request: ProviderValidationRequest | None = None,
+    stream: int = 1,
+):
+    if stream == 0:
+        from server.providers.validation import validate_provider_collect
+
+        result = await validate_provider_collect(
+            provider_id=provider_id,
+            api_key=request.api_key if request else "",
+            base_url=request.base_url if request else "",
+            model=request.model if request else "",
+        )
+        return result.model_dump()
+    return StreamingResponse(
+        ndjson_validate_stream(provider_id, request),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.post("/startup/providers/{provider_id}/model")
+async def startup_providers_model(provider_id: str, request: ProviderModelRequest):
+    try:
+        info = set_provider_model(provider_id, request)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.warning("Failed to save model for '%s': %s", provider_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to save model: {e}")
+    if _handler is not None:
+        _handler._reload_config()
+        logger.info(
+            "Handler config reloaded after model change: provider=%s, model=%s",
+            provider_id,
+            request.model,
+        )
+    return info.model_dump()
 
 
 @app.get("/usage/token-stats")

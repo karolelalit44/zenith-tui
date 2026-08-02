@@ -31,6 +31,12 @@
       "description": "Manage AI provider configurations and active model"
     },
     {
+      "command": "/models",
+      "action": "overlay",
+      "target": "models",
+      "description": "Pick the active provider/model"
+    },
+    {
       "command": "/clear",
       "action": "clear",
       "target": "",
@@ -41,6 +47,12 @@
       "action": "compact",
       "target": "",
       "description": "Clear conversation history but keep a summary in context"
+    },
+    {
+      "command": "/clear-tools",
+      "action": "clear_tools",
+      "target": "",
+      "description": "Remove tool output from the conversation history"
     },
     {
       "command": "/build",

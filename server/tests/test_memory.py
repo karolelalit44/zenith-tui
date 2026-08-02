@@ -42,6 +42,17 @@ class TestMemoryStore:
         store.append("s-1", "y" * 500)
         assert len((store.dir / "s-1.md").read_text(encoding="utf-8")) <= 260
 
+    def test_rollover_drops_oldest_blocks_whole(self, temp_dir):
+        store = MemoryStore(temp_dir, max_chars=300)
+        store.append("s-1", "FIRST fact " + "a" * 80)
+        store.append("s-1", "SECOND fact " + "b" * 80)
+        store.append("s-1", "THIRD fact " + "c" * 80)
+        text = (store.dir / "s-1.md").read_text(encoding="utf-8")
+        assert len(text) <= 340  # max_chars + header slack
+        assert "THIRD" in text
+        assert "SECOND" in text
+        assert "FIRST" not in text  # oldest whole block dropped first
+
     def test_empty_facts_does_not_write(self, temp_dir):
         store = MemoryStore(temp_dir)
         store.append("s-1", "   ")
@@ -49,7 +60,7 @@ class TestMemoryStore:
         assert store.load() == ""
 
 
-class TestSummarizePersistsMemory:
+class TestSummarizeMemoryDedup:
     class SummaryProvider(BaseProvider):
         def __init__(self):
             super().__init__("test", "test-model")
@@ -69,7 +80,7 @@ class TestSummarizePersistsMemory:
             return ["test-model"]
 
     @pytest.mark.asyncio
-    async def test_force_summarize_writes_memory_file(self, temp_dir):
+    async def test_summarize_does_not_duplicate_into_memory(self, temp_dir):
         config = AppSettings(
             db_path=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
@@ -80,9 +91,9 @@ class TestSummarizePersistsMemory:
         summary = await hm.summarize(msgs, "test-model", session_id="s1")
 
         assert "auth token" in summary
-        memory_file = temp_dir / "memory" / "s1.md"
-        assert memory_file.exists()
-        assert "auth token" in memory_file.read_text(encoding="utf-8")
+        # P0.4 dedup: the summary is used in-context and persisted per-session;
+        # it must NOT also be dumped wholesale into durable memory.
+        assert not (temp_dir / "memory" / "s1.md").exists()
 
     @pytest.mark.asyncio
     async def test_no_context_fallback_not_persisted(self, temp_dir):
@@ -141,6 +152,19 @@ class TestMemoryInContext:
         assert all("<memory>" not in m["content"] for m in messages)
         assert cm.get_memory() == ""
 
+    def test_memory_skipped_when_budget_tight(self, temp_dir):
+        MemoryStore(temp_dir).append("prev", "x " * 8000)
+        config = AppSettings(
+            max_context_tokens=8000,
+            repo_map_enabled=False,
+            db_path=str(temp_dir / "test.db"),
+            workspace_root=str(temp_dir),
+        )
+        cm = ContextManager(config)
+        messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
+        assert all("<memory>" not in m["content"] for m in messages)
+        assert messages[-1]["content"] == "hi"
+
     def test_memory_merged_when_no_system_role(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "remember this fact")
         config = AppSettings(
@@ -166,3 +190,49 @@ class TestMemoryInContext:
         ))
         memory_text = cm.get_memory()
         assert "DRY principle enforced" in memory_text
+
+
+class TestProjectMemory:
+    """P3.12 — project-wide cross-session memory (memory/PROJECT.md)."""
+
+    def test_append_project_creates_file(self, temp_dir):
+        store = MemoryStore(temp_dir)
+        path = store.append_project("All configs live in config/")
+        assert path.exists()
+        assert path.name == "PROJECT.md"
+        assert "config/" in path.read_text(encoding="utf-8")
+
+    def test_append_project_accumulates(self, temp_dir):
+        store = MemoryStore(temp_dir)
+        store.append_project("Use pytest for tests")
+        store.append_project("Use ruff for linting")
+        text = (store.dir / "PROJECT.md").read_text(encoding="utf-8")
+        assert "pytest" in text
+        assert "ruff" in text
+
+    def test_load_includes_project_memory_first(self, temp_dir):
+        store = MemoryStore(temp_dir)
+        store.append_project("Project uses FastAPI")
+        store.append("sess-1", "Session fact")
+        loaded = MemoryStore(temp_dir).load()
+        # Project memory appears first
+        assert loaded.index("FastAPI") < loaded.index("Session fact")
+        assert "PROJECT.md" in loaded
+
+    def test_load_plain_includes_project_first(self, temp_dir):
+        store = MemoryStore(temp_dir)
+        store.append_project("Cross-session rule: no globals")
+        store.append("sess-1", "Local fact")
+        plain = MemoryStore(temp_dir).load_plain()
+        assert plain.index("no globals") < plain.index("Local fact")
+
+    def test_project_rollover_caps_file_size(self, temp_dir):
+        store = MemoryStore(temp_dir, max_chars=200)
+        store.append_project("x" * 500)
+        store.append_project("y" * 500)
+        assert len((store.dir / "PROJECT.md").read_text(encoding="utf-8")) <= 260
+
+    def test_empty_project_facts_does_not_write(self, temp_dir):
+        store = MemoryStore(temp_dir)
+        store.append_project("   ")
+        assert not (store.dir / "PROJECT.md").exists()

@@ -29,6 +29,7 @@ class StreamState:
     """Mutable state shared between caller and stream_with_retries."""
     full_response: str = ""
     response_text: str = ""
+    reasoning_text: str = ""
     finish_reason: str = ""
 
 
@@ -54,6 +55,7 @@ async def stream_with_retries(
     if state is None:
         state = StreamState()
     state.response_text = ""
+    state.reasoning_text = ""
 
     deadline = time.monotonic() + RETRY_TIMEOUT
     attempt = 0
@@ -70,6 +72,7 @@ async def stream_with_retries(
                 stream_chunk_count += 1
                 if reasoning:
                     reasoning_buffer += reasoning
+                    state.reasoning_text += reasoning
                 if content:
                     if reasoning_buffer:
                         yield r.thinking(reasoning_buffer, session_id)
@@ -78,11 +81,21 @@ async def stream_with_retries(
                     yield r.message_event(content, session_id, partial=True)
             if reasoning_buffer:
                 yield r.thinking(reasoning_buffer, session_id)
+
+            # Fallback: if reasoning model put its main response inside thinking and content is empty/tiny
+            if len(state.response_text.strip()) < 30 and len(state.reasoning_text.strip()) > 100:
+                logger.info(
+                    "Reasoning model content payload was tiny (%d chars) while reasoning was %d chars — using reasoning text as response content",
+                    len(state.response_text.strip()), len(state.reasoning_text.strip()),
+                )
+                state.response_text = state.reasoning_text.strip()
+                yield r.message_event(state.response_text, session_id, partial=True)
+
             # Stream completed — finalize the message
             if state.response_text:
                 state.full_response += state.response_text
-                logger.info("LLM stream complete: chunks=%d content_len=%d full_response_len=%d",
-                            stream_chunk_count, len(state.response_text), len(state.full_response))
+                logger.info("LLM stream complete: chunks=%d content_len=%d reasoning_len=%d full_response_len=%d",
+                            stream_chunk_count, len(state.response_text), len(state.reasoning_text), len(state.full_response))
             return
 
         except asyncio.CancelledError:

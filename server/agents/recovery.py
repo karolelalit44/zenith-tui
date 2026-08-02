@@ -54,6 +54,7 @@ class RecoverableAgentLoop:
         confirm_callback: Callable | None = None,
         plan_context: str = "",
         model_override: str | None = None,
+        repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
         """Process prompt with error recovery.
 
@@ -72,6 +73,7 @@ class RecoverableAgentLoop:
                 confirm_callback=confirm_callback,
                 plan_context=plan_context,
                 model_override=model_override,
+                repo_map=repo_map,
             ):
                 if event.kind == EventKind.ERROR:
                     self._last_error = event.data.get("message", "Unknown error")

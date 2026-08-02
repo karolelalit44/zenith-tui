@@ -93,6 +93,9 @@ class SessionService:
     async def update_title(self, session_id: str, title: str) -> Session:
         ...
 
+    async def update(self, session: Session) -> Session:
+        ...
+
     async def update_context(self, session_id: str, used: int, window: int) -> Session:
         ...
 
@@ -248,6 +251,9 @@ class DefaultSessionService(SessionService):
 
     async def get(self, session_id: str) -> Session | None:
         return await self._session_repo.get(session_id)
+
+    async def update(self, session: Session) -> Session:
+        return await self._session_repo.update(session)
 
     async def require(self, session_id: str) -> Session:
         session = await self._session_repo.get(session_id)

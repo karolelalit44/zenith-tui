@@ -17,6 +17,7 @@ process.env.ZENITH_STREAM_MAX_RETRIES = '2';
 process.env.ZENITH_RETRY_BASE_DELAY = '1.0';
 process.env.ZENITH_RETRY_MAX_DELAY = '60.0';
 process.env.ZENITH_VALIDATION_TIMEOUT = '30';
+process.env.ZENITH_STARTUP_RETRIES = '0';
 process.env.ZENITH_WEBFETCH_TIMEOUT = '30';
 process.env.ZENITH_WEBFETCH_MAX_BYTES = '50000';
 process.env.ZENITH_GIT_TIMEOUT = '30';

@@ -187,8 +187,30 @@ class TestErrorRecovery:
         error_events = [e for e in events if e.kind == EventKind.ERROR]
         [e for e in events if e.kind == EventKind.WARNING]
         assert len(error_events) >= 1
-        # RECOVERY_HINT warnings removed — error event carries recoverable flag instead
         assert any(e.data.get("recoverable") is True for e in error_events)
+
+    @pytest.mark.asyncio
+    async def test_recoverable_agent_loop_accepts_repo_map(self, test_config):
+        class DummyProvider(BaseProvider):
+            def __init__(self):
+                super().__init__("dummy", "dummy-model")
+
+            async def complete(self, messages, tools=None):
+                return "OK"
+
+            async def stream(self, messages, tools=None):
+                yield ("OK", None)
+
+            async def validate(self):
+                return True
+
+            async def list_models(self):
+                return []
+
+        agent = RecoverableAgentLoop(test_config, DummyProvider())
+        events = []
+        async for event in agent.process_prompt("Test", "s1", [], mode="plan", repo_map=""):
+            events.append(event)
 
 
 # ── Session Export ──────────────────────────────────────────────────
@@ -266,18 +288,18 @@ class TestSkillLoader:
         loader = SkillLoader(str(temp_dir))
         prompt = loader.get_skill_prompt()
         assert "Loaded Skills" in prompt
-        assert "Content here." in prompt
+        assert "skills/test-skill" in prompt
 
     def test_skill_names(self, temp_dir):
         for name in ["alpha", "beta"]:
-            d = temp_dir / name
-            d.mkdir()
+            d = temp_dir / "skills" / name
+            d.mkdir(parents=True)
             (d / "SKILL.md").write_text(f"# {name}")
 
         loader = SkillLoader(str(temp_dir))
         names = loader.get_skill_names()
-        assert "alpha" in names
-        assert "beta" in names
+        assert any("alpha" in n for n in names)
+        assert any("beta" in n for n in names)
 
     def test_skip_hidden_dirs(self, temp_dir):
         hidden = temp_dir / ".hidden" / "skill"
@@ -287,6 +309,26 @@ class TestSkillLoader:
         loader = SkillLoader(str(temp_dir))
         skills = loader.find_skills()
         assert len(skills) == 0
+
+    def test_ignores_skills_outside_skill_dirs(self, temp_dir):
+        # SKILL.md vendored in an arbitrary (e.g. dependency) dir must be ignored.
+        stray = temp_dir / "lib" / "vendor" / "skill"
+        stray.mkdir(parents=True)
+        (stray / "SKILL.md").write_text("# Stray")
+
+        loader = SkillLoader(str(temp_dir))
+        assert loader.find_skills() == []
+
+    def test_skill_prompt_is_metadata_only(self, temp_dir):
+        skills_dir = temp_dir / "skills" / "test-skill"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "SKILL.md").write_text("# Test\n\nA long body that must not be embedded verbatim.")
+
+        loader = SkillLoader(str(temp_dir))
+        prompt = loader.get_skill_prompt()
+        assert "Loaded Skills" in prompt
+        assert "skills/test-skill/SKILL.md" in prompt
+        assert "long body that must not be embedded verbatim" not in prompt
 
 
 # ── File Tracker ────────────────────────────────────────────────────

@@ -29,6 +29,8 @@ class AgentRuntime(ABC):
         skills_section: str = "",
         confirm_callback: Any | None = None,
         plan_context: str = "",
+        model_override: str | None = None,
+        repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
         """Process a user prompt through the agent loop."""
         ...
@@ -82,6 +84,8 @@ class DefaultAgentRuntime(AgentRuntime):
         skills_section: str = "",
         confirm_callback: Any | None = None,
         plan_context: str = "",
+        model_override: str | None = None,
+        repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
         self._state = AgentState.RUNNING
         try:
@@ -90,6 +94,8 @@ class DefaultAgentRuntime(AgentRuntime):
                 skills_section=skills_section,
                 confirm_callback=confirm_callback,
                 plan_context=plan_context,
+                model_override=model_override,
+                repo_map=repo_map,
             ):
                 yield event
         finally:

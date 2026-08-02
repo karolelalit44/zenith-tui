@@ -58,3 +58,11 @@ export function requireFloat(key: string): number {
   }
   return n;
 }
+
+export function envInt(key: string, fallback: number): number {
+  const raw = process.env?.[key];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw.trim());
+  if (Number.isNaN(n)) return fallback;
+  return n;
+}

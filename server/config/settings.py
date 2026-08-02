@@ -189,8 +189,11 @@ class AppSettings(BaseModel):
         description="Optional cheap model for summaries, commit messages (two-tier strategy)",
     )
     repo_map_enabled: bool = True
-    repo_map_tokens: int = Field(
-        default=optional_int("ZENITH_REPO_MAP_TOKENS", 4096), ge=256, le=32000
+    repo_map_tokens: int | None = Field(
+        default=optional_int("ZENITH_REPO_MAP_TOKENS", None),
+        ge=256,
+        le=32000,
+        description="Token budget for the repo map. None = auto (context/8, clamped to 1024-4096)",
     )
     memory_enabled: bool = True
     mcp_servers: dict[str, McpServerConfig] = Field(

@@ -93,6 +93,33 @@ def context_compacted(
     }, session_id)
 
 
+def context_compaction_started(session_id: str, reason: str, used: int = 0, total: int = 0) -> Event:
+    """Emit a CONTEXT_COMPACTION_STARTED event with the trigger reason and usage."""
+    return event(EventKind.CONTEXT_COMPACTION_STARTED, {
+        "reason": reason,
+        "used": used,
+        "total": total,
+    }, session_id)
+
+
+def context_compaction_ended(
+    session_id: str,
+    reason: str,
+    used: int = 0,
+    total: int = 0,
+    tokens_saved: int = 0,
+    summary_chars: int = 0,
+) -> Event:
+    """Emit a CONTEXT_COMPACTION_ENDED event with outcome counts."""
+    return event(EventKind.CONTEXT_COMPACTION_ENDED, {
+        "reason": reason,
+        "used": used,
+        "total": total,
+        "tokensSaved": tokens_saved,
+        "summaryChars": summary_chars,
+    }, session_id)
+
+
 def confirmation_request(
     confirmation_id: str,
     tool: str,

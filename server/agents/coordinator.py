@@ -66,7 +66,7 @@ class DefaultCoordinator(CoordinatorService):
 
     async def resume_session(self, session_id: str) -> Session:
         session = await self._sessions.require(session_id)
-        self._runtime.set_summary(getattr(session, "summary", None))
+        self._runtime.set_summary((session.metadata or {}).get("summary"))
         return session
 
     async def handle_prompt(
@@ -100,8 +100,9 @@ class DefaultCoordinator(CoordinatorService):
         summary = self._runtime.summary
         if summary:
             session_obj = await self._sessions.get(session_id)
-            if session_obj and hasattr(session_obj, "summary"):
-                session_obj.summary = summary  # type: ignore[attr-defined]
+            if session_obj:
+                session_obj.metadata["summary"] = summary
+                await self._sessions.update(session_obj)
 
     def cancel_current(self) -> None:
         self._runtime.cancel()

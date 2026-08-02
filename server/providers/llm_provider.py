@@ -58,9 +58,13 @@ _PROVIDER_KEY_ENV: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "google": "GEMINI_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "openai_compatible": "OPENAI_API_KEY",
+    "tokenrouter": "TOKENROUTER_API_KEY",
+    "custom": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }
+
 
 
 def _to_litellm_model(prefix: str, model_id: str) -> str:
@@ -309,11 +313,22 @@ class LLMProvider(BaseProvider):
 
         # Read litellm_prefix from catalog
         litellm_prefix = provider_entry.get("litellm_prefix", "")
+        if not litellm_prefix and (name in ("tokenrouter", "custom", "openai_compatible", "openai-compatible") or self.base_url):
+            litellm_prefix = "openai/"
+
+        self._litellm_prefix = litellm_prefix
         self._litellm_model = _to_litellm_model(litellm_prefix, self.model)
 
         # Resolve base URL from catalog if not provided
         if not self.base_url:
             self.base_url = provider_entry.get("base_url")
+
+        if self.base_url:
+            self.base_url = self.base_url.strip().rstrip("/")
+            if "tokenrouter.co" in self.base_url and "tokenrouter.com" not in self.base_url:
+                self.base_url = self.base_url.replace("tokenrouter.co", "tokenrouter.com")
+            if self.base_url.endswith("tokenrouter.com"):
+                self.base_url += "/v1"
 
         logger.info(
             "LLMProvider init: name=%s model=%s litellm_model=%s max_tokens=%d temperature=%.2f "
@@ -330,20 +345,31 @@ class LLMProvider(BaseProvider):
         stream: bool = False,
         tool_choice: str | None = None,
         response_format: dict | None = None,
+        model_override: str | None = None,
     ) -> dict:
         """Build kwargs for litellm.acompletion().
 
         Merges base params with per-model extra_params from catalog (Aider-style).
         extra_params in catalog can override any param (temperature, max_tokens, etc.)
         and provides per-model flexibility without code changes.
+
+        ``model_override`` (used for Aider-style weak-model summaries) picks a
+        different model on the same provider without mutating this instance.
         """
+        litellm_model = self._litellm_model
+        if model_override and model_override != self.model:
+            litellm_model = _to_litellm_model(self._litellm_prefix, model_override)
+
         kwargs: dict = {
-            "model": self._litellm_model,
+            "model": litellm_model,
             "messages": messages,
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
             "stream": stream and self.streaming_enabled,
         }
+        if stream and self.streaming_enabled:
+            kwargs["stream_options"] = {"include_usage": True}
+
 
         if self.base_url and not self._litellm_model.startswith("gemini/"):
             kwargs["api_base"] = self.base_url
@@ -377,25 +403,25 @@ class LLMProvider(BaseProvider):
     # BaseProvider interface (backward compatible — returns str)
     # -----------------------------------------------------------------------
 
-    async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str:
+    async def complete(self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None) -> str:
         try:
-            return await retry_with_backoff(self._complete_impl, messages, tools)
+            return await retry_with_backoff(self._complete_impl, messages, tools, model)
         except ProviderError:
             raise
         except Exception as e:
             logger.error("COMPLETE ERROR model=%s error=%s", self._litellm_model, str(e)[:500])
             raise _classify_provider_error(e, self.name) from e
 
-    async def _complete_impl(self, messages: list[dict], tools: list[dict] | None = None) -> str:
+    async def _complete_impl(self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None) -> str:
         import litellm
 
         self._reset_cumulative_usage()
-        kwargs = self._build_completion_kwargs(messages, tools, stream=False)
+        kwargs = self._build_completion_kwargs(messages, tools, stream=False, model_override=model)
         safe_kwargs = {k: v for k, v in kwargs.items() if k != "api_key"}
         safe_kwargs["messages_count"] = len(messages)
         if tools:
             safe_kwargs["tools_count"] = len(tools)
-        logger.info("API CALL (complete) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False)[:2000])
+        logger.info("API CALL (complete) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False))
         t0 = time.monotonic()
         try:
             response = await litellm.acompletion(**kwargs)
@@ -408,7 +434,8 @@ class LLMProvider(BaseProvider):
                 self._litellm_model, elapsed, raw_finish, len(content),
                 f"prompt={getattr(usage, 'prompt_tokens', '?')} completion={getattr(usage, 'completion_tokens', '?')}" if usage else "none",
             )
-            logger.info("API RESPONSE CONTENT (first 500): %r", content[:500])
+            logger.info("API RESPONSE CONTENT: %r", content)
+
 
             # Extract usage details including cache tokens
             usage = getattr(response, "usage", None)
@@ -448,12 +475,12 @@ class LLMProvider(BaseProvider):
                     }
                     for tc in tool_calls
                 ]
-                logger.info("API TOOL_CALLS: %s", [(tc.function.name, tc.function.arguments[:200]) for tc in tool_calls])
+                logger.info("API TOOL_CALLS: %s", [(tc.function.name, tc.function.arguments) for tc in tool_calls])
 
             return content
         except Exception as e:
             elapsed = (time.monotonic() - t0) * 1000
-            logger.error("API ERROR (complete) model=%s elapsed=%.0fms error=%s", self._litellm_model, elapsed, str(e)[:500])
+            logger.error("API ERROR (complete) model=%s elapsed=%.0fms error=%s", self._litellm_model, elapsed, str(e))
             raise
 
     def _reset_cumulative_usage(self) -> None:
@@ -471,16 +498,14 @@ class LLMProvider(BaseProvider):
         tool_choice: str | None = None,
         response_format: dict | None = None,
     ) -> AsyncIterator[tuple[str, str | None]]:
-        """Stream LLM response tokens. (content, reasoning) tuples."""
-        self._last_native_tool_calls = []
-        self._reset_cumulative_usage()
+        """Call litellm.acompletion() with stream=True."""
         try:
-            async for chunk in self._stream_impl(messages, tools, tool_choice=tool_choice, response_format=response_format):
-                yield chunk
+            async for chunk, event_type in self._stream_impl(messages, tools, tool_choice=tool_choice, response_format=response_format):
+                yield chunk, event_type
         except ProviderError:
             raise
         except Exception as e:
-            logger.error("STREAM ERROR model=%s error=%s", self._litellm_model, str(e)[:500])
+            logger.error("STREAM ERROR model=%s error=%s", self._litellm_model, str(e))
             raise _classify_provider_error(e, self.name) from e
 
     async def _stream_impl(
@@ -497,7 +522,7 @@ class LLMProvider(BaseProvider):
         safe_kwargs["messages_count"] = len(messages)
         if tools:
             safe_kwargs["tools_count"] = len(tools)
-        logger.info("API CALL (stream) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False)[:100])
+        logger.info("API CALL (stream) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False))
         t0 = time.monotonic()
         stream = await litellm.acompletion(**kwargs)
         logger.info("API STREAM OPENED model=%s latency=%.0fms", self._litellm_model, (time.monotonic() - t0) * 1000)

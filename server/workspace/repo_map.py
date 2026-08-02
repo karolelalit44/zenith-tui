@@ -2,14 +2,23 @@
 
 Uses tree-sitter to parse source files, extract function/class definitions,
 and rank files by relevance using a simplified PageRank-like algorithm.
+
+File enumeration is git-aware (tracked + untracked non-ignored files only) so
+large untracked trees (e.g. reference repos, build outputs) never enter the map.
+Token budgeting uses the real model tokenizer via TokenCounter (Aider-style).
+Rendered maps are cached process-wide keyed by an mtime snapshot, so repeat
+turns within the same workspace hit the cache instead of re-parsing.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+from server.providers.token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +28,8 @@ SKIP_DIRS = {
     "dist", "build", ".next", ".cache", ".mypy_cache",
     ".pytest_cache", "coverage", ".nyc_output",
     ".tox", ".mypy", ".ruff_cache", "htmlcov",
+    # Large untracked trees / runtime data that must never pollute the map
+    "ref_repo", "reference_repo", "data", ".turbo",
 }
 
 # File extensions to count by language
@@ -115,14 +126,139 @@ DEFINITION_QUERIES: dict[str, str] = {
     ],
 }
 
+# Process-wide rendered-map cache: {key: {"snapshot": str, "text": str}}.
+# Survives per-turn ContextManager/RepoMap instantiation within the server
+# process so repeat turns (or the workspace RPC) hit cache instead of re-parsing.
+_RENDERED_MAP_CACHE: dict[tuple, dict[str, Any]] = {}
+
+# Hard cap on the directory tree shown in the map so structure alone can never
+# blow the budget (Aider keeps the tree extremely compact).
+_MAX_TREE_LINES = 40
+
 
 class RepoMap:
-    """Generates repository structure, file summaries, and symbol-based repo maps."""
+    """Generates repository structure, file summaries, and symbol-based repo maps.
 
-    def __init__(self, workspace_root: str) -> None:
+    ``refresh`` mirrors aider's map_refresh: "auto" (rebuild when files or git
+    HEAD change), "files" (rebuild on file mtime change only), or "manual"
+    (never auto-rebuild within the process).
+    """
+
+    def __init__(
+        self,
+        workspace_root: str,
+        refresh: str = "auto",
+        map_mul_no_files: int = 2,
+    ) -> None:
         self.root = Path(workspace_root).resolve()
-        self._symbol_cache: dict[str, list[dict[str, Any]]] = {}
+        self.refresh = refresh
+        self.map_mul_no_files = map_mul_no_files
+        self._symbol_cache: dict[str, dict[str, Any]] = {}
         self._language_cache: dict[str, Any] = {}
+        self._file_cache: list[Path] | None = None
+        self._token_counter = TokenCounter()
+
+    # ------------------------------------------------------------------
+    # Git-aware file enumeration
+    # ------------------------------------------------------------------
+
+    def _get_git_files(self) -> list[str] | None:
+        """Return relative paths of git-tracked + untracked (non-ignored) files.
+
+        Returns None when the workspace is not inside a git repository, in which
+        case callers fall back to a disk walk.
+        """
+        from server.workspace.git import GitOps
+
+        git = GitOps(str(self.root))
+        if not git.is_git_repo():
+            return None
+
+        files: set[str] = set()
+
+        code, stdout, _ = git._run("ls-files")
+        if code == 0:
+            for line in stdout.splitlines():
+                line = line.strip()
+                if line:
+                    files.add(line)
+
+        # Untracked-but-non-ignored files (never include huge ignored trees).
+        code, stdout, _ = git._run("status", "--porcelain", "--untracked-files=all")
+        if code == 0:
+            for line in stdout.splitlines():
+                line = line.rstrip("\n")
+                if len(line) < 4 or line[:2] != "??":
+                    continue
+                rel = line[3:]
+                if any(seg in SKIP_DIRS for seg in rel.split("/")):
+                    continue
+                files.add(rel)
+
+        result: list[str] = []
+        for rel in files:
+            candidate = (self.root / rel).resolve()
+            try:
+                candidate.relative_to(self.root)
+            except ValueError:
+                continue
+            if candidate.is_file():
+                result.append(candidate.relative_to(self.root).as_posix())
+        return sorted(result)
+
+    def _list_files(self) -> list[Path]:
+        """Enumerate files fresh (git-aware when possible, disk-walk fallback)."""
+        git_files = self._get_git_files()
+        if git_files is not None:
+            return [self.root / f for f in git_files]
+
+        result: list[Path] = []
+        for f in self.root.rglob("*"):
+            if not f.is_file():
+                continue
+            rel_parts = f.relative_to(self.root).parts
+            if any(seg in SKIP_DIRS for seg in rel_parts):
+                continue
+            if f.name.startswith("."):
+                continue
+            result.append(f)
+        return result
+
+    def _iter_files(self) -> list[Path]:
+        """Cached file list (snapshot for map content is always fresh via _list_files)."""
+        if self._file_cache is None:
+            self._file_cache = self._list_files()
+        return self._file_cache
+
+    def _snapshot(self) -> str:
+        """Fingerprint of current files (path + mtime + size), plus git HEAD for 'auto'."""
+        h = hashlib.md5()
+        for f in self._list_files():
+            try:
+                st = f.stat()
+            except OSError:
+                continue
+            try:
+                rel = f.relative_to(self.root).as_posix()
+            except ValueError:
+                continue
+            h.update(f"{rel}|{st.st_mtime_ns}|{st.st_size}".encode("utf-8", "replace"))
+        if self.refresh == "auto":
+            try:
+                from server.workspace.git import GitOps
+
+                git = GitOps(str(self.root))
+                if git.is_git_repo():
+                    code, out, _ = git._run("rev-parse", "HEAD")
+                    if code == 0 and out.strip():
+                        h.update(out.strip().encode("utf-8"))
+            except Exception:
+                pass
+        return h.hexdigest()
+
+    # ------------------------------------------------------------------
+    # Tree-sitter symbol extraction (mtime-tagged cache)
+    # ------------------------------------------------------------------
 
     def _get_language(self, lang_name: str) -> Any | None:
         """Get tree-sitter Language for a given language name."""
@@ -170,79 +306,76 @@ class RepoMap:
             return None
 
     def _extract_symbols(self, file_path: Path) -> list[dict[str, Any]]:
-        """Extract function/class definitions from a source file using tree-sitter."""
+        """Extract function/class definitions from a source file using tree-sitter.
+
+        The result is cached keyed by (path, mtime) so unchanged files are never
+        re-parsed across turns or RepoMap instances.
+        """
         cache_key = str(file_path)
-        if cache_key in self._symbol_cache:
-            return self._symbol_cache[cache_key]
+        try:
+            mtime = file_path.stat().st_mtime_ns
+        except OSError:
+            mtime = 0
+
+        cached = self._symbol_cache.get(cache_key)
+        if cached is not None and cached.get("mtime") == mtime:
+            return cached["symbols"]
+
+        symbols: list[dict[str, Any]] = []
 
         ext = file_path.suffix.lower()
         lang_name = TREE_SITTER_EXTENSIONS.get(ext)
-        if not lang_name:
-            return []
+        if lang_name:
+            lang = self._get_language(lang_name)
+            query_patterns = DEFINITION_QUERIES.get(lang_name)
+            if lang is not None and query_patterns:
+                try:
+                    source = file_path.read_text(encoding="utf-8", errors="replace")
+                    source_bytes = source.encode("utf-8")
 
-        lang = self._get_language(lang_name)
-        if lang is None:
-            return []
+                    from tree_sitter import Parser, Query, QueryCursor
+                    parser = Parser(lang)
+                    tree = parser.parse(source_bytes)
 
-        query_patterns = DEFINITION_QUERIES.get(lang_name)
-        if not query_patterns:
-            return []
+                    # Combine query patterns (some languages return a list)
+                    if isinstance(query_patterns, list):
+                        query_scm = "\n".join(query_patterns)
+                    else:
+                        query_scm = query_patterns
 
-        try:
-            source = file_path.read_text(encoding="utf-8", errors="replace")
-            source_bytes = source.encode("utf-8")
+                    query = Query(lang, query_scm)
 
-            from tree_sitter import Parser, Query, QueryCursor
-            parser = Parser(lang)
-            tree = parser.parse(source_bytes)
+                    # tree-sitter >= 0.25 removed Query.captures(); prefer QueryCursor
+                    captures: dict[str, list[Any]] = {}
+                    if hasattr(query, "captures"):
+                        captures = query.captures(tree.root_node)
+                    else:
+                        cursor = QueryCursor(query)
+                        for _pattern_index, groups in cursor.matches(tree.root_node):
+                            for cap_name, nodes in groups.items():
+                                captures.setdefault(cap_name, []).extend(nodes)
 
-            # Combine query patterns (some languages return a list)
-            if isinstance(query_patterns, list):
-                query_scm = "\n".join(query_patterns)
-            else:
-                query_scm = query_patterns
+                    seen_names: set[str] = set()
+                    for capture_name, nodes in captures.items():
+                        if not (capture_name == "name" or capture_name.startswith("name.")):
+                            continue
+                        kind = "def" if ".definition." in capture_name or capture_name == "name" else "ref"
 
-            query = Query(lang, query_scm)
+                        for node in nodes:
+                            name = node.text.decode("utf-8", errors="replace")
+                            if name in seen_names:
+                                continue
+                            seen_names.add(name)
+                            symbols.append({
+                                "name": name,
+                                "kind": kind,
+                                "line": node.start_point[0],
+                            })
+                except Exception as e:
+                    logger.debug("Failed to extract symbols from %s: %s", file_path, e)
 
-            # tree-sitter >= 0.25 removed Query.captures(); prefer QueryCursor
-            captures: dict[str, list[Any]] = {}
-            if hasattr(query, "captures"):
-                captures = query.captures(tree.root_node)
-            else:
-                cursor = QueryCursor(query)
-                for _pattern_index, groups in cursor.matches(tree.root_node):
-                    for cap_name, nodes in groups.items():
-                        captures.setdefault(cap_name, []).extend(nodes)
-
-            symbols: list[dict[str, Any]] = []
-            seen_names: set[str] = set()
-
-            for capture_name, nodes in captures.items():
-                if not (capture_name == "name" or capture_name.startswith("name.")):
-                    continue
-                kind = "def" if ".definition." in capture_name or capture_name == "name" else "ref"
-
-                for node in nodes:
-                    name = node.text.decode("utf-8", errors="replace")
-                    if name in seen_names:
-                        continue
-                    seen_names.add(name)
-
-                    # Find the parent node for line number
-                    line = node.start_point[0]
-                    symbols.append({
-                        "name": name,
-                        "kind": kind,
-                        "line": line,
-                    })
-
-            self._symbol_cache[cache_key] = symbols
-            return symbols
-
-        except Exception as e:
-            logger.debug("Failed to extract symbols from %s: %s", file_path, e)
-            self._symbol_cache[cache_key] = []
-            return []
+        self._symbol_cache[cache_key] = {"mtime": mtime, "symbols": symbols}
+        return symbols
 
     def _build_reference_graph(
         self, all_files: list[Path],
@@ -253,7 +386,7 @@ class RepoMap:
 
         for file_path in all_files:
             symbols = self._extract_symbols(file_path)
-            rel = str(file_path.relative_to(self.root))
+            rel = file_path.relative_to(self.root).as_posix()
             for sym in symbols:
                 if sym["kind"] == "def":
                     defines[sym["name"]].add(rel)
@@ -281,7 +414,7 @@ class RepoMap:
         file_scores: dict[str, float] = {}
 
         for file_path in all_files:
-            rel = str(file_path.relative_to(self.root))
+            rel = file_path.relative_to(self.root).as_posix()
             score = 1.0  # Base score
 
             # Boost for files that define many names (high centrality)
@@ -331,8 +464,6 @@ class RepoMap:
         for item in items:
             if item.name in SKIP_DIRS or item.name.startswith("."):
                 continue
-            if item.name == "node_modules" or item.name == "__pycache__":
-                continue
 
             node: dict[str, Any] = {
                 "name": item.name,
@@ -345,23 +476,19 @@ class RepoMap:
                 if not node["children"] and depth + 1 < max_depth:
                     continue
             else:
-                node["size"] = item.stat().st_size
+                try:
+                    node["size"] = item.stat().st_size
+                except OSError:
+                    node["size"] = 0
 
             children.append(node)
 
     def get_summary(self) -> str:
-        """Get file count summary by language."""
+        """Get file count summary by language (git-aware enumeration)."""
         counts: dict[str, int] = {}
         total_files = 0
 
-        for f in self.root.rglob("*"):
-            if not f.is_file():
-                continue
-            if any(skip in f.parts for skip in SKIP_DIRS):
-                continue
-            if f.name.startswith("."):
-                continue
-
+        for f in self._iter_files():
             total_files += 1
             ext = f.suffix.lower()
             lang = LANGUAGE_MAP.get(ext, ext.lstrip(".") or "other")
@@ -375,7 +502,7 @@ class RepoMap:
         return f"Total: {total_files} files. Top languages: {', '.join(parts)}"
 
     def get_key_files(self) -> list[str]:
-        """Find important files (config, entry points, etc.)."""
+        """Find important files (config, entry points, etc.) among enumerated files."""
         key_names = {
             "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
             "Makefile", "Dockerfile", "docker-compose.yml",
@@ -384,44 +511,101 @@ class RepoMap:
         }
 
         found = []
-        for name in key_names:
-            matches = list(self.root.rglob(name))
-            for m in matches[:2]:
+        for f in self._iter_files():
+            if f.name in key_names:
                 try:
-                    found.append(str(m.relative_to(self.root)))
+                    found.append(f.relative_to(self.root).as_posix())
                 except ValueError:
                     pass
+            if len(found) >= 20:
+                break
 
-        return sorted(found)[:20]
+        return sorted(found)
 
     def get_file_count(self) -> int:
-        """Count total files in repo."""
-        count = 0
-        for f in self.root.rglob("*"):
-            if not f.is_file():
-                continue
-            if any(skip in f.parts for skip in SKIP_DIRS):
-                continue
-            if f.name.startswith("."):
-                continue
-            count += 1
-        return count
+        """Count total files in repo (git-aware enumeration)."""
+        return len(self._iter_files())
+
+    # ------------------------------------------------------------------
+    # Repo map assembly with real-token budget
+    # ------------------------------------------------------------------
+
+    def _count_tokens(self, text: str) -> int:
+        return self._token_counter.count(text, "cl100k_base")
+
+    def _build_symbol_blocks(self, ranked_files: list[str], max_files: int) -> list[tuple[str, str]]:
+        """Build symbol blocks for the top-ranked files (in rank order)."""
+        blocks: list[tuple[str, str]] = []
+        for rel_path in ranked_files[:max_files]:
+            file_path = self.root / rel_path
+            symbols = self._extract_symbols(file_path)
+            defs = [s for s in symbols if s["kind"] == "def"]
+            if defs:
+                def_names = []
+                for d in defs[:10]:
+                    name = d["name"]
+                    if len(name) > 100:
+                        name = name[:97] + "..."
+                    def_names.append(f"  {name} (line {d['line']})")
+                blocks.append((rel_path, "\n" + rel_path + ":\n" + "\n".join(def_names)))
+        return blocks
+
+    def _fit_blocks_to_budget(
+        self,
+        blocks: list[tuple[str, str]],
+        base_text: str,
+        max_tokens: int,
+    ) -> list[tuple[str, str]]:
+        """Binary search the largest prefix of ranked blocks fitting the token budget."""
+        header = "Key Definitions:"
+        lo, hi = 0, len(blocks)
+        best = 0
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            symbols_text = "".join(b[1] for b in blocks[:mid])
+            total = self._count_tokens(base_text + "\n\n" + header + symbols_text)
+            if total <= max_tokens:
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return blocks[:best]
 
     def get_repo_map(
         self,
         chat_files: list[str] | None = None,
         max_tokens: int = 4096,
+        force_refresh: bool = False,
     ) -> str:
         """Generate a ranked repo map with file structure and symbol summaries.
 
         Returns a formatted string with the directory tree and key file
-        definitions, prioritized by relevance ranking.
+        definitions, prioritized by relevance ranking and fitted to a real-token
+        budget. Cached process-wide by file snapshot (see ``refresh``).
         """
-        parts: list[str] = []
+        if max_tokens <= 0:
+            return ""
 
-        # 1. Directory structure
+        cache_key = (
+            str(self.root),
+            tuple(sorted(chat_files or [])),
+            max_tokens,
+            self.refresh,
+        )
+
+        if not force_refresh and cache_key in _RENDERED_MAP_CACHE:
+            entry = _RENDERED_MAP_CACHE[cache_key]
+            if self.refresh == "manual" or entry.get("snapshot") == self._snapshot():
+                return entry["text"]
+
+        # 1. Directory structure (kept compact; capped line count)
         structure = self.get_structure(max_depth=3)
         tree_str = self._format_tree(structure)
+        if tree_str.count("\n") + 1 > _MAX_TREE_LINES:
+            lines = tree_str.split("\n")
+            tree_str = "\n".join(lines[:_MAX_TREE_LINES]) + "\n... (tree truncated)"
+
+        parts: list[str] = []
         if tree_str:
             parts.append(f"Directory Structure:\n{tree_str}")
 
@@ -431,48 +615,30 @@ class RepoMap:
             parts.append("Key Files:\n" + "\n".join(f"  {f}" for f in key_files))
 
         # 3. Language summary
-        summary = self.get_summary()
-        parts.append(summary)
+        parts.append(self.get_summary())
 
-        # 4. Symbol summaries for top-ranked files
+        base_text = "\n\n".join(parts)
+
+        # 4. Symbol summaries for top-ranked files, fitted to the token budget
         all_source_files = [
-            f for f in self.root.rglob("*")
-            if f.is_file()
-            and f.suffix.lower() in TREE_SITTER_EXTENSIONS
-            and not any(skip in f.parts for skip in SKIP_DIRS)
-            and not f.name.startswith(".")
+            f for f in self._iter_files()
+            if f.suffix.lower() in TREE_SITTER_EXTENSIONS
         ]
 
         if all_source_files:
             ranked = self._rank_files(all_source_files, chat_files)
-            # Token-budgeted symbol packing (Aider-style): include the
-            # highest-ranked files first, dropping lower-ranked files until
-            # the estimated token budget is met. Rough estimate: 1 token ≈ 4 chars.
-            budget_chars = max_tokens * 4
-            used_chars = sum(len(p) + 2 for p in parts)
-            symbol_lines: list[str] = []
-            for rel_path in ranked[:50]:  # Top 50 files by relevance
-                file_path = self.root / rel_path
-                symbols = self._extract_symbols(file_path)
-                defs = [s for s in symbols if s["kind"] == "def"]
-                if defs:
-                    def_names = [f"  {d['name']} (line {d['line']})" for d in defs[:10]]
-                    block = f"\n{rel_path}:\n" + "\n".join(def_names)
-                    if used_chars + len(block) > budget_chars:
-                        break
-                    symbol_lines.append(block)
-                    used_chars += len(block)
-
-            if symbol_lines:
-                parts.append("Key Definitions:" + "".join(symbol_lines))
+            blocks = self._build_symbol_blocks(ranked, max_files=len(ranked))
+            fitted = self._fit_blocks_to_budget(blocks, base_text, max_tokens)
+            if fitted:
+                symbols_text = "".join(b[1] for b in fitted)
+                parts.append("Key Definitions:" + symbols_text)
 
         result = "\n\n".join(parts)
 
-        # Hard fallback: if still over budget, truncate to the char budget
-        estimated_tokens = len(result) // 4
-        if estimated_tokens > max_tokens:
-            result = result[:max_tokens * 4] + "\n\n... (truncated, ~%d tokens estimated)" % estimated_tokens
-
+        _RENDERED_MAP_CACHE[cache_key] = {
+            "snapshot": self._snapshot(),
+            "text": result,
+        }
         return result
 
     def _format_tree(self, node: dict[str, Any], prefix: str = "", is_last: bool = True) -> str:

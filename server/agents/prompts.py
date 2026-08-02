@@ -7,6 +7,7 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
 from server.workspace.context import format_context_files, load_context_files
 from server.workspace.git import GitOps
 
@@ -122,33 +123,17 @@ If a `<plan_to_execute>` XML block is included in the system messages, that is y
 """
 
 # ---------------------------------------------------------------------------
-# Provider-specific prompt prefixes (#23)
+# Universal Model Guidelines (consistent high-quality output across ALL providers)
 # ---------------------------------------------------------------------------
 
-PROVIDER_PREFIXES: dict[str, str] = {
-    "anthropic": (
-        "Anthropic-specific instructions:\n"
-        "- When using tools, respond with a single tool call per turn unless multiple are independent.\n"
-        "- For file edits, always include 3+ lines of context around the change.\n"
-        "- When you encounter an error, explain the root cause briefly before retrying."
-    ),
-    "openai": (
-        "OpenAI-specific instructions:\n"
-        "- Use function calling for all tool invocations.\n"
-        "- When editing files, be precise with exact text matching.\n"
-        "- Always verify your edits succeeded by reading the file afterward."
-    ),
-    "google": (
-        "Google-specific instructions:\n"
-        "- Keep tool calls focused — one tool per turn for complex operations.\n"
-        "- Use structured output when available for tool parameters."
-    ),
-    "nvidia": (
-        "NVIDIA-specific instructions:\n"
-        "- Use function calling for all tool invocations.\n"
-        "- Be concise in responses — focus on action over explanation."
-    ),
-}
+UNIVERSAL_MODEL_GUIDELINES = """\
+<universal_guidelines>
+1. ALWAYS deliver your complete user-facing response (explanations, plans, code, answers) in the message content body.
+2. For reasoning/thinking models: write your full response in the final message content payload outside of thinking/reasoning blocks.
+3. Be autonomous: search before assuming, read before editing, verify after changes.
+4. Format all responses using high-quality GitHub-flavored markdown.
+</universal_guidelines>
+"""
 
 # ---------------------------------------------------------------------------
 # Few-shot examples for key tools
@@ -215,32 +200,24 @@ def build_system_prompt(
     skills_section: str = "",
     max_context_tokens: int = 128000,
     provider_name: str = "",
+    model_name: str = "",
 ) -> str:
-    """Build the complete system prompt with all sections.
-
-    Args:
-        workspace_root: Absolute path to the workspace root directory.
-        mode: Agent mode — "build" or "plan".
-        tool_schemas: List of tool schema dicts (name, description, schema).
-        skills_section: Optional pre-formatted skills XML block.
-        max_context_tokens: Max context tokens for the model.
-        provider_name: Provider name for provider-specific prompt prefixes.
-
-    Returns:
-        Complete system prompt string.
-    """
+    """Build the complete system prompt with all sections."""
     sections: list[str] = []
+
+    tier = detect_model_tier(model_name, provider_name)
+    tier_enhancements = get_tier_prompt_enhancements(tier)
 
     # --- Role ---
     sections.append("You are Zenith, a powerful AI coding assistant that runs in the CLI.")
 
-    # --- Environment block (FIRST — platform-awareness must precede all instructions) ---
+    # --- Environment block ---
     env_section = _build_env_section(workspace_root, mode)
     sections.append(f"<env>\n{env_section}</env>")
 
-    # --- Provider-specific prefix (#23) ---
-    if provider_name and provider_name in PROVIDER_PREFIXES:
-        sections.append(f"<provider_instructions>\n{PROVIDER_PREFIXES[provider_name]}\n</provider_instructions>")
+    # --- Universal Guidelines & Tier Enhancements ---
+    sections.append(UNIVERSAL_MODEL_GUIDELINES)
+    sections.append(tier_enhancements)
 
     # --- Mode-specific instructions ---
     if mode == "plan":
@@ -304,13 +281,13 @@ def build_system_prompt(
 def build_plan_system_prompt(
     workspace_root: str,
     provider_name: str = "",
+    model_name: str = "",
 ) -> str:
-    """Build a focused, lightweight system prompt for plan mode.
-
-    ~500 chars. Modeled after Aider's 17-line architect prompt and
-    Crush's 15-line task.md.tpl — minimal instructions, maximum clarity.
-    """
+    """Build a focused, lightweight system prompt for plan mode."""
     sections: list[str] = []
+
+    tier = detect_model_tier(model_name, provider_name)
+    tier_enhancements = get_tier_prompt_enhancements(tier)
 
     sections.append(
         "You are Zenith in PLAN mode — an expert software architect.\n"
@@ -321,8 +298,8 @@ def build_plan_system_prompt(
     env = _build_env_section(workspace_root, "plan")
     sections.append(f"<env>\n{env}</env>")
 
-    if provider_name and provider_name in PROVIDER_PREFIXES:
-        sections.append(f"<provider_instructions>\n{PROVIDER_PREFIXES[provider_name]}\n</provider_instructions>")
+    sections.append(UNIVERSAL_MODEL_GUIDELINES)
+    sections.append(tier_enhancements)
 
     sections.append("""<rules>
 1. NEVER edit, create, or delete files. NEVER run commands that modify the filesystem.
@@ -339,7 +316,11 @@ def build_plan_system_prompt(
 ## Data Models — schemas as code fences
 ## API Design — endpoints
 ## Testing Strategy — what to test
-Keep under 40 lines. Code fences don't count. End with: "Ready to implement? Switch to build mode with `/build`"
+End with: "Ready to implement? Switch to build mode with `/build`"
+
+CRITICAL FOR ALL MODELS (INCLUDING REASONING/THINKING MODELS):
+You MUST output your complete final plan / answer text in your final response message CONTENT payload (outside thinking/reasoning blocks).
+Do NOT output an empty or tiny message content payload.
 """)
 
     git = _build_git_section(workspace_root)
@@ -410,6 +391,8 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
             "  env vars       → $env:VARIABLE_NAME\n"
             "  path separator → \\ (backslash)\n"
             "DO NOT use: ls, cat, grep, find, head, tail, chmod, curl, wget, sed, awk, tee, wc, touch, cp, mv, rm\n"
+            "DO NOT pass UNIX flags like '-la', '-l', '-rf' to PowerShell commands (e.g., use 'ls tui/' or 'Get-ChildItem tui/' instead of 'ls -la tui/').\n"
+            "In PLAN mode, prefer using structured tools ('glob', 'grep', 'file_read') over shell commands to explore files.\n"
             "These are Linux commands and WILL fail.\n"
         )
     else:

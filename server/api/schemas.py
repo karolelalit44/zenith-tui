@@ -55,3 +55,88 @@ class ProviderSetupResult(BaseModel):
 class ProviderConfigResponse(BaseModel):
     active_provider: str = ""
     providers: dict[str, dict[str, Any]] = {}
+
+
+class ProviderModelInfo(BaseModel):
+    id: str
+    name: str
+    context_window: int = 128000
+    description: str = ""
+    is_default: bool = False
+    status: str = "active"
+    parameters: Any = None
+    architecture: Any = None
+    input_modalities: Any = None
+    output_modalities: Any = None
+    tags: list[str] = Field(default_factory=list)
+    model_capabilities: dict[str, Any] = Field(default_factory=dict)
+    speed_tier: Any = None
+    best_for: list[str] = Field(default_factory=list)
+    pricing: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProviderInfo(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    adapter: str = ""
+    swatch: list[str] = Field(default_factory=list)
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    api_key_prefix: str | None = None
+    requires_api_key: bool = True
+    config_fields: list[dict[str, Any]] = Field(default_factory=list)
+    options: dict[str, Any] = Field(default_factory=dict)
+    has_api_key: bool = False
+    api_key_masked: str = ""
+    validation_status: str = "unconfigured"
+    last_validation_error: str = ""
+    is_active: bool = False
+    model: str = ""
+    models: dict[str, ProviderModelInfo] = Field(default_factory=dict)
+
+
+class ProviderListResponse(BaseModel):
+    all: list[ProviderInfo] = Field(default_factory=list)
+    default: dict[str, str] = Field(default_factory=dict)
+    connected: list[str] = Field(default_factory=list)
+
+
+class ProviderAuthRequest(BaseModel):
+    api_key: str = ""
+
+
+class ProviderModelRequest(BaseModel):
+    model: str
+
+
+class ProviderValidationRequest(BaseModel):
+    api_key: str = ""
+    base_url: str = ""
+    model: str = ""
+
+
+class ValidationStepStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class ValidationStep(BaseModel):
+    key: str
+    label: str
+    status: ValidationStepStatus = ValidationStepStatus.PENDING
+    message: str = ""
+
+
+class ValidationError(BaseModel):
+    code: str = ""
+    message: str = ""
+
+
+class ValidationResult(BaseModel):
+    valid: bool
+    provider: str = ""
+    steps: list[ValidationStep] = Field(default_factory=list)
+    models: list[ProviderModelInfo] = Field(default_factory=list)
+    error: ValidationError | None = None

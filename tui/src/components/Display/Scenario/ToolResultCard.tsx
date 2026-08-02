@@ -23,8 +23,6 @@ function BashResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType
 
   const cleanedOutput = outputLines.map((l) => l.replace(/\r/g, '')).filter((l) => l.trim().length > 0);
 
-  const width = Math.min(process.stdout.columns ?? 80, 80) - 4;
-
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={0}>
@@ -35,57 +33,27 @@ function BashResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType
         <Text color={theme.colors.text.bright} bold>
           {command}
         </Text>
+        {duration !== undefined && <Text color={theme.colors.text.dim}> ({(duration / 1000).toFixed(1)}s)</Text>}
       </Box>
 
-      <Box flexDirection="column" width="100%">
-        <Box flexDirection="row">
-          <Text color={theme.colors.border.muted}>{'┌─'}</Text>
-          <Text color={theme.colors.text.dim} bold>
-            {' terminal '}
-          </Text>
-          <Text color={theme.colors.border.muted}>{'─'.repeat(Math.max(0, width - 14))}</Text>
-          <Text color={theme.colors.border.muted}>{'┐'}</Text>
-        </Box>
-
-        {cleanedOutput.length > 0 ? (
-          cleanedOutput.slice(0, 50).map((line, idx) => (
-            <Box key={idx} flexDirection="row" width="100%">
-              <Text color={theme.colors.border.muted}>{'│'}</Text>
-              <Text color={theme.colors.code.output} wrap="wrap">
-                {' '}
-                {line}
-              </Text>
-            </Box>
-          ))
-        ) : (
-          <Box flexDirection="row" width="100%">
-            <Text color={theme.colors.border.muted}>{'│'}</Text>
-            <Text color={theme.colors.text.muted} italic>
-              {'  (no output)'}
+      {cleanedOutput.length > 0 && (
+        <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+          {cleanedOutput.slice(0, 20).map((line, idx) => (
+            <Text key={idx} color={theme.colors.code.output} wrap="wrap">
+              {line}
             </Text>
-          </Box>
-        )}
-
-        {outputLines.length > 50 && (
-          <Box flexDirection="row" width="100%">
-            <Text color={theme.colors.border.muted}>{'│'}</Text>
-            <Text color={theme.colors.text.muted}>
-              {'  ... '}
-              {outputLines.length - 50} more lines
-            </Text>
-          </Box>
-        )}
-
-        <Box flexDirection="row" width="100%">
-          <Text color={theme.colors.border.muted}>{'├─'}</Text>
-          <Text color={event.success ? theme.colors.status.success : theme.colors.status.error} bold>
-            {` exit ${exitCode ?? 0} `}
-          </Text>
-          {duration !== undefined && <Text color={theme.colors.text.dim}>{(duration / 1000).toFixed(1)}s</Text>}
-          <Text color={theme.colors.border.muted}>{'─'.repeat(Math.max(0, width - 20))}</Text>
-          <Text color={theme.colors.border.muted}>{'┘'}</Text>
+          ))}
+          {outputLines.length > 20 && (
+            <Text color={theme.colors.text.muted}>... {outputLines.length - 20} more lines</Text>
+          )}
         </Box>
-      </Box>
+      )}
+
+      {!event.success && exitCode !== undefined && (
+        <Box paddingLeft={3}>
+          <Text color={theme.colors.status.error}>exit code: {exitCode}</Text>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -158,7 +126,6 @@ export const ToolResultCard: React.FC<ToolResultCardProps> = React.memo(({ event
     const path = String(event.metadata.path || event.metadata.filepath || '');
     const fileName = path.split('/').pop() || path;
     const lines = event.output ? event.output.split('\n') : [];
-    const preview = lines.slice(0, 30).join('\n');
 
     return (
       <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
@@ -168,21 +135,16 @@ export const ToolResultCard: React.FC<ToolResultCardProps> = React.memo(({ event
           </Text>
           <Text color={theme.colors.text.bright}>{fileName}</Text>
         </Box>
-        {preview && (
-          <Box
-            flexDirection="column"
-            width="100%"
-            borderStyle="round"
-            borderColor={theme.colors.text.muted}
-            paddingX={1}
-            marginTop={0}
-          >
-            {lines.slice(0, 30).map((line, i) => (
-              <Text key={i} color={theme.colors.text.bright} wrap="wrap">
-                {line}
-              </Text>
-            ))}
-            {lines.length > 30 && <Text color={theme.colors.text.muted}>... ({lines.length - 30} more lines)</Text>}
+        {path && (
+          <Box paddingLeft={3}>
+            <Text color={theme.colors.text.muted} dimColor>
+              {path}
+            </Text>
+          </Box>
+        )}
+        {lines.length > 0 && (
+          <Box paddingLeft={3} marginTop={0}>
+            <Text color={theme.colors.text.dim}>({lines.length} lines)</Text>
           </Box>
         )}
       </Box>

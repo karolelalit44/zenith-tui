@@ -164,7 +164,7 @@ async def execute_tool(
     allowed_mcp: dict[str, list[str]] | None = None,
 ) -> tuple[ToolResult, int]:
     """Execute a tool and return (result, duration_ms). Handles auto-retry for file_write."""
-    logger.info("TOOL EXECUTE: name=%s mode=%s params=%s", tool_name, mode, str(tool_params)[:300])
+    logger.info("TOOL EXECUTE: name=%s mode=%s params=%s", tool_name, mode, str(tool_params))
     start = _time.monotonic()
     result = await tool_registry.execute(tool_name, tool_params, workspace_root, mode, allowed_mcp=allowed_mcp)
     duration_ms = int((_time.monotonic() - start) * 1000)
@@ -172,7 +172,8 @@ async def execute_tool(
     logger.info("TOOL RESULT: name=%s success=%s duration=%dms output_len=%d error=%s",
                 tool_name, result.success, duration_ms,
                 len(result.output) if result.output else 0,
-                result.error[:200] if result.error else "None")
+                result.error if result.error else "None")
+
 
     if (tool_name == "file_write" and not result.success
             and "already exists" in (result.error or "")

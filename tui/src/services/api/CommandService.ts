@@ -13,6 +13,7 @@ interface CommandHandlers {
   openOverlay: (target: OverlayType) => void;
   clearTurns: () => void;
   compactTurns: () => void;
+  clearTools: () => void;
   setMode: (mode: ScenarioMode) => void;
 }
 
@@ -42,6 +43,9 @@ export class CommandService {
         return true;
       case 'compact':
         handlers.compactTurns();
+        return true;
+      case 'clear_tools':
+        handlers.clearTools();
         return true;
       case 'mode':
         if (match.target) {

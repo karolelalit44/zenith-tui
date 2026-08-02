@@ -20,6 +20,10 @@ interface UseTerminalKeyboardOptions {
   onToggleThinking?: () => void;
   activeConfirmation: ConfirmationRequestEvent | null;
   respondConfirmation: (approved: boolean) => void;
+  scrollUp?: (lines?: number) => void;
+  scrollDown?: (lines?: number) => void;
+  scrollToTop?: () => void;
+  scrollToBottom?: () => void;
 }
 
 export function useTerminalKeyboard({
@@ -37,6 +41,10 @@ export function useTerminalKeyboard({
   onToggleThinking,
   activeConfirmation,
   respondConfirmation,
+  scrollUp,
+  scrollDown,
+  scrollToTop,
+  scrollToBottom,
 }: UseTerminalKeyboardOptions): void {
   const optionsRef = useRef({
     turns,
@@ -53,6 +61,10 @@ export function useTerminalKeyboard({
     onToggleThinking,
     activeConfirmation,
     respondConfirmation,
+    scrollUp,
+    scrollDown,
+    scrollToTop,
+    scrollToBottom,
   });
 
   useEffect(() => {
@@ -71,6 +83,10 @@ export function useTerminalKeyboard({
       onToggleThinking,
       activeConfirmation,
       respondConfirmation,
+      scrollUp,
+      scrollDown,
+      scrollToTop,
+      scrollToBottom,
     };
   });
 
@@ -134,6 +150,11 @@ export function useTerminalKeyboard({
           return;
         }
 
+        if (_char === 'e' || _char === 'E') {
+          if (opts.openOverlay) opts.openOverlay('models');
+          return;
+        }
+
         if (_char === 'm' || _char === 'M') {
           if (opts.openOverlay) opts.openOverlay('mode');
           return;
@@ -153,6 +174,48 @@ export function useTerminalKeyboard({
       ) {
         opts.onToggleThinking();
         return;
+      }
+
+      if (opts.overlay === 'none' && !opts.activeConfirmation) {
+        if (key.upArrow && (key.ctrl || key.shift)) {
+          if (opts.scrollUp) opts.scrollUp();
+          return;
+        }
+
+        if (key.downArrow && (key.ctrl || key.shift)) {
+          if (opts.scrollDown) opts.scrollDown();
+          return;
+        }
+
+        if (key.pageUp) {
+          if (opts.scrollUp) opts.scrollUp(10);
+          return;
+        }
+
+        if (key.pageDown) {
+          if (opts.scrollDown) opts.scrollDown(10);
+          return;
+        }
+
+        if (_char === 'g' && key.shift) {
+          if (opts.scrollToTop) opts.scrollToTop();
+          return;
+        }
+
+        if (_char === 'G' && key.shift) {
+          if (opts.scrollToBottom) opts.scrollToBottom();
+          return;
+        }
+
+        if (key.return && key.shift) {
+          if (opts.scrollToTop) opts.scrollToTop();
+          return;
+        }
+
+        if (key.return && (key.ctrl || key.meta)) {
+          if (opts.scrollToBottom) opts.scrollToBottom();
+          return;
+        }
       }
     },
     { isActive: true },

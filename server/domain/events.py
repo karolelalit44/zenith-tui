@@ -67,6 +67,8 @@ class EventKind(StrEnum):
     CONTEXT_UPDATED = "context_updated"
     CONTEXT_COMPACTED = "context_compacted"
     CONTEXT_RESET = "context_reset"
+    CONTEXT_COMPACTION_STARTED = "context_compaction_started"
+    CONTEXT_COMPACTION_ENDED = "context_compaction_ended"
 
     # Token events
     TOKEN_USAGE_RECORDED = "token_usage_recorded"

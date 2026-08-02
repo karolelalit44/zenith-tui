@@ -13,7 +13,7 @@ interface ThinkingBlockProps {
 const getThoughtText = (thought: string | ThinkingThought): string =>
   typeof thought === 'string' ? thought : thought.text;
 
-const getThoughtDelay = (thought: string | ThinkingThought, index: number): number =>
+const _getThoughtDelay = (thought: string | ThinkingThought, index: number): number =>
   typeof thought === 'string' ? 0 : (thought.delay ?? index * 400);
 
 function formatDuration(ms: number): string {
@@ -32,30 +32,8 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
   const [visibleCount, setVisibleCount] = useState(historical ? event.thoughts.length : 0);
 
   useEffect(() => {
-    if (isCollapsed || historical) {
-      setVisibleCount(event.thoughts.length);
-      return;
-    }
-
-    const thoughts = event.thoughts;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    let cancelled = false;
-    let cumulativeDelay = 0;
-
-    thoughts.forEach((thought, idx) => {
-      cumulativeDelay += Math.min(150, getThoughtDelay(thought, idx));
-
-      const _revealTimer = setTimeout(() => {
-        if (!cancelled) setVisibleCount(idx + 1);
-      }, cumulativeDelay);
-      timers.push(_revealTimer);
-    });
-
-    return () => {
-      cancelled = true;
-      timers.forEach(clearTimeout);
-    };
-  }, [event.thoughts, isCollapsed, historical]);
+    setVisibleCount(event.thoughts.length);
+  }, [event.thoughts.length]);
 
   const displayedThoughts = isCollapsed || historical ? event.thoughts : event.thoughts.slice(0, visibleCount);
 
