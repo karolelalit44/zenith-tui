@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 WINDOW_SIZE = 10
-MAX_REPEATS = 5
+MAX_REPEATS = 2
 
 
 def _compute_signature(tool_name: str, params: dict, result_output: str) -> str:

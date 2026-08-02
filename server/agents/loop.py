@@ -340,8 +340,6 @@ class AgentLoop:
                 if not tool_calls:
                     if not clean_response and not stream_state.full_response:
                         yield r.error("Model returned empty response.", session_id, code="EMPTY_RESPONSE", recoverable=True)
-                    if mode == "build" and not created_files:
-                        yield r.warning("Model returned no tool calls in build mode — no files will be created.", session_id)
                     break
 
                 if not self.tool_registry:

@@ -100,6 +100,24 @@ class TestLoopDetector:
         assert det.window_fill == 2
 
 
+# ── System Prompt Building & Direct Response Guidelines ─────────
+
+class TestSystemPromptBuilding:
+    def test_build_system_prompt_includes_direct_responses(self):
+        from server.agents.prompts import build_system_prompt
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "DIRECT CONVERSATIONAL RESPONSES" in prompt
+        assert "DO NOT invoke tools for conversational prompts" in prompt
+
+    def test_build_system_prompt_omits_text_tool_schemas(self):
+        from server.agents.prompts import build_system_prompt
+        dummy_schemas = [{"name": "file_read", "description": "Read file", "schema": {}}]
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build", tool_schemas=dummy_schemas)
+        # Verify text schema block is omitted when native tools are present
+        assert "<available_tools>" not in prompt
+
+
+
 # ── AgentRuntime ABC ─────────────────────────────────────────────────────
 
 class TestAgentRuntimeABC:
