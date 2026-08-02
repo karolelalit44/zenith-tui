@@ -9,7 +9,7 @@ from ..base import BaseTool, ToolResult
 
 class LspDiagnosticsTool(BaseTool):
     name = "lsp_diagnostics"
-    description = "Get language server diagnostics (errors, warnings, hints) for a file. Requires an LSP server for the file type to be installed."
+    description = "Get LSP diagnostics for file"
 
     def get_schema(self) -> dict:
         return {
@@ -17,7 +17,7 @@ class LspDiagnosticsTool(BaseTool):
             "properties": {
                 "filepath": {
                     "type": "string",
-                    "description": "Path to the file to check (absolute or relative to workspace root)",
+                    "description": "File path",
                 },
             },
             "required": ["filepath"],

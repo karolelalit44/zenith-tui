@@ -209,8 +209,9 @@ class AgentLoop:
         else:
             # Build mode: full prompt, all tools
             allowed_mcp = mode_config.allowed_mcp if mode_config else None
+            allowed_tools = mode_config.allowed_tools if mode_config else None
             all_tool_schemas = self.tool_registry.get_schemas_for_mode(
-                "build", allowed_mcp=allowed_mcp,
+                "build", allowed_mcp=allowed_mcp, allowed_tools=allowed_tools,
             ) if self.tool_registry else []
             all_tool_names = {s["name"] for s in all_tool_schemas}
             system_prompt = build_system_prompt(
@@ -345,6 +346,22 @@ class AgentLoop:
                 if not self.tool_registry:
                     yield r.error("No tool registry available", session_id)
                     break
+
+                # Dynamic Tool Auto-Escalation: promote registered specialized tools into active schema on demand
+                if self.tool_registry:
+                    for tc in tool_calls:
+                        t_name = tc.get("tool")
+                        if t_name and t_name not in registered_tools:
+                            tool_obj = self.tool_registry.get(t_name)
+                            if tool_obj:
+                                registered_tools.add(t_name)
+                                tool_schema = {
+                                    "name": tool_obj.name,
+                                    "description": tool_obj.description,
+                                    "schema": tool_obj.get_schema(),
+                                }
+                                openai_tools.extend(schemas_to_openai_tools([tool_schema]))
+                                logger.info("Dynamic tool escalation: promoted tool '%s' into active schema", t_name)
 
                 valid_calls, invalid_names = validate_tool_calls(tool_calls, registered_tools)
                 if invalid_names:

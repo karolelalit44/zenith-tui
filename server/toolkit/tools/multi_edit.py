@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class MultiEditTool(BaseTool):
     name = "multi_edit"
-    description = "Apply multiple find/replace edits to a single file atomically. All edits succeed or none do."
+    description = "Apply multiple edits to a single file"
     requires_mode = "build"
 
     def get_schema(self) -> dict:
@@ -27,21 +27,21 @@ class MultiEditTool(BaseTool):
             "properties": {
                 "filepath": {
                     "type": "string",
-                    "description": "Absolute path to the file to edit",
+                    "description": "File path",
                 },
                 "edits": {
                     "type": "array",
-                    "description": "List of edits to apply in order. Each edit is {old_content, new_content}.",
+                    "description": "List of {old_content, new_content} edits",
                     "items": {
                         "type": "object",
                         "properties": {
                             "old_content": {
                                 "type": "string",
-                                "description": "The exact text to find and replace (must appear exactly once in the file)",
+                                "description": "Exact text to replace",
                             },
                             "new_content": {
                                 "type": "string",
-                                "description": "The text to replace it with",
+                                "description": "Replacement text",
                             },
                         },
                         "required": ["old_content", "new_content"],

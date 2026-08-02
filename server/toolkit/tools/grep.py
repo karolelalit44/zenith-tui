@@ -11,7 +11,7 @@ from ..base import BaseTool, ToolResult
 
 class GrepTool(BaseTool):
     name = "grep"
-    description = "Search file contents using regex pattern"
+    description = "Search file contents by regex"
     requires_mode = None  # Available in both plan and build
 
     def get_schema(self) -> dict:
@@ -20,15 +20,15 @@ class GrepTool(BaseTool):
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Regex pattern to search for",
+                    "description": "Regex pattern",
                 },
                 "path": {
                     "type": "string",
-                    "description": "File or directory to search in",
+                    "description": "Search directory/file",
                 },
                 "include": {
                     "type": "string",
-                    "description": "File pattern to include (e.g., *.py)",
+                    "description": "File pattern filter",
                 },
             },
             "required": ["pattern"],

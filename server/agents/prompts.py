@@ -1,9 +1,8 @@
-"""System prompt builder — constructs the system prompt for the agent loop."""
+"""System prompt builder — constructs smart, high-density system prompts for BUILD and PLAN modes."""
 
 from __future__ import annotations
 
 import platform
-import sys
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,160 +10,32 @@ from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_e
 from server.workspace.context import format_context_files, load_context_files
 from server.workspace.git import GitOps
 
-# ---------------------------------------------------------------------------
-# Structured XML sections
-# ---------------------------------------------------------------------------
-
-CRITICAL_RULES = """\
-1. **READ BEFORE EDIT**: Read a file before editing it. Match text exactly.
-2. **BE AUTONOMOUS FOR TASKS**: For code editing or debugging tasks, search, read, decide, act. Break tasks into steps.
-3. **DIRECT CONVERSATIONAL RESPONSES**: For greetings ("hi", "hello"), thank yous, general questions, or requests for information that do NOT require reading or modifying codebase files, respond directly in plain text. DO NOT invoke tools for conversational prompts.
-4. **BE CONCISE**: Keep responses direct and concise. No preamble/postamble. No emojis. Never send acknowledgment-only text when tool actions are required.
-5. **NEVER COMMIT** unless explicitly told. Never commit secrets. Never add comments unless asked.
+SYSTEM_GUIDELINES = """\
+<guidelines>
+- **Tool Usage Boundary**: Use tools (`file_read`, `file_edit`, `file_write`, `bash`, `glob`, `grep`, `lsp`) when inspecting, searching, or modifying code or executing commands. For greetings, general questions, or non-file queries, answer directly in markdown text without tools.
+- **Editing Rule**: Always `file_read` before `file_edit`. Match exact whitespace and context lines. Make surgical edits and verify with tests.
+- **Directness**: Keep outputs direct, concise, and non-repetitive.
+</guidelines>
 """
-
-WORKFLOW = """\
-For coding tasks:
-- **Before**: Search codebase, read affected files, check git log/blame if needed.
-- **While**: Read entire file before editing. Make one logical change at a time. Test after each change.
-- **Before finishing**: Verify entire request resolved. Run tests/typecheck if available. Keep response concise.
-"""
-
-EDITING_FILES = """\
-Tools: `file_edit` (find/replace), `file_write` (create/overwrite), `file_read`.
-When using file_edit: read context first → note exact indentation → copy exact text with 3-5 surrounding lines → verify old_content appears once → verify edit succeeded → run tests.
-Use absolute paths. Run tools in parallel when safe.
-"""
-
-TOOL_USAGE = """\
-- Use tools for inspecting, editing, or running code — NOT for greetings or plain text Q&A
-- Search before assuming, read before editing
-- Avoid interactive shell commands
-- Reference code via `file:line` pattern
-"""
-
-PROACTIVENESS = """\
-For code changes: implement fully (including ALL follow-ups). Never describe code changes you plan to make without executing them. For questions/conversations: answer directly in text.
-"""
-
-CODE_CONVENTIONS = """\
-Verify libraries exist before using them. Match existing codebase style. Follow security best practices.
-"""
-
-# ---------------------------------------------------------------------------
-# Plan mode instructions (inspired by Crush's task.md.tpl)
-# ---------------------------------------------------------------------------
-
-PLAN_MODE_INSTRUCTIONS = """\
-## PLAN MODE — Read-Only Analysis & Architecture
-
-You are in **PLAN mode**. Your job is to think, analyze, and produce structured plans. You do NOT execute changes.
-
-### What to do in PLAN mode:
-- **Analyze** the request and break it into concrete, actionable steps
-- **Search** the codebase to understand existing patterns and constraints
-- **Read** files to understand current state before proposing changes
-- **Propose** a clear architecture with file paths, function names, and data flow
-- **Structure** your plan with numbered steps, each referencing specific files/lines
-- **Be specific** — say exactly which files to create/modify, what functions to add, what patterns to follow
-
-### What NOT to do in PLAN mode:
-- Do NOT use file_edit, file_write, or file_delete
-- Do NOT run bash commands that modify files
-- Do NOT create directories or write any code
-- Do NOT auto-commit anything
-
-### Plan output format:
-Use Markdown with clear sections:
-1. **Overview** — what we're building and why
-2. **Architecture** — services, modules, data flow
-3. **File Structure** — exact paths and their purpose
-4. **Implementation Steps** — numbered list with file:line references
-5. **Data Models** — schemas, types, interfaces
-6. **API Design** — endpoints, request/response shapes
-7. **Testing Strategy** — what to test and how
-
-### When to transition to build mode:
-After presenting the plan, ask the user: "Ready to implement? Switch to build mode with /build"
-"""
-
-# ---------------------------------------------------------------------------
-# Build mode instructions
-# ---------------------------------------------------------------------------
 
 BUILD_MODE_INSTRUCTIONS = """\
-## BUILD MODE — Full Execution
-
-You are in **BUILD mode**. Your job is to execute the task completely using tools.
-
-### What to do in BUILD mode:
-- Use all available tools to implement the changes
-- Be autonomous — search, read, edit, test, commit
-- Make all changes, run all tests, verify everything works
-- Don't ask questions — just do it
-
-### Plan Execution (when a `<plan_to_execute>` block is present):
-If a `<plan_to_execute>` XML block is included in the system messages, that is your task specification. Follow it exactly:
-1. Create every file listed in the plan's file structure
-2. Implement each architecture component as described
-3. Follow the exact implementation order specified in the plan
-4. Use the exact data models, API design, and patterns from the plan
-5. Do NOT deviate from the plan unless blocked by a hard error
-6. If blocked, explain the blocker and propose a minimal deviation
-
-### Workflow:
-1. Search for relevant files
-2. Read files to understand current state
-3. Make changes (file_edit, file_write, bash)
-4. Run tests after each change
-5. Fix any failures immediately
-6. Continue until task is complete
+## MODE: BUILD (Autonomous Execution Engine)
+You are in **BUILD mode**. Your objective is to resolve tasks autonomously and cleanly:
+- **Code Actions**: Use tools (`file_read`, `file_edit`, `file_write`, `bash`, `glob`, `grep`, `lsp`) to search, inspect, modify, and test code.
+- **Surgical Execution**: Read before editing. Make exact edits. Run test verification when changes are complete.
+- **Fluid Intent**: For greetings, general Q&A, or post-task summaries, respond directly in standard markdown without tool calls.
 """
 
-# ---------------------------------------------------------------------------
-# Universal Model Guidelines (consistent high-quality output across ALL providers)
-# ---------------------------------------------------------------------------
-
-UNIVERSAL_MODEL_GUIDELINES = """\
-<universal_guidelines>
-1. ALWAYS deliver your complete user-facing response (explanations, plans, code, answers) in the message content body.
-2. For reasoning/thinking models: write your full response in the final message content payload outside of thinking/reasoning blocks.
-3. Be autonomous: search before assuming, read before editing, verify after changes.
-4. Format all responses using high-quality GitHub-flavored markdown.
-</universal_guidelines>
-"""
-
-# ---------------------------------------------------------------------------
-# Few-shot examples for key tools
-# ---------------------------------------------------------------------------
-
-FEW_SHOT_EXAMPLES = """\
-<tool_usage_examples>
-Below are examples of correct response patterns:
-
-## Conversational / Greeting (NO TOOLS NEEDED)
-
-user: hi
-assistant: Hello! I'm Zenith, your CLI coding assistant. What would you like to work on today?
-
-user: what does this project do?
-assistant: [answers directly in text using project context without running unnecessary tools]
-
-## file_read then file_edit (safe editing pattern)
-
-user: Rename the `calculate_total` function to `compute_total` in utils.py
-
-assistant: [file_read utils.py]
-[file_edit utils.py with old_content="def calculate_total(items):" new_content="def compute_total(items):"]
-Done — renamed `calculate_total` to `compute_total`.
-
-## bash for testing
-
-user: Run the test suite
-
-assistant: [bash command="python -m pytest server/tests/ -v"]
-All tests passed.
-</tool_usage_examples>
+PLAN_MODE_INSTRUCTIONS = """\
+## MODE: PLAN (Architectural Design & Read-Only Analysis)
+You are in **PLAN mode**. Your objective is to analyze the codebase and design structured technical implementation plans:
+- **Read-Only Scope**: Use exploration tools (`file_read`, `glob`, `grep`, `lsp`) to inspect existing files. NEVER call mutating tools (`file_edit`, `file_write`) or modifying shell commands.
+- **Plan Output**: Produce a clean Markdown plan with:
+  1. **Overview**: Objectives & technical approach.
+  2. **Architecture & File Changes**: Affected components, new/modified files (`file:line`).
+  3. **Implementation Steps**: Numbered sequential steps.
+  4. **Verification Plan**: Commands to test the implementation.
+- Conclude by asking: *"Ready to implement? Switch to build mode with `/build`"*
 """
 
 
@@ -177,218 +48,53 @@ def build_system_prompt(
     provider_name: str = "",
     model_name: str = "",
 ) -> str:
-    """Build the complete system prompt with all sections."""
-    sections: list[str] = []
+    """Build a smart, high-density system prompt for BUILD or PLAN mode."""
+    sections: list[str] = [
+        "You are Zenith, an AI coding assistant running in the CLI.",
+        f"<env>\n{_build_env_section(workspace_root, mode)}\n</env>",
+    ]
 
-    tier = detect_model_tier(model_name, provider_name)
-    tier_enhancements = get_tier_prompt_enhancements(tier)
+    tier_enhancements = get_tier_prompt_enhancements(detect_model_tier(model_name, provider_name))
+    if tier_enhancements:
+        sections.append(tier_enhancements)
 
-    # --- Role ---
-    sections.append("You are Zenith, a powerful AI coding assistant that runs in the CLI.")
+    sections.append(PLAN_MODE_INSTRUCTIONS if mode == "plan" else BUILD_MODE_INSTRUCTIONS)
+    sections.append(SYSTEM_GUIDELINES)
 
-    # --- Environment block ---
-    env_section = _build_env_section(workspace_root, mode)
-    sections.append(f"<env>\n{env_section}</env>")
-
-    # --- Universal Guidelines & Tier Enhancements ---
-    sections.append(UNIVERSAL_MODEL_GUIDELINES)
-    sections.append(tier_enhancements)
-
-    # --- Mode-specific instructions ---
-    if mode == "plan":
-        sections.append(f"<plan_mode>\n{PLAN_MODE_INSTRUCTIONS}</plan_mode>")
-    else:
-        sections.append(f"<build_mode>\n{BUILD_MODE_INSTRUCTIONS}</build_mode>")
-
-    # --- Critical Rules ---
-    sections.append(f"<critical_rules>\n{CRITICAL_RULES}</critical_rules>")
-
-    # --- Workflow ---
-    sections.append(f"<workflow>\n{WORKFLOW}</workflow>")
-
-    # --- Editing Files ---
-    sections.append(f"<editing_files>\n{EDITING_FILES}</editing_files>")
-
-    # --- Tool Usage ---
-    sections.append(f"<tool_usage>\n{TOOL_USAGE}</tool_usage>")
-
-    # --- Proactiveness ---
-    sections.append(f"<proactiveness>\n{PROACTIVENESS}</proactiveness>")
-
-    # --- Code Conventions ---
-    sections.append(f"<code_conventions>\n{CODE_CONVENTIONS}</code_conventions>")
-
-    # --- Few-shot Examples ---
-    sections.append(FEW_SHOT_EXAMPLES)
-
-    # --- Skills (if provided) ---
     if skills_section:
         sections.append(skills_section)
 
-    # --- Git context ---
-    git_section = _build_git_section(workspace_root)
-    if git_section:
-        sections.append(f"<git_context>\n{git_section}</git_context>")
-
-    # --- Project context files ---
     context_files = load_context_files(workspace_root)
     if context_files:
-        formatted = format_context_files(context_files)
-        sections.append(
-            "# Project-Specific Context\n"
-            "Make sure to follow the instructions in the context below.\n"
-            f"<project_context>\n{formatted}\n</project_context>"
-        )
+        sections.append(f"<project_context>\n{format_context_files(context_files)}\n</project_context>")
 
     return "\n\n".join(sections)
 
-
-# ---------------------------------------------------------------------------
-# Standalone plan mode prompt (inspired by Crush's task.md.tpl + Aider's
-# architect_prompts.py — lightweight, focused, read-only)
-# ---------------------------------------------------------------------------
 
 def build_plan_system_prompt(
     workspace_root: str,
     provider_name: str = "",
     model_name: str = "",
 ) -> str:
-    """Build a focused, lightweight system prompt for plan mode."""
-    sections: list[str] = []
-
-    tier = detect_model_tier(model_name, provider_name)
-    tier_enhancements = get_tier_prompt_enhancements(tier)
-
-    sections.append(
-        "You are Zenith in PLAN mode — an expert software architect.\n"
-        "Analyze the codebase and produce a structured implementation plan.\n"
-        "You do NOT write code, edit files, or make changes."
-    )
-
-    env = _build_env_section(workspace_root, "plan")
-    sections.append(f"<env>\n{env}</env>")
-
-    sections.append(UNIVERSAL_MODEL_GUIDELINES)
-    sections.append(tier_enhancements)
-
-    sections.append("""<rules>
-1. NEVER edit, create, or delete files. NEVER run commands that modify the filesystem.
-2. Use glob, grep, file_read, and lsp tools to explore. Search before assuming.
-3. Be specific: name exact files, functions, types, and line numbers.
-4. If ambiguous, state assumptions and proceed with the most reasonable interpretation.
-</rules>""")
-
-    sections.append("""Respond with a plan using these sections:
-## Overview — one paragraph
-## Architecture — services, modules, data flow
-## File Structure — exact paths and purpose
-## Implementation Steps — numbered, referencing files/lines
-## Data Models — schemas as code fences
-## API Design — endpoints
-## Testing Strategy — what to test
-End with: "Ready to implement? Switch to build mode with `/build`"
-
-CRITICAL FOR ALL MODELS (INCLUDING REASONING/THINKING MODELS):
-You MUST output your complete final plan / answer text in your final response message CONTENT payload (outside thinking/reasoning blocks).
-Do NOT output an empty or tiny message content payload.
-""")
-
-    git = _build_git_section(workspace_root)
-    if git:
-        sections.append(f"<git_context>\n{git}</git_context>")
-
-    context_files = load_context_files(workspace_root)
-    if context_files:
-        sections.append(
-            "<project_context>\n"
-            + format_context_files(context_files)
-            + "\n</project_context>"
-        )
-
-    return "\n\n".join(sections)
+    """Build a focused system prompt for plan mode."""
+    return build_system_prompt(workspace_root, mode="plan", provider_name=provider_name, model_name=model_name)
 
 
 def _build_env_section(workspace_root: str, mode: str) -> str:
-    """Build the <env> block with environment metadata."""
-    import shutil
-    import subprocess
-
+    """Build the <env> metadata block efficiently."""
     os_name = platform.system()
     is_windows = os_name == "Windows"
-
-    if is_windows:
-        shell_name = "PowerShell"
-        shell_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell"
-        try:
-            shell_version = subprocess.check_output(
-                [shell_exe, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
-                timeout=5, stderr=subprocess.DEVNULL,
-            ).decode().strip()
-        except Exception:
-            shell_version = "unknown"
-    else:
-        shell_name = "bash"
-        shell_exe = shutil.which("bash") or "/bin/bash"
-        try:
-            shell_version = subprocess.check_output(
-                [shell_exe, "--version"], timeout=5, stderr=subprocess.DEVNULL,
-            ).decode().splitlines()[0].strip() if os_name != "Darwin" else "bash (macOS)"
-        except Exception:
-            shell_version = "unknown"
 
     parts: list[str] = [
         f"Working directory: {workspace_root}",
         f"Agent mode: {mode}",
         f"OS: {os_name} {platform.release()}",
-        f"Shell: {shell_name} ({shell_exe})",
         f"Today's date: {datetime.now(UTC).strftime('%Y-%m-%d')}",
     ]
 
     if is_windows:
-        parts.append(
-            "PLATFORM: Windows (PowerShell)\n"
-            "Use PowerShell commands (Get-ChildItem, Get-Content, Select-String, New-Item, Copy-Item, Remove-Item).\n"
-            "Do NOT use UNIX-only flags (e.g. 'ls -la' or 'rm -rf'). Prefer structured tools (glob, grep, file_read) for file operations."
-        )
+        parts.append("PLATFORM: Windows (PowerShell) | Use PowerShell commands")
     else:
-        parts.append(
-            "PLATFORM: Unix-like\n"
-            "SHELL: bash"
-        )
-
-    return "\n".join(parts)
-
-
-def _build_git_section(workspace_root: str) -> str:
-    """Build the <git_context> block with git status, branch, and recent commits.
-
-    Returns empty string if not a git repo.
-    """
-    try:
-        git = GitOps(workspace_root)
-        return git.get_prompt_context()
-    except Exception:
-        return ""
-
-
-def _format_tool_schemas(schemas: list[dict[str, Any]]) -> str:
-    """Format tool schemas into a readable reference block."""
-    parts: list[str] = []
-    for s in schemas:
-        name = s.get("name", "")
-        desc = s.get("description", "")
-        schema = s.get("schema", {})
-        params = schema.get("properties", {})
-        required = schema.get("required", [])
-
-        param_lines = []
-        for pname, pdef in params.items():
-            ptype = pdef.get("type", "any")
-            pdesc = pdef.get("description", "")
-            req_marker = " (required)" if pname in required else ""
-            param_lines.append(f"  - {pname} ({ptype}){req_marker}: {pdesc}")
-
-        param_str = "\n".join(param_lines) if param_lines else "  (no parameters)"
-        parts.append(f"- **{name}**: {desc}\n{param_str}")
+        parts.append("PLATFORM: Unix-like | Shell: bash")
 
     return "\n".join(parts)

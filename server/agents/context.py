@@ -89,15 +89,15 @@ class ContextManager:
         return min(from_catalog, self.config.max_context_tokens)
 
     def _resolve_repo_map_tokens(self, model: str) -> int:
-        """Repo map budget: explicit config wins, else clamp(context/8, 1024, 4096).
+        """Repo map budget: explicit config wins, else token-bounded (400 to 1024 tokens).
 
-        Aider-style: default budget scales with the model's context window so a
-        cheap model never wastes a large fraction of its window on the map.
+        Industry standard (Claude Code / Aider): default budget is token-bounded
+        so AST symbol maps stay compact (~400-1024 tokens) and never crowd out context.
         """
         if self.config.repo_map_tokens is not None:
             return self.config.repo_map_tokens
         ctx = self._resolve_context_window(model)
-        return min(4096, max(1024, ctx // 8))
+        return min(1024, max(400, ctx // 32))
 
     def get_repo_map(self, chat_files: list[str] | None = None, model: str = "cl100k_base") -> str:
         """Build a token-budgeted, ranked repo map (Aider-style), cached per instance.
@@ -137,6 +137,49 @@ class ContextManager:
             self._memory_cache = ""
         return self._memory_cache
 
+    def _compute_code_relevance(self, prompt: str, history: list[Message] | None = None) -> float:
+        """Compute dynamic code signal score [0.0 - 1.0] for context gating.
+
+        Non-deterministic relevance scoring: checks for file paths, extensions,
+        code blocks, symbol names, error tracebacks, diffs, or code directives.
+        """
+        if not prompt:
+            return 0.0
+
+        p_lower = prompt.lower()
+        score = 0.0
+
+        # Code file extensions & slash paths
+        if any(ext in p_lower for ext in (
+            ".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".css", ".html", ".go", ".rs", ".c", ".cpp", ".h", ".toml", ".sql", ".sh"
+        )):
+            score += 0.5
+
+        if "/" in prompt or "\\" in prompt:
+            score += 0.3
+
+        # Code & editing directives
+        code_keywords = (
+            "code", "file", "function", "class", "def ", "const ", "let ", "var ",
+            "interface", "type ", "bug", "fix", "refactor", "test", "pytest", "error",
+            "exception", "traceback", "import", "export", "return", "git", "commit",
+            "build", "compile", "script", "server", "api", "tui", "repo"
+        )
+        if any(kw in p_lower for kw in code_keywords):
+            score += 0.3
+
+        # Syntax & code fence indicators
+        if "`" in prompt or "```" in prompt or "{" in prompt or "==" in prompt:
+            score += 0.4
+
+        # Recent history signals
+        if history:
+            recent_text = " ".join(m.content.lower() for m in history[-3:] if hasattr(m, "content") and m.content)
+            if any(ext in recent_text for ext in (".py", ".ts", ".tsx", ".js", "error", "traceback")):
+                score += 0.2
+
+        return min(1.0, score)
+
     def build_messages(
         self,
         history: list[Message],
@@ -165,10 +208,9 @@ class ContextManager:
         messages: list[dict] = []
         pbuf = _prompt_buffer(system_prompt)
 
-        # Repo map block — bounded by the resolved map token budget, injected
-        # right after the system prompt (Aider-style) so the model sees the
-        # repo structure before instructions/history.
-        repo_map_text = repo_map if repo_map is not None else self.get_repo_map(model=model)
+        # Repo map block — skipped by default unless explicitly provided
+        repo_map_text = repo_map if repo_map is not None else ""
+
         repo_map_block = f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else ""
         repo_map_tokens = self.token_counter.count(repo_map_block, model) if repo_map_block else 0
 

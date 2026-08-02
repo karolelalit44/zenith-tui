@@ -117,7 +117,7 @@ def get_task_tracker() -> TaskTracker:
 
 class TodoTool(BaseTool):
     name = "todo"
-    description = "Track tasks and maintain a structured to-do list for multi-step workflows"
+    description = "Track task list"
 
     def get_schema(self) -> dict:
         return {
@@ -125,25 +125,25 @@ class TodoTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "Action to perform: 'add', 'update', 'list', or 'summary'",
+                    "description": "Action: add, update, list, summary",
                     "enum": ["add", "update", "list", "summary"],
                 },
                 "task_id": {
                     "type": "string",
-                    "description": "Task ID (required for 'update' action)",
+                    "description": "Task ID",
                 },
                 "description": {
                     "type": "string",
-                    "description": "Task description (required for 'add' action, optional for 'update')",
+                    "description": "Task description",
                 },
                 "status": {
                     "type": "string",
-                    "description": "New status for 'update' action: 'pending', 'in_progress', 'completed', 'cancelled'",
+                    "description": "Status: pending, in_progress, completed, cancelled",
                     "enum": ["pending", "in_progress", "completed", "cancelled"],
                 },
                 "priority": {
                     "type": "string",
-                    "description": "Task priority for 'add' action: 'low', 'medium', 'high'",
+                    "description": "Priority: low, medium, high",
                     "enum": ["low", "medium", "high"],
                     "default": "medium",
                 },

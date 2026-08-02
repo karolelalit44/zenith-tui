@@ -34,4 +34,4 @@ def test_get_tier_prompt_enhancements():
     assert "<reasoning_model_rules>" in reasoning_rules
 
     flagship_rules = get_tier_prompt_enhancements(ModelTier.FLAGSHIP)
-    assert "<flagship_rules>" in flagship_rules
+    assert flagship_rules == ""

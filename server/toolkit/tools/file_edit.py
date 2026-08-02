@@ -62,7 +62,7 @@ def _fuzzy_find(content: str, old: str) -> tuple[str, float] | None:
 
 class FileEditTool(BaseTool):
     name = "file_edit"
-    description = "Edit an existing file using search-replace with fuzzy fallback"
+    description = "Edit file via search-replace"
     requires_mode = "build"
 
     def get_schema(self) -> dict:
@@ -71,15 +71,15 @@ class FileEditTool(BaseTool):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to the file to edit",
+                    "description": "File path",
                 },
                 "old_content": {
                     "type": "string",
-                    "description": "The exact content to find and replace",
+                    "description": "Text to replace",
                 },
                 "new_content": {
                     "type": "string",
-                    "description": "The replacement content",
+                    "description": "Replacement text",
                 },
             },
             "required": ["path", "old_content", "new_content"],

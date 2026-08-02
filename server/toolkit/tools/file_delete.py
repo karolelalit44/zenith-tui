@@ -10,7 +10,7 @@ from ..path_validator import validate_path
 
 class FileDeleteTool(BaseTool):
     name = "file_delete"
-    description = "Delete a file"
+    description = "Delete file"
     requires_mode = "build"
 
     @property
@@ -23,7 +23,7 @@ class FileDeleteTool(BaseTool):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to the file to delete",
+                    "description": "File path",
                 },
             },
             "required": ["path"],

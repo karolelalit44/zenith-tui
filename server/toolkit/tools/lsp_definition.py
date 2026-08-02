@@ -9,7 +9,7 @@ from ..base import BaseTool, ToolResult
 
 class LspDefinitionTool(BaseTool):
     name = "lsp_definition"
-    description = "Go to the definition of a symbol at a given position. Returns file path and line number."
+    description = "Go to symbol definition"
 
     def get_schema(self) -> dict:
         return {
@@ -17,15 +17,15 @@ class LspDefinitionTool(BaseTool):
             "properties": {
                 "filepath": {
                     "type": "string",
-                    "description": "Path to the file containing the symbol",
+                    "description": "File path",
                 },
                 "line": {
                     "type": "integer",
-                    "description": "Line number (0-indexed)",
+                    "description": "Line (0-indexed)",
                 },
                 "character": {
                     "type": "integer",
-                    "description": "Column number (0-indexed)",
+                    "description": "Column (0-indexed)",
                 },
             },
             "required": ["filepath", "line", "character"],

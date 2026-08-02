@@ -12,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 class SubAgentTool(BaseTool):
     name = "agent"
-    description = (
-        "Delegate a focused sub-task to a separate agent session with its own context window. "
-        "Use this for well-defined, independent tasks that benefit from isolation."
-    )
+    description = "Delegate sub-task to separate agent"
 
     @property
     def risk_level(self) -> str:
@@ -34,11 +31,11 @@ class SubAgentTool(BaseTool):
             "properties": {
                 "task": {
                     "type": "string",
-                    "description": "The task description for the sub-agent. Be specific and include all necessary context.",
+                    "description": "Sub-agent task description",
                 },
                 "description": {
                     "type": "string",
-                    "description": "A brief 3-5 word description of what this sub-agent is doing (for logging).",
+                    "description": "Short 3-5 word summary",
                 },
             },
             "required": ["task", "description"],

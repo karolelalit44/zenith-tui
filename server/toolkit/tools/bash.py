@@ -26,7 +26,7 @@ def _resolve_shell() -> str | None:
 
 class BashTool(BaseTool):
     name = "bash"
-    description = "Execute a shell command. Supports background execution for long-running commands."
+    description = "Execute shell commands."
 
     @property
     def risk_level(self) -> str:
@@ -42,21 +42,21 @@ class BashTool(BaseTool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The shell command to execute",
+                    "description": "Command to execute",
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Timeout in seconds (default: 30)",
+                    "description": "Timeout seconds",
                     "default": 30,
                 },
                 "run_in_background": {
                     "type": "boolean",
-                    "description": "Set to true to run the command in the background. Use job_output to read the output later.",
+                    "description": "Run in background",
                     "default": False,
                 },
                 "auto_background_after": {
                     "type": "integer",
-                    "description": "Seconds to wait before automatically moving the command to a background job (default: 60)",
+                    "description": "Background delay seconds",
                     "default": 60,
                 },
             },

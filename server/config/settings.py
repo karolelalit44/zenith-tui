@@ -72,13 +72,24 @@ PLAN_MODE_CONFIG = AgentModeConfig(
     sub_agent=False,
 )
 
+# Core tools for initial turn of build mode — 6 essential coding tools (~390 tokens schema overhead).
+# Specialized tools (LSP, multi_edit, sub_agent, etc.) are escalated dynamically on demand.
+CORE_BUILD_TOOLS = [
+    "file_read",
+    "file_edit",
+    "file_write",
+    "bash",
+    "glob",
+    "grep",
+]
+
 BUILD_MODE_CONFIG = AgentModeConfig(
     name="build",
-    allowed_tools=None,  # All tools
+    allowed_tools=CORE_BUILD_TOOLS,  # Core tools on initial turn; dynamic escalation in loop
     allowed_mcp=None,  # All MCPs
-    description="Full execution with all tools.",
+    description="Full execution with core tools and dynamic schema escalation.",
     sub_agent=True,  # Spawn fresh sub-agent on plan→build transition
-    tool_choice="required",  # Force tool calling in build mode
+    tool_choice="auto",  # Natural LLM decision boundary (Claude Code / OpenAI standard)
 )
 
 AGENT_MODES: dict[str, AgentModeConfig] = {

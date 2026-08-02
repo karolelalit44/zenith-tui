@@ -66,8 +66,4 @@ CRITICAL INSTRUCTIONS FOR REASONING MODELS:
 </reasoning_model_rules>
 """
     else:  # FLAGSHIP
-        return """\
-<flagship_rules>
-Be precise, autonomous, and surgical. Fully implement requested features without unnecessary verbosity.
-</flagship_rules>
-"""
+        return ""

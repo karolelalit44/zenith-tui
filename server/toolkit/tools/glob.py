@@ -10,7 +10,7 @@ from ..base import BaseTool, ToolResult
 
 class GlobTool(BaseTool):
     name = "glob"
-    description = "Search for files matching a glob pattern"
+    description = "Search files by glob pattern"
     requires_mode = None  # Available in both plan and build
 
     def get_schema(self) -> dict:
@@ -19,11 +19,11 @@ class GlobTool(BaseTool):
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Glob pattern (e.g., **/*.py, src/**/*.ts)",
+                    "description": "Glob pattern (e.g. **/*.py)",
                 },
                 "path": {
                     "type": "string",
-                    "description": "Directory to search in (default: workspace root)",
+                    "description": "Directory to search",
                 },
             },
             "required": ["pattern"],

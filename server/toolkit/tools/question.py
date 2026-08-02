@@ -28,7 +28,7 @@ def set_question_callback(callback: Callable[[str, list[str]], Awaitable[str]] |
 
 class QuestionTool(BaseTool):
     name = "question"
-    description = "Ask the user a question interactively and wait for their response"
+    description = "Ask user interactive question"
 
     def get_schema(self) -> dict:
         return {
@@ -36,11 +36,11 @@ class QuestionTool(BaseTool):
             "properties": {
                 "question": {
                     "type": "string",
-                    "description": "The question to ask the user",
+                    "description": "Question text",
                 },
                 "options": {
                     "type": "array",
-                    "description": "Optional list of multiple-choice options the user can choose from",
+                    "description": "Multiple-choice options",
                     "items": {"type": "string"},
                 },
             },

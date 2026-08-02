@@ -10,7 +10,7 @@ from ..base import BaseTool, ToolResult
 
 class JobKillTool(BaseTool):
     name = "job_kill"
-    description = "Terminate a running background job"
+    description = "Terminate background job"
 
     @property
     def risk_level(self) -> str:
@@ -22,7 +22,7 @@ class JobKillTool(BaseTool):
             "properties": {
                 "job_id": {
                     "type": "string",
-                    "description": "The background job ID to terminate",
+                    "description": "Background job ID",
                 },
             },
             "required": ["job_id"],

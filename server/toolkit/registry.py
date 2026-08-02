@@ -93,13 +93,24 @@ class ToolRegistry:
             for t in self._tools.values()
         ]
 
-    def get_schemas_for_mode(self, mode: str, allowed_mcp: dict[str, list[str]] | None = None) -> list[dict]:
-        """Return schemas for tools available in the given mode."""
-        return [
-            s for s in self.get_schemas()
-            if self._is_available_in_mode(s["name"], mode)
-            and not (s["name"].startswith("mcp_") and not self._is_mcp_allowed(s["name"], allowed_mcp))
-        ]
+    def get_schemas_for_mode(
+        self,
+        mode: str,
+        allowed_mcp: dict[str, list[str]] | None = None,
+        allowed_tools: list[str] | None = None,
+    ) -> list[dict]:
+        """Return schemas for tools available in the given mode and allowed_tools list."""
+        schemas = []
+        for s in self.get_schemas():
+            name = s["name"]
+            if not self._is_available_in_mode(name, mode):
+                continue
+            if allowed_tools is not None and name not in allowed_tools:
+                continue
+            if name.startswith("mcp_") and not self._is_mcp_allowed(name, allowed_mcp):
+                continue
+            schemas.append(s)
+        return schemas
 
     def _is_available_in_mode(self, tool_name: str, mode: str) -> bool:
         tool = self.get(tool_name)

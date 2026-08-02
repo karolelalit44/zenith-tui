@@ -199,3 +199,17 @@ class TestUsageBasedTriggers:
         assert info.used == 64000
         assert info.remaining == 64000
         assert abs(info.percent - 0.5) < 0.01
+
+
+class TestCodeRelevanceGating:
+    """Verify non-deterministic code relevance context gating."""
+
+    def test_greeting_has_zero_code_relevance(self):
+        ctx = ContextManager(AppSettings())
+        assert ctx._compute_code_relevance("Hi , how are you doing onthis fine evening?") == 0.0
+        assert ctx._compute_code_relevance("hello") == 0.0
+
+    def test_coding_task_has_high_code_relevance(self):
+        ctx = ContextManager(AppSettings())
+        assert ctx._compute_code_relevance("check server/agents/prompts.py") >= 0.5
+        assert ctx._compute_code_relevance("fix bug in auth.py") >= 0.5

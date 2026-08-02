@@ -9,7 +9,7 @@ from ..base import BaseTool, ToolResult
 
 class LspRenameTool(BaseTool):
     name = "lsp_rename"
-    description = "Perform a semantic rename of a symbol across all files using the LSP. Handles imports, scopes, and overloads automatically."
+    description = "Semantic rename of symbol via LSP"
     requires_mode = "build"
 
     @property
@@ -22,19 +22,19 @@ class LspRenameTool(BaseTool):
             "properties": {
                 "filepath": {
                     "type": "string",
-                    "description": "Path to the file containing the symbol to rename",
+                    "description": "File path",
                 },
                 "line": {
                     "type": "integer",
-                    "description": "Line number of the symbol (0-indexed)",
+                    "description": "Line (0-indexed)",
                 },
                 "character": {
                     "type": "integer",
-                    "description": "Column number of the symbol (0-indexed)",
+                    "description": "Column (0-indexed)",
                 },
                 "new_name": {
                     "type": "string",
-                    "description": "The new name for the symbol",
+                    "description": "New symbol name",
                 },
             },
             "required": ["filepath", "line", "character", "new_name"],

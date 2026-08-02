@@ -216,8 +216,8 @@ def test_auto_repo_map_budget_scales_with_context():
         repo_map_tokens=None,
     )
     cm = ContextManager(config)
-    # 128000/8 = 16000 -> clamped to 4096
-    assert cm._resolve_repo_map_tokens("test-model") == 4096
+    # 128000/32 = 4000 -> clamped to max 1024
+    assert cm._resolve_repo_map_tokens("test-model") == 1024
 
     config = _make_config(
         Path("."),
@@ -225,8 +225,8 @@ def test_auto_repo_map_budget_scales_with_context():
         repo_map_tokens=None,
     )
     cm = ContextManager(config)
-    # 8000/8 = 1000 -> clamped to 1024
-    assert cm._resolve_repo_map_tokens("test-model") == 1024
+    # 8000/32 = 250 -> clamped to min 400
+    assert cm._resolve_repo_map_tokens("test-model") == 400
 
 
 def test_build_messages_skips_map_when_explicit_empty(sample_workspace):

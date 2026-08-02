@@ -23,7 +23,7 @@ _PLACEHOLDER_RE = re.compile(
 
 class FileWriteTool(BaseTool):
     name = "file_write"
-    description = "Create a new file with given content"
+    description = "Create new file"
     requires_mode = "build"
 
     def get_schema(self) -> dict:
@@ -32,15 +32,15 @@ class FileWriteTool(BaseTool):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path for the new file",
+                    "description": "File path",
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content to write to the file",
+                    "description": "File content",
                 },
                 "overwrite": {
                     "type": "boolean",
-                    "description": "Overwrite if file exists (default: false)",
+                    "description": "Overwrite existing",
                     "default": False,
                 },
             },

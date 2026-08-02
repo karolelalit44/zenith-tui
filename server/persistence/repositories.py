@@ -156,29 +156,42 @@ class SessionRepository:
         limit: int = 10,
         include_archived: bool = False,
     ) -> list[dict]:
-        cols = [
-            SessionRecord.id,
-            SessionRecord.title,
-            SessionRecord.mode,
-            SessionRecord.state,
-            SessionRecord.provider,
-            SessionRecord.model,
-            SessionRecord.message_count,
-            SessionRecord.total_tokens,
-            SessionRecord.total_cost,
-            SessionRecord.context_percent,
-            SessionRecord.created_at,
-            SessionRecord.updated_at,
-            SessionRecord.is_active,
-            SessionRecord.error_count,
-            SessionRecord.last_error,
-            SessionRecord.parent_session_id,
-        ]
-        stmt = select(*cols)
-        if not include_archived:
-            stmt = stmt.where(SessionRecord.is_active == True)  # noqa: E712
-        stmt = stmt.order_by(SessionRecord.updated_at.desc()).limit(limit)
         async with self.db.session() as s:
+            msg_count_sub = (
+                select(MessageRecord.session_id, func.count(MessageRecord.id).label("actual_msg_count"))
+                .where(MessageRecord.role == "user")
+                .group_by(MessageRecord.session_id)
+                .subquery()
+            )
+
+            stmt = (
+                select(
+                    SessionRecord.id,
+                    SessionRecord.title,
+                    SessionRecord.mode,
+                    SessionRecord.state,
+                    SessionRecord.provider,
+                    SessionRecord.model,
+                    func.coalesce(msg_count_sub.c.actual_msg_count, SessionRecord.message_count).label("message_count"),
+                    SessionRecord.total_tokens,
+                    SessionRecord.total_cost,
+                    SessionRecord.context_percent,
+                    SessionRecord.created_at,
+                    SessionRecord.updated_at,
+                    SessionRecord.is_active,
+                    SessionRecord.error_count,
+                    SessionRecord.last_error,
+                    SessionRecord.parent_session_id,
+                )
+                .outerjoin(msg_count_sub, SessionRecord.id == msg_count_sub.c.session_id)
+            )
+            if not include_archived:
+                stmt = stmt.where(SessionRecord.is_active == True)  # noqa: E712
+            stmt = stmt.where(
+                (func.coalesce(msg_count_sub.c.actual_msg_count, SessionRecord.message_count) > 0)
+                | (SessionRecord.total_tokens > 0)
+            )
+            stmt = stmt.order_by(SessionRecord.updated_at.desc()).limit(limit)
             rows = (await s.execute(stmt)).mappings().all()
             return [dict(r) for r in rows]
 
@@ -279,6 +292,11 @@ class MessageRepository:
                     metadata_json=json.dumps(message.metadata),
                 )
             )
+            srec = await s.get(SessionRecord, message.session_id)
+            if srec:
+                if message.role == "user":
+                    srec.message_count += 1
+                srec.updated_at = datetime.now().isoformat()
             await s.commit()
         return message
 

@@ -10,7 +10,7 @@ from ..path_validator import validate_path
 
 class FileReadTool(BaseTool):
     name = "file_read"
-    description = "Read the contents of a file"
+    description = "Read file contents"
     requires_mode = None  # Available in both plan and build
 
     def get_schema(self) -> dict:
@@ -19,16 +19,16 @@ class FileReadTool(BaseTool):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to the file to read",
+                    "description": "File path",
                 },
                 "offset": {
                     "type": "integer",
-                    "description": "Line number to start from (0-indexed, default: 0)",
+                    "description": "Start line (0-indexed)",
                     "default": 0,
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of lines to read (default: 2000)",
+                    "description": "Max lines",
                     "default": 2000,
                 },
             },

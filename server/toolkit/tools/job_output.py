@@ -10,7 +10,7 @@ from ..base import BaseTool, ToolResult
 
 class JobOutputTool(BaseTool):
     name = "job_output"
-    description = "View output from a running or completed background job"
+    description = "View background job output"
 
     def get_schema(self) -> dict:
         return {
@@ -18,7 +18,7 @@ class JobOutputTool(BaseTool):
             "properties": {
                 "job_id": {
                     "type": "string",
-                    "description": "The background job ID to get output from",
+                    "description": "Background job ID",
                 },
             },
             "required": ["job_id"],
