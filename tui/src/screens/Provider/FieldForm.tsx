@@ -33,6 +33,15 @@ export const FieldForm: React.FC<FieldFormProps> = ({ title, fields, onSubmit, o
   );
   const [focused, setFocused] = useState(0);
 
+  const valuesRef = React.useRef(values);
+  valuesRef.current = values;
+
+  const cursorsRef = React.useRef(cursors);
+  cursorsRef.current = cursors;
+
+  const focusedRef = React.useRef(focused);
+  focusedRef.current = focused;
+
   const editField = useCallback(
     (
       char: string,
@@ -46,8 +55,8 @@ export const FieldForm: React.FC<FieldFormProps> = ({ title, fields, onSubmit, o
       },
       fieldKey: string,
     ) => {
-      const value = values[fieldKey] ?? '';
-      const cursor = cursors[fieldKey] ?? value.length;
+      const value = valuesRef.current[fieldKey] ?? '';
+      const cursor = cursorsRef.current[fieldKey] ?? value.length;
       if (key.leftArrow) {
         setCursors((c) => ({ ...c, [fieldKey]: Math.max(0, cursor - 1) }));
         return;
@@ -68,34 +77,40 @@ export const FieldForm: React.FC<FieldFormProps> = ({ title, fields, onSubmit, o
         if (cursor >= value.length) return;
         const chars = [...value];
         chars.splice(cursor, 1);
-        setValues((v) => ({ ...v, [fieldKey]: chars.join('') }));
+        const newVal = chars.join('');
+        setValues((v) => ({ ...v, [fieldKey]: newVal }));
         return;
       }
       if (key.backspace) {
         if (cursor <= 0) return;
         const chars = [...value];
         chars.splice(cursor - 1, 1);
-        setValues((v) => ({ ...v, [fieldKey]: chars.join('') }));
-        setCursors((c) => ({ ...c, [fieldKey]: Math.max(0, cursor - 1) }));
+        const newVal = chars.join('');
+        const nextCursor = Math.max(0, cursor - 1);
+        setValues((v) => ({ ...v, [fieldKey]: newVal }));
+        setCursors((c) => ({ ...c, [fieldKey]: nextCursor }));
         return;
       }
       if (!char) return;
       const chars = [...value];
       chars.splice(cursor, 0, char);
-      setValues((v) => ({ ...v, [fieldKey]: chars.join('') }));
-      setCursors((c) => ({ ...c, [fieldKey]: cursor + [...char].length }));
+      const newVal = chars.join('');
+      const nextCursor = cursor + [...char].length;
+      setValues((v) => ({ ...v, [fieldKey]: newVal }));
+      setCursors((c) => ({ ...c, [fieldKey]: nextCursor }));
     },
-    [values, cursors],
+    [],
   );
 
   const confirm = useCallback(() => {
-    const missingIdx = fields.findIndex((field) => field.required && !(values[field.key] ?? '').trim());
+    const currentVals = valuesRef.current;
+    const missingIdx = fields.findIndex((field) => field.required && !(currentVals[field.key] ?? '').trim());
     if (missingIdx >= 0) {
       setFocused(missingIdx);
       return;
     }
-    onSubmit(values);
-  }, [fields, values, onSubmit]);
+    onSubmit(currentVals);
+  }, [fields, onSubmit]);
 
   useInput((char, key) => {
     if (key.escape) {
@@ -114,7 +129,7 @@ export const FieldForm: React.FC<FieldFormProps> = ({ title, fields, onSubmit, o
       confirm();
       return;
     }
-    const field = fields[focused];
+    const field = fields[focusedRef.current];
     if (field) editField(char, key, field.key);
   });
 

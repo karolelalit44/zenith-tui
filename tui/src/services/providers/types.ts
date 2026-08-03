@@ -160,6 +160,7 @@ export interface ValidationStreamEvent {
 }
 
 export interface ValidateProviderOptions {
+  name?: string;
   apiKey?: string;
   baseUrl?: string;
   model?: string;

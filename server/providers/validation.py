@@ -118,7 +118,11 @@ def _resolve_config(provider_id: str, api_key: str, base_url: str, model: str, d
     entry = catalog.get("providers", {}).get(provider_id) or {}
     stored = provider_config_repo.read_providers(db_path).get(provider_id) or {}
     resolved_key = (api_key or "").strip() or (stored.get("api_key") or "")
-    resolved_base = (base_url or "").strip() or (stored.get("base_url") or "") or (entry.get("base_url") or "")
+    catalog_base = (entry.get("base_url") or "").strip()
+    if provider_id not in ("custom", "openai_compatible") and catalog_base:
+        resolved_base = (base_url or "").strip() or catalog_base
+    else:
+        resolved_base = (base_url or "").strip() or (stored.get("base_url") or "") or catalog_base
     resolved_model = (model or "").strip() or (stored.get("model") or "") or (entry.get("default_model") or "")
     config = {
         "api_key": resolved_key,

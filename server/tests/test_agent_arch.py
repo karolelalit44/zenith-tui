@@ -106,8 +106,8 @@ class TestSystemPromptBuilding:
     def test_build_system_prompt_includes_direct_responses(self):
         from server.agents.prompts import build_system_prompt
         prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
-        assert "Tool Usage Boundary" in prompt
-        assert "without tools" in prompt
+        assert "General Queries" in prompt
+        assert "without tool calls" in prompt
 
     def test_build_system_prompt_omits_text_tool_schemas(self):
         from server.agents.prompts import build_system_prompt

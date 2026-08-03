@@ -12,30 +12,19 @@ from server.workspace.git import GitOps
 
 SYSTEM_GUIDELINES = """\
 <guidelines>
-- **Tool Usage Boundary**: Use tools (`file_read`, `file_edit`, `file_write`, `bash`, `glob`, `grep`, `lsp`) when inspecting, searching, or modifying code or executing commands. For greetings, general questions, or non-file queries, answer directly in markdown text without tools.
-- **Editing Rule**: Always `file_read` before `file_edit`. Match exact whitespace and context lines. Make surgical edits and verify with tests.
-- **Directness**: Keep outputs direct, concise, and non-repetitive.
+- Code Actions: Use tools (file_read, file_edit, file_write, bash, glob, grep) to search, inspect, modify, test code.
+- General Queries: Answer directly in markdown text without tool calls.
 </guidelines>
 """
 
 BUILD_MODE_INSTRUCTIONS = """\
-## MODE: BUILD (Autonomous Execution Engine)
-You are in **BUILD mode**. Your objective is to resolve tasks autonomously and cleanly:
-- **Code Actions**: Use tools (`file_read`, `file_edit`, `file_write`, `bash`, `glob`, `grep`, `lsp`) to search, inspect, modify, and test code.
-- **Surgical Execution**: Read before editing. Make exact edits. Run test verification when changes are complete.
-- **Fluid Intent**: For greetings, general Q&A, or post-task summaries, respond directly in standard markdown without tool calls.
+## MODE: BUILD
+Objective: Resolve coding tasks autonomously. Read before editing, make surgical edits, verify with tests. For greetings/general questions, respond in markdown without tools.
 """
 
 PLAN_MODE_INSTRUCTIONS = """\
-## MODE: PLAN (Architectural Design & Read-Only Analysis)
-You are in **PLAN mode**. Your objective is to analyze the codebase and design structured technical implementation plans:
-- **Read-Only Scope**: Use exploration tools (`file_read`, `glob`, `grep`, `lsp`) to inspect existing files. NEVER call mutating tools (`file_edit`, `file_write`) or modifying shell commands.
-- **Plan Output**: Produce a clean Markdown plan with:
-  1. **Overview**: Objectives & technical approach.
-  2. **Architecture & File Changes**: Affected components, new/modified files (`file:line`).
-  3. **Implementation Steps**: Numbered sequential steps.
-  4. **Verification Plan**: Commands to test the implementation.
-- Conclude by asking: *"Ready to implement? Switch to build mode with `/build`"*
+## MODE: PLAN
+Objective: Read-only codebase analysis & planning. Use read-only tools (file_read, glob, grep), output Markdown plan.
 """
 
 
@@ -83,18 +72,5 @@ def build_plan_system_prompt(
 def _build_env_section(workspace_root: str, mode: str) -> str:
     """Build the <env> metadata block efficiently."""
     os_name = platform.system()
-    is_windows = os_name == "Windows"
-
-    parts: list[str] = [
-        f"Working directory: {workspace_root}",
-        f"Agent mode: {mode}",
-        f"OS: {os_name} {platform.release()}",
-        f"Today's date: {datetime.now(UTC).strftime('%Y-%m-%d')}",
-    ]
-
-    if is_windows:
-        parts.append("PLATFORM: Windows (PowerShell) | Use PowerShell commands")
-    else:
-        parts.append("PLATFORM: Unix-like | Shell: bash")
-
-    return "\n".join(parts)
+    today = datetime.now(UTC).strftime('%Y-%m-%d')
+    return f"OS: {os_name} | Mode: {mode} | Dir: {workspace_root} | Date: {today}"

@@ -88,8 +88,8 @@ class ProviderError(ZenithError):
 
 
 class RateLimitError(ProviderError):
-    def __init__(self, message: str = "Rate limit exceeded", provider: str = "", retry_after: float | None = None):
-        super().__init__(message, provider=provider, recoverable=True)
+    def __init__(self, message: str = "Rate limit exceeded", provider: str = "", retry_after: float | None = None, recoverable: bool = True):
+        super().__init__(message, provider=provider, recoverable=recoverable)
         self.code = "RATE_LIMIT"
         self.retry_after = retry_after
 

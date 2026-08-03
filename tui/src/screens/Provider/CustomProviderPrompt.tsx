@@ -10,6 +10,14 @@ export const CustomProviderPrompt: React.FC<CustomProviderPromptProps> = ({ onBa
   const fields = useMemo<FormField[]>(
     () => [
       {
+        key: 'name',
+        label: 'Provider Name',
+        type: 'text',
+        required: true,
+        defaultValue: 'Custom Provider',
+        placeholder: 'e.g. TokenRouter',
+      },
+      {
         key: 'baseUrl',
         label: 'Base URL',
         type: 'text',

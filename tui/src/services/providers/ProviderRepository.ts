@@ -161,14 +161,19 @@ export class ProviderRepository {
       id: meta.id,
       name: meta.name,
       description: meta.description,
+      adapter: meta.id,
       swatch: meta.swatch,
+      capabilities: {},
+      api_key_prefix: null,
+      requires_api_key: true,
       model: meta.defaultModel,
       has_api_key: false,
       api_key_masked: '',
       validation_status: 'unconfigured',
       last_validation_error: '',
+      is_active: false,
       models: Object.fromEntries(
-        meta.availableModels.map((m) => [
+        (meta.availableModels ?? []).map((m) => [
           m.id,
           {
             id: m.id,
@@ -183,7 +188,7 @@ export class ProviderRepository {
             model_capabilities: m.model_capabilities || {},
             speed_tier: m.speed_tier || 'fast',
             best_for: m.best_for || [],
-            is_default: m.is_default ? 1 : 0,
+            is_default: Boolean(m.is_default),
           },
         ]),
       ),

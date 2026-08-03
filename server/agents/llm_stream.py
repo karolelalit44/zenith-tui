@@ -101,10 +101,10 @@ async def stream_with_retries(
         except asyncio.CancelledError:
             raise
         except RateLimitError as e:
-            if time.monotonic() >= deadline or not e.recoverable:
+            if time.monotonic() >= deadline or not e.recoverable or attempt >= 2:
                 yield r.error(str(e), session_id, code=e.code, recoverable=False)
                 return
-            delay = min(e.retry_after or min(2 ** attempt, 30), deadline - time.monotonic())
+            delay = min(e.retry_after or min(2 ** attempt, 10), deadline - time.monotonic())
             if delay <= 0:
                 yield r.error(str(e), session_id, code=e.code, recoverable=False)
                 return

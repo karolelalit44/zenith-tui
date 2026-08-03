@@ -25,7 +25,7 @@ export interface ProviderFlowProps {
 export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete }) => {
   const [phase, setPhase] = useState<ProviderFlowPhase>('pick');
   const [providers, setProviders] = useState<ProviderState[]>(() => providerService.getAllProviders());
-  const [providerID, setProviderID] = useState<ProviderId>('custom');
+  const [providerID, setProviderID] = useState<ProviderId>(() => providerService.getActiveProviderId());
   const [validateOptions, setValidateOptions] = useState<ValidateProviderOptions>({});
   const [prevPhase, setPrevPhase] = useState<ProviderFlowPhase>('key');
 
@@ -53,7 +53,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete 
 
   const handlePick = useCallback((selection: ProviderPickerSelection) => {
     if (selection.type === 'custom') {
-      setProviderID('custom');
+      setProviderID('openai_compatible');
       setPhase('custom');
       return;
     }
@@ -66,19 +66,21 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete 
   const handleKeySubmit = useCallback(
     (values: Record<string, string>) => {
       setPrevPhase('key');
+      const targetState = providerService.getProviderState(providerID);
       setValidateOptions({
         apiKey: values.apiKey,
-        baseUrl: values.baseUrl || undefined,
-        model: provider.config.model || provider.meta.defaultModel,
+        baseUrl: providerID === 'custom' || providerID === 'openai_compatible' ? values.baseUrl : undefined,
+        model: targetState.config.model || targetState.meta.defaultModel,
       });
       setPhase('validating');
     },
-    [provider],
+    [providerID],
   );
 
   const handleCustomSubmit = useCallback((values: Record<string, string>) => {
     setPrevPhase('custom');
     setValidateOptions({
+      name: values.name || 'Custom Provider',
       baseUrl: values.baseUrl,
       apiKey: values.apiKey || undefined,
       model: values.model || undefined,

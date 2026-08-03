@@ -64,11 +64,20 @@ class AgentModeConfig:
     sub_agent: bool = False
     tool_choice: str = "auto"  # "auto", "required", "none", or specific function name
 
+# Core read-only tools for plan mode — 4 essential exploration tools (~260 tokens schema overhead).
+# Specialized read-only tools (LSP, webfetch, question) are escalated dynamically on demand.
+CORE_PLAN_TOOLS = [
+    "file_read",
+    "glob",
+    "grep",
+    "bash",
+]
+
 PLAN_MODE_CONFIG = AgentModeConfig(
     name="plan",
-    allowed_tools=PLAN_READ_ONLY_TOOLS,
+    allowed_tools=CORE_PLAN_TOOLS,
     allowed_mcp={},  # No MCPs in plan mode
-    description="Read-only analysis and planning. No file modifications.",
+    description="Read-only analysis and planning with core tools and dynamic escalation.",
     sub_agent=False,
 )
 

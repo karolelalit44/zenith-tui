@@ -10,28 +10,16 @@ interface ApiKeyPromptProps {
 
 export const ApiKeyPrompt: React.FC<ApiKeyPromptProps> = ({ provider, onBack, onSubmit }) => {
   const fields = useMemo<FormField[]>(() => {
-    const list: FormField[] = [];
     const keyField = provider.meta.fields.find((field) => field.key === 'apiKey');
-    list.push({
-      key: 'apiKey',
-      label: keyField?.label ?? 'API Key',
-      type: 'password',
-      required: true,
-      placeholder: keyField?.placeholder ?? 'sk-...',
-    });
-    const baseUrlField = provider.meta.fields.find((field) => field.key === 'baseUrl' && field.required);
-    if (baseUrlField) {
-      list.push({
-        key: 'baseUrl',
-        label: baseUrlField.label ?? 'Base URL',
-        type: 'text',
+    return [
+      {
+        key: 'apiKey',
+        label: keyField?.label ?? 'API Key',
+        type: 'password',
         required: true,
-        defaultValue: provider.config.baseUrl ?? baseUrlField.defaultValue,
-        placeholder: baseUrlField.placeholder,
-        description: baseUrlField.description,
-      });
-    }
-    return list;
+        placeholder: keyField?.placeholder ?? 'sk-...',
+      },
+    ];
   }, [provider]);
 
   return (

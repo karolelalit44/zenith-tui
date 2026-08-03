@@ -131,6 +131,11 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
     clean = _extract_clean_message(exc)
     retry_after = _extract_retry_after(exc)
 
+    # Detect unrecoverable quota / daily limit exhaustion
+    is_quota_exhausted = any(q in msg for q in (
+        "free-models-per-day", "insufficient_quota", "credit_balance", "payment_required", "quota_exceeded", "add 10 credits"
+    ))
+
     # Try litellm's exception hierarchy first
     try:
         import litellm
@@ -140,7 +145,10 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
                 provider=provider_name, code="CONTEXT_EXCEEDED", recoverable=True,
             )
         if isinstance(exc, litellm.RateLimitError):
-            return RateLimitError(f"Rate limited by provider '{provider_name}': {clean}", provider=provider_name, retry_after=retry_after)
+            return RateLimitError(
+                f"Rate limited by provider '{provider_name}': {clean}",
+                provider=provider_name, retry_after=retry_after, recoverable=not is_quota_exhausted,
+            )
         if isinstance(exc, litellm.AuthenticationError):
             return AuthenticationError(
                 f"Authentication failed for provider '{provider_name}': {clean}\nTip: Check your API key is set correctly in settings.",
@@ -164,7 +172,10 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
             provider=provider_name,
         )
     if "429" in msg or "rate limit" in msg:
-        return RateLimitError(f"Rate limited by provider '{provider_name}': {clean}", provider=provider_name, retry_after=retry_after)
+        return RateLimitError(
+            f"Rate limited by provider '{provider_name}': {clean}",
+            provider=provider_name, retry_after=retry_after, recoverable=not is_quota_exhausted,
+        )
     if "timeout" in msg or "timed out" in msg:
         return TimeoutError(f"Timeout from provider '{provider_name}': {clean}", provider=provider_name)
     if "context_window" in msg or "context window" in msg or "maximum context" in msg or "too many tokens" in msg:
@@ -366,6 +377,7 @@ class LLMProvider(BaseProvider):
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
             "stream": stream and self.streaming_enabled,
+            "num_retries": 1,
         }
         if stream and self.streaming_enabled:
             kwargs["stream_options"] = {"include_usage": True}

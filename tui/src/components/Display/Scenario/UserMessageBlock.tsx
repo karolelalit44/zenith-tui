@@ -30,15 +30,15 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
   const boxWidth = Math.max(0, columns - 2);
 
   return (
-    <Box flexDirection="column" width={boxWidth} marginBottom={1}>
-      <Box flexDirection="column" width="100%" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1}>
-        <Box width="100%">
+    <Box flexDirection="column" width={boxWidth} marginBottom={1} paddingX={1}>
+      <Box flexDirection="row" justifyContent="space-between" width="100%" backgroundColor={theme.colors.bg.modal} paddingX={1} paddingY={1}>
+        <Box flexShrink={1}>
           <Text color={theme.colors.text.bright} wrap="wrap">
             {prompt}
           </Text>
         </Box>
-        <Box flexDirection="row" justifyContent="flex-end" width="100%">
-          <Text color={theme.colors.text.dim} wrap="wrap">
+        <Box marginLeft={2} flexShrink={0}>
+          <Text color={theme.colors.text.muted}>
             {timeStr}
           </Text>
         </Box>

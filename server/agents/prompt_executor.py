@@ -341,11 +341,12 @@ class PromptExecutor:
             collected_events.append(error_event)
 
         try:
-            if response_text:
-                assistant_msg = Message(session_id=session_id, role="assistant", content=response_text, events=collected_events)
+            if collected_events or response_text:
+                text_content = response_text or "[Cancelled by user]"
+                assistant_msg = Message(session_id=session_id, role="assistant", content=text_content, events=collected_events)
                 await self._message_repo.create(assistant_msg)
-                logger.info("Assistant message persisted: %d events, %d chars", len(collected_events), len(response_text))
+                logger.info("Assistant message persisted: %d events, %d chars", len(collected_events), len(text_content))
             else:
-                logger.info("Skipping empty assistant message (request may have failed)")
+                logger.info("Skipping empty assistant message (no events or text)")
         except Exception:
             logger.exception("Failed to persist assistant message for session %s", session_id)

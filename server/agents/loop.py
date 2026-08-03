@@ -199,7 +199,7 @@ class AgentLoop:
                 )
                 registered_tools = set(plan_tool_names)
                 plan_schemas = self.tool_registry.get_schemas_for_mode(
-                    "plan", allowed_mcp=mode_config.allowed_mcp,
+                    "plan", allowed_mcp=mode_config.allowed_mcp, allowed_tools=mode_config.allowed_tools,
                 )
                 openai_tools = schemas_to_openai_tools(plan_schemas)
                 logger.info("Plan mode tools: %s", sorted(registered_tools))
@@ -294,10 +294,20 @@ class AgentLoop:
                 stream_state = StreamState()
                 finish_reason = FinishReason.STOP
                 context_exceeded = False
+
+                # Progressive Multi-Turn Tool Deferral:
+                # Turn 1 non-coding prompts defer tool schemas to achieve <120 prompt tokens across all modes.
+                # Turn 2+ and code-relevant prompts ingest active tool schemas dynamically.
+                if iteration == 1:
+                    code_signal = self.context_manager._compute_code_relevance(prompt, history)
+                    turn_tools = openai_tools if code_signal >= 0.2 else []
+                else:
+                    turn_tools = openai_tools
+
                 try:
                     _tool_choice = mode_config.tool_choice if mode_config else "auto"
                     async for event in stream_with_retries(
-                        self.provider, messages, openai_tools, session_id, iteration, stream_state,
+                        self.provider, messages, turn_tools, session_id, iteration, stream_state,
                         tool_choice=_tool_choice,
                     ):
                         if event.kind == EventKind.WARNING and event.data.get("context_exceeded"):
