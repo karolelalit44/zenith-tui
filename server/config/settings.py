@@ -57,7 +57,6 @@ class ToolConfig(BaseModel):
     file_edit_enabled: bool = True
     file_delete_enabled: bool = True
     max_bash_timeout: int = Field(default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300)
-    max_tool_output: int = Field(default=optional_int("ZENITH_MAX_TOOL_OUTPUT", 10000), ge=1000)
     max_retries: int = Field(default=optional_int("ZENITH_MAX_RETRIES", 3), ge=0, le=10)
     stream_max_retries: int = Field(
         default=optional_int("ZENITH_STREAM_MAX_RETRIES", 3), ge=0, le=10
@@ -67,10 +66,6 @@ class ToolConfig(BaseModel):
     )
     retry_max_delay: float = Field(
         default=optional_float("ZENITH_RETRY_MAX_DELAY", 60.0), ge=1.0, le=300.0
-    )
-    webfetch_timeout: int = Field(default=optional_int("ZENITH_WEBFETCH_TIMEOUT", 30), ge=5, le=120)
-    webfetch_max_bytes: int = Field(
-        default=optional_int("ZENITH_WEBFETCH_MAX_BYTES", 100000), ge=1000, le=1000000
     )
     git_timeout: int = Field(default=optional_int("ZENITH_GIT_TIMEOUT", 30), ge=5, le=120)
 

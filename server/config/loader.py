@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -165,15 +164,6 @@ def _validate_config(settings: AppSettings) -> None:
             warnings.append(f"Cannot create database directory '{db_dir}': {e}")
     for warning in warnings:
         logger.warning("Config: %s", warning)
-    if warnings and os.getenv("ZENITH_STRICT_VALIDATION", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
-        print("Configuration errors detected:", file=sys.stderr)
-        for w in warnings:
-            print(f"  - {w}", file=sys.stderr)
-        sys.exit(1)
 
 
 def create_default_config(workspace_root: str = ".") -> Path:

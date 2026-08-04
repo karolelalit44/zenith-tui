@@ -107,6 +107,10 @@ class AgentLoop:
     def set_summary(self, summary: str | None) -> None:
         self._summary = summary
 
+    def _resolve_safety_iterations(self, model: str) -> int:
+        ctx = _get_model_context_window(model)
+        return max(10, min(ctx // 2000, 150))
+
     async def process_prompt(
         self,
         prompt: str,
@@ -205,7 +209,6 @@ class AgentLoop:
                 "Model '%s' does not support system prompt — merging into user message", model
             )
         _reflimit = reflection_error_limit(_get_model_context_window(model))
-        SAFETY_NET_MAX_ITERATIONS = 100
         messages = self.context_manager.build_messages(
             history,
             system_prompt,
@@ -257,7 +260,8 @@ class AgentLoop:
         files_edited: list[str] = []
         _total_completion_chars = 0
         try:
-            while iteration < SAFETY_NET_MAX_ITERATIONS:
+            safety_iterations = self._resolve_safety_iterations(model)
+            while iteration < safety_iterations:
                 if self.is_cancelled(sequence):
                     yield r.warning("Request cancelled", session_id)
                     return
@@ -382,7 +386,7 @@ class AgentLoop:
                     )
                 if finish_reason == FinishReason.LENGTH:
                     logger.info("FinishReason=LENGTH on turn %d — continuing response", iteration)
-                    if iteration >= SAFETY_NET_MAX_ITERATIONS * 2:
+                    if iteration >= safety_iterations * 2:
                         yield r.error(
                             "Response length limit exceeded repeatedly",
                             session_id,
@@ -550,8 +554,7 @@ class AgentLoop:
                         yield ev
                     model_ctx = _get_model_context_window(model)
                     dynamic_max = _dynamic_max_output(model_ctx)
-                    configured_max = self.config.tools.max_tool_output
-                    result_limit = min(dynamic_max, configured_max)
+                    result_limit = dynamic_max
                     _compacted, cstats = compact_tool_output(
                         result.output or "", max_output=result_limit
                     )
@@ -594,7 +597,7 @@ class AgentLoop:
                     files_edited.clear()
             else:
                 yield r.error(
-                    f"Safety net exceeded ({SAFETY_NET_MAX_ITERATIONS} iterations)",
+                    f"Safety net exceeded ({safety_iterations} iterations)",
                     session_id,
                     code="MAX_ITERATIONS",
                 )

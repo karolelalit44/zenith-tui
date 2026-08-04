@@ -16,7 +16,6 @@ from server.api.schemas import (
     ValidationStep,
     ValidationStepStatus,
 )
-from server.config.env import require_int
 from server.persistence import provider_config_repo
 from server.persistence.repositories import load_catalog
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
@@ -122,12 +121,28 @@ def _resolve_config(
     resolved_model = (
         (model or "").strip() or (stored.get("model") or "") or (entry.get("default_model") or "")
     )
+    max_tokens = stored.get("max_tokens")
+    temperature = stored.get("temperature")
+    if max_tokens is None or temperature is None:
+        models = entry.get("models", [])
+        for m in models:
+            if m.get("id") == resolved_model:
+                ctx = m.get("context_window", 128000)
+                if max_tokens is None:
+                    max_tokens = m.get("max_output_tokens", max(4096, min(ctx // 2, 32768)))
+                if temperature is None:
+                    temperature = m.get("default_temperature", 0.7)
+                break
+    if max_tokens is None:
+        max_tokens = 4096
+    if temperature is None:
+        temperature = 0.7
     config = {
         "api_key": resolved_key,
         "base_url": resolved_base,
         "model": resolved_model,
-        "max_tokens": int(stored.get("max_tokens") or 4096),
-        "temperature": float(stored.get("temperature") or 0.7),
+        "max_tokens": int(max_tokens),
+        "temperature": float(temperature),
         "adapter": entry.get("adapter", "openai_compat"),
         "litellm_prefix": entry.get("litellm_prefix", ""),
         "requires_api_key": bool(entry.get("requires_api_key", True)),
@@ -236,7 +251,7 @@ async def validate_provider(
     _update("api_key", ValidationStepStatus.SUCCESS, key_note)
     yield _step_event("api_key", ValidationStepStatus.SUCCESS, key_note)
     models: list[ProviderModelInfo] = []
-    timeout = max(10, require_int("ZENITH_VALIDATION_TIMEOUT"))
+    timeout = 30
     endpoint = _base_url_endpoint(base_url)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key.strip() else {}
     try:

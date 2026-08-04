@@ -30,6 +30,16 @@ def _model_supports_thinking(provider_name: str, model_id: str) -> bool:
     return bool(caps.get("thinking", False))
 
 
+def _resolve_model_defaults(provider_name: str, model_id: str) -> dict[str, float | int]:
+    info = _get_model_info(provider_name, model_id)
+    ctx = info.get("context_window", 128000)
+    max_tokens = info.get("max_output_tokens")
+    if max_tokens is None:
+        max_tokens = max(4096, min(ctx // 2, 32768))
+    temperature = info.get("default_temperature", 0.7)
+    return {"max_tokens": int(max_tokens), "temperature": float(temperature)}
+
+
 def get_model_capabilities(provider_name: str, model_id: str) -> dict:
     info = _get_model_info(provider_name, model_id)
     return {
@@ -90,13 +100,14 @@ class ProviderRegistry:
                 continue
             try:
                 catalog_thinking = _model_supports_thinking(name, config.model)
+                model_defaults = _resolve_model_defaults(name, config.model)
                 provider = LLMProvider(
                     name=name,
                     api_key=config.api_key,
                     base_url=config.base_url,
                     model=config.model,
-                    max_tokens=config.max_tokens,
-                    temperature=config.temperature,
+                    max_tokens=model_defaults["max_tokens"],
+                    temperature=model_defaults["temperature"],
                     enable_thinking=getattr(config, "enable_thinking", False) or catalog_thinking,
                     reasoning_budget=getattr(config, "reasoning_budget", None),
                 )
