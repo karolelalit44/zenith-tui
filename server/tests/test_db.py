@@ -66,7 +66,9 @@ async def test_message_count_tokens(db):
     session = Session(title="Test")
     await s_repo.create(session)
     await m_repo.create(Message(session_id=session.id, role="user", content="Hi", token_count=10))
-    await m_repo.create(Message(session_id=session.id, role="assistant", content="Hello", token_count=15))
+    await m_repo.create(
+        Message(session_id=session.id, role="assistant", content="Hello", token_count=15)
+    )
     total = await m_repo.count_tokens(session.id)
     assert total == 25
 
@@ -74,6 +76,7 @@ async def test_message_count_tokens(db):
 @pytest.mark.asyncio
 async def test_message_with_events(db):
     from server.domain.events import Event, EventKind
+
     s_repo = SessionRepository(db)
     m_repo = MessageRepository(db)
     session = Session(title="With Events")

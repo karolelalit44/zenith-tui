@@ -28,6 +28,7 @@ from server.domain.domain import FinishReason
 # Existing interface (backward compatible)
 # ---------------------------------------------------------------------------
 
+
 class BaseProvider(ABC):
     def __init__(self, name: str, model: str, max_tokens: int = 4096, temperature: float = 0.7):
         self.name = name
@@ -36,8 +37,7 @@ class BaseProvider(ABC):
         self.temperature = temperature
 
     @abstractmethod
-    async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str:
-        ...
+    async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str: ...
 
     @abstractmethod
     async def stream(
@@ -46,24 +46,23 @@ class BaseProvider(ABC):
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
         response_format: dict | None = None,
-    ) -> AsyncIterator[tuple[str, str | None]]:
-        ...
+    ) -> AsyncIterator[tuple[str, str | None]]: ...
 
     @abstractmethod
-    async def validate(self) -> bool:
-        ...
+    async def validate(self) -> bool: ...
 
     @abstractmethod
-    async def list_models(self) -> list[str]:
-        ...
+    async def list_models(self) -> list[str]: ...
 
 
 # ---------------------------------------------------------------------------
 # New typed interface
 # ---------------------------------------------------------------------------
 
+
 class TokenUsage(BaseModel):
     """Token usage for a single request."""
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -72,6 +71,7 @@ class TokenUsage(BaseModel):
 
 class ToolCall(BaseModel):
     """A structured tool call from the LLM."""
+
     id: str = ""
     name: str = ""
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -80,6 +80,7 @@ class ToolCall(BaseModel):
 
 class ToolCallDelta(BaseModel):
     """Incremental tool call data during streaming."""
+
     index: int = 0
     id: str | None = None
     name: str | None = None
@@ -88,6 +89,7 @@ class ToolCallDelta(BaseModel):
 
 class ProviderResponse(BaseModel):
     """Structured response from a provider completion call."""
+
     content: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
     usage: TokenUsage = Field(default_factory=TokenUsage)
@@ -99,6 +101,7 @@ class ProviderResponse(BaseModel):
 
 class ProviderChunk(BaseModel):
     """A single chunk from a streaming response."""
+
     delta: str = ""
     tool_call_delta: ToolCallDelta | None = None
     usage: TokenUsage | None = None
@@ -108,6 +111,7 @@ class ProviderChunk(BaseModel):
 
 class ModelInfo(BaseModel):
     """Metadata about an available model."""
+
     id: str
     name: str
     provider: str
@@ -130,13 +134,11 @@ class ProviderService(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
     @property
     @abstractmethod
-    def model(self) -> str:
-        ...
+    def model(self) -> str: ...
 
     @abstractmethod
     async def complete(
@@ -145,25 +147,20 @@ class ProviderService(ABC):
         tools: list[dict] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-    ) -> ProviderResponse:
-        ...
+    ) -> ProviderResponse: ...
 
     @abstractmethod
     async def stream(
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-    ) -> AsyncIterator[ProviderChunk]:
-        ...
+    ) -> AsyncIterator[ProviderChunk]: ...
 
     @abstractmethod
-    async def validate(self) -> bool:
-        ...
+    async def validate(self) -> bool: ...
 
     @abstractmethod
-    async def list_models(self) -> list[ModelInfo]:
-        ...
+    async def list_models(self) -> list[ModelInfo]: ...
 
     @abstractmethod
-    def count_tokens(self, messages: list[dict]) -> int:
-        ...
+    def count_tokens(self, messages: list[dict]) -> int: ...

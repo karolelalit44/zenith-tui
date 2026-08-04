@@ -42,9 +42,7 @@ class PermissionMiddleware(ToolMiddleware):
     ) -> bool | ToolResult:
         if self._service is not None:
             try:
-                decision = await self._service.get_decision(
-                    name, ctx.session_id or ""
-                )
+                decision = await self._service.get_decision(name, ctx.session_id or "")
             except Exception:
                 return True  # Fail-open: service errors do not block execution
             if decision is None:

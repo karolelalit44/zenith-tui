@@ -20,12 +20,16 @@ type ProviderFlowPhase = 'pick' | 'key' | 'custom' | 'validating' | 'models';
 export interface ProviderFlowProps {
   onClose: () => void;
   onComplete?: (sel: ModelSelection) => void;
+  /** Jump straight to the key prompt for a specific (unconfigured) provider. */
+  initialProviderID?: ProviderId;
 }
 
-export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete }) => {
-  const [phase, setPhase] = useState<ProviderFlowPhase>('pick');
+export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete, initialProviderID }) => {
+  const [phase, setPhase] = useState<ProviderFlowPhase>(() => (initialProviderID ? 'key' : 'pick'));
   const [providers, setProviders] = useState<ProviderState[]>(() => providerService.getAllProviders());
-  const [providerID, setProviderID] = useState<ProviderId>(() => providerService.getActiveProviderId());
+  const [providerID, setProviderID] = useState<ProviderId>(
+    () => initialProviderID ?? providerService.getActiveProviderId(),
+  );
   const [validateOptions, setValidateOptions] = useState<ValidateProviderOptions>({});
   const [prevPhase, setPrevPhase] = useState<ProviderFlowPhase>('key');
 
@@ -39,7 +43,6 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete 
     () => providers.find((item) => item.id === providerID) ?? providerService.getProviderState(providerID),
     [providers, providerID],
   );
-
   const commitModel = useCallback(
     async (sel: ModelSelection) => {
       await providerRepository.setModel(sel.providerID, sel.modelID);
@@ -53,28 +56,29 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete 
 
   const handlePick = useCallback((selection: ProviderPickerSelection) => {
     if (selection.type === 'custom') {
-      setProviderID('openai_compatible');
+      setProviderID(selection.providerID!);
       setPhase('custom');
       return;
     }
     const id = selection.providerID!;
     setProviderID(id);
     const state = providerService.getProviderState(id);
-    setPhase(state.hasApiKey ? 'models' : 'key');
+    setPhase(state.isCustomFlow ? 'custom' : state.hasApiKey ? 'models' : 'key');
   }, []);
 
   const handleKeySubmit = useCallback(
     (values: Record<string, string>) => {
       setPrevPhase('key');
       const targetState = providerService.getProviderState(providerID);
+      const targetFlow = providers.find((item) => item.id === providerID);
       setValidateOptions({
         apiKey: values.apiKey,
-        baseUrl: providerID === 'custom' || providerID === 'openai_compatible' ? values.baseUrl : undefined,
+        baseUrl: (targetFlow?.baseUrlStyle ?? targetState.baseUrlStyle) === 'user' ? values.baseUrl : undefined,
         model: targetState.config.model || targetState.meta.defaultModel,
       });
       setPhase('validating');
     },
-    [providerID],
+    [providerID, providers],
   );
 
   const handleCustomSubmit = useCallback((values: Record<string, string>) => {
@@ -92,6 +96,13 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete 
     async (result: ValidationResult) => {
       await providerService.refreshFromBackend();
       setProviders(providerService.getAllProviders());
+      // The backend's save step already made this provider active, so point the
+      // frontend at it now. This prevents a cancelled model picker from leaving
+      // modelStore.current on the *old* provider while the backend has switched.
+      const resolvedModel = validateOptions.model || provider.meta.defaultModel;
+      if (resolvedModel) {
+        modelStore.set({ providerID, modelID: resolvedModel });
+      }
       const discovered = result.models ?? [];
       if (discovered.length > 0) {
         setPhase('models');
@@ -99,7 +110,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete 
       }
       await commitModel({
         providerID,
-        modelID: validateOptions.model || provider.meta.defaultModel,
+        modelID: resolvedModel,
       });
     },
     [providerID, validateOptions.model, provider.meta.defaultModel, commitModel],

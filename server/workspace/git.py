@@ -52,6 +52,7 @@ class GitOps:
                 timeout=timeout,
                 encoding="utf-8",
                 errors="replace",
+                check=False,
             )
             return result.returncode, result.stdout, result.stderr
         except FileNotFoundError:
@@ -153,12 +154,14 @@ class GitOps:
                 continue
             parts = line.split("|", 3)
             if len(parts) >= 4:
-                commits.append({
-                    "hash": parts[0][:8],
-                    "message": parts[1],
-                    "author": parts[2],
-                    "date": parts[3],
-                })
+                commits.append(
+                    {
+                        "hash": parts[0][:8],
+                        "message": parts[1],
+                        "author": parts[2],
+                        "date": parts[3],
+                    }
+                )
         return commits
 
     def undo(self) -> dict:
@@ -224,9 +227,7 @@ class GitOps:
                     parts.append(f"  ... and {len(lines) - 20} more")
 
         # Recent commits (last 3)
-        log_code, log_out, _ = self._run(
-            "log", "--max-count=3", "--pretty=format:%h %s (%ar)"
-        )
+        log_code, log_out, _ = self._run("log", "--max-count=3", "--pretty=format:%h %s (%ar)")
         if log_code == 0 and log_out.strip():
             parts.append("Recent commits:")
             for line in log_out.strip().split("\n"):

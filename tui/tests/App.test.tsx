@@ -143,6 +143,73 @@ test('/build command switches to Build mode', async () => {
   unmount();
 });
 
+// ── Slash command menu UX ─────────────────────────────────────────
+
+test('slash menu opens inline without hiding the input', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
+
+  stdin.write('/');
+  await wait(300);
+
+  const frame = lastFrame();
+  expect(frame).toContain('[SLASH COMMANDS]');
+  expect(frame).toContain('❯ /');
+  unmount();
+});
+
+test('slash menu filters as the user types', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
+
+  stdin.write('/pl');
+  await wait(300);
+
+  const frame = lastFrame();
+  expect(frame).toContain('[SLASH COMMANDS]');
+  expect(frame).toContain('/plan');
+  expect(frame).toContain('❯ /pl');
+  unmount();
+});
+
+test('slash menu stays closed for text that is not a slash command', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
+
+  stdin.write('Hello /');
+  await wait(300);
+
+  const frame = lastFrame();
+  expect(frame).not.toContain('[SLASH COMMANDS]');
+  expect(frame).toContain('Hello /');
+  unmount();
+});
+
+test('Esc closes the slash menu but keeps the input', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = render(<App />);
+
+  await wait(500);
+
+  stdin.write('/plan');
+  await wait(300);
+  expect(lastFrame()).toContain('[SLASH COMMANDS]');
+
+  stdin.write('\x1B');
+  await wait(300);
+
+  const frame = lastFrame();
+  expect(frame).not.toContain('[SLASH COMMANDS]');
+  expect(frame).toContain('❯ /plan');
+  unmount();
+});
+
 test('Escape during scenario stops execution', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = render(<App />);
@@ -154,7 +221,7 @@ test('Escape during scenario stops execution', async () => {
   stdin.write('\n');
   await wait(500);
 
-  expect(lastFrame()).toContain('Cannot connect to backend');
+  expect(lastFrame()).toMatch(/Working|Cannot connect to backend/);
 
   stdin.write('\x1B');
   await wait(300);

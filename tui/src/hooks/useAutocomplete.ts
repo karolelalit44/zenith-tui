@@ -8,6 +8,41 @@ const MAX_HISTORY = 50;
 const HISTORY_DIR = path.join(os.homedir(), '.zenith');
 const HISTORY_PATH = path.join(HISTORY_DIR, 'history.json');
 
+/**
+ * A slash command menu only opens when the ENTIRE input is a slash command
+ * query: leading `/`, no text before it, and no whitespace. `Hello /` or
+ * `Create a /file` are plain text, never command input.
+ */
+const SLASH_PATTERN = /^\/[^\s]*$/;
+
+const MIME_TYPES: Record<string, string> = {
+  '.md': 'text/markdown',
+  '.txt': 'text/plain',
+  '.json': 'application/json',
+  '.jsonc': 'application/json',
+  '.js': 'text/javascript',
+  '.jsx': 'text/jsx',
+  '.ts': 'text/typescript',
+  '.tsx': 'text/typescript',
+  '.py': 'text/x-python',
+  '.toml': 'text/x-toml',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.sh': 'application/x-sh',
+  '.rs': 'text/rust',
+  '.go': 'text/x-go',
+  '.c': 'text/x-c',
+  '.h': 'text/x-c',
+  '.cpp': 'text/x-c++',
+  '.csv': 'text/csv',
+};
+
+function mimeTypeForPath(relPath: string): string {
+  return MIME_TYPES[path.extname(relPath).toLowerCase()] ?? 'text/plain';
+}
+
 function loadHistoryFromDisk(): string[] {
   try {
     if (fs.existsSync(HISTORY_PATH)) {
@@ -60,16 +95,17 @@ export function useAutocomplete(): UseAutocompleteReturn {
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const historyRef = useRef<string[]>(loadHistoryFromDisk());
   const historyIndexRef = useRef(-1);
+  const draftRef = useRef('');
 
   const handleInputChange = useCallback((val: string) => {
     setInput(val);
     historyIndexRef.current = -1;
-    if (val.startsWith('/')) {
-      setShowAutocomplete(true);
-      setShowFilePicker(false);
-    } else if (val.startsWith('@')) {
+    if (val.startsWith('@')) {
       setShowFilePicker(true);
       setShowAutocomplete(false);
+    } else if (SLASH_PATTERN.test(val)) {
+      setShowAutocomplete(true);
+      setShowFilePicker(false);
     } else {
       setShowAutocomplete(false);
       setShowFilePicker(false);
@@ -82,7 +118,14 @@ export function useAutocomplete(): UseAutocompleteReturn {
   }, []);
 
   const clearInput = useCallback(() => {
-    setInput('');
+    setInput((prev) => {
+      if (prev === '' && draftRef.current) {
+        const draft = draftRef.current;
+        draftRef.current = '';
+        return draft;
+      }
+      return '';
+    });
     setShowAutocomplete(false);
     setShowFilePicker(false);
     historyIndexRef.current = -1;
@@ -96,6 +139,7 @@ export function useAutocomplete(): UseAutocompleteReturn {
     if (hist.length > MAX_HISTORY) {
       hist.splice(0, hist.length - MAX_HISTORY);
     }
+    draftRef.current = prompt;
     historyIndexRef.current = -1;
     saveHistoryToDisk(hist);
   }, []);
@@ -119,13 +163,29 @@ export function useAutocomplete(): UseAutocompleteReturn {
     return hist[hist.length - 1 - historyIndexRef.current];
   }, []);
 
-  const insertFilePath = useCallback((relPath: string) => {
-    setInput((prev) => {
-      const cleaned = prev.replace(/^@/, '');
-      return cleaned ? `${cleaned} ${relPath}` : relPath;
-    });
-    setShowFilePicker(false);
+  const addAttachment = useCallback((attachment: FileAttachment) => {
+    setAttachments((prev) => [...prev, attachment]);
   }, []);
+
+  const insertFilePath = useCallback(
+    (relPath: string) => {
+      setInput((prev) => prev.replace(/^@/, ''));
+      let size = 0;
+      try {
+        size = fs.statSync(path.resolve(relPath)).size;
+      } catch {
+        // Ignore stat errors for files that vanished between list and select.
+      }
+      addAttachment({
+        path: relPath,
+        name: path.basename(relPath),
+        mimeType: mimeTypeForPath(relPath),
+        size,
+      });
+      setShowFilePicker(false);
+    },
+    [addAttachment],
+  );
 
   const closeFilePicker = useCallback(() => {
     setShowFilePicker(false);
@@ -133,10 +193,6 @@ export function useAutocomplete(): UseAutocompleteReturn {
 
   const closeAutocomplete = useCallback(() => {
     setShowAutocomplete(false);
-  }, []);
-
-  const addAttachment = useCallback((attachment: FileAttachment) => {
-    setAttachments((prev) => [...prev, attachment]);
   }, []);
 
   const removeAttachment = useCallback((index: number) => {

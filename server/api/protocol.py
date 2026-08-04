@@ -12,6 +12,7 @@ from server.domain.events import Event
 
 # ── JSON-RPC method enum ─────────────────────────────────────────────────
 
+
 class JsonRpcMethod(StrEnum):
     # Session methods
     SESSION_CREATE = "session.create"
@@ -50,6 +51,7 @@ class JsonRpcMethod(StrEnum):
 
 # ── JSON-RPC message types ───────────────────────────────────────────────
 
+
 class JsonRpcRequest(BaseModel):
     jsonrpc: str = "2.0"
     id: str | int
@@ -72,13 +74,16 @@ class JsonRpcNotification(BaseModel):
 
 # ── Connection model ─────────────────────────────────────────────────────
 
+
 class Connection(BaseModel):
     """Represents an active WebSocket connection."""
+
     session_id: str
     client: str = ""
 
 
 # ── Transport service ABC ────────────────────────────────────────────────
+
 
 class TransportService(ABC):
     """Abstract transport layer — manages connections and event broadcast."""
@@ -106,6 +111,7 @@ class TransportService(ABC):
 
 # ── Serialization helpers ────────────────────────────────────────────────
 
+
 def make_response(request_id: str | int, result: Any) -> str:
     return JsonRpcResponse(id=request_id, result=result).model_dump_json()
 
@@ -117,4 +123,6 @@ def make_error_response(request_id: str | int, code: int, message: str, data: An
 
 
 def make_event(event: Event) -> str:
-    return JsonRpcNotification(params=event.model_dump(exclude={'metadata', 'parent_event_id'})).model_dump_json()
+    return JsonRpcNotification(
+        params=event.model_dump(exclude={"metadata", "parent_event_id"})
+    ).model_dump_json()

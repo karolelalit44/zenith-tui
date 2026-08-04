@@ -57,7 +57,13 @@ class TestConversationSummarizer:
         assert out.startswith("Objective")
         prompt = provider.last_prompt
         assert "Create a short summary" in prompt
-        for section in ("Objective", "Important Details", "Work State", "Next Move", "Relevant Files"):
+        for section in (
+            "Objective",
+            "Important Details",
+            "Work State",
+            "Next Move",
+            "Relevant Files",
+        ):
             assert section in prompt
         assert "first person" in prompt
         assert "<previous-summary>" not in prompt

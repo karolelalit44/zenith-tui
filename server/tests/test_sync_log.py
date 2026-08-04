@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from server.api.websocket import ConnectionManager
 from server.persistence.repositories import (
     CheckpointRepository,
     DraftRepository,
@@ -13,9 +14,8 @@ from server.persistence.repositories import (
     SyncEventRepository,
     TokenUsageRepository,
 )
-from server.providers.responder import message_event, thinking, tool_call, tool_result, error
+from server.providers.responder import error, message_event, thinking, tool_call, tool_result
 from server.sessions.service import DefaultSessionService
-from server.api.websocket import ConnectionManager
 
 
 @pytest.fixture

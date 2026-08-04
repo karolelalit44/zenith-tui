@@ -6,21 +6,9 @@ import logging
 from pathlib import Path
 
 from server.config.loader import load_config
-from server.persistence.repositories import load_catalog
 
-from .provider_validation import (  # noqa: F401 — re-export
-    get_provider_config,
-    save_provider_config_endpoint,
-    validate_provider_setup,
-)
-
-# Backward-compat alias for import resolution
-save_provider_setup = save_provider_config_endpoint
-from .schemas import (  # noqa: F401, E402 — re-export for backward compat
+from .schemas import (
     MissingItem,
-    ProviderConfigResponse,
-    ProviderSetupRequest,
-    ProviderSetupResult,
     StartupResult,
     StartupStatus,
 )
@@ -44,10 +32,10 @@ def validate_startup(workspace_root: str = ".") -> StartupResult:
 
     providers = config.providers or {}
     active = config.active_provider
-    catalog = load_catalog()
-    known_providers = set(catalog.get("providers", {}).keys())
 
-    if not providers or not active or (active not in providers and active not in known_providers):
+    # No default provider: readiness requires a provider that has been explicitly
+    # activated (a model was saved) with valid credentials.
+    if not providers or not active or active not in providers:
         missing.append(MissingItem.PROVIDER)
 
     provider_config = providers.get(active) if active else None

@@ -1,9 +1,14 @@
 import { Box, type Key, Text, useInput } from 'ink';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchKeypress } from '../../config/keybind';
 import { useTheme } from '../../theme/ThemeContext';
 
 const MIN_LINES = 1;
-const MAX_LINES = 15;
+const HARD_MAX_LINES = 15;
+
+function computeMaxLines(): number {
+  return Math.max(MIN_LINES, Math.min(HARD_MAX_LINES, Math.floor((process.stdout.rows ?? 24) / 3)));
+}
 
 interface MultiLineTextInputProps {
   value: string;
@@ -13,10 +18,12 @@ interface MultiLineTextInputProps {
   focus?: boolean;
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
+  /** Called first for every keypress; return true to swallow the key. */
+  onSpecial?: (char: string, key: Key, value: string) => boolean;
 }
 
 export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
-  ({ value, onChange, onSubmit, placeholder = '', focus = true, historyUp, historyDown }) => {
+  ({ value, onChange, onSubmit, placeholder = '', focus = true, historyUp, historyDown, onSpecial }) => {
     const { theme } = useTheme();
     const [cursor, setCursor] = useState(value.length);
     const [_historyIndex, setHistoryIndex] = useState(-1);
@@ -30,11 +37,16 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
     }, []);
 
     const lines = useMemo(() => value.split('\n'), [value]);
-    const lineCount = Math.max(MIN_LINES, Math.min(MAX_LINES, lines.length));
+    const maxLines = useMemo(computeMaxLines, []);
+    const lineCount = Math.max(MIN_LINES, Math.min(maxLines, lines.length));
 
     const handleInput = useCallback(
       (_input: string, key: Key) => {
         if (!focus) return;
+
+        if (onSpecial?.(_input, key, value)) {
+          return;
+        }
 
         if (_input.length > 1) {
           let cleanPaste = _input
@@ -61,18 +73,23 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           return;
         }
 
-        if (key.return || _input === '\n' || _input === '\r') {
-          if (key.shift || key.ctrl) {
-            const nextValue = `${value.slice(0, cursor)}\n${value.slice(cursor)}`;
-            onChange(nextValue);
-            setCursor((c) => c + 1);
-          } else {
-            onSubmit(value);
-          }
+        const pressed = matchKeypress(_input, key);
+        const isEnter = key.return || _input === '\n' || _input === '\r';
+        const newlineModifier = key.shift || key.ctrl || key.meta;
+
+        if (pressed.includes('submit') || (isEnter && !newlineModifier)) {
+          onSubmit(value);
           return;
         }
 
-        if (key.upArrow) {
+        if (pressed.includes('newline') || (isEnter && newlineModifier)) {
+          const nextValue = `${value.slice(0, cursor)}\n${value.slice(cursor)}`;
+          onChange(nextValue);
+          setCursor((c) => c + 1);
+          return;
+        }
+
+        if (pressed.includes('history_up')) {
           const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
           if (currentLineIdx === 0 && historyUp) {
             const prev = historyUp();
@@ -89,7 +106,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           return;
         }
 
-        if (key.downArrow) {
+        if (pressed.includes('history_down')) {
           const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
           if (currentLineIdx >= lines.length - 1 && historyDown) {
             const next = historyDown();
@@ -155,7 +172,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           }
         }
       },
-      [focus, value, cursor, onChange, onSubmit, lines, historyUp, historyDown],
+      [focus, value, cursor, onChange, onSubmit, lines, historyUp, historyDown, onSpecial],
     );
 
     useInput(handleInput, { isActive: focus });

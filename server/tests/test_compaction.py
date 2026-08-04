@@ -8,7 +8,12 @@ from server.agents.compaction import (
     head_tail_trim,
     strip_ansi,
 )
-from server.agents.loop import AgentLoop, _find_compaction_cut, _find_compaction_cut_budgeted, _format_tool_result
+from server.agents.loop import (
+    AgentLoop,
+    _find_compaction_cut,
+    _find_compaction_cut_budgeted,
+    _format_tool_result,
+)
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
@@ -95,8 +100,10 @@ class TestCompactToolOutput:
 class TestCompactionCutPoint:
     def _history(self, n: int) -> list[Message]:
         # Alternating user / assistant so exchanges are 2 messages long.
-        return [Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}")
-                for i in range(n)]
+        return [
+            Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}")
+            for i in range(n)
+        ]
 
     def test_short_history_summarizes_everything(self):
         assert _find_compaction_cut(self._history(5), keep_tail=8) == 0
@@ -122,8 +129,10 @@ class TestCompactionCutTokenBudgeted:
     """P2.8 — token-budgeted keep-tail with turn-boundary snapping."""
 
     def _history(self, n: int) -> list[Message]:
-        return [Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}")
-                for i in range(n)]
+        return [
+            Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}")
+            for i in range(n)
+        ]
 
     def test_keeps_recent_exchanges_within_budget(self):
         msgs = self._history(30)
@@ -140,7 +149,12 @@ class TestCompactionCutTokenBudgeted:
     def test_never_splits_tool_result_group(self):
         msgs = [
             Message(session_id="s", role="user", content="u1"),
-            Message(session_id="s", role="assistant", content="call1", tool_calls=[ToolCall(id="c1", name="bash", arguments={})]),
+            Message(
+                session_id="s",
+                role="assistant",
+                content="call1",
+                tool_calls=[ToolCall(id="c1", name="bash", arguments={})],
+            ),
             Message(session_id="s", role="tool", content="r1"),
             Message(session_id="s", role="assistant", content="resp1"),
         ]
@@ -151,7 +165,12 @@ class TestCompactionCutTokenBudgeted:
     def test_live_exchange_always_kept_whole(self):
         msgs = [
             Message(session_id="s", role="user", content="old"),
-            Message(session_id="s", role="assistant", content="huge " * 200, tool_calls=[ToolCall(id="c2", name="bash", arguments={})]),
+            Message(
+                session_id="s",
+                role="assistant",
+                content="huge " * 200,
+                tool_calls=[ToolCall(id="c2", name="bash", arguments={})],
+            ),
             Message(session_id="s", role="tool", content="result"),
         ]
         cut = _find_compaction_cut_budgeted(msgs, keep_tokens=10, count_fn=lambda m: len(m) + 1)
@@ -185,8 +204,11 @@ class TestContextCompactedEvent:
         output = _big_output(50000)
         _, stats = compact_tool_output(output, max_output=10000)
         ev = r.context_compacted(
-            "bash", stats.chars_removed, stats.tokens_saved,
-            stats.reason, "sess-1",
+            "bash",
+            stats.chars_removed,
+            stats.tokens_saved,
+            stats.reason,
+            "sess-1",
             original_chars=stats.original_chars,
             compacted_chars=stats.compacted_chars,
         )
@@ -215,7 +237,9 @@ class _BigReadProvider(BaseProvider):
             return '```tool\n{"tool": "file_read", "params": {"path": "big.txt", "limit": 100000}}\n```'
         return "Done."
 
-    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
+    async def stream(
+        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
+    ):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)
@@ -282,7 +306,15 @@ class TestRebuildReplaysLiveTurn:
         live.append({"role": "user", "content": "[Tool result] file content"})
 
         rebuilt = loop._rebuild_messages(
-            live, base_len, history, "System.", "New.", "test-model", "", True, None,
+            live,
+            base_len,
+            history,
+            "System.",
+            "New.",
+            "test-model",
+            "",
+            True,
+            None,
         )
         # The in-flight tool exchange must survive the rebuild...
         assert {"role": "assistant", "content": "I will read the file"} in rebuilt
@@ -295,7 +327,15 @@ class TestRebuildReplaysLiveTurn:
         loop = self._loop(temp_dir)
         initial = loop.context_manager.build_messages([], "System.", "New.", "test-model")
         rebuilt = loop._rebuild_messages(
-            list(initial), len(initial), [], "System.", "New.", "test-model", "", True, None,
+            list(initial),
+            len(initial),
+            [],
+            "System.",
+            "New.",
+            "test-model",
+            "",
+            True,
+            None,
         )
         assert rebuilt[-1]["content"] == "New."
 

@@ -116,6 +116,7 @@ def make_event(kind: EventKind, data: dict[str, Any], session_id: str | None = N
 # Subscription handle
 # ---------------------------------------------------------------------------
 
+
 class Subscription:
     """Handle returned by EventBus.subscribe(). Call cancel() to unsubscribe."""
 
@@ -154,6 +155,7 @@ class Subscription:
 # EventBus ABC
 # ---------------------------------------------------------------------------
 
+
 class EventBus:
     """Abstract event bus interface.
 
@@ -164,25 +166,21 @@ class EventBus:
         self,
         event: Event,
         mode: DeliveryMode = DeliveryMode.LOSSY,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def subscribe(
         self,
         event_type: EventKind | None = None,
         session_id: str | None = None,
-    ) -> Subscription:
-        ...
+    ) -> Subscription: ...
 
-    def unsubscribe(self, subscription_id: str) -> None:
-        ...
+    def unsubscribe(self, subscription_id: str) -> None: ...
 
     async def get_persistent_events(
         self,
         session_id: str,
         since: float | None = None,
-    ) -> list[Event]:
-        ...
+    ) -> list[Event]: ...
 
     @property
     def dropped_count(self) -> int:
@@ -192,6 +190,7 @@ class EventBus:
 # ---------------------------------------------------------------------------
 # AsyncEventBus — in-memory async implementation
 # ---------------------------------------------------------------------------
+
 
 class AsyncEventBus(EventBus):
     """In-memory async event bus using asyncio.Queue.
@@ -277,6 +276,7 @@ class AsyncEventBus(EventBus):
 
 class _SubscriptionEntry(BaseModel):
     """Internal record for a subscription."""
+
     queue: Any  # asyncio.Queue[Event | None]
     event_type: EventKind | None = None
     session_id: str | None = None

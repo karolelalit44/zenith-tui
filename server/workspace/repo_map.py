@@ -24,12 +24,28 @@ logger = logging.getLogger(__name__)
 
 # Directories to always skip
 SKIP_DIRS = {
-    ".git", "node_modules", "__pycache__", ".venv", "venv",
-    "dist", "build", ".next", ".cache", ".mypy_cache",
-    ".pytest_cache", "coverage", ".nyc_output",
-    ".tox", ".mypy", ".ruff_cache", "htmlcov",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".cache",
+    ".mypy_cache",
+    ".pytest_cache",
+    "coverage",
+    ".nyc_output",
+    ".tox",
+    ".mypy",
+    ".ruff_cache",
+    "htmlcov",
     # Large untracked trees / runtime data that must never pollute the map
-    "ref_repo", "reference_repo", "data", ".turbo",
+    "ref_repo",
+    "reference_repo",
+    "data",
+    ".turbo",
 }
 
 # File extensions to count by language
@@ -267,32 +283,42 @@ class RepoMap:
 
         try:
             from tree_sitter import Language as TSLanguage
+
             if lang_name == "python":
                 from tree_sitter_python import language as py_lang
+
                 lang_obj = TSLanguage(py_lang())
             elif lang_name == "javascript":
                 from tree_sitter_javascript import language as js_lang
+
                 lang_obj = TSLanguage(js_lang())
             elif lang_name == "typescript":
                 from tree_sitter_typescript import language_typescript as ts_lang
+
                 lang_obj = TSLanguage(ts_lang())
             elif lang_name == "typescript_tsx":
                 from tree_sitter_typescript import language_tsx as tsx_lang
+
                 lang_obj = TSLanguage(tsx_lang())
             elif lang_name == "go":
                 from tree_sitter_go import language as go_lang
+
                 lang_obj = TSLanguage(go_lang())
             elif lang_name == "rust":
                 from tree_sitter_rust import language as rust_lang
+
                 lang_obj = TSLanguage(rust_lang())
             elif lang_name == "java":
                 from tree_sitter_java import language as java_lang
+
                 lang_obj = TSLanguage(java_lang())
             elif lang_name == "ruby":
                 from tree_sitter_ruby import language as ruby_lang
+
                 lang_obj = TSLanguage(ruby_lang())
             elif lang_name in ("c", "cpp"):
                 from tree_sitter_c import language as c_lang
+
                 lang_obj = TSLanguage(c_lang())
             else:
                 self._language_cache[lang_name] = None
@@ -334,6 +360,7 @@ class RepoMap:
                     source_bytes = source.encode("utf-8")
 
                     from tree_sitter import Parser, Query, QueryCursor
+
                     parser = Parser(lang)
                     tree = parser.parse(source_bytes)
 
@@ -359,18 +386,24 @@ class RepoMap:
                     for capture_name, nodes in captures.items():
                         if not (capture_name == "name" or capture_name.startswith("name.")):
                             continue
-                        kind = "def" if ".definition." in capture_name or capture_name == "name" else "ref"
+                        kind = (
+                            "def"
+                            if ".definition." in capture_name or capture_name == "name"
+                            else "ref"
+                        )
 
                         for node in nodes:
                             name = node.text.decode("utf-8", errors="replace")
                             if name in seen_names:
                                 continue
                             seen_names.add(name)
-                            symbols.append({
-                                "name": name,
-                                "kind": kind,
-                                "line": node.start_point[0],
-                            })
+                            symbols.append(
+                                {
+                                    "name": name,
+                                    "kind": kind,
+                                    "line": node.start_point[0],
+                                }
+                            )
                 except Exception as e:
                     logger.debug("Failed to extract symbols from %s: %s", file_path, e)
 
@@ -378,7 +411,8 @@ class RepoMap:
         return symbols
 
     def _build_reference_graph(
-        self, all_files: list[Path],
+        self,
+        all_files: list[Path],
     ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
         """Build a reference graph: which files define and reference which names."""
         defines: dict[str, set[str]] = defaultdict(set)
@@ -504,10 +538,19 @@ class RepoMap:
     def get_key_files(self) -> list[str]:
         """Find important files (config, entry points, etc.) among enumerated files."""
         key_names = {
-            "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
-            "Makefile", "Dockerfile", "docker-compose.yml",
-            ".gitignore", ".env.example", "README.md",
-            "tsconfig.json", "setup.py", "setup.cfg",
+            "package.json",
+            "pyproject.toml",
+            "Cargo.toml",
+            "go.mod",
+            "Makefile",
+            "Dockerfile",
+            "docker-compose.yml",
+            ".gitignore",
+            ".env.example",
+            "README.md",
+            "tsconfig.json",
+            "setup.py",
+            "setup.cfg",
         }
 
         found = []
@@ -533,7 +576,9 @@ class RepoMap:
     def _count_tokens(self, text: str) -> int:
         return self._token_counter.count(text, "cl100k_base")
 
-    def _build_symbol_blocks(self, ranked_files: list[str], max_files: int) -> list[tuple[str, str]]:
+    def _build_symbol_blocks(
+        self, ranked_files: list[str], max_files: int
+    ) -> list[tuple[str, str]]:
         """Build symbol blocks for the top-ranked files (in rank order)."""
         blocks: list[tuple[str, str]] = []
         for rel_path in ranked_files[:max_files]:
@@ -621,8 +666,7 @@ class RepoMap:
 
         # 4. Symbol summaries for top-ranked files, fitted to the token budget
         all_source_files = [
-            f for f in self._iter_files()
-            if f.suffix.lower() in TREE_SITTER_EXTENSIONS
+            f for f in self._iter_files() if f.suffix.lower() in TREE_SITTER_EXTENSIONS
         ]
 
         if all_source_files:

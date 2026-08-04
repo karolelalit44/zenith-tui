@@ -72,6 +72,7 @@ class ZenithError(Exception):
 # Config
 # ---------------------------------------------------------------------------
 
+
 class ConfigError(ZenithError):
     def __init__(self, message: str, cause: Exception | None = None):
         super().__init__(message, code="CONFIG_ERROR", recoverable=False, cause=cause)
@@ -81,14 +82,28 @@ class ConfigError(ZenithError):
 # Provider
 # ---------------------------------------------------------------------------
 
+
 class ProviderError(ZenithError):
-    def __init__(self, message: str, provider: str = "", code: str = "PROVIDER_ERROR", recoverable: bool = True, cause: Exception | None = None):
+    def __init__(
+        self,
+        message: str,
+        provider: str = "",
+        code: str = "PROVIDER_ERROR",
+        recoverable: bool = True,
+        cause: Exception | None = None,
+    ):
         super().__init__(message, code=code, recoverable=recoverable, cause=cause)
         self.provider = provider
 
 
 class RateLimitError(ProviderError):
-    def __init__(self, message: str = "Rate limit exceeded", provider: str = "", retry_after: float | None = None, recoverable: bool = True):
+    def __init__(
+        self,
+        message: str = "Rate limit exceeded",
+        provider: str = "",
+        retry_after: float | None = None,
+        recoverable: bool = True,
+    ):
         super().__init__(message, provider=provider, recoverable=recoverable)
         self.code = "RATE_LIMIT"
         self.retry_after = retry_after
@@ -101,7 +116,9 @@ class AuthenticationError(ProviderError):
 
 
 class TimeoutError(ProviderError):
-    def __init__(self, message: str = "Request timed out", provider: str = "", timeout: float | None = None):
+    def __init__(
+        self, message: str = "Request timed out", provider: str = "", timeout: float | None = None
+    ):
         super().__init__(message, provider=provider, recoverable=True)
         self.code = "TIMEOUT"
         self.timeout = timeout
@@ -118,8 +135,11 @@ class ModelNotFoundError(ProviderError):
 # Tool
 # ---------------------------------------------------------------------------
 
+
 class ToolError(ZenithError):
-    def __init__(self, message: str, tool: str = "", recoverable: bool = True, cause: Exception | None = None):
+    def __init__(
+        self, message: str, tool: str = "", recoverable: bool = True, cause: Exception | None = None
+    ):
         super().__init__(message, code="TOOL_ERROR", recoverable=recoverable, cause=cause)
         self.tool = tool
 
@@ -145,6 +165,7 @@ class ToolValidationError(ToolError):
 # ---------------------------------------------------------------------------
 # Session
 # ---------------------------------------------------------------------------
+
 
 class SessionError(ZenithError):
     def __init__(self, message: str, session_id: str = "", cause: Exception | None = None):
@@ -173,6 +194,7 @@ class SessionTransitionError(SessionError):
 # Transport
 # ---------------------------------------------------------------------------
 
+
 class TransportError(ZenithError):
     def __init__(self, message: str, recoverable: bool = True, cause: Exception | None = None):
         super().__init__(message, code="TRANSPORT_ERROR", recoverable=recoverable, cause=cause)
@@ -188,8 +210,15 @@ class WebSocketError(TransportError):
 # Agent
 # ---------------------------------------------------------------------------
 
+
 class AgentError(ZenithError):
-    def __init__(self, message: str, session_id: str = "", recoverable: bool = False, cause: Exception | None = None):
+    def __init__(
+        self,
+        message: str,
+        session_id: str = "",
+        recoverable: bool = False,
+        cause: Exception | None = None,
+    ):
         super().__init__(message, code="AGENT_ERROR", recoverable=recoverable, cause=cause)
         self.session_id = session_id
 
@@ -218,6 +247,7 @@ class AgentCancelledError(AgentError):
 # LSP
 # ---------------------------------------------------------------------------
 
+
 class LspError(ZenithError):
     def __init__(self, message: str, language: str = "", cause: Exception | None = None):
         super().__init__(message, code="LSP_ERROR", recoverable=True, cause=cause)
@@ -239,6 +269,7 @@ class LspTimeout(LspError):
 # ---------------------------------------------------------------------------
 # MCP
 # ---------------------------------------------------------------------------
+
 
 class McpError(ZenithError):
     def __init__(self, message: str, server: str = "", cause: Exception | None = None):
@@ -262,6 +293,7 @@ class McpHandshakeFailed(McpError):
 # Permission
 # ---------------------------------------------------------------------------
 
+
 class PermissionError(ZenithError):
     def __init__(self, message: str, tool: str = "", recoverable: bool = False):
         super().__init__(message, code="PERMISSION_ERROR", recoverable=recoverable)
@@ -277,6 +309,7 @@ class PermissionDenied(PermissionError):
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+
 
 class PersistenceError(ZenithError):
     """Base error for all database failures.
@@ -302,7 +335,12 @@ class PersistenceError(ZenithError):
 class PersistenceUnavailableError(PersistenceError):
     """Database unreachable / not connected."""
 
-    def __init__(self, message: str = "Database unavailable", operation: str = "", cause: Exception | None = None):
+    def __init__(
+        self,
+        message: str = "Database unavailable",
+        operation: str = "",
+        cause: Exception | None = None,
+    ):
         super().__init__(message, operation=operation, recoverable=True, cause=cause)
         self.code = "PERSISTENCE_UNAVAILABLE"
 

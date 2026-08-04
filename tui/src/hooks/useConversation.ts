@@ -6,10 +6,12 @@ export interface ConversationTurn {
   id: string;
   prompt: string;
   mode: ScenarioMode;
+  model?: string;
   events: ScenarioEvent[];
   isComplete: boolean;
   isSaved?: boolean;
   timestamp: string;
+  startedAt: number;
 }
 
 export interface UseConversationReturn {
@@ -18,7 +20,7 @@ export interface UseConversationReturn {
   activeTurn: ConversationTurn | null;
   totalTokens: number;
   staticKey: number;
-  addTurn: (prompt: string, mode: ScenarioMode) => string;
+  addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: () => void;
   markTurnSaved: (turnId: string) => void;
@@ -48,7 +50,7 @@ export function useConversation(): UseConversationReturn {
     }, 0);
   }, [turns]);
 
-  const addTurn = useCallback((prompt: string, mode: ScenarioMode): string => {
+  const addTurn = useCallback((prompt: string, mode: ScenarioMode, model?: string): string => {
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const turnId = `turn_${Date.now()}`;
@@ -59,9 +61,11 @@ export function useConversation(): UseConversationReturn {
         id: turnId,
         prompt,
         mode,
+        model,
         events: [],
         isComplete: false,
         timestamp: timeStr,
+        startedAt: Date.now(),
       },
     ]);
 
@@ -71,22 +75,30 @@ export function useConversation(): UseConversationReturn {
   const completeActiveTurn = useCallback((events: ScenarioEvent[]) => {
     setTurns((prev) => {
       const lastIdx = prev.length - 1;
-      return prev.map((t, i) => (i === lastIdx ? { ...t, events: [...events], isComplete: true } : t));
+      const last = prev[lastIdx];
+      const elapsedMs = last ? Date.now() - last.startedAt : undefined;
+      // Stamp elapsedMs onto the success event so SuccessCard can display it
+      const stampedEvents =
+        elapsedMs !== undefined ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e)) : events;
+      return prev.map((t, i) => (i === lastIdx ? { ...t, events: [...stampedEvents], isComplete: true } : t));
     });
   }, []);
 
-  const abortActiveTurn = useCallback(() => {
+  const abortActiveTurn = useCallback((currentEvents: ScenarioEvent[] = []) => {
     setTurns((prev) => {
-      const last = prev[prev.length - 1];
+      const lastIdx = prev.length - 1;
+      const last = prev[lastIdx];
       if (last && !last.isComplete) {
         const abortEvent: ScenarioEvent = {
           kind: 'warning',
           id: `evt_abort_${Date.now()}`,
-          message: 'Scenario cancelled by user',
+          message: 'Generation interrupted by user (ESC)',
           code: 'USER_ABORT',
         };
+        const elapsedMs = Date.now() - last.startedAt;
+        const stampedEvents = currentEvents.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e));
         return prev.map((t, i) =>
-          i === prev.length - 1 ? { ...t, events: [...t.events, abortEvent], isComplete: true } : t,
+          i === lastIdx ? { ...t, events: [...stampedEvents, abortEvent], isComplete: true } : t,
         );
       }
       return prev;
@@ -114,6 +126,7 @@ export function useConversation(): UseConversationReturn {
         mode: prev[prev.length - 1].mode,
         isComplete: true,
         timestamp: timeStr,
+        startedAt: Date.now(),
         events: [
           {
             kind: 'message',

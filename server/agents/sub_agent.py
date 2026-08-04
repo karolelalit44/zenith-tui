@@ -76,23 +76,23 @@ class SubAgentLoop:
 
         # 3. Fresh agent loop — no summary, no loop detector state
         agent = RecoverableAgentLoop(
-            self.config, self.provider, context_manager, self.tool_registry,
+            self.config,
+            self.provider,
+            context_manager,
+            self.tool_registry,
         )
 
         # 4. Build input: plan is the first user message, followed by user prompt
         if user_prompt and user_prompt.strip():
-            sub_prompt = (
-                f"Implement this plan:\n\n{plan_output}\n\n"
-                f"User request: {user_prompt}"
-            )
+            sub_prompt = f"Implement this plan:\n\n{plan_output}\n\nUser request: {user_prompt}"
         else:
             sub_prompt = f"Implement this plan:\n\n{plan_output}"
 
         # 5. Run agent — clean history (empty list), plan as prompt
         mode_config = AGENT_MODES.get("build")
-        model_override = (mode_config.model_override
-                          if mode_config and mode_config.model_override
-                          else None)
+        model_override = (
+            mode_config.model_override if mode_config and mode_config.model_override else None
+        )
 
         response_text = ""
         metrics = {}
@@ -123,7 +123,8 @@ class SubAgentLoop:
                 await message_repo.create(assistant_msg)
                 logger.info(
                     "Sub-agent message persisted: session=%s %d chars",
-                    child_session_id, len(response_text),
+                    child_session_id,
+                    len(response_text),
                 )
             except Exception:
                 logger.exception("Failed to persist sub-agent message")
@@ -143,15 +144,18 @@ class SubAgentLoop:
         """Create a child session linked to the parent. Returns child session id."""
         if not session_repo:
             import uuid
+
             return str(uuid.uuid4())
 
         try:
             parent = await session_repo.get(parent_id)
             if not parent:
                 import uuid
+
                 return str(uuid.uuid4())
 
             from server.domain.session import Session
+
             child = Session(
                 title=f"sub-agent-{parent.title}",
                 mode=parent.mode,
@@ -170,10 +174,12 @@ class SubAgentLoop:
 
             logger.info(
                 "Created child session %s → %s for sub-agent",
-                parent_id, created.id,
+                parent_id,
+                created.id,
             )
             return created.id
         except Exception as e:
             logger.warning("Failed to create child session: %s", e)
             import uuid
+
             return str(uuid.uuid4())

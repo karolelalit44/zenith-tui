@@ -1,7 +1,8 @@
 """Tools module — provides all built-in tools."""
 
-from .tools.agent_tool import SubAgentTool
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
+from .registry import ToolRegistry
+from .tools.agent_tool import SubAgentTool
 from .tools.bash import BashTool
 from .tools.file_delete import FileDeleteTool
 from .tools.file_edit import FileEditTool
@@ -17,7 +18,6 @@ from .tools.lsp_rename import LspRenameTool
 from .tools.mcp_tool import McpToolWrapper
 from .tools.multi_edit import MultiEditTool
 from .tools.question import QuestionTool
-from .registry import ToolRegistry
 from .tools.todo import TodoTool
 from .tools.webfetch import WebfetchTool
 
@@ -86,6 +86,7 @@ def create_default_registry(
     registry.register(agent_tool)
     if hooks is not None:
         from server.domain.hooks import HookRunner
+
         registry.register_middleware(HookMiddleware(HookRunner(hooks)))
     registry.register_middleware(SafetyCheckMiddleware())
     if permission_service is not None:

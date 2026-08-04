@@ -32,6 +32,7 @@ def test_event_timestamp():
 
 def test_make_event():
     from server.domain.events import make_event
+
     event = make_event(EventKind.ERROR, {"message": "oops"})
     assert event.kind == EventKind.ERROR
     assert event.data["message"] == "oops"

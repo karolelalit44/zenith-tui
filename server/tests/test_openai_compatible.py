@@ -1,8 +1,6 @@
 """Unit tests for OpenAI Compatible provider and setup endpoints."""
 
-from server.api.provider_validation import save_provider_config_endpoint
-from server.api.schemas import ProviderSetupRequest
-from server.persistence.provider_config_repo import read_providers
+from server.persistence.provider_config_repo import read_providers, save_provider_config
 from server.providers.llm_provider import LLMProvider
 
 
@@ -34,7 +32,6 @@ def test_tokenrouter_provider_init():
     assert provider._litellm_model == "openai/moonshotai/kimi-k3-free"
 
 
-
 def test_custom_provider_init():
     provider = LLMProvider(
         name="custom",
@@ -52,23 +49,20 @@ def test_custom_provider_init():
 def test_openai_compatible_save_config(tmp_path):
     db_file = str(tmp_path / "test_zenith.db")
 
-    # Bring the DB up to the current Alembic revision (0002).
+    # Bring the DB up to the current migration revision.
     from server.persistence.startup import DatabaseStartupService
+
     DatabaseStartupService(db_file).run()
 
-    req = ProviderSetupRequest(
+    save_provider_config(
         provider="openai_compatible",
         api_key="sk-tokenrouter-secret-key",
         model="moonshotai/kimi-k3-free",
         base_url="https://api.tokenrouter.com/v1",
         max_tokens=4096,
         temperature=0.7,
+        db_path=db_file,
     )
-
-    res = save_provider_config_endpoint(req, db_path=db_file)
-    assert res.valid is True
-    assert res.provider == "openai_compatible"
-    assert res.model == "moonshotai/kimi-k3-free"
 
     providers = read_providers(db_path=db_file)
     assert "openai_compatible" in providers

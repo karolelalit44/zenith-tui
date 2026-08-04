@@ -64,15 +64,17 @@ class SearchRepository:
         )
         params: tuple = (pattern,) if not session_id else (pattern, session_id)
         for row in await self.db.fetch_all(msg_sql, params):
-            hits.append({
-                "type": "message",
-                "id": row["id"],
-                "session_id": row["session_id"],
-                "title": row.get("title", ""),
-                "role": row["role"],
-                "created_at": row["created_at"],
-                "snippet": row["snippet"],
-            })
+            hits.append(
+                {
+                    "type": "message",
+                    "id": row["id"],
+                    "session_id": row["session_id"],
+                    "title": row.get("title", ""),
+                    "role": row["role"],
+                    "created_at": row["created_at"],
+                    "snippet": row["snippet"],
+                }
+            )
 
         # Sessions (by title), ranked by bm25
         sess_sql = (
@@ -86,14 +88,16 @@ class SearchRepository:
             f"  LIMIT {int(limit)}"
         )
         for row in await self.db.fetch_all(sess_sql, params):
-            hits.append({
-                "type": "session",
-                "id": row["id"],
-                "session_id": row["id"],
-                "title": row["title"],
-                "created_at": row["created_at"],
-                "snippet": row["snippet"],
-            })
+            hits.append(
+                {
+                    "type": "session",
+                    "id": row["id"],
+                    "session_id": row["id"],
+                    "title": row["title"],
+                    "created_at": row["created_at"],
+                    "snippet": row["snippet"],
+                }
+            )
 
         return hits
 

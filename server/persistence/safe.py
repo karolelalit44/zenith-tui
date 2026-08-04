@@ -10,7 +10,8 @@ full context via ``db_log``.
 from __future__ import annotations
 
 import functools
-from typing import Any, Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
@@ -31,7 +32,7 @@ def classify(exc: Exception) -> PersistenceError:
         return exc
     if isinstance(exc, IntegrityError):
         return PersistenceIntegrityError(cause=exc)
-    if isinstance(exc, OperationalError) or isinstance(exc, SQLAlchemyError):
+    if isinstance(exc, (OperationalError, SQLAlchemyError)):
         return PersistenceOperationError(cause=exc)
     return PersistenceOperationError(cause=exc)
 
@@ -61,7 +62,9 @@ def safe_db(
                 return result
             except Exception as e:
                 duration_ms = (time.perf_counter() - start) * 1000.0
-                db_log(operation, table=table, status="error", duration_ms=duration_ms, error=str(e))
+                db_log(
+                    operation, table=table, status="error", duration_ms=duration_ms, error=str(e)
+                )
                 raise classify(e) from e
 
         return wrapper  # type: ignore[return-value]

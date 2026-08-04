@@ -7,6 +7,12 @@ import logging
 import time as _time
 from collections.abc import Awaitable, Callable
 
+from server.agents.validation import (
+    check_python_syntax,
+    detect_interactive_command,
+    detect_placeholders,
+    strip_cd_prefix,
+)
 from server.domain.events import Event
 from server.providers import responder as r
 from server.toolkit.base import ToolResult
@@ -14,17 +20,12 @@ from server.toolkit.command_safety import assess_command
 from server.toolkit.registry import ToolRegistry
 from server.workspace.git import GitOps
 
-from server.agents.validation import (
-    check_python_syntax,
-    detect_interactive_command,
-    detect_placeholders,
-    strip_cd_prefix,
-)
-
 logger = logging.getLogger(__name__)
 
 
-def validate_tool_calls(tool_calls: list[dict], registered_tools: set[str]) -> tuple[list[dict], list[str]]:
+def validate_tool_calls(
+    tool_calls: list[dict], registered_tools: set[str]
+) -> tuple[list[dict], list[str]]:
     """Filter hallucinated tool names. Returns (valid_calls, invalid_names)."""
     valid, invalid = [], []
     for tc in tool_calls:
@@ -72,17 +73,33 @@ def format_tool_result(tool_name: str, result: ToolResult, max_output: int = 100
     return "\n".join(lines)
 
 
-def build_tool_metadata(tool_name: str, tool_params: dict, result: ToolResult, duration_ms: int) -> dict:
+def build_tool_metadata(
+    tool_name: str, tool_params: dict, result: ToolResult, duration_ms: int
+) -> dict:
     """Build tool-specific metadata for tool_result events."""
     if tool_name in ("bash", "terminal"):
         cmd = str(tool_params.get("command") or "")
         out_lines = result.output.split("\n") if result.output else []
         exit_code = result.metadata.get("exit_code", 0) if result.metadata else 0
-        return {"command": cmd, "output_lines": out_lines, "duration_ms": duration_ms, "exit_code": exit_code}
+        return {
+            "command": cmd,
+            "output_lines": out_lines,
+            "duration_ms": duration_ms,
+            "exit_code": exit_code,
+        }
     elif tool_name == "file_write":
-        return {"path": tool_params.get("filepath") or tool_params.get("path") or "", "content": tool_params.get("content", ""), "match": "exact"}
+        return {
+            "path": tool_params.get("filepath") or tool_params.get("path") or "",
+            "content": tool_params.get("content", ""),
+            "match": "exact",
+        }
     elif tool_name == "file_edit":
-        return {"path": tool_params.get("filepath") or tool_params.get("path") or "", "old_content": tool_params.get("old_content", ""), "new_content": tool_params.get("new_content", ""), "match": "exact"}
+        return {
+            "path": tool_params.get("filepath") or tool_params.get("path") or "",
+            "old_content": tool_params.get("old_content", ""),
+            "new_content": tool_params.get("new_content", ""),
+            "match": "exact",
+        }
     elif tool_name in ("file_delete", "file_read"):
         return {"path": tool_params.get("filepath") or tool_params.get("path") or ""}
     return {}
@@ -103,7 +120,9 @@ def apply_bash_prechecks(
     return detect_interactive_command(command)
 
 
-def validate_tool_rejection(tool_name: str, tool_params: dict, created_files: set[str], workspace_root: str) -> str | None:
+def validate_tool_rejection(
+    tool_name: str, tool_params: dict, created_files: set[str], workspace_root: str
+) -> str | None:
     """Run all pre-execution validation checks. Returns rejection message or None."""
     msg = check_placeholder_and_edit(tool_name, tool_params)
     if msg:
@@ -148,7 +167,9 @@ async def confirm_risky_command(
     assessment = assess_command(command)
     if not assessment.is_risky:
         return True
-    logger.info("RISKY COMMAND: '%s' reason=%s level=%s", command, assessment.reason, assessment.risk_level)
+    logger.info(
+        "RISKY COMMAND: '%s' reason=%s level=%s", command, assessment.reason, assessment.risk_level
+    )
     try:
         return await confirm_callback("bash", assessment.reason, assessment.risk_level)
     except Exception:
@@ -166,25 +187,37 @@ async def execute_tool(
     """Execute a tool and return (result, duration_ms). Handles auto-retry for file_write."""
     logger.info("TOOL EXECUTE: name=%s mode=%s params=%s", tool_name, mode, str(tool_params))
     start = _time.monotonic()
-    result = await tool_registry.execute(tool_name, tool_params, workspace_root, mode, allowed_mcp=allowed_mcp)
+    result = await tool_registry.execute(
+        tool_name, tool_params, workspace_root, mode, allowed_mcp=allowed_mcp
+    )
     duration_ms = int((_time.monotonic() - start) * 1000)
 
-    logger.info("TOOL RESULT: name=%s success=%s duration=%dms output_len=%d error=%s",
-                tool_name, result.success, duration_ms,
-                len(result.output) if result.output else 0,
-                result.error if result.error else "None")
+    logger.info(
+        "TOOL RESULT: name=%s success=%s duration=%dms output_len=%d error=%s",
+        tool_name,
+        result.success,
+        duration_ms,
+        len(result.output) if result.output else 0,
+        result.error if result.error else "None",
+    )
 
-
-    if (tool_name == "file_write" and not result.success
-            and "already exists" in (result.error or "")
-            and not tool_params.get("overwrite")):
+    if (
+        tool_name == "file_write"
+        and not result.success
+        and "already exists" in (result.error or "")
+        and not tool_params.get("overwrite")
+    ):
         tool_params["overwrite"] = True
         logger.info("Auto-retrying file_write with overwrite=True")
         start = _time.monotonic()
         result = await tool_registry.execute(tool_name, tool_params, workspace_root, mode)
         duration_ms = int((_time.monotonic() - start) * 1000)
-        logger.info("TOOL RETRY RESULT: name=%s success=%s duration=%dms",
-                    tool_name, result.success, duration_ms)
+        logger.info(
+            "TOOL RETRY RESULT: name=%s success=%s duration=%dms",
+            tool_name,
+            result.success,
+            duration_ms,
+        )
 
     return result, duration_ms
 
@@ -203,6 +236,7 @@ async def post_execution_hooks(
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:
             from server.toolkit.auto_lint import format_lint_result, run_lint
+
             lint_result = await run_lint(edited_path, workspace_root)
             if lint_result and not lint_result.success:
                 lint_msg = format_lint_result(lint_result)

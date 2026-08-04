@@ -1,4 +1,4 @@
-import { fetchJson } from './fetchJson';
+import { BaseApiService } from './BaseApiService';
 
 export interface ModelTokenStats {
   provider: string;
@@ -74,7 +74,7 @@ export interface EfficiencyMetrics {
   average_context_utilization: number;
 }
 
-class TokenUsageService {
+class TokenUsageService extends BaseApiService {
   private stats: TokenUsageStats | null = null;
   private fetchPromise: Promise<TokenUsageStats> | null = null;
 
@@ -100,7 +100,7 @@ class TokenUsageService {
 
   private async _doFetch(url: string = '/usage/token-stats'): Promise<TokenUsageStats> {
     try {
-      const data = await fetchJson<TokenUsageStats>(url);
+      const data = await this.get<TokenUsageStats>(url);
       return data;
     } catch {
       return {
@@ -123,7 +123,7 @@ class TokenUsageService {
 
   async fetchCostSummary(period: string = 'all'): Promise<CostSummaryItem[]> {
     try {
-      const data = await fetchJson<{ data: CostSummaryItem[] }>(`/usage/cost-summary?period=${period}`);
+      const data = await this.get<{ data: CostSummaryItem[] }>(`/usage/cost-summary?period=${period}`);
       return data.data;
     } catch {
       return [];
@@ -132,7 +132,7 @@ class TokenUsageService {
 
   async fetchBudgetStatus(sessionId: string): Promise<BudgetStatus> {
     try {
-      return await fetchJson<BudgetStatus>(`/usage/budget/${sessionId}`);
+      return await this.get<BudgetStatus>(`/usage/budget/${sessionId}`);
     } catch {
       return { active: false, max_session_cost: 0, max_daily_cost: 0, max_monthly_cost: 0 };
     }
@@ -146,16 +146,12 @@ class TokenUsageService {
     active: boolean = true,
   ): Promise<boolean> {
     try {
-      const result = await fetchJson<{ ok: boolean }>('/usage/budget', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          max_session_cost: maxSessionCost,
-          max_daily_cost: maxDailyCost,
-          max_monthly_cost: maxMonthlyCost,
-          active,
-        }),
+      const result = await this.post<{ ok: boolean }>('/usage/budget', {
+        session_id: sessionId,
+        max_session_cost: maxSessionCost,
+        max_daily_cost: maxDailyCost,
+        max_monthly_cost: maxMonthlyCost,
+        active,
       });
       return result.ok;
     } catch {
@@ -165,7 +161,7 @@ class TokenUsageService {
 
   async fetchStepStats(sessionId: string): Promise<StepTokenUsage[]> {
     try {
-      const data = await fetchJson<{ steps: StepTokenUsage[] }>(`/usage/steps/${sessionId}`);
+      const data = await this.get<{ steps: StepTokenUsage[] }>(`/usage/steps/${sessionId}`);
       return data.steps;
     } catch {
       return [];
@@ -174,7 +170,7 @@ class TokenUsageService {
 
   async fetchEfficiency(sessionId: string): Promise<EfficiencyMetrics | null> {
     try {
-      return await fetchJson<EfficiencyMetrics>(`/usage/efficiency/${sessionId}`);
+      return await this.get<EfficiencyMetrics>(`/usage/efficiency/${sessionId}`);
     } catch {
       return null;
     }

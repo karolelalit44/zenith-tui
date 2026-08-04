@@ -8,11 +8,15 @@ import type { ModelSelection } from '../../services/providers/types';
 interface ModelPickerProps {
   /** Restrict the list to a single provider (used right after validation). */
   providerID?: string;
+  /** When provided, adds a "View all providers" action that jumps to the provider flow. */
+  onOpenProvider?: () => void;
   onSelect: (sel: ModelSelection) => void;
   onClose: () => void;
 }
 
-export const ModelPicker: React.FC<ModelPickerProps> = ({ providerID, onSelect, onClose }) => {
+const key = (sel: ModelSelection): string => `${sel.providerID}/${sel.modelID}`;
+
+export const ModelPicker: React.FC<ModelPickerProps> = ({ providerID, onOpenProvider, onSelect, onClose }) => {
   const [, force] = useState(0);
 
   useEffect(() => {
@@ -20,69 +24,84 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ providerID, onSelect, 
     return unsubscribe;
   }, []);
 
-  const providers = useMemo(
-    () => providerRepository.getProviderInfoList().filter((provider) => !providerID || provider.id === providerID),
+  const providers = useMemo(() => {
+    const list = providerRepository
+      .getProviderInfoList()
+      .filter((provider) => !providerID || provider.id === providerID);
+    if (providerID) return list;
+    return list.filter(
+      (provider) => provider.has_api_key || provider.validation_status === 'validated' || provider.is_active,
+    );
+  }, [providerID]);
+
+  const provider = useMemo(
+    () => (providerID ? providerRepository.getProviderInfo(providerID) : undefined),
     [providerID],
   );
 
   const exists = useMemo(
     () => (sel: ModelSelection) => {
-      const provider = providers.find((item) => item.id === sel.providerID);
-      if (!provider) return false;
-      return Boolean(provider.models[sel.modelID]) || provider.model === sel.modelID;
+      const item = providers.find((p) => p.id === sel.providerID);
+      if (!item) return false;
+      return Boolean(item.models[sel.modelID]) || item.model === sel.modelID;
     },
     [providers],
   );
 
   const options = useMemo<SearchListOption<ModelSelection>[]>(() => {
+    const isCurrent = (sel: ModelSelection): boolean =>
+      Boolean(
+        modelStore.current &&
+          modelStore.current.providerID === sel.providerID &&
+          modelStore.current.modelID === sel.modelID,
+      );
+    const modelName = (sel: ModelSelection): string => {
+      const item = providers.find((p) => p.id === sel.providerID);
+      return item?.models[sel.modelID]?.name ?? sel.modelID;
+    };
+    const providerName = (sel: ModelSelection): string | undefined =>
+      providers.find((p) => p.id === sel.providerID)?.name;
+
     const list: SearchListOption<ModelSelection>[] = [];
+
     const favorites = modelStore.favorite.filter(exists);
     for (const sel of favorites) {
       list.push({
-        title: `${sel.providerID}/${sel.modelID}`,
+        title: modelName(sel),
+        description: providerName(sel),
         value: sel,
         category: 'Favorites',
-        current: Boolean(
-          modelStore.current &&
-            modelStore.current.modelID === sel.modelID &&
-            modelStore.current.providerID === sel.providerID,
-        ),
+        current: isCurrent(sel),
       });
     }
-    const recents = modelStore.recent.filter(
-      (sel) => exists(sel) && !favorites.some((f) => f.modelID === sel.modelID && f.providerID === sel.providerID),
-    );
+
+    const favoriteKeys = new Set(favorites.map(key));
+    const recents = modelStore.recent.filter((sel) => exists(sel) && !favoriteKeys.has(key(sel)));
     for (const sel of recents) {
       list.push({
-        title: `${sel.providerID}/${sel.modelID}`,
+        title: modelName(sel),
+        description: providerName(sel),
         value: sel,
         category: 'Recent',
-        current: Boolean(
-          modelStore.current &&
-            modelStore.current.modelID === sel.modelID &&
-            modelStore.current.providerID === sel.providerID,
-        ),
+        current: isCurrent(sel),
       });
     }
-    for (const provider of providers) {
-      const providerModels = Object.values(provider.models);
+    const listedKeys = new Set([...favoriteKeys, ...recents.map(key)]);
+
+    for (const item of providers) {
       const seen = new Set<string>();
-      for (const model of providerModels) {
-        const sel: ModelSelection = { providerID: provider.id, modelID: model.id };
-        const key = `${sel.providerID}/${sel.modelID}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+      for (const model of Object.values(item.models)) {
+        const sel: ModelSelection = { providerID: item.id, modelID: model.id };
+        const optionKey = key(sel);
+        if (seen.has(optionKey) || listedKeys.has(optionKey)) continue;
+        seen.add(optionKey);
         list.push({
           title: model.name || model.id,
           value: sel,
-          category: provider.name,
-          description: model.description || undefined,
+          category: item.name,
+          description: model.description || (favoriteKeys.has(optionKey) ? '(Favorite)' : undefined),
           footer: model.is_default ? 'default' : undefined,
-          current: Boolean(
-            modelStore.current &&
-              modelStore.current.modelID === model.id &&
-              modelStore.current.providerID === provider.id,
-          ),
+          current: isCurrent(sel),
         });
       }
     }
@@ -93,17 +112,22 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ providerID, onSelect, 
     modelStore.toggleFavorite(sel);
   };
 
-  const actions: SearchListAction<ModelSelection>[] = [
-    {
-      label: '★ Favorite',
-      onTrigger: (option) => toggleFavorite(option.value),
-    },
-  ];
+  const actions: SearchListAction<ModelSelection>[] = [];
+  if (onOpenProvider) {
+    actions.push({
+      label: 'View all providers',
+      onTrigger: () => onOpenProvider(),
+    });
+  }
+  actions.push({
+    label: '★ Favorite',
+    onTrigger: (option) => toggleFavorite(option.value),
+  });
 
   return (
     <SearchList
-      title="Select a model"
-      placeholder="Provider/model to use for chat."
+      title={providerID ? (provider?.name ?? providerID) : 'Select a model'}
+      placeholder="Enter to use · Tab for actions"
       filterPlaceholder="Search models"
       options={options}
       actions={actions}

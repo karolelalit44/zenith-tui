@@ -23,6 +23,7 @@ from server.domain.session import Session
 
 # ── Domain enums ─────────────────────────────────────────────────────────
 
+
 class TestDomainEnums:
     def test_scenario_mode_values(self):
         assert ScenarioMode.BUILD.value == "build"
@@ -45,6 +46,7 @@ class TestDomainEnums:
 
 
 # ── EventBus ─────────────────────────────────────────────────────────────
+
 
 class TestAsyncEventBus:
     @pytest.mark.asyncio
@@ -81,6 +83,7 @@ class TestAsyncEventBus:
 
 # ── Message ──────────────────────────────────────────────────────────────
 
+
 class TestMessage:
     def test_create_message(self):
         msg = Message(role="user", content="hello", session_id="s1")
@@ -101,6 +104,7 @@ class TestMessage:
 
 # ── Session ──────────────────────────────────────────────────────────────
 
+
 class TestSession:
     def test_create_session(self):
         session = Session(title="Test")
@@ -120,6 +124,7 @@ class TestSession:
 
 
 # ── Errors ───────────────────────────────────────────────────────────────
+
 
 class TestErrors:
     def test_zenith_error(self):

@@ -1,19 +1,12 @@
 import { ProviderRepository, providerRepository } from './ProviderRepository';
-import type { ProviderConfig, ProviderId, ProviderState } from './types';
+import type { ProviderConfig, ProviderId, ProviderMeta, ProviderState } from './types';
 
 type ProviderListener = (activeProvider: ProviderState) => void;
 
-const FALLBACK_IDS: ProviderId[] = [
-  'nvidia',
-  'openrouter',
-  'tokenrouter',
-  'openai_compatible',
-  'openai',
-  'anthropic',
-  'google',
-  'groq',
-  'custom',
-];
+/** Empty-state placeholder used only before the backend provider list is hydrated. */
+function emptyMeta(id: ProviderId): ProviderMeta {
+  return { id, name: '', description: '', defaultModel: '', fields: [], availableModels: [] };
+}
 
 export class ProviderService {
   private repo: ProviderRepository;
@@ -47,7 +40,7 @@ export class ProviderService {
 
     return {
       id,
-      meta,
+      meta: meta ?? emptyMeta(id),
       config,
       isActive: id === activeId,
       isConfigured: this.validateConfig(id, config).valid,
@@ -55,43 +48,22 @@ export class ProviderService {
       apiKeyMasked: details.apiKeyMasked,
       validationStatus: details.validationStatus,
       lastValidationError: details.lastValidationError,
+      isPopular: details.isPopular,
+      isCustomFlow: details.isCustomFlow,
+      baseUrlStyle: details.baseUrlStyle,
+      supportsPromptCaching: details.supportsPromptCaching,
+      supportsThinkingHeaders: details.supportsThinkingHeaders,
     };
   }
 
-  /** Derive the provider list from the backend `ProviderListResponse` when
-   * available; otherwise fall back to the catalog default set. Fixes P-7. */
+  /** Derive the provider list from the backend `ProviderListResponse` only. */
   public getAllProviders(): ProviderState[] {
     const list = this.repo.getProviderInfoList();
-    const ids = list.length ? list.map((item) => item.id) : FALLBACK_IDS;
-    return ids.map((id) => this.getProviderState(id));
+    return list.map((item) => this.getProviderState(item.id));
   }
 
   public getConnectedIds(): string[] {
     return this.repo.getConnectedIds();
-  }
-
-  public setActiveProvider(id: ProviderId): ProviderState {
-    const meta = this.repo.getProviderMeta(id);
-    if (!meta) {
-      throw new Error(`Unknown provider ID: ${id}`);
-    }
-
-    this.repo.setActiveProviderId(id);
-    const updatedState = this.getProviderState(id);
-    this.notifyListeners(updatedState);
-    return updatedState;
-  }
-
-  public updateConfig(id: ProviderId, updates: Partial<ProviderConfig>): ProviderState {
-    const meta = this.repo.getProviderMeta(id);
-    if (!meta) {
-      throw new Error(`Unknown provider ID: ${id}`);
-    }
-
-    this.repo.updateProviderConfig(id, updates);
-    const updatedState = this.getProviderState(id);
-    this.notifyListeners(this.getActiveProvider());
-    return updatedState;
   }
 
   /** Re-publish the active provider state after an async provider mutation. */
@@ -106,8 +78,10 @@ export class ProviderService {
     if (!meta) return { valid: false, error: 'Unknown provider' };
 
     const config = configOverride || this.repo.getProviderConfig(id);
+    const details = this.repo.getProviderStateDetails(id);
 
-    if (id === 'custom') {
+    // Custom-flow providers (SQL catalog custom_flow flag) require a base endpoint.
+    if (details.isCustomFlow) {
       if (!config.baseUrl || typeof config.baseUrl !== 'string' || !config.baseUrl.trim()) {
         return { valid: false, error: 'Base endpoint URL is required' };
       }

@@ -7,10 +7,10 @@ from datetime import datetime
 import pytest
 
 from server.domain.message import Message
+from server.domain.session import Session
 from server.persistence.connection import Database
 from server.persistence.repositories import MessageRepository, SessionRepository
 from server.persistence.search import SearchRepository, _escape_query
-from server.domain.session import Session
 
 
 class TestEscapeQuery:
@@ -47,24 +47,30 @@ class TestSearchRepository:
             updated_at=datetime.now(),
         )
         await session_repo.create(session2)
-        await msg_repo.create(Message(
-            session_id="s-auth",
-            role="user",
-            content="Please rotate the auth token every day.",
-            token_count=10,
-        ))
-        await msg_repo.create(Message(
-            session_id="s-auth",
-            role="assistant",
-            content="Done. The JWT auth token is now rotated daily.",
-            token_count=12,
-        ))
-        await msg_repo.create(Message(
-            session_id="s-other",
-            role="user",
-            content="Make the button blue please.",
-            token_count=8,
-        ))
+        await msg_repo.create(
+            Message(
+                session_id="s-auth",
+                role="user",
+                content="Please rotate the auth token every day.",
+                token_count=10,
+            )
+        )
+        await msg_repo.create(
+            Message(
+                session_id="s-auth",
+                role="assistant",
+                content="Done. The JWT auth token is now rotated daily.",
+                token_count=12,
+            )
+        )
+        await msg_repo.create(
+            Message(
+                session_id="s-other",
+                role="user",
+                content="Make the button blue please.",
+                token_count=8,
+            )
+        )
         return db, session_repo, msg_repo
 
     @pytest.mark.asyncio
@@ -126,15 +132,17 @@ class TestSearchRepository:
 
     @pytest.mark.asyncio
     async def test_triggers_keep_index_in_sync(self, temp_dir):
-        db, session_repo, msg_repo = await self._setup(temp_dir)
+        db, _, msg_repo = await self._setup(temp_dir)
         try:
             # Insert a new message → index updates via trigger
-            await msg_repo.create(Message(
-                session_id="s-other",
-                role="assistant",
-                content="The palette uses auth-themed accent colors.",
-                token_count=9,
-            ))
+            await msg_repo.create(
+                Message(
+                    session_id="s-other",
+                    role="assistant",
+                    content="The palette uses auth-themed accent colors.",
+                    token_count=9,
+                )
+            )
             repo = SearchRepository(db)
             parity = await repo.index_parity()
             assert parity["messages"] == parity["message_fts"] == 4
@@ -148,23 +156,30 @@ class TestSessionSearchRPC:
     @pytest.mark.asyncio
     async def test_search_handler_returns_hits(self, temp_dir):
         from server.api.handlers import MethodHandlers
+
         db = Database(str(temp_dir / "test.db"))
         await db.connect()
         try:
             from server.persistence.repositories import MessageRepository, SessionRepository
+
             session_repo = SessionRepository(db)
             msg_repo = MessageRepository(db)
             session = Session(
-                id="s1", title="Auth token work",
+                id="s1",
+                title="Auth token work",
                 state="active",
-                created_at=datetime.now(), updated_at=datetime.now(),
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
             )
             await session_repo.create(session)
-            await msg_repo.create(Message(
-                session_id="s1", role="user",
-                content="The auth token must be rotated daily.",
-                token_count=9,
-            ))
+            await msg_repo.create(
+                Message(
+                    session_id="s1",
+                    role="user",
+                    content="The auth token must be rotated daily.",
+                    token_count=9,
+                )
+            )
 
             handlers = MethodHandlers.__new__(MethodHandlers)
             handlers.session_repo = session_repo
@@ -177,6 +192,7 @@ class TestSessionSearchRPC:
 
             await handlers._session_search(FakeWs(), "r1", {"query": "auth token"}, "s1")
             import json
+
             payload = json.loads(sent[0])
             assert "error" not in payload or payload.get("error") is None
             assert payload["result"]["count"] >= 1
@@ -189,6 +205,7 @@ class TestSessionSearchRPC:
     async def test_search_handler_missing_query(self, temp_dir):
         from server.api.handlers import MethodHandlers
         from server.persistence.repositories import SessionRepository
+
         db = Database(str(temp_dir / "test.db"))
         await db.connect()
         try:
@@ -202,6 +219,7 @@ class TestSessionSearchRPC:
 
             await handlers._session_search(FakeWs(), "r1", {}, None)
             import json
+
             payload = json.loads(sent[0])
             assert payload["error"]["code"] == -32602
         finally:

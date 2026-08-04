@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
-import { requireInt } from '../../config/env';
+import { appConfig } from '../../config/appConfig';
 
 if (typeof WebSocket === 'undefined') {
   try {
@@ -50,33 +50,38 @@ export interface SessionSummary {
   updated_at: string;
 }
 
+export interface PromptAttachment {
+  path: string;
+  name?: string;
+}
+
+export interface PromptOptions {
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  attachments?: PromptAttachment[];
+}
+
 export class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = requireInt('ZENITH_WS_MAX_RECONNECT');
-  private reconnectDelay = requireInt('ZENITH_WS_RECONNECT_DELAY');
+  private maxReconnectAttempts = appConfig.ws.maxReconnect;
+  private reconnectDelay = appConfig.ws.reconnectDelayMs;
   private pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private requestIdCounter = 0;
   private emitter = new EventEmitter();
   private _status: WsStatus = 'disconnected';
-  private rpcTimeout = requireInt('ZENITH_WS_RPC_TIMEOUT');
+  private rpcTimeout = appConfig.timeout.rpcMs;
   private _connectedAt: number = 0;
+  private _disposed = false;
 
   constructor(url?: string) {
     this.url = url || WebSocketClient.detectBackendUrl();
   }
 
   private static detectBackendUrl(): string {
-    const base = typeof process !== 'undefined' ? process.env?.ZENITH_BACKEND_URL : undefined;
-    if (!base) return 'ws://127.0.0.1:8765/ws';
-    // ZENITH_BACKEND_URL is an HTTP base (shared with the REST client), so map
-    // the scheme to ws/wss and append the /ws path unless it is already there.
-    const ws = base
-      .replace(/^http:/i, 'ws:')
-      .replace(/^https:/i, 'wss:')
-      .replace(/\/+$/, '');
-    return /\/ws$/.test(ws) ? ws : `${ws}/ws`;
+    return appConfig.buildWsUrl();
   }
 
   get status(): WsStatus {
@@ -121,6 +126,7 @@ export class WebSocketClient {
         };
         this.ws.onclose = () => {
           this.setStatus('disconnected');
+          if (this._disposed) return;
           const wasStable = Date.now() - this._connectedAt > 5000;
           if (wasStable) {
             this.reconnectAttempts = 0;
@@ -263,8 +269,22 @@ export class WebSocketClient {
     mode: string = 'build',
     sessionId?: string,
     provider?: string,
+    opts?: PromptOptions,
   ): Promise<{ session_id: string; status: string }> {
-    return this.send('prompt.send', { content, mode, session_id: sessionId, provider });
+    return this.send('prompt.send', {
+      content,
+      mode,
+      session_id: sessionId,
+      provider,
+      ...(opts?.model ? { model: opts.model } : {}),
+      ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+      ...(opts?.max_tokens !== undefined ? { max_tokens: opts.max_tokens } : {}),
+      ...(opts?.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),
+    });
+  }
+
+  cancelPrompt(sessionId: string): Promise<{ cancelled: boolean }> {
+    return this.send('prompt.cancel', { session_id: sessionId });
   }
 
   sendConfirmation(confirmationId: string, approved: boolean): Promise<void> {
@@ -305,7 +325,31 @@ export class WebSocketClient {
     this.emitter.emit('status', status);
   }
 
+  /**
+   * Gracefully close the socket and stop reconnecting. Idempotent — safe to
+   * call again (e.g. during shutdown). Any in-flight RPCs are rejected so
+   * nothing hangs waiting on a response the process will never see.
+   */
+  close(): Promise<void> {
+    this._disposed = true;
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {
+        // Already closing / closed — ignore
+      }
+      this.ws = null;
+    }
+    for (const { reject } of this.pendingRequests.values()) {
+      reject(new Error('Shutting down'));
+    }
+    this.pendingRequests.clear();
+    this.setStatus('disconnected');
+    return Promise.resolve();
+  }
+
   private reconnect(): void {
+    if (this._disposed) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
 
     this.reconnectAttempts++;
@@ -316,6 +360,7 @@ export class WebSocketClient {
     const delay = Math.min(base + jitter, 30_000);
     this.url = WebSocketClient.detectBackendUrl();
     setTimeout(() => {
+      if (this._disposed) return;
       this.connect().catch(() => {});
     }, delay);
   }

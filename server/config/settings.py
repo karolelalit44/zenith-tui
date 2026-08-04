@@ -13,18 +13,19 @@ from .providers import ProviderConfig
 # Read-only tools for plan mode — comprehensive set matching the device.
 # These tools NEVER modify the filesystem or system state.
 PLAN_READ_ONLY_TOOLS = [
-    "file_read",           # Read file contents
-    "glob",                # Find files by pattern
-    "grep",                # Search file contents
-    "lsp_definition",      # Go-to-definition (language-aware)
-    "lsp_diagnostics",     # Lint/typecheck (read-only analysis)
-    "lsp_symbols",         # List symbols in file/project
+    "file_read",  # Read file contents
+    "glob",  # Find files by pattern
+    "grep",  # Search file contents
+    "lsp_definition",  # Go-to-definition (language-aware)
+    "lsp_diagnostics",  # Lint/typecheck (read-only analysis)
+    "lsp_symbols",  # List symbols in file/project
     "lsp_call_hierarchy",  # Show callers/callees
-    "lsp_references",      # Find all references
-    "sourcegraph",         # Semantic code search
-    "webfetch",            # Fetch URLs (read-only)
-    "question",            # Ask user questions (read-only checkpoint)
+    "lsp_references",  # Find all references
+    "sourcegraph",  # Semantic code search
+    "webfetch",  # Fetch URLs (read-only)
+    "question",  # Ask user questions (read-only checkpoint)
 ]
+
 
 @dataclass(frozen=True)
 class AgentModeConfig:
@@ -56,6 +57,7 @@ class AgentModeConfig:
     max_iterations is ONLY a safety net (default 100). Do NOT rely on it
     for normal operation — the agent should stop via the above mechanisms.
     """
+
     name: str
     allowed_tools: list[str] | None = None  # None = all tools
     allowed_mcp: dict[str, list[str]] | None = None  # None=all, {}=none
@@ -63,6 +65,7 @@ class AgentModeConfig:
     model_override: str | None = None
     sub_agent: bool = False
     tool_choice: str = "auto"  # "auto", "required", "none", or specific function name
+
 
 # Core read-only tools for plan mode — 4 essential exploration tools (~260 tokens schema overhead).
 # Specialized read-only tools (LSP, webfetch, question) are escalated dynamically on demand.
@@ -112,15 +115,9 @@ class ToolConfig(BaseModel):
     file_write_enabled: bool = True
     file_edit_enabled: bool = True
     file_delete_enabled: bool = True
-    max_bash_timeout: int = Field(
-        default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300
-    )
-    max_tool_output: int = Field(
-        default=optional_int("ZENITH_MAX_TOOL_OUTPUT", 10000), ge=1000
-    )
-    max_retries: int = Field(
-        default=optional_int("ZENITH_MAX_RETRIES", 3), ge=0, le=10
-    )
+    max_bash_timeout: int = Field(default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300)
+    max_tool_output: int = Field(default=optional_int("ZENITH_MAX_TOOL_OUTPUT", 10000), ge=1000)
+    max_retries: int = Field(default=optional_int("ZENITH_MAX_RETRIES", 3), ge=0, le=10)
     stream_max_retries: int = Field(
         default=optional_int("ZENITH_STREAM_MAX_RETRIES", 3), ge=0, le=10
     )
@@ -130,15 +127,11 @@ class ToolConfig(BaseModel):
     retry_max_delay: float = Field(
         default=optional_float("ZENITH_RETRY_MAX_DELAY", 60.0), ge=1.0, le=300.0
     )
-    webfetch_timeout: int = Field(
-        default=optional_int("ZENITH_WEBFETCH_TIMEOUT", 30), ge=5, le=120
-    )
+    webfetch_timeout: int = Field(default=optional_int("ZENITH_WEBFETCH_TIMEOUT", 30), ge=5, le=120)
     webfetch_max_bytes: int = Field(
         default=optional_int("ZENITH_WEBFETCH_MAX_BYTES", 100000), ge=1000, le=1000000
     )
-    git_timeout: int = Field(
-        default=optional_int("ZENITH_GIT_TIMEOUT", 30), ge=5, le=120
-    )
+    git_timeout: int = Field(default=optional_int("ZENITH_GIT_TIMEOUT", 30), ge=5, le=120)
 
 
 class McpServerConfig(BaseModel):
@@ -148,6 +141,7 @@ class McpServerConfig(BaseModel):
     args:     Arguments passed to the executable.
     env:      Optional extra environment variables for the subprocess.
     """
+
     command: str
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
@@ -165,6 +159,7 @@ class HooksConfig(BaseModel):
     session_start:  run once when a session is created; non-zero exit is logged.
     timeout:        per-hook timeout in seconds.
     """
+
     pre_tool_use: list[str] = Field(default_factory=list)
     post_tool_use: list[str] = Field(default_factory=list)
     session_start: list[str] = Field(default_factory=list)
@@ -172,7 +167,9 @@ class HooksConfig(BaseModel):
 
 
 class BootstrapDefaults(BaseModel):
-    active_provider: str = optional_env("ZENITH_ACTIVE_PROVIDER", "nvidia")
+    # active_provider is no longer read from an env var — there is no globally
+    # configured default provider. The active provider is chosen explicitly (DB).
+    active_provider: str = ""
     db_path: str = optional_env("ZENITH_DB_PATH", "data/zenith.db")
     log_level: str = optional_env("ZENITH_LOG_LEVEL", "INFO")
     max_context_tokens: int = Field(
@@ -228,9 +225,7 @@ class AppSettings(BaseModel):
     @field_validator("active_provider")
     @classmethod
     def validate_active_provider(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("active_provider cannot be empty")
-        return v.strip()
+        return (v or "").strip()
 
     @field_validator("db_path")
     @classmethod
@@ -248,6 +243,6 @@ class AppSettings(BaseModel):
             raise ValueError(
                 f"Provider '{self.active_provider}' is not configured. "
                 f"Available: {list(self.providers.keys()) or 'none'}. "
-                f"Configure via setup wizard or set ZENITH_ACTIVE_PROVIDER env var."
+                f"Configure and activate a provider via the setup wizard."
             )
         return config

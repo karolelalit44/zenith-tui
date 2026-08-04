@@ -56,7 +56,11 @@ async def run_lint(file_path: str, workspace_root: str, timeout: int = 30) -> Li
         return None
 
     linter_name, flags = linter_info
-    rel_path = str(Path(file_path).relative_to(workspace_root)) if Path(file_path).is_absolute() else file_path
+    rel_path = (
+        str(Path(file_path).relative_to(workspace_root))
+        if Path(file_path).is_absolute()
+        else file_path
+    )
 
     cmd = f"{linter_name} {flags} {rel_path}"
     logger.info("Auto-lint: %s", cmd)
@@ -69,7 +73,8 @@ async def run_lint(file_path: str, workspace_root: str, timeout: int = 30) -> Li
             cwd=workspace_root,
         )
         stdout, stderr = await asyncio.wait_for(
-            process.communicate(), timeout=timeout,
+            process.communicate(),
+            timeout=timeout,
         )
         output = stdout.decode("utf-8", errors="replace")
         error_output = stderr.decode("utf-8", errors="replace")

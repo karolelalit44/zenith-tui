@@ -7,6 +7,7 @@ import pytest
 from server.agents.context import ContextManager
 from server.agents.loop import AgentLoop
 from server.agents.recovery import RecoverableAgentLoop
+from server.api.shutdown import GracefulShutdown
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
@@ -18,7 +19,6 @@ from server.providers.registry import ProviderRegistry
 from server.sessions.export import SessionExporter
 from server.skills.loader import SkillLoader
 from server.toolkit import create_default_registry
-from server.api.shutdown import GracefulShutdown
 from server.workspace.repo_map import RepoMap
 from server.workspace.tracker import FileTracker
 
@@ -40,7 +40,9 @@ class EchoProvider(BaseProvider):
             return '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
         return f"Echo: {user_msg}"
 
-    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
+    async def stream(
+        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
+    ):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)
@@ -137,11 +139,11 @@ class TestErrorRecovery:
                 super().__init__("fail", "fail-model")
 
             async def complete(self, messages, tools=None):
-                raise Exception("API down")
+                raise Exception("API down")  # noqa: TRY002 - test stub
 
             async def stream(self, messages, tools=None):
                 yield ("should not reach", None)
-                raise Exception("API down")
+                raise Exception("API down")  # noqa: TRY002 - test stub
 
             async def validate(self):
                 return False
@@ -245,7 +247,10 @@ class TestSessionExport:
         session = Session(title="Events Test")
         events = [
             Event(kind=EventKind.THINKING, data={"text": "Thinking..."}),
-            Event(kind=EventKind.TOOL_RESULT, data={"tool": "file_write", "success": True, "metadata": {"path": "new.py"}}),
+            Event(
+                kind=EventKind.TOOL_RESULT,
+                data={"tool": "file_write", "success": True, "metadata": {"path": "new.py"}},
+            ),
             Event(kind=EventKind.ERROR, data={"message": "Something failed"}),
         ]
         messages = [
@@ -322,7 +327,9 @@ class TestSkillLoader:
     def test_skill_prompt_is_metadata_only(self, temp_dir):
         skills_dir = temp_dir / "skills" / "test-skill"
         skills_dir.mkdir(parents=True)
-        (skills_dir / "SKILL.md").write_text("# Test\n\nA long body that must not be embedded verbatim.")
+        (skills_dir / "SKILL.md").write_text(
+            "# Test\n\nA long body that must not be embedded verbatim."
+        )
 
         loader = SkillLoader(str(temp_dir))
         prompt = loader.get_skill_prompt()

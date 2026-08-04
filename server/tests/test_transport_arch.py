@@ -2,7 +2,6 @@
 
 import pytest
 
-from server.domain.events import Event, EventKind
 from server.api.protocol import (
     Connection,
     JsonRpcMethod,
@@ -14,17 +13,28 @@ from server.api.protocol import (
     make_response,
 )
 from server.api.websocket import ConnectionManager
+from server.domain.events import Event, EventKind
 
 # ── JsonRpcMethod ────────────────────────────────────────────────────────
+
 
 class TestJsonRpcMethod:
     def test_all_methods_exist(self):
         methods = [
-            "session.create", "session.list", "session.resume", "session.export",
-            "prompt.send", "prompt.cancel",
-            "provider.validate", "provider.models", "provider.list",
+            "session.create",
+            "session.list",
+            "session.resume",
+            "session.export",
+            "prompt.send",
+            "prompt.cancel",
+            "provider.validate",
+            "provider.models",
+            "provider.list",
             "tools.list",
-            "workspace.status", "workspace.diff", "workspace.log", "workspace.repo_map",
+            "workspace.status",
+            "workspace.diff",
+            "workspace.log",
+            "workspace.repo_map",
             "permission.response",
             "health",
         ]
@@ -38,6 +48,7 @@ class TestJsonRpcMethod:
 
 
 # ── JsonRpcRequest ───────────────────────────────────────────────────────
+
 
 class TestJsonRpcRequest:
     def test_create_request(self):
@@ -53,6 +64,7 @@ class TestJsonRpcRequest:
 
 # ── JsonRpcResponse ──────────────────────────────────────────────────────
 
+
 class TestJsonRpcResponse:
     def test_success_response(self):
         resp = JsonRpcResponse(id="1", result={"ok": True})
@@ -65,6 +77,7 @@ class TestJsonRpcResponse:
 
 
 # ── Serialization helpers ────────────────────────────────────────────────
+
 
 class TestSerialization:
     def test_make_response(self):
@@ -86,6 +99,7 @@ class TestSerialization:
 
 # ── Connection model ─────────────────────────────────────────────────────
 
+
 class TestConnection:
     def test_connection(self):
         c = Connection(session_id="sess_1", client="127.0.0.1:1234")
@@ -95,6 +109,7 @@ class TestConnection:
 
 # ── TransportService ABC ────────────────────────────────────────────────
 
+
 class TestTransportServiceABC:
     def test_abc_cannot_instantiate(self):
         with pytest.raises(TypeError):
@@ -102,6 +117,7 @@ class TestTransportServiceABC:
 
 
 # ── ConnectionManager ────────────────────────────────────────────────────
+
 
 class TestConnectionManager:
     def test_implements_transport_service(self):

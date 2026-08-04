@@ -12,9 +12,7 @@ from server.workspace.tracker import FileTracker
 def _has_git() -> bool:
     """Check if git is available on the system."""
     try:
-        result = subprocess.run(
-            ["git", "--version"], capture_output=True, timeout=5
-        )
+        result = subprocess.run(["git", "--version"], capture_output=True, timeout=5)
         return result.returncode == 0
     except Exception:
         return False
@@ -81,11 +79,13 @@ class TestGitOps:
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         (temp_dir / "new_file.txt").write_text("hello")
         git = GitOps(str(temp_dir))
@@ -98,11 +98,13 @@ class TestGitOps:
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         (temp_dir / "file.txt").write_text("content")
         git = GitOps(str(temp_dir))
@@ -115,11 +117,13 @@ class TestGitOps:
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         (temp_dir / "file.txt").write_text("initial")
         git = GitOps(str(temp_dir))
@@ -133,11 +137,13 @@ class TestGitOps:
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir), capture_output=True,
+            cwd=str(temp_dir),
+            capture_output=True,
         )
         (temp_dir / "file.txt").write_text("content")
         git = GitOps(str(temp_dir))

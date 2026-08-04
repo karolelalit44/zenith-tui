@@ -27,3 +27,6 @@ ref_repo/
 .ruff_cache
 .mypy_cache
 data
+
+# Local-only agent instruction file (zenith.md would be the committed variant)
+zenith.local.md

@@ -67,8 +67,19 @@ addopts = "--ignore=server/tests/e2e_real.py --ignore=server/tests/test_e2e_webs
 line-length = 100
 extend-exclude = ["ref_repo"]
 
+[tool.ruff.lint]
+# Repository-wide lint conventions — intentional patterns, enforced by review/tests:
+#   BLE001  Broad `except Exception` is deliberate across the agent/tool/workspace
+#           layers so every failure is surfaced as a recoverable error/message.
+#   DTZ005  Storage timestamps are naive datetimes; keeping them tz-naive is a
+#           deliberate schema choice (avoids a silent format switch).
+#   S110    Silent exception swallowing during best-effort / cleanup paths.
+#   S112    Silent `continue` during best-effort per-item iteration.
+ignore = ["BLE001", "DTZ005", "S110", "S112"]
+
 [tool.ruff.lint.per-file-ignores]
 "server/tests/conftest.py" = ["E402"]  # env vars must be set before zenith imports
+"server/tests/test_workspace.py" = ["PLW1510"]  # git init/config setup runs: exit code not asserted
 
 [tool.mypy]
 python_version = "3.12"

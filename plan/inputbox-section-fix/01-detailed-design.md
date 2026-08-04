@@ -2,8 +2,8 @@
 
 **Plan**: `inputbox-section-fix`
 **Branch**: `fix/ser-tu-communication-n-separations`
-**Date**: 2026-08-02
-**Version**: 1.0
+**Date**: 2026-08-03
+**Version**: 1.1
 
 ---
 
@@ -53,15 +53,16 @@
 
 ## 2. Current Implementation (verified)
 
-- **Composer** `tui/src/components/Input/CommandInput.tsx`: `❯` glyph + `MultiLineTextInput`, `─` divider, footer (mode label, `◇ model · provider`, short dir, `(branch)`, `tokens/max`, context gauge, `(Σ total)`, `N req`, Running/Idle). Rendered from `App.tsx:316-332` only when `!showAutocomplete && !showFilePicker && !isOverlayOpen`; currently `disabled={isRunning}` (input frozen while streaming — to change).
+- **Composer** `tui/src/components/Input/CommandInput.tsx`: `❯` glyph + `MultiLineTextInput`, `─` divider, footer (mode label, `◇ model · provider`, short dir, `(branch)`, `tokens/max`, context gauge, `(Σ total)`, `N req`, Running/Idle). Rendered from `App.tsx:360-376` only when `!showAutocomplete && !showFilePicker && !isOverlayOpen`; currently `disabled={isRunning}` (input frozen while streaming — to change). When `disabled`, the composer swaps the editor for `◌` + "Processing... (Esc to cancel)".
 - **Input core** `tui/src/components/Input/MultiLineTextInput.tsx`: hand-rolled buffer/cursor, `MIN_LINES=1` / `MAX_LINES=15`, Enter submits / Shift+Enter newline, Up/Down line-nav + history at edges, paste sanitation, inverse-char cursor.
-- **State hooks** in `App.tsx`: `useAutocomplete` (input, history `~/.zenith/history.json` max50, `attachments[]` display-only, `/`→autocomplete, `@`→file-picker), `useOverlayManager` (`OverlayType`: mode/help/settings/context/provider/models/usage, stacked), `useConversation`, `useScenario` (`startScenario(prompt, mode, provider)` → `wsClient.sendPrompt(prompt, mode, sessionId, provider)`), `useProvider`, `useTerminalKeyboard`.
-- **Global keys** (`useTerminalKeyboard.ts:77-164`): confirmation y/n/esc; `esc` closes overlay or aborts; `ctrl+c` abort; `ctrl+l` clear; `ctrl+s` save plan; `ctrl+p` → help; `ctrl+e` → models; `ctrl+m` → mode (dead in Ink — Ctrl+M arrives as `\r`); `ctrl+t`/`shift+t` → thinking. HelpModal documents "Shift+M Switch Mode" (mismatch).
-- **Slash commands**: `services/api/options.json` + `CommandService.dispatchCommand` (exact slash match; actions overlay/clear/compact/clear_tools/mode). `AutocompleteDropdown` renders from `options.json` and **replaces** the composer (frozen filter — can't type more while open). `options.json` already includes `/models`.
-- **Model infra (reuse)**: `services/providers/ModelStore.ts` (`current`/`recent` max10/`favorite`, `set`, `cycle(reverse)`, `cycleFavorite`, `toggleFavorite`, `getFirstValidModel`, `isModelInProviders`); `ProviderRepository.getProviderInfoList()`; `ProviderService`. `screens/Provider/ModelPicker.tsx` (SearchList) **already wired** via `OverlayRouter.tsx:68-81` (`models` overlay) → `providerRepository.setModel` + `modelStore.set`. UI kit: `SearchList`, `RoundedBox`, `PromptInput`, `ModalFooter`, `textBuffer.fuzzyScore`.
-- **Backend `prompt.send`** (`server/api/handlers.py:317-378`): params `content|prompt, provider, mode, session_id`; resolves provider from `registry`; creates user `Message`; `executor.run(session_id, content, mode, handlers, manager)` (fire-and-forget); implicit cancel = next `prompt.send` calls `executor.cancel_active()` (`_session_executors`). Dispatch map `handlers.py:65-99` has **no** `prompt.cancel`; enum `JsonRpcMethod.PROMPT_CANCEL` exists in `protocol.py` (unused). `PromptExecutor.run/._execute` signatures currently `(session_id, content, mode, handlers, manager)`.
-- **Backend seams**: `server/agents/context.py` `ContextManager.build_messages` (repo map, memory, AGENTS.md) is the natural attachment-injection point. `server/agents/loop.py` already swaps `provider.model` in try/finally for `model_override`; `LLMProvider.stream` reads `self.max_tokens`/`self.temperature` per call.
-- **Environment constraint**: Ink `Key` type has **no f1–f12 / alt** fields (verified) → model cycling uses `ctrl+n` / `ctrl+shift+n`, not F2.
+- **State hooks** in `App.tsx`: `useAutocomplete` (input, history `~/.zenith/history.json` max50, `attachments[]` display-only — `addAttachment` is exported but **unused** today; `/`→autocomplete, `@`→file-picker whose select runs `insertFilePath`, which strips the `@` and inserts a raw path string, **not** an attachment), `useOverlayManager` (`OverlayType`: mode/help/settings/context/provider/models/usage, stacked), `useConversation`, `useScenario` (`startScenario(prompt, mode, provider)` → `wsClient.sendPrompt(prompt, mode, sessionId, provider)`), `useProvider`, `useTerminalKeyboard`.
+- **Global keys** (`useTerminalKeyboard.ts:93-222`): confirmation y/n/esc (`:97-107`); `esc` closes overlay or aborts (`:109-120`); `ctrl+c` abort; `ctrl+l` clear; `ctrl+s` save plan; `ctrl+p` → help (`:148-151`); `ctrl+e` → models (`:153-156`); `ctrl+m` → mode (`:158-161`, dead in Ink — Ctrl+M arrives as `\r`); `ctrl+t`/`shift+t` → thinking. HelpModal documents "Shift+M Switch Mode" (mismatch).
+- **Slash commands**: `services/api/options.json` + `CommandService.dispatchCommand` (exact slash match; actions overlay/clear/compact/clear_tools/mode). `AutocompleteDropdown` renders from `options.json` and **replaces** the composer (frozen filter — can't type more while open; no `onChange` wired back into the input). `options.json` already includes `/models`.
+- **Model infra (reuse)**: `services/providers/ModelStore.ts` (`current`/`recent` max10/`favorite`, `set`, `cycle(reverse)`, `cycleFavorite`, `toggleFavorite`, `getFirstValidModel`, `isModelInProviders`); `ProviderRepository.getProviderInfoList()`; `ProviderService`. `screens/Provider/ModelPicker.tsx` (SearchList) **already wired** via `OverlayRouter.tsx:68-81` (`models` overlay) → `providerRepository.setModel` + `modelStore.set` + `providerService.notifyChange()`. UI kit: `SearchList`, `RoundedBox`, `PromptInput`, `ModalFooter`, `textBuffer.fuzzyScore`.
+- **Backend `prompt.send`** (`server/api/handlers.py:317-378`): params `content|prompt, provider, mode, session_id`; resolves provider from `registry`; creates user `Message`; `executor.run(session_id, content, mode, handlers, manager)` (fire-and-forget); implicit cancel = next `prompt.send` calls `executor.cancel_active()` (`_session_executors`). Dispatch map `handlers.py:66-99` has **no** `prompt.cancel`; enum `JsonRpcMethod.PROMPT_CANCEL` exists in `protocol.py:25` (unused). `PromptExecutor.run/._execute` signatures currently `(session_id, content, mode, handlers, manager)`.
+- **Backend seams**: `server/agents/context.py` `ContextManager.build_messages` (repo map, memory, AGENTS.md) is the natural attachment-injection point. `server/agents/loop.py:155-167` already swaps `provider.model` in try/finally for `model_override`. `LLMProvider.complete_typed` (`llm_provider.py:648-736`) already applies per-call `temperature`/`max_tokens` with a finally-restore; the streaming path used by the agent loop (`server/agents/llm_stream.py:71` → `_stream_impl` → `_build_completion_kwargs`) reads `self.max_tokens`/`self.temperature` at call time (`llm_provider.py:377-378`) — so mutating `provider.model`/`.temperature`/`.max_tokens` in a try/finally at the executor level is the correct seam for per-prompt overrides. `Message.metadata` persists via `metadata_json` (`repositories.py:280-292`); `Session` already has `model` + `metadata` fields (`session.py:31,40`).
+- **Environment constraint**: Ink `Key` type has **no f1–f12 / alt** fields (verified against `node_modules/ink/build/hooks/use-input.d.ts` — only arrows, pageUp/Down, home/end, return, escape, ctrl, shift, tab, backspace, delete, meta, super/hyper) → model cycling uses `ctrl+n` / `ctrl+shift+n`, not F2.
+- **Tests (keep green)**: `tui/tests/commandService.test.ts` drives `dispatchCommand('/help'|'/provider'|'/models'|'/clear'|'/compact'|'/clear-tools')` — the Phase 3 registry adapter must keep this passing (or be updated in the same phase). `tui/tests/backendScenarioProvider.test.ts` already exercises abort/no-partial-tail behavior.
 
 ---
 
@@ -171,7 +172,7 @@ Declarative `keybind.ts`: `KeybindId` union + `KEYBINDINGS: Record<KeybindId, {k
 
 - `_prompt` (handlers.py ~317): parse/validate `model` (strip), `temperature` (float 0..2), `max_tokens` (int ≥1), `attachments` (list of dicts with non-empty `path`; dedupe by path; cap 25). Set `user_msg.metadata["model"]` and `["attachment_paths"]` before persist (metadata persisted via `metadata_json`). If `model` set, update `session.model` + `session.metadata["last_model"]` (`session_repo.update`). Thread `model_override/temperature/max_tokens/attachments` into `executor.run(...)`.
 - Add `"prompt.cancel": lambda: self._cancel_prompt(ws, rid, session_id)` to the dispatch map; `_cancel_prompt` calls `self._session_executors.get(session_id)?.cancel_active()`, replies `{"cancelled": bool}`.
-- `PromptExecutor`: extend `run`/`_execute` with the 4 new args. In `_execute`, resolve `effective_model = model_override or plan_model_override` (per-prompt wins), apply `model/temperature/max_tokens` to `self._provider` in a **try/finally restoring originals** — covers both the standard loop and the sub-agent path. Provider pre-set → pass `model_override=None` to `agent.process_prompt`; no `loop.py` change needed.
+- `PromptExecutor`: extend `run`/`_execute` with the 4 new args. In `_execute`, resolve `effective_model = model_override or plan_model_override` (per-prompt wins), apply `model/temperature/max_tokens` to `self._provider` in a **try/finally restoring originals** — covers both the standard loop and the sub-agent path. Provider pre-set → pass `model_override=None` to `agent.process_prompt`; no `loop.py` change needed. (Seam confirmed: `_build_completion_kwargs` reads `self.max_tokens`/`self.temperature` per call at `llm_provider.py:377-378`; the `complete_typed` finally-restore at `llm_provider.py:648-736` is the in-repo precedent. `Message.metadata` persists via `metadata_json` at `repositories.py:280-292`; `Session.model`/`.metadata` exist at `session.py:31,40`.)
 - Attachment injection util (async read, traversal guard, size cap, binary skip) + prepend `<attachment>` blocks to `content`.
 - Tests: fake provider records observed model/temp/max_tokens; assert mutation+restore, message metadata, session row, `prompt.cancel` cancels an in-flight task, traversal guard + size cap.
 
@@ -183,7 +184,7 @@ Declarative `keybind.ts`: `KeybindId` union + `KEYBINDINGS: Record<KeybindId, {k
 ### Phase 3 — Command registry + command palette
 **Files**: new `tui/src/services/api/CommandRegistry.ts`, modify `CommandService.ts`, `AutocompleteDropdown.tsx`, new `CommandPalette.tsx`, modify `App.tsx`.
 - `CommandRegistry`: module-level `CommandDef[]` — `{id, slash, title, description, category: 'Session'|'View'|'Mode'|'Model'|'Tools', keybind?, keywords?, hidden?, run(ctx)}`. Entries: existing `/help /settings /context /usage /provider /models /clear /compact /clear-tools /build /plan` + new `/model` (opens picker) + non-slash palette items ("Toggle thinking", "Switch mode", "Open model picker", "Save plan to file", "Clear conversation", "Command palette"). `CommandRunContext` gains `openModelPicker`, `openPalette`, `toggleThinking`.
-- `CommandService.dispatchCommand` becomes a thin adapter over the registry (keeps exact-slash match, returns boolean). `options.json` stays as reference only.
+- `CommandService.dispatchCommand` becomes a thin adapter over the registry (keeps exact-slash match, returns boolean). `options.json` stays as reference only. Keep `tui/tests/commandService.test.ts` passing — it drives `/help /provider /models /clear /compact /clear-tools` through `dispatchCommand` with the existing `CommandHandlers` shape, so the adapter must preserve the `dispatchCommand(raw, handlers)` contract (update the test in this phase only if the contract intentionally changes).
 - `CommandPalette.tsx` = `SearchList` over `!hidden` commands with `gutter: formatKeyBind(keybind)`; select runs the command then closes.
 - `AutocompleteDropdown`: build list from registry; add a local filter buffer (mirrors to a new `onQueryChange` prop) so `/filt…` keeps filtering (fixes the frozen-filter bug). Keep arrows/enter/esc/tab.
 
@@ -216,8 +217,8 @@ Declarative `keybind.ts`: `KeybindId` union + `KEYBINDINGS: Record<KeybindId, {k
 
 ### Phase 7 — Cancel/interrupt + streaming UX
 **Files**: `hooks/useScenario.ts`, `services/transport/BackendScenarioProvider.ts`, `App.tsx`; backend done in Phase 1.
-- `useScenario.abort()`: `runnerRef.current?.abort()` + `wsClient.cancelPrompt(sessionIdRef.current)` (if set) + local `setIsRunning(false)` / `setActiveConfirmation(null)`.
-- `BackendScenarioProvider.execute`: add an `aborted` flag so events arriving after abort are dropped (no partial-message tail).
+- `useScenario.abort()`: `runnerRef.current?.abort()` + `setIsRunning(false)`/`setActiveConfirmation(null)` **already exist** (`useScenario.ts:182-186`); the only new work is `wsClient.cancelPrompt(sessionIdRef.current)` (if set).
+- `BackendScenarioProvider.execute`: the `aborted` flag **already exists** — `abortFlag` (`BackendScenarioProvider.ts:13`) is checked at the top of the event handler (`:147`) and set by `abort()` (`:304-307`), so events after abort are already dropped (no partial-message tail). No code change; keep `tui/tests/backendScenarioProvider.test.ts` green as the guard.
 - Composer stays interactive while running; Enter during a run issues a new `prompt.send` and the backend's existing `executor.cancel_active()` on re-send stops the previous turn (coarse "queue next prompt"). A true task queue is a documented follow-up.
 
 ### Phase 8 — History + draft (stretch)
@@ -268,6 +269,7 @@ server/tests/test_prompt_overrides.py
 - `tui/src/components/Input/CommandInput.tsx`, `tui/src/components/Input/MultiLineTextInput.tsx`
 - `tui/src/hooks/useAutocomplete.ts`, `tui/src/hooks/useTerminalKeyboard.ts`, `tui/src/hooks/useScenario.ts`, `tui/src/hooks/useConversation.ts`
 - `tui/src/App.tsx`, `tui/src/routes/OverlayRouter.tsx`, `tui/src/screens/Help/HelpModal.tsx`
+- Tests: `tui/tests/commandService.test.ts` (Phase 3), `tui/tests/backendScenarioProvider.test.ts` (Phase 7 guard — no change expected)
 
 ---
 

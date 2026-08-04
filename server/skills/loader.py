@@ -95,13 +95,15 @@ class SkillLoader:
 
                 try:
                     content = skill_file.read_text(encoding="utf-8")
-                    skills.append({
-                        "path": skill_file.relative_to(self.root).as_posix(),
-                        "content": content,
-                        "directory": skill_file.parent.relative_to(self.root).as_posix(),
-                        "size": len(content),
-                        "summary": _summarize_skill(content),
-                    })
+                    skills.append(
+                        {
+                            "path": skill_file.relative_to(self.root).as_posix(),
+                            "content": content,
+                            "directory": skill_file.parent.relative_to(self.root).as_posix(),
+                            "size": len(content),
+                            "summary": _summarize_skill(content),
+                        }
+                    )
                 except Exception as e:
                     logger.warning("Failed to read skill file %s: %s", skill_file, e)
 

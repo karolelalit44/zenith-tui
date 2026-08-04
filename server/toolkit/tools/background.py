@@ -87,7 +87,10 @@ class BackgroundJobManager:
             job.done = True
             logger.info(
                 "Background job %s completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
-                job.id, job.exit_code or 0, len(job.stdout), len(job.stderr),
+                job.id,
+                job.exit_code or 0,
+                len(job.stdout),
+                len(job.stderr),
             )
         except Exception as e:
             job.error = e
@@ -143,21 +146,20 @@ class BackgroundJobManager:
         """List all tracked jobs with their status."""
         result = []
         for job_id, job in self._jobs.items():
-            result.append({
-                "id": job_id,
-                "command": job.command,
-                "description": job.description,
-                "done": job.done,
-                "exit_code": job.exit_code,
-            })
+            result.append(
+                {
+                    "id": job_id,
+                    "command": job.command,
+                    "description": job.description,
+                    "done": job.done,
+                    "exit_code": job.exit_code,
+                }
+            )
         return result
 
     def cleanup_completed(self) -> int:
         """Remove completed jobs. Returns count of removed jobs."""
-        to_remove = [
-            job_id for job_id, job in self._jobs.items()
-            if job.done
-        ]
+        to_remove = [job_id for job_id, job in self._jobs.items() if job.done]
         for job_id in to_remove:
             del self._jobs[job_id]
         return len(to_remove)

@@ -1,5 +1,6 @@
 import { useInput } from 'ink';
 import { useEffect, useRef } from 'react';
+import { matchKeypress } from '../config/keybind';
 import { savePlanToFile } from '../services/export/markdownExport';
 import type { ConfirmationRequestEvent, ScenarioEvent } from '../types/scenario';
 import type { ConversationTurn } from './useConversation';
@@ -14,7 +15,7 @@ interface UseTerminalKeyboardOptions {
   closeOverlay?: () => void;
   closeAllOverlays?: () => void;
   abort: () => void;
-  abortActiveTurn: () => void;
+  abortActiveTurn: (events?: ScenarioEvent[]) => void;
   markTurnSaved: (turnId: string) => void;
   clearTurns?: () => void;
   onToggleThinking?: () => void;
@@ -24,6 +25,12 @@ interface UseTerminalKeyboardOptions {
   scrollDown?: (lines?: number) => void;
   scrollToTop?: () => void;
   scrollToBottom?: () => void;
+  showPalette?: boolean;
+  setShowPalette?: (show: boolean) => void;
+  openModelPicker?: () => void;
+  composerRunning?: boolean;
+  /** True while the inline slash-command menu is open (it owns the keys). */
+  slashMenuOpen?: boolean;
 }
 
 export function useTerminalKeyboard({
@@ -45,6 +52,11 @@ export function useTerminalKeyboard({
   scrollDown,
   scrollToTop,
   scrollToBottom,
+  showPalette,
+  setShowPalette,
+  openModelPicker,
+  composerRunning,
+  slashMenuOpen,
 }: UseTerminalKeyboardOptions): void {
   const optionsRef = useRef({
     turns,
@@ -65,6 +77,11 @@ export function useTerminalKeyboard({
     scrollDown,
     scrollToTop,
     scrollToBottom,
+    showPalette,
+    setShowPalette,
+    openModelPicker,
+    composerRunning,
+    slashMenuOpen,
   });
 
   useEffect(() => {
@@ -87,96 +104,113 @@ export function useTerminalKeyboard({
       scrollDown,
       scrollToTop,
       scrollToBottom,
+      showPalette,
+      setShowPalette,
+      openModelPicker,
+      composerRunning,
+      slashMenuOpen,
     };
   });
 
   useInput(
-    (_char, key) => {
+    (input, key) => {
       const opts = optionsRef.current;
 
       if (opts.activeConfirmation && !opts.activeConfirmation.answered && opts.overlay === 'none') {
-        if (_char === 'y' || _char === 'Y') {
+        if (input === 'y' || input === 'Y') {
           opts.respondConfirmation(true);
           return;
         }
-        if (_char === 'n' || _char === 'N' || key.escape) {
+        if (input === 'n' || input === 'N' || key.escape) {
           opts.respondConfirmation(false);
           return;
         }
         return;
       }
 
+      const pressed = matchKeypress(input, key);
+      const paletteOpen = opts.showPalette ?? false;
+
+      // The inline slash menu owns the input while it is open: up/down/enter/
+      // tab/esc are handled by the dropdown and the composer, so global keys
+      // (including esc which would otherwise cancel a running turn) are idle.
+      if (opts.slashMenuOpen) {
+        return;
+      }
+
+      // Command palette owns the input while open — only close/toggle here.
+      if (paletteOpen) {
+        if (pressed.includes('palette') || key.escape) {
+          if (opts.setShowPalette) opts.setShowPalette(false);
+        }
+        return;
+      }
+
+      // interrupt: escape closes overlays / cancels the running turn. The
+      // models overlay is exempt — ModelPickerFlow owns esc for stage back/close.
       if (key.escape) {
+        if (opts.overlay === 'models') {
+          return;
+        }
         if (opts.overlay !== 'none') {
           if (opts.closeAllOverlays) opts.closeAllOverlays();
           else if (opts.closeOverlay) opts.closeOverlay();
           return;
         }
-        if (opts.isRunning) {
+        if (opts.isRunning || opts.composerRunning) {
           opts.abort();
-          opts.abortActiveTurn();
+          opts.abortActiveTurn(opts.events);
         }
         return;
       }
 
-      if ((key.ctrl || key.meta) && opts.overlay === 'none') {
-        if (_char === 'c' || _char === 'C') {
-          if (opts.isRunning) {
-            opts.abort();
-            opts.abortActiveTurn();
-          }
-          return;
-        }
+      // Overlays own their own input while open.
+      if (opts.overlay !== 'none') return;
 
-        if (_char === 'l' || _char === 'L') {
-          if (opts.clearTurns) opts.clearTurns();
-          return;
-        }
-
-        if (_char === 's' || _char === 'S') {
-          const targetTurn = opts.turns[opts.turns.length - 1];
-          const targetEvents = opts.isRunning ? opts.events : targetTurn?.events || [];
-          if (targetEvents.length > 0) {
-            savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
-            if (targetTurn) {
-              opts.markTurnSaved(targetTurn.id);
-            }
-          }
-          return;
-        }
-
-        if (_char === 'p' || _char === 'P') {
-          if (opts.openOverlay) opts.openOverlay('help');
-          return;
-        }
-
-        if (_char === 'e' || _char === 'E') {
-          if (opts.openOverlay) opts.openOverlay('models');
-          return;
-        }
-
-        if (_char === 'm' || _char === 'M') {
-          if (opts.openOverlay) opts.openOverlay('mode');
-          return;
-        }
-
-        if (_char === 't' || _char === 'T' || _char === '\x14') {
-          if (opts.onToggleThinking) opts.onToggleThinking();
-          return;
-        }
-      }
-
-      if (
-        (key.shift || key.ctrl) &&
-        (_char === 't' || _char === 'T' || _char === '\x14') &&
-        opts.overlay === 'none' &&
-        opts.onToggleThinking
-      ) {
-        opts.onToggleThinking();
+      if (pressed.includes('palette')) {
+        if (opts.setShowPalette) opts.setShowPalette(!paletteOpen);
         return;
       }
 
-      if (opts.overlay === 'none' && !opts.activeConfirmation) {
+      if (pressed.includes('model_picker')) {
+        if (opts.openModelPicker) opts.openModelPicker();
+        else if (opts.openOverlay) opts.openOverlay('models');
+        return;
+      }
+
+      if (pressed.includes('thinking')) {
+        if (opts.onToggleThinking) opts.onToggleThinking();
+        return;
+      }
+
+      if (pressed.includes('save_plan')) {
+        const targetTurn = opts.turns[opts.turns.length - 1];
+        const targetEvents = opts.isRunning ? opts.events : targetTurn?.events || [];
+        if (targetEvents.length > 0) {
+          savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
+          if (targetTurn) {
+            opts.markTurnSaved(targetTurn.id);
+          }
+        }
+        return;
+      }
+
+      if (pressed.includes('clear_turns')) {
+        if (opts.clearTurns) opts.clearTurns();
+        return;
+      }
+
+      // ctrl+c while running cancels the turn; when idle the composer's
+      // onSpecial clears the input (single handler, no double-fire).
+      if (pressed.includes('clear_input')) {
+        if (opts.isRunning || opts.composerRunning) {
+          opts.abort();
+          opts.abortActiveTurn(opts.events);
+        }
+        return;
+      }
+
+      if (!opts.activeConfirmation) {
         if (key.upArrow && (key.ctrl || key.shift)) {
           if (opts.scrollUp) opts.scrollUp();
           return;
@@ -197,22 +231,12 @@ export function useTerminalKeyboard({
           return;
         }
 
-        if (_char === 'g' && key.shift) {
+        if (input === 'g' && key.shift) {
           if (opts.scrollToTop) opts.scrollToTop();
           return;
         }
 
-        if (_char === 'G' && key.shift) {
-          if (opts.scrollToBottom) opts.scrollToBottom();
-          return;
-        }
-
-        if (key.return && key.shift) {
-          if (opts.scrollToTop) opts.scrollToTop();
-          return;
-        }
-
-        if (key.return && (key.ctrl || key.meta)) {
+        if (input === 'G' && key.shift) {
           if (opts.scrollToBottom) opts.scrollToBottom();
           return;
         }

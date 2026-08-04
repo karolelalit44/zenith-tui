@@ -37,24 +37,15 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
 
   const displayedThoughts = isCollapsed || historical ? event.thoughts : event.thoughts.slice(0, visibleCount);
 
+  const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
+  const headerTitle = durationStr ? `Thought for ${durationStr}` : `Thought (${event.thoughts.length} steps)`;
+
   return (
-    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
-        <Text color={theme.colors.status.accent} bold>
-          {isCollapsed ? '▶' : '▼'}
-        </Text>
-        <Text color={theme.colors.text.muted}> {event.thoughts.length} thoughts</Text>
-        {event.duration > 0 && (
-          <>
-            <Text color={theme.colors.text.muted}> · </Text>
-            <Text color={theme.colors.text.muted}>{formatDuration(event.duration)}</Text>
-          </>
-        )}
-        <Text color={theme.colors.text.muted}> · </Text>
-        <Text color={theme.colors.text.bright} backgroundColor={theme.colors.bg.modal}>
-          {' Ctrl+T '}
-        </Text>
-        <Text color={theme.colors.text.dim}> toggle</Text>
+        <Text color={theme.colors.text.muted}>• </Text>
+        <Text color={theme.colors.text.bright}>{headerTitle} </Text>
+        <Text color={theme.colors.text.dim}>{isCollapsed ? '(ctrl+o to expand)' : '(ctrl+o to collapse)'}</Text>
       </Box>
 
       {!isCollapsed && (

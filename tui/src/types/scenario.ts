@@ -57,6 +57,7 @@ export interface SuccessEvent {
   message: string;
   iterations?: number;
   tokenInfo?: TokenInfo;
+  elapsedMs?: number;
 }
 
 export interface MessageEvent {

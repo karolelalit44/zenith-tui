@@ -79,7 +79,11 @@ class SubAgentTool(BaseTool):
                     if text:
                         collected_output.append(text)
 
-            output = "\n".join(collected_output) if collected_output else "Sub-agent completed with no output."
+            output = (
+                "\n".join(collected_output)
+                if collected_output
+                else "Sub-agent completed with no output."
+            )
             logger.info("SUB-AGENT completed: %s", description)
 
             return ToolResult(

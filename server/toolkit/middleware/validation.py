@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from ..base import ToolContext, ToolMiddleware, ToolResult
 
@@ -11,7 +11,7 @@ class ValidationMiddleware(ToolMiddleware):
     """Rejects execution when required parameters are missing or empty."""
 
     # Per-tool required parameter lists (extend as needed)
-    _REQUIRED: dict[str, list[str]] = {
+    _REQUIRED: ClassVar[dict[str, list[str]]] = {
         "bash": ["command"],
         "file_write": ["path", "content"],
         "file_edit": ["path", "old", "new"],

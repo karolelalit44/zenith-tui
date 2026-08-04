@@ -59,9 +59,7 @@ class FileReadTool(BaseTool):
             content = resolved.read_text(encoding="utf-8", errors="replace")
             lines = content.split("\n")
             selected = lines[offset : offset + limit]
-            numbered = "\n".join(
-                f"{i + offset + 1}: {line}" for i, line in enumerate(selected)
-            )
+            numbered = "\n".join(f"{i + offset + 1}: {line}" for i, line in enumerate(selected))
             return ToolResult(
                 success=True,
                 output=numbered,

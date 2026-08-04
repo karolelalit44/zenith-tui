@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import type { SearchListOption } from '../../components/ui/SearchList';
 import { SearchList } from '../../components/ui/SearchList';
-import { providerService } from '../../services/providers/ProviderService';
 import type { ProviderState } from '../../services/providers/types';
 
 export interface ProviderPickerSelection {
@@ -17,33 +16,33 @@ interface ProviderPickerProps {
   onClose: () => void;
 }
 
-const POPULAR = ['nvidia', 'openai', 'anthropic', 'google', 'groq', 'openrouter'];
-
 export const ProviderPicker: React.FC<ProviderPickerProps> = ({ providers, connected, onSelect, onClose }) => {
-  const activeId = providerService.getActiveProviderId();
-
   const options = useMemo<SearchListOption<ProviderPickerSelection>[]>(() => {
+    // Custom-flow providers (SQL catalog custom_flow flag) are surfaced as a
+    // single aggregated "bring your own endpoint" entry.
+    const customProvider = providers.find((provider) => provider.isCustomFlow);
     const list: SearchListOption<ProviderPickerSelection>[] = [];
     for (const provider of providers) {
-      const isDefault = provider.id === activeId;
+      if (provider.isCustomFlow) continue;
       list.push({
         title: provider.meta.name,
         value: { type: 'provider', providerID: provider.id, title: provider.meta.name },
-        category: POPULAR.includes(provider.id) ? 'Popular' : 'Providers',
-        description: isDefault ? '(default)' : undefined,
+        category: provider.isPopular ? 'Popular' : 'Providers',
         footer: provider.hasApiKey ? 'configured' : undefined,
         gutter: connected.includes(provider.id) ? '✓' : undefined,
         current: provider.isActive,
       });
     }
-    list.push({
-      title: 'Other (Custom OpenAI-Compatible)',
-      value: { type: 'custom', title: 'Custom OpenAI-Compatible' },
-      category: 'Providers',
-      description: 'Bring your own endpoint',
-    });
+    if (customProvider) {
+      list.push({
+        title: 'Other (Custom OpenAI-Compatible)',
+        value: { type: 'custom', providerID: customProvider.id, title: 'Custom OpenAI-Compatible' },
+        category: 'Providers',
+        description: 'Bring your own endpoint',
+      });
+    }
     return list;
-  }, [providers, connected, activeId]);
+  }, [providers, connected]);
 
   return (
     <SearchList

@@ -17,27 +17,61 @@ def _strip_key(key: str) -> str:
 
 # Canonical normalized aliases (without underscores/hyphens/case)
 _PATH_CANONICAL_ALIASES = {
-    "path", "filepath", "filename", "file", "targetfile", "targetpath",
-    "dest", "destination", "outputfile", "outputpath", "pathname",
-    "relpath", "absolutepath", "src", "source", "sourcefile",
+    "path",
+    "filepath",
+    "filename",
+    "file",
+    "targetfile",
+    "targetpath",
+    "dest",
+    "destination",
+    "outputfile",
+    "outputpath",
+    "pathname",
+    "relpath",
+    "absolutepath",
+    "src",
+    "source",
+    "sourcefile",
 }
 
 _OLD_CONTENT_CANONICAL_ALIASES = {
-    "search", "oldstring", "find", "original", "oldcontent",
-    "targetcontent", "oldtext", "targettext",
+    "search",
+    "oldstring",
+    "find",
+    "original",
+    "oldcontent",
+    "targetcontent",
+    "oldtext",
+    "targettext",
 }
 
 _NEW_CONTENT_CANONICAL_ALIASES = {
-    "replace", "newstring", "replacement", "newcontent",
-    "replacementcontent", "newtext", "replacementtext",
+    "replace",
+    "newstring",
+    "replacement",
+    "newcontent",
+    "replacementcontent",
+    "newtext",
+    "replacementtext",
 }
 
 _COMMAND_CANONICAL_ALIASES = {
-    "command", "cmd", "commandstring", "script", "exec", "run",
+    "command",
+    "cmd",
+    "commandstring",
+    "script",
+    "exec",
+    "run",
 }
 
 _PATTERN_CANONICAL_ALIASES = {
-    "pattern", "query", "glob", "searchpattern", "filter", "regex",
+    "pattern",
+    "query",
+    "glob",
+    "searchpattern",
+    "filter",
+    "regex",
 }
 
 
@@ -77,5 +111,3 @@ def normalize_file_params(params: dict[str, Any]) -> dict[str, Any]:
                 out[field] = str(val)
 
     return out
-
-

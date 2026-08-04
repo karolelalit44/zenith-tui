@@ -39,4 +39,3 @@ def test_normalize_list_content_to_str():
 
     res_edit = normalize_file_params({"path": "a.py", "oldContent": ["old 1", "old 2"]})
     assert res_edit["old_content"] == "old 1\nold 2"
-

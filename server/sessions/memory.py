@@ -56,8 +56,7 @@ class MemoryStore:
             return self.path_for(session_id)
         path = self.path_for(session_id)
         block = (
-            f"## Durable facts — {datetime.now().isoformat(timespec='seconds')}\n"
-            f"{facts.strip()}\n"
+            f"## Durable facts — {datetime.now().isoformat(timespec='seconds')}\n{facts.strip()}\n"
         )
         existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
         combined = (existing + "\n" + block).strip() + "\n"
@@ -73,8 +72,7 @@ class MemoryStore:
             return self.project_path()
         path = self.project_path()
         block = (
-            f"## Project facts — {datetime.now().isoformat(timespec='seconds')}\n"
-            f"{facts.strip()}\n"
+            f"## Project facts — {datetime.now().isoformat(timespec='seconds')}\n{facts.strip()}\n"
         )
         existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
         combined = (existing + "\n" + block).strip() + "\n"
@@ -152,7 +150,9 @@ class MemoryStore:
             try:
                 text = project_path.read_text(encoding="utf-8", errors="replace").strip()
                 if text:
-                    blocks.append(f"<memory_file src=\"{PROJECT_MEMORY_FILE}\">\n{text}\n</memory_file>")
+                    blocks.append(
+                        f'<memory_file src="{PROJECT_MEMORY_FILE}">\n{text}\n</memory_file>'
+                    )
             except Exception as e:
                 logger.warning("Failed to read project memory file %s: %s", project_path, e)
         # Then load per-session memory files
@@ -165,7 +165,7 @@ class MemoryStore:
                 logger.warning("Failed to read memory file %s: %s", path, e)
                 continue
             if text:
-                blocks.append(f"<memory_file src=\"{path.name}\">\n{text}\n</memory_file>")
+                blocks.append(f'<memory_file src="{path.name}">\n{text}\n</memory_file>')
         return "\n\n".join(blocks)
 
     def load_plain(self) -> str:

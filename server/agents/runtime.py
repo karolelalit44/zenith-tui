@@ -90,7 +90,10 @@ class DefaultAgentRuntime(AgentRuntime):
         self._state = AgentState.RUNNING
         try:
             async for event in self._loop.process_prompt(
-                prompt, session_id, history, mode,
+                prompt,
+                session_id,
+                history,
+                mode,
                 skills_section=skills_section,
                 confirm_callback=confirm_callback,
                 plan_context=plan_context,

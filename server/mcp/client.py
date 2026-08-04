@@ -48,7 +48,8 @@ class McpClient:
 
         full_env = {**os.environ, **(self._env or {})}
         self._process = await asyncio.create_subprocess_exec(
-            self.command, *self.args,
+            self.command,
+            *self.args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -57,11 +58,14 @@ class McpClient:
         self._reader_task = asyncio.create_task(self._read_loop())
 
         # Initialize the connection
-        result = await self._send_request("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {}},
-            "clientInfo": {"name": "zenith", "version": "1.0.0"},
-        })
+        result = await self._send_request(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "clientInfo": {"name": "zenith", "version": "1.0.0"},
+            },
+        )
         if result:
             await self._send_notification("notifications/initialized", {})
             self._initialized = True
@@ -101,10 +105,13 @@ class McpClient:
         if not self._initialized:
             return {"error": "MCP server not initialized"}
 
-        result = await self._send_request("tools/call", {
-            "name": tool_name,
-            "arguments": arguments,
-        })
+        result = await self._send_request(
+            "tools/call",
+            {
+                "name": tool_name,
+                "arguments": arguments,
+            },
+        )
         return result or {}
 
     async def _send_request(self, method: str, params: Any, timeout: float = 30.0) -> Any:

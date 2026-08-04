@@ -34,15 +34,11 @@ class GlobTool(BaseTool):
         search_path = Path(workspace_root) / params.get("path", "")
 
         if not search_path.exists():
-            return ToolResult(
-                success=False, error=f"Search path not found: {search_path}"
-            )
+            return ToolResult(success=False, error=f"Search path not found: {search_path}")
 
         try:
             files = sorted(
-                str(f.relative_to(workspace_root))
-                for f in search_path.glob(pattern)
-                if f.is_file()
+                str(f.relative_to(workspace_root)) for f in search_path.glob(pattern) if f.is_file()
             )
             output = "\n".join(files) if files else "No files found"
             return ToolResult(

@@ -40,7 +40,7 @@ def _fuzzy_find(content: str, old: str) -> tuple[str, float] | None:
     # For short patterns (≤5 lines), use sliding window
     if old_len <= 5:
         for start in range(content_len - old_len + 1):
-            window = "\n".join(content_lines[start:start + old_len])
+            window = "\n".join(content_lines[start : start + old_len])
             ratio = SequenceMatcher(None, old, window).ratio()
             if ratio > best_ratio:
                 best_ratio = ratio
@@ -48,7 +48,7 @@ def _fuzzy_find(content: str, old: str) -> tuple[str, float] | None:
     else:
         # For longer patterns, check line-by-line alignment
         for start in range(content_len - old_len + 1):
-            window = "\n".join(content_lines[start:start + old_len])
+            window = "\n".join(content_lines[start : start + old_len])
             ratio = SequenceMatcher(None, old, window).ratio()
             if ratio > best_ratio:
                 best_ratio = ratio
@@ -133,7 +133,12 @@ class FileEditTool(BaseTool):
                 return ToolResult(
                     success=True,
                     output=f"Edited {rel_path} (fuzzy match, {ratio:.0%} similarity)",
-                    metadata={"path": str(resolved), "changes": 1, "match": "fuzzy", "similarity": round(ratio, 3)},
+                    metadata={
+                        "path": str(resolved),
+                        "changes": 1,
+                        "match": "fuzzy",
+                        "similarity": round(ratio, 3),
+                    },
                 )
 
             # No match found

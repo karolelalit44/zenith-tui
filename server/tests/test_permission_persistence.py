@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from server.domain.domain import PermissionDecision, RiskLevel
+from server.permissions.service import DefaultPermissionService, PermissionGrant
 from server.persistence.connection import Database
 from server.persistence.permission_repo import PermissionRepository
-from server.permissions.service import DefaultPermissionService, PermissionGrant
 from server.toolkit import create_default_registry
 from server.toolkit.base import ToolContext, ToolResult
 from server.toolkit.middleware import PermissionMiddleware, SafetyCheckMiddleware
@@ -20,7 +20,9 @@ class TestPermissionRepository:
         await db.connect()
         try:
             repo = PermissionRepository(db)
-            await repo.save(PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id=None))
+            await repo.save(
+                PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id=None)
+            )
             grants = await repo.load_all()
             assert len(grants) == 1
             assert grants[0].tool_name == "bash"
@@ -35,8 +37,16 @@ class TestPermissionRepository:
         await db.connect()
         try:
             repo = PermissionRepository(db)
-            await repo.save(PermissionGrant(tool_name="file_write", decision=PermissionDecision.DENY, session_id="s1"))
-            await repo.save(PermissionGrant(tool_name="file_delete", decision=PermissionDecision.ALLOW, session_id=None))
+            await repo.save(
+                PermissionGrant(
+                    tool_name="file_write", decision=PermissionDecision.DENY, session_id="s1"
+                )
+            )
+            await repo.save(
+                PermissionGrant(
+                    tool_name="file_delete", decision=PermissionDecision.ALLOW, session_id=None
+                )
+            )
             grants = await repo.load_all()
             assert len(grants) == 2
         finally:
@@ -48,8 +58,12 @@ class TestPermissionRepository:
         await db.connect()
         try:
             repo = PermissionRepository(db)
-            await repo.save(PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id="s1"))
-            await repo.save(PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id=None))
+            await repo.save(
+                PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id="s1")
+            )
+            await repo.save(
+                PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id=None)
+            )
             await repo.revoke("bash", "s1")
             grants = await repo.load_all()
             assert len(grants) == 1
@@ -63,8 +77,12 @@ class TestPermissionRepository:
         await db.connect()
         try:
             repo = PermissionRepository(db)
-            await repo.save(PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id="s1"))
-            await repo.save(PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id="s2"))
+            await repo.save(
+                PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id="s1")
+            )
+            await repo.save(
+                PermissionGrant(tool_name="bash", decision=PermissionDecision.DENY, session_id="s2")
+            )
             await repo.clear_session("s1")
             grants = await repo.load_all()
             assert len(grants) == 1
@@ -89,9 +107,7 @@ class TestDefaultPermissionServicePersistence:
             decision = await svc2.get_decision("file_delete", "s1")
             assert decision == PermissionDecision.DENY
 
-            decision = await svc2.request(
-                "file_delete", "Delete file", RiskLevel.MEDIUM, {}, "s1"
-            )
+            decision = await svc2.request("file_delete", "Delete file", RiskLevel.MEDIUM, {}, "s1")
             assert decision == PermissionDecision.DENY
         finally:
             await db.close()

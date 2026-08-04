@@ -17,25 +17,20 @@ if TYPE_CHECKING:
     from server.mcp.manager import McpManager
 
 from .middleware import wrap_handler
-from .shutdown import GracefulShutdown
-from .startup import (
-    ProviderSetupRequest,
-    get_provider_config,
-    save_provider_setup,
-    validate_provider_setup,
-    validate_startup,
-)
 from .provider_validation import (
+    get_model_selection,
     get_provider_list,
     ndjson_validate_stream,
-    set_provider_auth,
+    save_model_selection_endpoint,
     set_provider_model,
 )
 from .schemas import (
-    ProviderAuthRequest,
+    ModelStoreRequest,
     ProviderModelRequest,
     ProviderValidationRequest,
 )
+from .shutdown import GracefulShutdown
+from .startup import validate_startup
 from .websocket import ZenithHandler
 
 try:
@@ -78,6 +73,7 @@ async def _do_startup() -> None:
     )
 
     from server.persistence.repositories import ProviderRepositoryDB
+
     provider_repo = ProviderRepositoryDB(db)
     await provider_repo.ensure_seeded()
 
@@ -99,28 +95,31 @@ async def _do_startup() -> None:
         provider=active_provider,
     )
 
-    _handler = ZenithHandler(
-        config=config, db=db, registry=registry, tool_registry=tool_registry
-    )
+    _handler = ZenithHandler(config=config, db=db, registry=registry, tool_registry=tool_registry)
 
     # MCP servers — start and dynamically register mcp_* tools
     global _mcp_manager
     _mcp_manager = None
     if config.mcp_servers:
         from server.mcp.manager import McpManager
+
         _mcp_manager = McpManager(config.mcp_servers)
         await _mcp_manager.start()
         for wrapper in _mcp_manager.build_wrappers():
             tool_registry.register(wrapper)
         logger.info(
             "MCP servers ready: %s",
-            [{"name": s["name"], "status": s["status"], "tools": s["tools"]} for s in _mcp_manager.list_servers()],
+            [
+                {"name": s["name"], "status": s["status"], "tools": s["tools"]}
+                for s in _mcp_manager.list_servers()
+            ],
         )
         if _mcp_manager.errors:
             logger.warning("MCP servers with errors: %s", _mcp_manager.errors)
 
     try:
         from server.lsp.manager import LspManager, set_lsp_manager
+
         lsp_manager = LspManager(workspace_root=config.workspace_root)
         set_lsp_manager(lsp_manager)
         logger.info("LSP manager initialized")
@@ -129,6 +128,7 @@ async def _do_startup() -> None:
 
     try:
         from server.persistence.repositories import TokenUsageRepository
+
         pricing_repo = TokenUsageRepository(db)
         await pricing_repo.seed_pricing()
         logger.info("Pricing data seeded")
@@ -215,46 +215,23 @@ def startup_validate():
     return result.model_dump()
 
 
-@app.post("/startup/validate-provider")
-async def startup_validate_provider(request: ProviderSetupRequest):
-    result = await validate_provider_setup(request)
-    return result.model_dump()
-
-
-@app.post("/startup/save-config")
-def startup_save_config(request: ProviderSetupRequest):
-    result = save_provider_setup(request)
-    if result.valid and _handler is not None:
-        _handler._reload_config()
-        logger.info(
-            "Handler config reloaded: provider=%s, providers=%s",
-            _handler.config.active_provider,
-            list((_handler.config.providers or {}).keys()),
-        )
-    return result.model_dump()
-
-
-@app.get("/startup/provider-config")
-def startup_provider_config():
-    result = get_provider_config()
-    return result.model_dump()
-
-
 @app.get("/startup/providers")
 def startup_providers_list():
     return get_provider_list().model_dump()
 
 
-@app.post("/startup/providers/{provider_id}/auth")
-async def startup_providers_auth(provider_id: str, request: ProviderAuthRequest):
+@app.get("/startup/model-selection")
+def startup_model_selection_get():
+    return get_model_selection()
+
+
+@app.put("/startup/model-selection")
+def startup_model_selection_put(request: ModelStoreRequest):
     try:
-        info = set_provider_auth(provider_id, request)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return save_model_selection_endpoint(request)
     except Exception as e:
-        logger.warning("Failed to save API key for '%s': %s", provider_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to save API key: {e}")
-    return info.model_dump()
+        logger.warning("Failed to save model selection: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to save model selection: {e}")
 
 
 @app.post("/startup/providers/{provider_id}/validate")
@@ -272,12 +249,27 @@ async def startup_providers_validate(
             base_url=request.base_url if request else "",
             model=request.model if request else "",
         )
+        if result.valid:
+            _reload_config_after_validate(provider_id)
         return result.model_dump()
     return StreamingResponse(
-        ndjson_validate_stream(provider_id, request),
+        ndjson_validate_stream(provider_id, request, on_success=_reload_config_after_validate),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache"},
     )
+
+
+def _reload_config_after_validate(provider_id: str) -> None:
+    """After a successful provider validation the DB active provider changes,
+    but the in-memory config/registry would otherwise stay stale until a model
+    is committed. Reload now so the backend serves the provider just validated."""
+    if _handler is None:
+        return
+    try:
+        _handler._reload_config()
+        logger.info("Handler config reloaded after validating provider '%s'", provider_id)
+    except Exception as e:
+        logger.warning("Failed to reload config after validating '%s': %s", provider_id, e)
 
 
 @app.post("/startup/providers/{provider_id}/model")
@@ -434,8 +426,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         await _handler.handle(websocket)
-    except Exception as e:
-        logger.exception("WebSocket handler error: %s", e)
+    except Exception:
+        logger.exception("WebSocket handler error")
 
 
 def create_app() -> FastAPI:

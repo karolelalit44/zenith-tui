@@ -2,7 +2,7 @@
 
 Replaces per-model adapters with a single LiteLLM call that handles
 all providers (NVIDIA, Groq, Gemini, OpenAI, Anthropic, etc.) uniformly.
-Config-driven: litellm_prefix and api_key env var read from provider_catalog.json.
+Config-driven: litellm_prefix and api_key env var read from the SQL provider catalog.
 
 Implements both BaseProvider (backward compat) and ProviderService (typed).
 """
@@ -52,21 +52,6 @@ def _get_catalog() -> dict:
     return _catalog
 
 
-# API key env var mapping per provider
-_PROVIDER_KEY_ENV: dict[str, str] = {
-    "nvidia": "NVIDIA_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "google": "GEMINI_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "openai_compatible": "OPENAI_API_KEY",
-    "tokenrouter": "TOKENROUTER_API_KEY",
-    "custom": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-}
-
-
-
 def _to_litellm_model(prefix: str, model_id: str) -> str:
     """Convert a model ID to LiteLLM format using catalog-driven prefix."""
     if not prefix:
@@ -77,11 +62,15 @@ def _to_litellm_model(prefix: str, model_id: str) -> str:
 
 
 def _set_api_key(provider_name: str, api_key: str | None) -> None:
-    """Set the API key as an env var for LiteLLM if provided."""
+    """Set the API key as an env var for LiteLLM if provided.
+
+    The candidate env var names come from the SQL catalog (``env_keys``), never
+    from hardcoded provider names.
+    """
     if not api_key:
         return
-    env_var = _PROVIDER_KEY_ENV.get(provider_name)
-    if env_var:
+    entry = _get_catalog().get("providers", {}).get(provider_name) or {}
+    for env_var in entry.get("env_keys") or []:
         os.environ[env_var] = api_key
 
 
@@ -97,10 +86,15 @@ def _extract_clean_message(exc: Exception) -> str:
                 return inner_msg
     except Exception:
         pass
-    for prefix in ("GroqException - ", "NVIDIAException - ", "OpenAIException - ", "AnthropicException - "):
+    for prefix in (
+        "GroqException - ",
+        "NVIDIAException - ",
+        "OpenAIException - ",
+        "AnthropicException - ",
+    ):
         idx = raw.rfind(prefix)
         if idx >= 0:
-            return raw[idx + len(prefix):]
+            return raw[idx + len(prefix) :]
     if "LiteLLM" in raw or "litellm" in raw:
         parts = raw.split(": ", 2)
         if len(parts) >= 3:
@@ -132,22 +126,35 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
     retry_after = _extract_retry_after(exc)
 
     # Detect unrecoverable quota / daily limit exhaustion
-    is_quota_exhausted = any(q in msg for q in (
-        "free-models-per-day", "insufficient_quota", "credit_balance", "payment_required", "quota_exceeded", "add 10 credits"
-    ))
+    is_quota_exhausted = any(
+        q in msg
+        for q in (
+            "free-models-per-day",
+            "insufficient_quota",
+            "credit_balance",
+            "payment_required",
+            "quota_exceeded",
+            "add 10 credits",
+        )
+    )
 
     # Try litellm's exception hierarchy first
     try:
         import litellm
+
         if isinstance(exc, litellm.ContextWindowExceededError):
             return ProviderError(
                 f"Context window exceeded for provider '{provider_name}': {clean}",
-                provider=provider_name, code="CONTEXT_EXCEEDED", recoverable=True,
+                provider=provider_name,
+                code="CONTEXT_EXCEEDED",
+                recoverable=True,
             )
         if isinstance(exc, litellm.RateLimitError):
             return RateLimitError(
                 f"Rate limited by provider '{provider_name}': {clean}",
-                provider=provider_name, retry_after=retry_after, recoverable=not is_quota_exhausted,
+                provider=provider_name,
+                retry_after=retry_after,
+                recoverable=not is_quota_exhausted,
             )
         if isinstance(exc, litellm.AuthenticationError):
             return AuthenticationError(
@@ -156,10 +163,14 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
             )
         if isinstance(exc, litellm.BadRequestError):
             if "context" in msg or "token" in msg or "length" in msg:
-                return ProviderError(clean, provider=provider_name, code="CONTEXT_EXCEEDED", recoverable=True)
+                return ProviderError(
+                    clean, provider=provider_name, code="CONTEXT_EXCEEDED", recoverable=True
+                )
             return ProviderError(clean, provider=provider_name, code="BAD_REQUEST")
         if isinstance(exc, litellm.APITimeoutError):
-            return TimeoutError(f"Timeout from provider '{provider_name}': {clean}", provider=provider_name)
+            return TimeoutError(
+                f"Timeout from provider '{provider_name}': {clean}", provider=provider_name
+            )
         if isinstance(exc, litellm.APIError):
             return ProviderError(clean, provider=provider_name, code="API_ERROR", recoverable=True)
     except (ImportError, AttributeError):
@@ -174,14 +185,25 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
     if "429" in msg or "rate limit" in msg:
         return RateLimitError(
             f"Rate limited by provider '{provider_name}': {clean}",
-            provider=provider_name, retry_after=retry_after, recoverable=not is_quota_exhausted,
+            provider=provider_name,
+            retry_after=retry_after,
+            recoverable=not is_quota_exhausted,
         )
     if "timeout" in msg or "timed out" in msg:
-        return TimeoutError(f"Timeout from provider '{provider_name}': {clean}", provider=provider_name)
-    if "context_window" in msg or "context window" in msg or "maximum context" in msg or "too many tokens" in msg:
+        return TimeoutError(
+            f"Timeout from provider '{provider_name}': {clean}", provider=provider_name
+        )
+    if (
+        "context_window" in msg
+        or "context window" in msg
+        or "maximum context" in msg
+        or "too many tokens" in msg
+    ):
         return ProviderError(
             f"Context window exceeded for provider '{provider_name}': {clean}",
-            provider=provider_name, code="CONTEXT_EXCEEDED", recoverable=True,
+            provider=provider_name,
+            code="CONTEXT_EXCEEDED",
+            recoverable=True,
         )
     return ProviderError(clean, provider=provider_name)
 
@@ -221,7 +243,7 @@ def _map_finish_reason(raw: str | None) -> FinishReason:
 
 
 def _get_model_config(name: str, model_id: str) -> dict:
-    """Resolve per-model configuration from provider_catalog.json."""
+    """Resolve per-model configuration from the SQL provider catalog."""
     try:
         catalog = _get_catalog()
         provider_entry = catalog["providers"].get(name, {})
@@ -232,13 +254,17 @@ def _get_model_config(name: str, model_id: str) -> dict:
                 return {
                     "context_window": ctx,
                     "max_output_tokens": m.get("max_output_tokens", min(ctx // 4, 32768)),
-                    "default_temperature": m.get("default_temperature", 0.0 if caps.get("reasoning") else 0.7),
+                    "default_temperature": m.get(
+                        "default_temperature", 0.0 if caps.get("reasoning") else 0.7
+                    ),
                     "enable_thinking": caps.get("thinking", False),
                     "supports_tools": caps.get("function_calling", True),
                     "use_system_prompt": m.get("use_system_prompt", True),
                     "streaming": m.get("streaming", True),
                     "extra_params": m.get("extra_params", None),
-                    "edit_format": m.get("edit_format", "tool" if caps.get("function_calling") else "diff"),
+                    "edit_format": m.get(
+                        "edit_format", "tool" if caps.get("function_calling") else "diff"
+                    ),
                 }
     except Exception:
         pass
@@ -259,7 +285,7 @@ class LLMProvider(BaseProvider):
     """Universal LLM provider backed by LiteLLM.
 
     Implements both BaseProvider (backward compat) and ProviderService (typed).
-    One code path for all providers. Config-driven via provider_catalog.json.
+    One code path for all providers. Config-driven via the SQL provider catalog.
     """
 
     def __init__(
@@ -283,19 +309,33 @@ class LLMProvider(BaseProvider):
         if not resolved_model:
             raise ValueError(
                 f"No model specified and no default_model in catalog for provider '{name}'. "
-                f"Provide a model explicitly or add one to provider_catalog.json."
+                f"Provide a model explicitly or add one to the provider catalog."
             )
         model_cfg = _get_model_config(name, resolved_model)
-        resolved_max_tokens = max_tokens if max_tokens is not None else model_cfg["max_output_tokens"]
-        resolved_temperature = temperature if temperature is not None else model_cfg["default_temperature"]
+        resolved_max_tokens = (
+            max_tokens if max_tokens is not None else model_cfg["max_output_tokens"]
+        )
+        resolved_temperature = (
+            temperature if temperature is not None else model_cfg["default_temperature"]
+        )
         super().__init__(name, resolved_model, resolved_max_tokens, resolved_temperature)
         self.api_key = api_key.strip() if api_key else None
         self.base_url = base_url.strip() if base_url else None
-        self.enable_thinking = enable_thinking if enable_thinking is not None else model_cfg["enable_thinking"]
+        self.enable_thinking = (
+            enable_thinking if enable_thinking is not None else model_cfg["enable_thinking"]
+        )
         self.reasoning_budget = reasoning_budget
-        self.extra_params = extra_params if extra_params is not None else model_cfg.get("extra_params")
-        self.use_system_prompt = use_system_prompt if use_system_prompt is not None else model_cfg.get("use_system_prompt", True)
-        self.streaming_enabled = streaming if streaming is not None else model_cfg.get("streaming", True)
+        self.extra_params = (
+            extra_params if extra_params is not None else model_cfg.get("extra_params")
+        )
+        self.use_system_prompt = (
+            use_system_prompt
+            if use_system_prompt is not None
+            else model_cfg.get("use_system_prompt", True)
+        )
+        self.streaming_enabled = (
+            streaming if streaming is not None else model_cfg.get("streaming", True)
+        )
         self.edit_format = model_cfg.get("edit_format", "tool")
         self.weak_model = weak_model
         self._model_config = model_cfg
@@ -310,6 +350,7 @@ class LLMProvider(BaseProvider):
 
         # Auto-drop unsupported params (global by default, per-model exclusion available via extra_params)
         import litellm
+
         litellm.drop_params = True
 
         # Log litellm success/failure callbacks
@@ -317,18 +358,37 @@ class LLMProvider(BaseProvider):
             logger.info("LITELLM SUCCESS model=%s provider=%s", self._litellm_model, name)
 
         def _litellm_failure(model, messages, original_exception, **kwargs):
-            logger.error("LITELLM FAILURE model=%s provider=%s error=%s", self._litellm_model, name, str(original_exception)[:500])
+            logger.error(
+                "LITELLM FAILURE model=%s provider=%s error=%s",
+                self._litellm_model,
+                name,
+                str(original_exception)[:500],
+            )
 
-        litellm.success_callback = [_litellm_success] if not litellm.success_callback else [*litellm.success_callback, _litellm_success]
-        litellm.failure_callback = [_litellm_failure] if not litellm.failure_callback else [*litellm.failure_callback, _litellm_failure]
+        litellm.success_callback = (
+            [_litellm_success]
+            if not litellm.success_callback
+            else [*litellm.success_callback, _litellm_success]
+        )
+        litellm.failure_callback = (
+            [_litellm_failure]
+            if not litellm.failure_callback
+            else [*litellm.failure_callback, _litellm_failure]
+        )
 
         # Read litellm_prefix from catalog
         litellm_prefix = provider_entry.get("litellm_prefix", "")
-        if not litellm_prefix and (name in ("tokenrouter", "custom", "openai_compatible", "openai-compatible") or self.base_url):
+        if not litellm_prefix and self.base_url:
             litellm_prefix = "openai/"
 
         self._litellm_prefix = litellm_prefix
         self._litellm_model = _to_litellm_model(litellm_prefix, self.model)
+
+        # Behavior flags from the SQL catalog (never hardcoded names).
+        self._base_url_style = provider_entry.get("base_url_style") or ""
+        self._supports_thinking_headers = bool(
+            provider_entry.get("supports_thinking_headers", False)
+        )
 
         # Resolve base URL from catalog if not provided
         if not self.base_url:
@@ -336,16 +396,23 @@ class LLMProvider(BaseProvider):
 
         if self.base_url:
             self.base_url = self.base_url.strip().rstrip("/")
-            if "tokenrouter.co" in self.base_url and "tokenrouter.com" not in self.base_url:
-                self.base_url = self.base_url.replace("tokenrouter.co", "tokenrouter.com")
-            if self.base_url.endswith("tokenrouter.com"):
-                self.base_url += "/v1"
+            if self._base_url_style == "tokenrouter":
+                if "tokenrouter.co" in self.base_url and "tokenrouter.com" not in self.base_url:
+                    self.base_url = self.base_url.replace("tokenrouter.co", "tokenrouter.com")
+                if self.base_url.endswith("tokenrouter.com"):
+                    self.base_url += "/v1"
 
         logger.info(
             "LLMProvider init: name=%s model=%s litellm_model=%s max_tokens=%d temperature=%.2f "
             "use_system_prompt=%s streaming=%s edit_format=%s extra_params=%s",
-            name, self.model, self._litellm_model, self.max_tokens, self.temperature,
-            self.use_system_prompt, self.streaming_enabled, self.edit_format,
+            name,
+            self.model,
+            self._litellm_model,
+            self.max_tokens,
+            self.temperature,
+            self.use_system_prompt,
+            self.streaming_enabled,
+            self.edit_format,
             self.extra_params is not None,
         )
 
@@ -382,8 +449,7 @@ class LLMProvider(BaseProvider):
         if stream and self.streaming_enabled:
             kwargs["stream_options"] = {"include_usage": True}
 
-
-        if self.base_url and not self._litellm_model.startswith("gemini/"):
+        if self.base_url and self._base_url_style != "gemini":
             kwargs["api_base"] = self.base_url
 
         if self.api_key:
@@ -396,8 +462,9 @@ class LLMProvider(BaseProvider):
         if response_format:
             kwargs["response_format"] = response_format
 
-        # Per-model thinking/reasoning for Anthropic
-        if self.enable_thinking and ('anthropic' in self.name.lower() or 'claude' in self._litellm_model):
+        # Per-model thinking for providers that use litellm thinking headers
+        # (driven by the catalog ``supports_thinking_headers`` flag).
+        if self.enable_thinking and self._supports_thinking_headers:
             thinking_cfg: dict = {"type": "enabled"}
             if self.reasoning_budget is not None:
                 thinking_cfg["budget_tokens"] = self.reasoning_budget
@@ -415,7 +482,9 @@ class LLMProvider(BaseProvider):
     # BaseProvider interface (backward compatible — returns str)
     # -----------------------------------------------------------------------
 
-    async def complete(self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None) -> str:
+    async def complete(
+        self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None
+    ) -> str:
         try:
             return await retry_with_backoff(self._complete_impl, messages, tools, model)
         except ProviderError:
@@ -424,7 +493,9 @@ class LLMProvider(BaseProvider):
             logger.error("COMPLETE ERROR model=%s error=%s", self._litellm_model, str(e)[:500])
             raise _classify_provider_error(e, self.name) from e
 
-    async def _complete_impl(self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None) -> str:
+    async def _complete_impl(
+        self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None
+    ) -> str:
         import litellm
 
         self._reset_cumulative_usage()
@@ -433,7 +504,11 @@ class LLMProvider(BaseProvider):
         safe_kwargs["messages_count"] = len(messages)
         if tools:
             safe_kwargs["tools_count"] = len(tools)
-        logger.info("API CALL (complete) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False))
+        logger.info(
+            "API CALL (complete) model=%s kwargs=%s",
+            self._litellm_model,
+            json.dumps(safe_kwargs, default=str, ensure_ascii=False),
+        )
         t0 = time.monotonic()
         try:
             response = await litellm.acompletion(**kwargs)
@@ -443,11 +518,15 @@ class LLMProvider(BaseProvider):
             usage = getattr(response, "usage", None)
             logger.info(
                 "API RESPONSE (complete) model=%s elapsed=%.0fms finish=%s content_len=%d usage=%s",
-                self._litellm_model, elapsed, raw_finish, len(content),
-                f"prompt={getattr(usage, 'prompt_tokens', '?')} completion={getattr(usage, 'completion_tokens', '?')}" if usage else "none",
+                self._litellm_model,
+                elapsed,
+                raw_finish,
+                len(content),
+                f"prompt={getattr(usage, 'prompt_tokens', '?')} completion={getattr(usage, 'completion_tokens', '?')}"
+                if usage
+                else "none",
             )
             logger.info("API RESPONSE CONTENT: %r", content)
-
 
             # Extract usage details including cache tokens
             usage = getattr(response, "usage", None)
@@ -487,19 +566,33 @@ class LLMProvider(BaseProvider):
                     }
                     for tc in tool_calls
                 ]
-                logger.info("API TOOL_CALLS: %s", [(tc.function.name, tc.function.arguments) for tc in tool_calls])
+                logger.info(
+                    "API TOOL_CALLS: %s",
+                    [(tc.function.name, tc.function.arguments) for tc in tool_calls],
+                )
 
             return content
         except Exception as e:
             elapsed = (time.monotonic() - t0) * 1000
-            logger.error("API ERROR (complete) model=%s elapsed=%.0fms error=%s", self._litellm_model, elapsed, str(e))
+            logger.error(
+                "API ERROR (complete) model=%s elapsed=%.0fms error=%s",
+                self._litellm_model,
+                elapsed,
+                str(e),
+            )
             raise
 
     def _reset_cumulative_usage(self) -> None:
         self._cumulative_usage = {}
 
     def _accumulate_usage(self, usage: dict) -> None:
-        for k in ("prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "cache_creation_tokens"):
+        for k in (
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "cached_tokens",
+            "cache_creation_tokens",
+        ):
             v = usage.get(k, 0) or 0
             self._cumulative_usage[k] = self._cumulative_usage.get(k, 0) + v
 
@@ -512,7 +605,9 @@ class LLMProvider(BaseProvider):
     ) -> AsyncIterator[tuple[str, str | None]]:
         """Call litellm.acompletion() with stream=True."""
         try:
-            async for chunk, event_type in self._stream_impl(messages, tools, tool_choice=tool_choice, response_format=response_format):
+            async for chunk, event_type in self._stream_impl(
+                messages, tools, tool_choice=tool_choice, response_format=response_format
+            ):
                 yield chunk, event_type
         except ProviderError:
             raise
@@ -529,15 +624,25 @@ class LLMProvider(BaseProvider):
     ) -> AsyncIterator[tuple[str, str | None]]:
         import litellm
 
-        kwargs = self._build_completion_kwargs(messages, tools, stream=True, tool_choice=tool_choice, response_format=response_format)
+        kwargs = self._build_completion_kwargs(
+            messages, tools, stream=True, tool_choice=tool_choice, response_format=response_format
+        )
         safe_kwargs = {k: v for k, v in kwargs.items() if k != "api_key"}
         safe_kwargs["messages_count"] = len(messages)
         if tools:
             safe_kwargs["tools_count"] = len(tools)
-        logger.info("API CALL (stream) model=%s kwargs=%s", self._litellm_model, json.dumps(safe_kwargs, default=str, ensure_ascii=False))
+        logger.info(
+            "API CALL (stream) model=%s kwargs=%s",
+            self._litellm_model,
+            json.dumps(safe_kwargs, default=str, ensure_ascii=False),
+        )
         t0 = time.monotonic()
         stream = await litellm.acompletion(**kwargs)
-        logger.info("API STREAM OPENED model=%s latency=%.0fms", self._litellm_model, (time.monotonic() - t0) * 1000)
+        logger.info(
+            "API STREAM OPENED model=%s latency=%.0fms",
+            self._litellm_model,
+            (time.monotonic() - t0) * 1000,
+        )
 
         accumulated_tool_calls: dict[int, dict] = {}
         chunk_count = 0
@@ -549,7 +654,11 @@ class LLMProvider(BaseProvider):
         async for chunk in stream:
             if first_chunk_time is None:
                 first_chunk_time = time.monotonic()
-                logger.info("API FIRST CHUNK model=%s time_to_first_chunk=%.0fms", self._litellm_model, (first_chunk_time - t0) * 1000)
+                logger.info(
+                    "API FIRST CHUNK model=%s time_to_first_chunk=%.0fms",
+                    self._litellm_model,
+                    (first_chunk_time - t0) * 1000,
+                )
             chunk_count += 1
             delta = chunk.choices[0].delta if chunk.choices else None
 
@@ -565,7 +674,11 @@ class LLMProvider(BaseProvider):
                 if isinstance(details, dict):
                     stream_usage["cached_tokens"] = details.get("cached_tokens", 0)
                 else:
-                    stream_usage["cached_tokens"] = getattr(details, "cached_tokens", 0) if hasattr(details, "cached_tokens") else 0
+                    stream_usage["cached_tokens"] = (
+                        getattr(details, "cached_tokens", 0)
+                        if hasattr(details, "cached_tokens")
+                        else 0
+                    )
                 cc = getattr(u, "cache_creation_input_tokens", None) or 0
                 if cc:
                     stream_usage["cache_creation_tokens"] = cc
@@ -618,8 +731,14 @@ class LLMProvider(BaseProvider):
             self._accumulate_usage(stream_usage)
         logger.info(
             "API STREAM DONE model=%s elapsed=%.0fms chunks=%d content=%d reasoning=%d tools=%d finish=%s usage=%s",
-            self._litellm_model, elapsed, chunk_count, content_chars, reasoning_chars,
-            len(accumulated_tool_calls), finish, stream_usage,
+            self._litellm_model,
+            elapsed,
+            chunk_count,
+            content_chars,
+            reasoning_chars,
+            len(accumulated_tool_calls),
+            finish,
+            stream_usage,
         )
 
     async def validate(self) -> bool:
@@ -682,12 +801,16 @@ class LLMProvider(BaseProvider):
                             args = json.loads(args)
                         except Exception:
                             args = {}
-                    tool_calls.append(ToolCall(
-                        id=tc.id,
-                        name=tc.function.name,
-                        arguments=args if isinstance(args, dict) else {},
-                        raw_arguments=tc.function.arguments if isinstance(tc.function.arguments, str) else "",
-                    ))
+                    tool_calls.append(
+                        ToolCall(
+                            id=tc.id,
+                            name=tc.function.name,
+                            arguments=args if isinstance(args, dict) else {},
+                            raw_arguments=tc.function.arguments
+                            if isinstance(tc.function.arguments, str)
+                            else "",
+                        )
+                    )
 
             # Extract usage
             usage = TokenUsage()
@@ -717,7 +840,9 @@ class LLMProvider(BaseProvider):
                 if or_cost is not None:
                     self._last_usage["_override_cost"] = or_cost
                 self._accumulate_usage(self._last_usage)
-                self._last_finish_reason = _map_finish_reason(getattr(response.choices[0], "finish_reason", None))
+                self._last_finish_reason = _map_finish_reason(
+                    getattr(response.choices[0], "finish_reason", None)
+                )
 
             return ProviderResponse(
                 content=content,
@@ -778,7 +903,11 @@ class LLMProvider(BaseProvider):
                 if isinstance(details, dict):
                     stream_usage["cached_tokens"] = details.get("cached_tokens", 0)
                 else:
-                    stream_usage["cached_tokens"] = getattr(details, "cached_tokens", 0) if hasattr(details, "cached_tokens") else 0
+                    stream_usage["cached_tokens"] = (
+                        getattr(details, "cached_tokens", 0)
+                        if hasattr(details, "cached_tokens")
+                        else 0
+                    )
                 cc = getattr(u, "cache_creation_input_tokens", None) or 0
                 if cc:
                     stream_usage["cache_creation_tokens"] = cc
@@ -793,9 +922,15 @@ class LLMProvider(BaseProvider):
             # Reasoning/thinking
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
-                yield ProviderChunk(delta="", tool_call_delta=ToolCallDelta(
-                    index=-1, id=None, name=None, arguments_delta=reasoning,
-                ))
+                yield ProviderChunk(
+                    delta="",
+                    tool_call_delta=ToolCallDelta(
+                        index=-1,
+                        id=None,
+                        name=None,
+                        arguments_delta=reasoning,
+                    ),
+                )
 
             # Tool call accumulation
             if delta.tool_calls:
@@ -815,11 +950,13 @@ class LLMProvider(BaseProvider):
                             tc["function"]["name"] = tc_delta.function.name
                         if tc_delta.function.arguments:
                             tc["function"]["arguments"] += tc_delta.function.arguments
-                            yield ProviderChunk(tool_call_delta=ToolCallDelta(
-                                index=idx,
-                                name=tc_delta.function.name,
-                                arguments_delta=tc_delta.function.arguments,
-                            ))
+                            yield ProviderChunk(
+                                tool_call_delta=ToolCallDelta(
+                                    index=idx,
+                                    name=tc_delta.function.name,
+                                    arguments_delta=tc_delta.function.arguments,
+                                )
+                            )
 
             # Finish reason
             finish = None
@@ -864,19 +1001,24 @@ class LLMProvider(BaseProvider):
                 caps = m.get("model_capabilities", {})
                 ctx = m.get("context_window", 128000)
                 max_out = m.get("max_output_tokens") or min(ctx // 4, 32768)
-                result.append(ModelInfo(
-                    id=m["id"],
-                    name=m.get("name", m["id"]),
-                    provider=self.name,
-                    max_tokens=max_out,
-                    context_window=ctx,
-                    supports_tools=caps.get("function_calling", True),
-                    supports_thinking=caps.get("thinking", False),
-                    supports_vision="image" in m.get("input_modalities", []) or "image" in m.get("output_modalities", []),
-                    streaming=m.get("streaming", True),
-                    use_system_prompt=m.get("use_system_prompt", True),
-                    edit_format=m.get("edit_format", "tool" if caps.get("function_calling") else "diff"),
-                ))
+                result.append(
+                    ModelInfo(
+                        id=m["id"],
+                        name=m.get("name", m["id"]),
+                        provider=self.name,
+                        max_tokens=max_out,
+                        context_window=ctx,
+                        supports_tools=caps.get("function_calling", True),
+                        supports_thinking=caps.get("thinking", False),
+                        supports_vision="image" in m.get("input_modalities", [])
+                        or "image" in m.get("output_modalities", []),
+                        streaming=m.get("streaming", True),
+                        use_system_prompt=m.get("use_system_prompt", True),
+                        edit_format=m.get(
+                            "edit_format", "tool" if caps.get("function_calling") else "diff"
+                        ),
+                    )
+                )
             return result
         except Exception as e:
             logger.warning("Could not list models from catalog for provider '%s': %s", self.name, e)

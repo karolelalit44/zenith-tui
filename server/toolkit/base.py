@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class ToolResult(BaseModel):
     """Standardized result from tool execution."""
+
     success: bool
     output: str = ""
     error: str = ""
@@ -19,6 +20,7 @@ class ToolResult(BaseModel):
 
 class ToolContext(BaseModel):
     """Immutable context passed to tools during execution."""
+
     request_id: str
     session_id: str | None = None
     workspace_root: str = ""
@@ -63,6 +65,7 @@ class ToolMiddleware(ABC):
 
 class BaseTool(ABC):
     """Abstract base class for all tools."""
+
     name: str = "base"
     description: str = ""
     requires_mode: str | None = None  # Legacy — prefer `modes`

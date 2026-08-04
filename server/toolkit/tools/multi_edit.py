@@ -117,7 +117,9 @@ class MultiEditTool(BaseTool):
                 path.write_text(original_content, encoding="utf-8")
             except Exception:
                 pass
-            return ToolResult(success=False, error=f"Failed to write file after {applied_count} edits: {e}")
+            return ToolResult(
+                success=False, error=f"Failed to write file after {applied_count} edits: {e}"
+            )
 
         return ToolResult(
             success=True,

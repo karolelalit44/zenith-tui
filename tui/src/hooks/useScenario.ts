@@ -3,17 +3,30 @@ import { eventBus } from '../services/eventBus';
 import type { ScenarioRunner } from '../services/scenario/types';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
-import type { ConfirmationRequestEvent, Scenario, ScenarioEvent, ScenarioMode } from '../types/scenario';
+import type {
+  ConfirmationRequestEvent,
+  FileAttachment,
+  Scenario,
+  ScenarioEvent,
+  ScenarioMode,
+} from '../types/scenario';
 
 export interface UseScenarioReturn {
   events: ScenarioEvent[];
   eventsRef: React.MutableRefObject<ScenarioEvent[]>;
   isRunning: boolean;
-  startScenario: (prompt: string, mode: ScenarioMode, provider?: string) => void;
+  startScenario: (
+    prompt: string,
+    mode: ScenarioMode,
+    provider?: string,
+    model?: string,
+    attachments?: FileAttachment[],
+  ) => void;
   abort: () => void;
   activeConfirmation: ConfirmationRequestEvent | null;
   respondConfirmation: (approved: boolean) => void;
   lastSessionId: string | null;
+  setActiveSessionId: (id: string | null) => void;
 }
 
 export function useScenario(): UseScenarioReturn {
@@ -123,7 +136,13 @@ export function useScenario(): UseScenarioReturn {
   }, []);
 
   const startScenario = useCallback(
-    async (prompt: string, selectedMode: ScenarioMode, provider?: string) => {
+    async (
+      prompt: string,
+      selectedMode: ScenarioMode,
+      provider?: string,
+      model?: string,
+      attachments?: FileAttachment[],
+    ) => {
       setEvents([]);
       eventsRef.current = [];
       setIsRunning(true);
@@ -171,16 +190,27 @@ export function useScenario(): UseScenarioReturn {
       };
       runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
 
-      wsClient.sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        reportError('prompt_err', `Backend prompt error: ${message}`);
-      });
+      const promptAttachments =
+        attachments && attachments.length > 0 ? attachments.map((a) => ({ path: a.path, name: a.name })) : undefined;
+
+      wsClient
+        .sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider, {
+          ...(model ? { model } : {}),
+          ...(promptAttachments && promptAttachments.length > 0 ? { attachments: promptAttachments } : {}),
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          reportError('prompt_err', `Backend prompt error: ${message}`);
+        });
     },
     [connectToBackend, handleEvent, handleComplete, reportError],
   );
 
   const abort = useCallback(() => {
     runnerRef.current?.abort();
+    if (sessionIdRef.current) {
+      wsClient.cancelPrompt(sessionIdRef.current).catch(() => {});
+    }
     setIsRunning(false);
     setActiveConfirmation(null);
   }, []);
@@ -205,6 +235,11 @@ export function useScenario(): UseScenarioReturn {
     [activeConfirmation],
   );
 
+  const setActiveSessionId = useCallback((id: string | null) => {
+    sessionIdRef.current = id;
+    setLastSessionId(id);
+  }, []);
+
   return {
     events,
     eventsRef,
@@ -214,5 +249,6 @@ export function useScenario(): UseScenarioReturn {
     activeConfirmation,
     respondConfirmation,
     lastSessionId,
+    setActiveSessionId,
   };
 }

@@ -5,29 +5,27 @@ from server.config.settings import AppSettings
 
 
 def test_default_config():
-    """Config reads from env vars set by conftest.py."""
+    """Config reads from env vars set by conftest.py (active provider has no default)."""
     config = AppSettings()
-    assert config.active_provider == os.environ["ZENITH_ACTIVE_PROVIDER"]
+    assert config.active_provider == ""  # no globally configured default provider
     assert config.db_path == os.environ["ZENITH_DB_PATH"]
     assert config.max_context_tokens == int(os.environ["ZENITH_MAX_CONTEXT_TOKENS"])
 
 
 def test_config_validation():
-    try:
-        AppSettings(active_provider="")
-        assert False, "Should have raised"
-    except ValueError:
-        pass
+    config = AppSettings(active_provider="")
+    assert config.active_provider == ""
 
 
 def test_load_config(temp_dir):
     config = load_config(str(temp_dir))
     assert config is not None
-    assert config.active_provider == os.environ["ZENITH_ACTIVE_PROVIDER"]
+    assert config.active_provider == ""  # no default provider is assigned
 
 
 def test_get_active_provider_config():
     from server.config.providers import ProviderConfig
+
     config = AppSettings(
         providers={"openai": ProviderConfig(model="gpt-4o")},
         active_provider="openai",

@@ -7,7 +7,6 @@ import tempfile
 _test_tmpdir = tempfile.mkdtemp()
 
 _env_defaults = {
-    "ZENITH_ACTIVE_PROVIDER": "nvidia",
     "ZENITH_DB_PATH": os.path.join(_test_tmpdir, "test.db"),
     "ZENITH_LOG_LEVEL": "info",
     "ZENITH_MAX_CONTEXT_TOKENS": "128000",

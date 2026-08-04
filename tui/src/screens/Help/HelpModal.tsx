@@ -2,12 +2,15 @@ import { Box, Text, useInput } from 'ink';
 import React from 'react';
 import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
+import { formatKeyBind, KEYBINDINGS, type KeybindId, type Keybinding } from '../../config/keybind';
 import { APP_VERSION } from '../../constants/app';
 import { useTheme } from '../../theme/ThemeContext';
 
 interface HelpModalProps {
   onClose: () => void;
 }
+
+const SHORTCUTS = Object.entries(KEYBINDINGS) as [KeybindId, Keybinding][];
 
 export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
   const { theme } = useTheme();
@@ -17,6 +20,22 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
       onClose();
     }
   });
+
+  const leftShortcuts = SHORTCUTS.slice(0, Math.ceil(SHORTCUTS.length / 2));
+  const rightShortcuts = SHORTCUTS.slice(Math.ceil(SHORTCUTS.length / 2));
+
+  const renderShortcutList = (entries: [KeybindId, Keybinding][]) => (
+    <Box flexDirection="column" width="50%" paddingRight={1}>
+      {entries.map(([id, kb]) => (
+        <Box key={id} flexDirection="row">
+          <Text color={theme.colors.status.info} bold>
+            {formatKeyBind(id)}
+          </Text>
+          <Text color={theme.colors.text.muted}> {kb.description}</Text>
+        </Box>
+      ))}
+    </Box>
+  );
 
   return (
     <RoundedBox title="ZENITH HELP & KEYBOARD SHORTCUTS" borderColor={theme.colors.border.active} hasShadow={true}>
@@ -29,58 +48,29 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
           <Text color={theme.colors.text.muted}>Press Esc or Enter to close</Text>
         </Box>
 
+        {/* Keyboard Shortcuts (declarative keybind map) */}
+        <Text color={theme.colors.text.warning} bold underline>
+          KEYBOARD SHORTCUTS
+        </Text>
+        <Box marginTop={1} flexDirection="row" width="100%">
+          {renderShortcutList(leftShortcuts)}
+          {renderShortcutList(rightShortcuts)}
+        </Box>
+
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderTop={true}
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
+          borderColor={theme.colors.border.muted}
+        />
+
         <Box flexDirection="row" width="100%" justifyContent="space-between">
-          {/* Column 1: Keyboard Shortcuts */}
-          <Box flexDirection="column" width="30%">
-            <Text color={theme.colors.text.warning} bold underline>
-              KEYBOARD SHORTCUTS
-            </Text>
-            <Box marginTop={1} flexDirection="column">
-              <Box flexDirection="row">
-                <Text color={theme.colors.status.info} bold>
-                  Shift + M
-                </Text>
-                <Text color={theme.colors.text.muted}> Switch Mode</Text>
-              </Box>
-              <Box flexDirection="row">
-                <Text color={theme.colors.status.info} bold>
-                  Ctrl + S
-                </Text>
-                <Text color={theme.colors.text.muted}> Save Plan</Text>
-              </Box>
-              <Box flexDirection="row">
-                <Text color={theme.colors.status.info} bold>
-                  Shift + T
-                </Text>
-                <Text color={theme.colors.text.muted}> Toggle Thinking</Text>
-              </Box>
-              <Box flexDirection="row">
-                <Text color={theme.colors.status.info} bold>
-                  Esc
-                </Text>
-                <Text color={theme.colors.text.muted}> Cancel / Exit</Text>
-              </Box>
-              <Box flexDirection="row">
-                <Text color={theme.colors.status.info} bold>
-                  @
-                </Text>
-                <Text color={theme.colors.text.muted}> File Picker</Text>
-              </Box>
-              <Box flexDirection="row">
-                <Text color={theme.colors.status.info} bold>
-                  /
-                </Text>
-                <Text color={theme.colors.text.muted}> Command Palette</Text>
-              </Box>
-            </Box>
-          </Box>
-
-          <Box width={1}>
-            <Text color={theme.colors.border.muted}>│</Text>
-          </Box>
-
           {/* Column 2: Slash Commands */}
-          <Box flexDirection="column" width="34%">
+          <Box flexDirection="column" width="50%">
             <Text color={theme.colors.text.warning} bold underline>
               SLASH COMMANDS
             </Text>
@@ -100,6 +90,15 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
               <Text color={theme.colors.text.ethereal}>
                 <Text color={theme.colors.status.success}>/compact</Text> Compress History
               </Text>
+              <Text color={theme.colors.text.ethereal}>
+                <Text color={theme.colors.status.success}>/model</Text> Open Model Picker
+              </Text>
+              <Text color={theme.colors.text.ethereal}>
+                <Text color={theme.colors.status.success}>/session</Text> Browse & Resume Sessions
+              </Text>
+              <Text color={theme.colors.text.ethereal}>
+                <Text color={theme.colors.status.success}>/exit</Text> Save & Exit Zenith
+              </Text>
             </Box>
           </Box>
 
@@ -108,7 +107,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
           </Box>
 
           {/* Column 3: Workflow Tips */}
-          <Box flexDirection="column" width="32%">
+          <Box flexDirection="column" width="48%">
             <Text color={theme.colors.text.warning} bold underline>
               OPERATING MODES
             </Text>

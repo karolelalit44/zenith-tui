@@ -4,7 +4,6 @@
  * No fallbacks, no defaults. If anything is missing, tests fail immediately.
  */
 
-process.env.ZENITH_ACTIVE_PROVIDER = 'nvidia';
 process.env.ZENITH_DB_PATH = ':memory:';
 process.env.ZENITH_LOG_LEVEL = 'info';
 process.env.ZENITH_MAX_CONTEXT_TOKENS = '128000';

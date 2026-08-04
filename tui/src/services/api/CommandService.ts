@@ -1,60 +1,14 @@
-import type { OverlayType } from '../../hooks/useOverlayManager';
-import type { ScenarioMode } from '../../types/scenario';
-import optionsData from './options.json';
-
-interface CommandOption {
-  command: string;
-  action: 'overlay' | 'clear' | 'compact' | 'mode' | string;
-  target?: string;
-  description: string;
-}
-
-interface CommandHandlers {
-  openOverlay: (target: OverlayType) => void;
-  clearTurns: () => void;
-  compactTurns: () => void;
-  clearTools: () => void;
-  setMode: (mode: ScenarioMode) => void;
-}
+import { type CommandRunContext, commandRegistry } from './CommandRegistry';
 
 export class CommandService {
-  private commands: CommandOption[];
-
-  constructor() {
-    this.commands = (optionsData.commands || []) as CommandOption[];
-  }
-
-  public dispatchCommand(rawInput: string, handlers: CommandHandlers): boolean {
+  /** Thin adapter over the command registry. Keeps the exact-slash contract. */
+  public dispatchCommand(rawInput: string, ctx: CommandRunContext): boolean {
     const trimmed = rawInput.trim().toLowerCase();
-    const match = this.commands.find((c) => c.command.toLowerCase() === trimmed);
+    const def = commandRegistry.find((c) => c.slash && c.slash.toLowerCase() === trimmed);
+    if (!def) return false;
 
-    if (!match) {
-      return false;
-    }
-
-    switch (match.action) {
-      case 'overlay':
-        if (match.target) {
-          handlers.openOverlay(match.target as OverlayType);
-        }
-        return true;
-      case 'clear':
-        handlers.clearTurns();
-        return true;
-      case 'compact':
-        handlers.compactTurns();
-        return true;
-      case 'clear_tools':
-        handlers.clearTools();
-        return true;
-      case 'mode':
-        if (match.target) {
-          handlers.setMode(match.target as ScenarioMode);
-        }
-        return true;
-      default:
-        return false;
-    }
+    def.run(ctx);
+    return true;
   }
 }
 

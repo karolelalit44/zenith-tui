@@ -152,7 +152,8 @@ class LspClient:
         """Start the LSP server process."""
         full_env = {**os.environ, **(self._env or {})}
         self._process = await asyncio.create_subprocess_exec(
-            self.command, *self.args,
+            self.command,
+            *self.args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -219,7 +220,11 @@ class LspClient:
         self._capabilities = result.get("capabilities", {})
         await self._send_notification("initialized", {})
         self._initialized = True
-        logger.info("LSP server '%s' initialized, capabilities=%s", self.name, list(self._capabilities.keys()))
+        logger.info(
+            "LSP server '%s' initialized, capabilities=%s",
+            self.name,
+            list(self._capabilities.keys()),
+        )
         return result
 
     async def did_open(self, file_path: str, language_id: str, content: str) -> None:
@@ -282,19 +287,25 @@ class LspClient:
                 diag_uri = notif.get("params", {}).get("uri", "")
                 if diag_uri == Path(file_path).as_uri():
                     for d in notif.get("params", {}).get("diagnostics", []):
-                        diagnostics.append({
-                            "range": d.get("range", {}),
-                            "severity": _severity_name(d.get("severity", 1)),
-                            "message": d.get("message", ""),
-                            "source": d.get("source", ""),
-                            "code": d.get("code", ""),
-                        })
+                        diagnostics.append(
+                            {
+                                "range": d.get("range", {}),
+                                "severity": _severity_name(d.get("severity", 1)),
+                                "message": d.get("message", ""),
+                                "source": d.get("source", ""),
+                                "code": d.get("code", ""),
+                            }
+                        )
 
         await self.did_close(file_path)
         return diagnostics
 
     async def goto_definition(
-        self, file_path: str, content: str, line: int, character: int,
+        self,
+        file_path: str,
+        content: str,
+        line: int,
+        character: int,
     ) -> list[dict]:
         """Get definition locations for the symbol at the given position."""
         language_id = get_language_id(file_path)
@@ -319,21 +330,33 @@ class LspClient:
         definitions = []
         for loc in locations:
             if "targetUri" in loc:
-                definitions.append({
-                    "file": _uri_to_path(loc["targetUri"]),
-                    "line": loc.get("targetRange", loc.get("range", {})).get("start", {}).get("line", 0),
-                    "character": loc.get("targetRange", loc.get("range", {})).get("start", {}).get("character", 0),
-                })
+                definitions.append(
+                    {
+                        "file": _uri_to_path(loc["targetUri"]),
+                        "line": loc.get("targetRange", loc.get("range", {}))
+                        .get("start", {})
+                        .get("line", 0),
+                        "character": loc.get("targetRange", loc.get("range", {}))
+                        .get("start", {})
+                        .get("character", 0),
+                    }
+                )
             elif "uri" in loc:
-                definitions.append({
-                    "file": _uri_to_path(loc["uri"]),
-                    "line": loc.get("range", {}).get("start", {}).get("line", 0),
-                    "character": loc.get("range", {}).get("start", {}).get("character", 0),
-                })
+                definitions.append(
+                    {
+                        "file": _uri_to_path(loc["uri"]),
+                        "line": loc.get("range", {}).get("start", {}).get("line", 0),
+                        "character": loc.get("range", {}).get("start", {}).get("character", 0),
+                    }
+                )
         return definitions
 
     async def goto_references(
-        self, file_path: str, content: str, line: int, character: int,
+        self,
+        file_path: str,
+        content: str,
+        line: int,
+        character: int,
     ) -> list[dict]:
         """Get reference locations for the symbol at the given position."""
         language_id = get_language_id(file_path)
@@ -355,16 +378,23 @@ class LspClient:
         if result is None:
             return []
         references = []
-        for loc in (result if isinstance(result, list) else []):
-            references.append({
-                "file": _uri_to_path(loc.get("uri", "")),
-                "line": loc.get("range", {}).get("start", {}).get("line", 0),
-                "character": loc.get("range", {}).get("start", {}).get("character", 0),
-            })
+        for loc in result if isinstance(result, list) else []:
+            references.append(
+                {
+                    "file": _uri_to_path(loc.get("uri", "")),
+                    "line": loc.get("range", {}).get("start", {}).get("line", 0),
+                    "character": loc.get("range", {}).get("start", {}).get("character", 0),
+                }
+            )
         return references
 
     async def rename(
-        self, file_path: str, content: str, line: int, character: int, new_name: str,
+        self,
+        file_path: str,
+        content: str,
+        line: int,
+        character: int,
+        new_name: str,
     ) -> dict[str, str] | None:
         """Perform semantic rename. Returns {uri: new_text} or None on failure."""
         language_id = get_language_id(file_path)
@@ -483,9 +513,7 @@ class LspClient:
                 if "id" in message and message["id"] in self._pending:
                     future = self._pending.pop(message["id"])
                     if "error" in message:
-                        future.set_exception(
-                            RuntimeError(f"LSP error: {message['error']}")
-                        )
+                        future.set_exception(RuntimeError(f"LSP error: {message['error']}"))
                     else:
                         future.set_result(message.get("result"))
                 elif "method" in message:

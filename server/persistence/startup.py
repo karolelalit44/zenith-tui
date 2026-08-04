@@ -167,7 +167,10 @@ class DatabaseStartupService:
     def _handle_alembic(self, db_path: str) -> None:
         version_num = _read_alembic_version(db_path)
         db_log(
-            "migrate", status="ok", mode="alembic", note="stamping_revisions",
+            "migrate",
+            status="ok",
+            mode="alembic",
+            note="stamping_revisions",
             version=version_num,
         )
         stamped = 0
@@ -182,7 +185,9 @@ class DatabaseStartupService:
             conn.commit()
         finally:
             conn.close()
-        db_log("migrate", status="ok", mode="alembic", note="dropped_alembic_version", stamped=stamped)
+        db_log(
+            "migrate", status="ok", mode="alembic", note="dropped_alembic_version", stamped=stamped
+        )
         for m in runner.run_pending(db_path):
             self.applied.append(m["version"])
 

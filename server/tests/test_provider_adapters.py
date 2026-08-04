@@ -6,23 +6,55 @@ from server.agents.provider_adapters import (
     get_tier_prompt_enhancements,
 )
 
+# Catalog shape mirrors server/persistence/provider_config_repo.read_catalog()
+# — tiers come from catalog_models.prompt_tier, never from model-name heuristics.
+_CATALOG = {
+    "version": 2,
+    "providers": {
+        "anthropic": {
+            "models": [
+                {"id": "claude-sonnet-4-20250514", "prompt_tier": "flagship"},
+                {"id": "claude-3-5-haiku-20241022", "prompt_tier": "compact"},
+            ]
+        },
+        "openai": {
+            "models": [
+                {"id": "gpt-4o", "prompt_tier": "flagship"},
+                {"id": "o3-mini", "prompt_tier": "reasoning"},
+            ]
+        },
+        "nvidia": {
+            "models": [{"id": "nvidia/nemotron-3-super-120b-a12b", "prompt_tier": "reasoning"}]
+        },
+        "groq": {"models": [{"id": "llama-3.1-8b-instant", "prompt_tier": "compact"}]},
+    },
+}
+
 
 def test_detect_model_tier_reasoning():
-    assert detect_model_tier("deepseek-r1") == ModelTier.REASONING
-    assert detect_model_tier("o3-mini") == ModelTier.REASONING
-    assert detect_model_tier("nemotron-3-super") == ModelTier.REASONING
+    assert detect_model_tier("o3-mini", catalog=_CATALOG) == ModelTier.REASONING
+    assert (
+        detect_model_tier("nvidia/nemotron-3-super-120b-a12b", catalog=_CATALOG)
+        == ModelTier.REASONING
+    )
 
 
 def test_detect_model_tier_compact():
-    assert detect_model_tier("llama-3.1-8b-instant") == ModelTier.COMPACT
-    assert detect_model_tier("qwen-2.5-7b") == ModelTier.COMPACT
-    assert detect_model_tier("claude-3-haiku") == ModelTier.COMPACT
+    assert detect_model_tier("llama-3.1-8b-instant", catalog=_CATALOG) == ModelTier.COMPACT
+    assert detect_model_tier("claude-3-5-haiku-20241022", catalog=_CATALOG) == ModelTier.COMPACT
 
 
 def test_detect_model_tier_flagship():
-    assert detect_model_tier("claude-3-7-sonnet") == ModelTier.FLAGSHIP
-    assert detect_model_tier("gpt-4o") == ModelTier.FLAGSHIP
-    assert detect_model_tier("gemini-1.5-pro") == ModelTier.FLAGSHIP
+    assert detect_model_tier("gpt-4o", catalog=_CATALOG) == ModelTier.FLAGSHIP
+    assert detect_model_tier("claude-sonnet-4-20250514", catalog=_CATALOG) == ModelTier.FLAGSHIP
+
+
+def test_detect_model_tier_unknown_defaults_to_flagship():
+    # Models absent from the curated catalog (or a missing catalog) get no
+    # prompt rules — a neutral FLAGSHIP default, not a name-based guess.
+    assert detect_model_tier("deepseek-r1", catalog=_CATALOG) == ModelTier.FLAGSHIP
+    assert detect_model_tier("qwen-2.5-7b", catalog={}) == ModelTier.FLAGSHIP
+    assert detect_model_tier("some-model", catalog=None) == ModelTier.FLAGSHIP
 
 
 def test_get_tier_prompt_enhancements():

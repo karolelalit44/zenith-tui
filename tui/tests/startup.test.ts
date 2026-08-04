@@ -68,26 +68,4 @@ describe('StartupService Backend Validation', () => {
 
     vi.restoreAllMocks();
   });
-
-  it('can validate a provider setup', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ valid: true, provider: 'openai', model: 'gpt-4o', message: 'OK' }),
-    });
-
-    const svc = new StartupService();
-    const result = await svc.validateProvider({
-      provider: 'openai',
-      api_key: 'sk-test',
-      model: 'gpt-4o',
-      base_url: '',
-      max_tokens: 4096,
-      temperature: 0.7,
-    });
-
-    expect(result.valid).toBe(true);
-    expect(result.provider).toBe('openai');
-
-    vi.restoreAllMocks();
-  });
 });

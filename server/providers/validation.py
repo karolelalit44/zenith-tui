@@ -54,6 +54,24 @@ STEP_LABELS: dict[str, str] = {
 
 _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
+_AUTH_REJECTION_HINTS = (
+    "authentication",
+    "unauthorized",
+    "invalid api key",
+    "api key invalid",
+    "api_key_invalid",
+    "401",
+    "403",
+)
+
+
+def _is_auth_rejection(exc: Exception) -> bool:
+    """True when an exception means the API key itself was rejected."""
+    if exc.__class__.__name__.endswith("AuthenticationError"):
+        return True
+    msg = (_extract_clean_message(exc) or "").lower()
+    return any(hint in msg for hint in _AUTH_REJECTION_HINTS)
+
 
 def _step_event(key: str, status: ValidationStepStatus, message: str = "") -> dict:
     return {
@@ -102,28 +120,36 @@ def _map_models(raw: Any) -> list[ProviderModelInfo]:
             ProviderModelInfo(
                 id=mid,
                 name=str(item.get("name") or mid),
-                context_window=int(item.get("context_window") or item.get("context_length") or 128000),
+                context_window=int(
+                    item.get("context_window") or item.get("context_length") or 128000
+                ),
                 description=str(item.get("description") or ""),
                 is_default=bool(item.get("is_default", False)),
                 status=str(item.get("status") or "active"),
-                tags=[str(t) for t in item.get("tags", [])] if isinstance(item.get("tags"), list) else [],
+                tags=[str(t) for t in item.get("tags", [])]
+                if isinstance(item.get("tags"), list)
+                else [],
             )
         )
     return out
 
 
-def _resolve_config(provider_id: str, api_key: str, base_url: str, model: str, db_path: str) -> tuple[dict, dict]:
+def _resolve_config(
+    provider_id: str, api_key: str, base_url: str, model: str, db_path: str
+) -> tuple[dict, dict]:
     """Merge request overrides > stored config > catalog defaults."""
-    catalog = load_catalog()
+    catalog = load_catalog(db_path)
     entry = catalog.get("providers", {}).get(provider_id) or {}
     stored = provider_config_repo.read_providers(db_path).get(provider_id) or {}
     resolved_key = (api_key or "").strip() or (stored.get("api_key") or "")
     catalog_base = (entry.get("base_url") or "").strip()
-    if provider_id not in ("custom", "openai_compatible") and catalog_base:
+    if entry.get("base_url_style") != "user" and catalog_base:
         resolved_base = (base_url or "").strip() or catalog_base
     else:
         resolved_base = (base_url or "").strip() or (stored.get("base_url") or "") or catalog_base
-    resolved_model = (model or "").strip() or (stored.get("model") or "") or (entry.get("default_model") or "")
+    resolved_model = (
+        (model or "").strip() or (stored.get("model") or "") or (entry.get("default_model") or "")
+    )
     config = {
         "api_key": resolved_key,
         "base_url": resolved_base,
@@ -154,8 +180,7 @@ async def validate_provider(
     """Run the 8-step validation pipeline, yielding NDJSON-friendly events."""
     db_path = db_path or provider_config_repo.resolve_db_path()
     steps: dict[str, ValidationStep] = {
-        key: ValidationStep(key=key, label=label)
-        for key, label in STEP_LABELS.items()
+        key: ValidationStep(key=key, label=label) for key, label in STEP_LABELS.items()
     }
 
     def _update(key: str, status: ValidationStepStatus, message: str = "") -> None:
@@ -170,7 +195,9 @@ async def validate_provider(
         logger.warning("validate '%s': config resolution failed: %s", provider_id, e)
         _update("config", ValidationStepStatus.FAILED, str(e))
         yield _step_event("config", ValidationStepStatus.FAILED, str(e))
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="CONFIG", message=str(e)))
+        yield _result_event(
+            False, provider_id, _all_steps(), [], ValidationError(code="CONFIG", message=str(e))
+        )
         return
 
     # -- 1. config -----------------------------------------------------------
@@ -178,10 +205,18 @@ async def validate_provider(
         msg = f"Unknown provider '{provider_id}'."
         _update("config", ValidationStepStatus.FAILED, msg)
         yield _step_event("config", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="UNKNOWN_PROVIDER", message=msg))
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            [],
+            ValidationError(code="UNKNOWN_PROVIDER", message=msg),
+        )
         return
     _update("config", ValidationStepStatus.SUCCESS, f"Using {entry.get('name', provider_id)}")
-    yield _step_event("config", ValidationStepStatus.SUCCESS, f"Using {entry.get('name', provider_id)}")
+    yield _step_event(
+        "config", ValidationStepStatus.SUCCESS, f"Using {entry.get('name', provider_id)}"
+    )
 
     # -- 2. base_url ---------------------------------------------------------
     _update("base_url", ValidationStepStatus.RUNNING)
@@ -191,13 +226,25 @@ async def validate_provider(
         msg = "Base URL is required."
         _update("base_url", ValidationStepStatus.FAILED, msg)
         yield _step_event("base_url", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="MISSING_BASE_URL", message=msg))
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            [],
+            ValidationError(code="MISSING_BASE_URL", message=msg),
+        )
         return
     if not _URL_RE.match(base_url):
         msg = f"Base URL '{base_url}' must start with http:// or https://"
         _update("base_url", ValidationStepStatus.FAILED, msg)
         yield _step_event("base_url", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="INVALID_BASE_URL", message=msg))
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            [],
+            ValidationError(code="INVALID_BASE_URL", message=msg),
+        )
         return
     _update("base_url", ValidationStepStatus.SUCCESS, base_url)
     yield _step_event("base_url", ValidationStepStatus.SUCCESS, base_url)
@@ -210,7 +257,13 @@ async def validate_provider(
         msg = "API key is required."
         _update("api_key", ValidationStepStatus.FAILED, msg)
         yield _step_event("api_key", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="MISSING_API_KEY", message=msg))
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            [],
+            ValidationError(code="MISSING_API_KEY", message=msg),
+        )
         return
     prefix = cfg.get("api_key_prefix")
     key_note = "Optional (no key required)" if not cfg["requires_api_key"] else "Provided"
@@ -231,13 +284,25 @@ async def validate_provider(
         msg = f"Connection timed out after {timeout}s."
         _update("connection", ValidationStepStatus.FAILED, msg)
         yield _step_event("connection", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="CONNECTION_TIMEOUT", message=msg))
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            [],
+            ValidationError(code="CONNECTION_TIMEOUT", message=msg),
+        )
         return
     except httpx.HTTPError as exc:
         msg = f"Could not reach {endpoint}: {_extract_clean_message(exc)}"
         _update("connection", ValidationStepStatus.FAILED, msg)
         yield _step_event("connection", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="CONNECTION_FAILED", message=msg))
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            [],
+            ValidationError(code="CONNECTION_FAILED", message=msg),
+        )
         return
 
     _update("connection", ValidationStepStatus.SUCCESS, endpoint)
@@ -247,10 +312,58 @@ async def validate_provider(
         msg = "Authentication failed — the API key was rejected."
         _update("auth", ValidationStepStatus.FAILED, msg)
         yield _step_event("auth", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), [], ValidationError(code="AUTH_FAILED", message=msg))
+        yield _result_event(
+            False, provider_id, _all_steps(), [], ValidationError(code="AUTH_FAILED", message=msg)
+        )
         return
-    _update("auth", ValidationStepStatus.SUCCESS, f"Authenticated (HTTP {resp.status_code})")
-    yield _step_event("auth", ValidationStepStatus.SUCCESS, f"Authenticated (HTTP {resp.status_code})")
+
+    # Some providers expose /models without requiring auth (e.g. NVIDIA NIM),
+    # so a 200 there does not prove the key works. Issue a minimal real
+    # completion as the authoritative auth check when a key + model are present.
+    auth_msg = f"Authenticated (HTTP {resp.status_code})"
+    auth_ok = True
+    probe_model = cfg["model"]
+    if cfg["requires_api_key"] and api_key.strip() and probe_model:
+        try:
+            import litellm
+
+            litellm.drop_params = True
+            probe_provider = LLMProvider(
+                name=provider_id,
+                api_key=api_key,
+                base_url=base_url,
+                model=probe_model,
+                max_tokens=1,
+                temperature=0.0,
+                enable_thinking=False,
+            )
+            await asyncio.wait_for(
+                probe_provider.complete([{"role": "user", "content": "Say OK"}]),
+                timeout=timeout,
+            )
+        except ImportError:
+            logger.warning("litellm not available - auth probe skipped")
+        except TimeoutError:
+            auth_msg = "Authenticated (key accepted, probe timed out)"
+        except Exception as exc:
+            if _is_auth_rejection(exc):
+                auth_msg = f"Authentication failed - {_extract_clean_message(exc)}"
+                auth_ok = False
+            else:
+                auth_msg = "Authenticated (key accepted)"
+    if not auth_ok:
+        _update("auth", ValidationStepStatus.FAILED, auth_msg)
+        yield _step_event("auth", ValidationStepStatus.FAILED, auth_msg)
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            [],
+            ValidationError(code="AUTH_FAILED", message=auth_msg),
+        )
+        return
+    _update("auth", ValidationStepStatus.SUCCESS, auth_msg)
+    yield _step_event("auth", ValidationStepStatus.SUCCESS, auth_msg)
 
     # -- 6. models -----------------------------------------------------------
     _update("models", ValidationStepStatus.RUNNING)
@@ -263,9 +376,11 @@ async def validate_provider(
             models = []
         for m in models:
             yield {"type": "model", "model": m.model_dump()}
-    msg = f"Discovered {len(models)} model(s)" if models else "No models returned — use manual entry"
-    _update("models", ValidationStepStatus.SUCCESS if models else ValidationStepStatus.SUCCESS, msg)
-    yield _step_event("models", ValidationStepStatus.SUCCESS if models else ValidationStepStatus.SUCCESS, msg)
+    msg = (
+        f"Discovered {len(models)} model(s)" if models else "No models returned — use manual entry"
+    )
+    _update("models", ValidationStepStatus.SUCCESS, msg)
+    yield _step_event("models", ValidationStepStatus.SUCCESS, msg)
 
     # -- 7. smoke_test -------------------------------------------------------
     _update("smoke_test", ValidationStepStatus.RUNNING)
@@ -291,7 +406,7 @@ async def validate_provider(
             )
         except ImportError:
             logger.warning("litellm not available — smoke test skipped")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             smoke_error = f"Smoke test timed out after {timeout}s"
         except Exception as exc:
             smoke_error = _extract_clean_message(exc) or str(exc)
@@ -301,7 +416,11 @@ async def validate_provider(
         _update("smoke_test", ValidationStepStatus.FAILED, smoke_error)
         yield _step_event("smoke_test", ValidationStepStatus.FAILED, smoke_error)
         yield _result_event(
-            False, provider_id, _all_steps(), models, ValidationError(code="SMOKE_TEST_FAILED", message=smoke_error)
+            False,
+            provider_id,
+            _all_steps(),
+            models,
+            ValidationError(code="SMOKE_TEST_FAILED", message=smoke_error),
         )
         return
     _update("smoke_test", ValidationStepStatus.SUCCESS, "Completed 'Say OK' round-trip")
@@ -319,8 +438,14 @@ async def validate_provider(
             max_tokens=cfg["max_tokens"],
             temperature=cfg["temperature"],
             db_path=db_path,
+            # A provider becomes active only when the user explicitly picks a
+            # model (set_provider_model); validating a key alone never selects it.
+            set_active=False,
         )
-        if models:
+        # Curated providers keep only their catalog model lists — the live
+        # /models catalog (hundreds of OpenRouter rows) is persisted solely for
+        # custom-flow (bring-your-own-endpoint) providers like openai_compatible.
+        if entry.get("custom_flow") and models:
             provider_config_repo.upsert_provider_models(
                 provider=provider_id,
                 models=[m.model_dump() for m in models],
@@ -331,7 +456,13 @@ async def validate_provider(
         msg = f"Failed to save configuration: {e}"
         _update("save", ValidationStepStatus.FAILED, msg)
         yield _step_event("save", ValidationStepStatus.FAILED, msg)
-        yield _result_event(False, provider_id, _all_steps(), models, ValidationError(code="SAVE_FAILED", message=msg))
+        yield _result_event(
+            False,
+            provider_id,
+            _all_steps(),
+            models,
+            ValidationError(code="SAVE_FAILED", message=msg),
+        )
         return
     validation_state.reset(provider_id)
     validation_state.mark_validated(provider_id)
@@ -351,9 +482,15 @@ async def validate_provider_collect(
 ) -> ValidationResult:
     """Consume the validation stream and return the final result (test-friendly)."""
     result: ValidationResult | None = None
-    async for event in validate_provider(provider_id, api_key, base_url, model, db_path, workspace_root):
+    async for event in validate_provider(
+        provider_id, api_key, base_url, model, db_path, workspace_root
+    ):
         if event.get("type") == "result":
             result = ValidationResult(**{k: v for k, v in event.items() if k != "type"})
     if result is None:
-        result = ValidationResult(valid=False, provider=provider_id, error=ValidationError(code="UNKNOWN", message="No result"))
+        result = ValidationResult(
+            valid=False,
+            provider=provider_id,
+            error=ValidationError(code="UNKNOWN", message="No result"),
+        )
     return result

@@ -16,8 +16,8 @@ from server.toolkit import create_default_registry
 from server.toolkit.middleware import PermissionMiddleware
 from server.toolkit.registry import ToolRegistry
 
-from .handlers import MethodHandlers
 from ..agents.prompt_executor import PromptExecutor
+from .handlers import MethodHandlers
 from .protocol import (
     Connection,
     JsonRpcRequest,
@@ -87,7 +87,10 @@ class ConnectionManager(TransportService):
         logger.info("Buffer dropped for session %s", session_id)
 
     def get_connections(self) -> list[Connection]:
-        return [Connection(session_id=sid, client=str(ws.client)) for sid, ws in self.connections.items()]
+        return [
+            Connection(session_id=sid, client=str(ws.client))
+            for sid, ws in self.connections.items()
+        ]
 
     async def start(self, host: str, port: int) -> None:
         pass
@@ -122,7 +125,9 @@ class ConnectionManager(TransportService):
             except Exception as exc:
                 logger.warning("WS SEND FAIL session=%s kind=%s: %s", session_id, event.kind, exc)
         else:
-            logger.debug("WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf))
+            logger.debug(
+                "WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf)
+            )
 
     def _should_persist(self, event: Event) -> bool:
         """Decide whether an event belongs in the durable transcript.
@@ -131,11 +136,10 @@ class ConnectionManager(TransportService):
         in the live buffer only; final messages and tool/lifecycle events are
         persisted so they survive a server restart.
         """
-        if event.kind == EventKind.THINKING:
-            return False
-        if event.kind == EventKind.MESSAGE and event.data.get("partial"):
-            return False
-        return True
+        return not (
+            event.kind == EventKind.THINKING
+            or (event.kind == EventKind.MESSAGE and event.data.get("partial"))
+        )
 
     async def _persist_event(self, session_id: str, event: Event, seq: int) -> None:
         if not session_id or self._session_service is None:
@@ -150,9 +154,13 @@ class ConnectionManager(TransportService):
                 sequence=seq,
             )
         except Exception as exc:
-            logger.warning("Failed to persist sync event %s (session=%s): %s", event.kind, session_id, exc)
+            logger.warning(
+                "Failed to persist sync event %s (session=%s): %s", event.kind, session_id, exc
+            )
 
-    async def schedule_session_event(self, session_id: str, kind: str | EventKind, event_data: dict) -> None:
+    async def schedule_session_event(
+        self, session_id: str, kind: str | EventKind, event_data: dict
+    ) -> None:
         """Broadcast a session lifecycle event. Durability is handled by
         ``send_event`` (which persists to sync_events via the session service)."""
         if isinstance(kind, str):
@@ -188,7 +196,9 @@ class ConnectionManager(TransportService):
                 await websocket.send_text(payload)
             except Exception:
                 break
-        logger.info("Replayed %d/%d buffered events for session %s", len(new_events), len(buf), session_id)
+        logger.info(
+            "Replayed %d/%d buffered events for session %s", len(new_events), len(buf), session_id
+        )
         return len(new_events)
 
     def get_sequence(self, session_id: str) -> int:
@@ -211,11 +221,13 @@ class ZenithHandler:
         )
         # HP-8: wire the permission middleware with a DB-backed service so
         # persisted deny rules block tools without a UI round-trip.
-        from server.persistence.permission_repo import PermissionRepository
         from server.permissions import DefaultPermissionService
+        from server.persistence.permission_repo import PermissionRepository
 
         self.permission_service = DefaultPermissionService(repo=PermissionRepository(db))
-        self.tool_registry.register_middleware(PermissionMiddleware(service=self.permission_service))
+        self.tool_registry.register_middleware(
+            PermissionMiddleware(service=self.permission_service)
+        )
         # Build dependencies for session service
         from server.persistence.repositories import (
             CheckpointRepository,
@@ -232,8 +244,12 @@ class ZenithHandler:
         self.handlers = MethodHandlers(config, db, registry, self.tool_registry)
         self.handlers._permission_service = self.permission_service
         self._executor = PromptExecutor(
-            config, registry.get(config.active_provider), self.tool_registry,
-            self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader,
+            config,
+            registry.get(config.active_provider),
+            self.tool_registry,
+            self.handlers.session_repo,
+            self.handlers.message_repo,
+            self.handlers.skill_loader,
         )
         self.handlers.manager = self.manager
 
@@ -254,8 +270,12 @@ class ZenithHandler:
     def _reload_config(self) -> None:
         self.handlers.reload_config()
         self._executor = PromptExecutor(
-            self.handlers.config, self.handlers.registry.get(self.handlers.config.active_provider),
-            self.tool_registry, self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader,
+            self.handlers.config,
+            self.handlers.registry.get(self.handlers.config.active_provider),
+            self.tool_registry,
+            self.handlers.session_repo,
+            self.handlers.message_repo,
+            self.handlers.skill_loader,
         )
         self.handlers._shared_executor = self._executor
 
@@ -271,6 +291,7 @@ class ZenithHandler:
         session_id = None
         ping_task = None
         try:
+
             async def _keepalive_ping():
                 while True:
                     await asyncio.sleep(15)
@@ -285,7 +306,9 @@ class ZenithHandler:
                 try:
                     data = json.loads(raw)
                     request = JsonRpcRequest(**data)
-                    session_id = await self.handlers.dispatch(websocket, request.method, request.id, request.params, session_id)
+                    session_id = await self.handlers.dispatch(
+                        websocket, request.method, request.id, request.params, session_id
+                    )
                     if session_id:
                         await self.manager.register(session_id, websocket)
                 except json.JSONDecodeError as e:

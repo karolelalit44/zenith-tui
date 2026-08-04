@@ -23,6 +23,7 @@ import websockets
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
+
 def _get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -76,7 +77,9 @@ async def _collect_all(ws, timeout: float = 5) -> list[dict]:
     return messages
 
 
-async def _send_prompt_and_collect(ws, content: str, mode: str = "build", timeout: float = 15) -> tuple[dict, list[dict]]:
+async def _send_prompt_and_collect(
+    ws, content: str, mode: str = "build", timeout: float = 15
+) -> tuple[dict, list[dict]]:
     """Send a prompt, collect the processing response, then collect all events."""
     prompt_resp = await _ws_rpc(ws, "prompt.send", {"content": content, "mode": mode})
     events = await _collect_events(ws, timeout=timeout)
@@ -85,7 +88,7 @@ async def _send_prompt_and_collect(ws, content: str, mode: str = "build", timeou
 
 # ── Server fixture ───────────────────────────────────────────────────
 
-_ECHO_PROVIDER_CODE = '''
+_ECHO_PROVIDER_CODE = """
 import asyncio
 import logging
 logging.disable(logging.CRITICAL)
@@ -107,7 +110,7 @@ class EchoProvider(BaseProvider):
         return True
     async def list_models(self):
         return ["echo-v1"]
-'''
+"""
 
 _SERVER_READY_TIMEOUT = 20
 
@@ -123,7 +126,6 @@ def echo_server(tmp_path_factory):
     prov_file.write_text(_ECHO_PROVIDER_CODE)
 
     env = os.environ.copy()
-    env.setdefault("ZENITH_ACTIVE_PROVIDER", "echo")
     env.setdefault("ZENITH_DB_PATH", db_path)
     env.setdefault("ZENITH_LOG_LEVEL", "CRITICAL")
     env.setdefault("ZENITH_MAX_CONTEXT_TOKENS", "128000")
@@ -143,7 +145,7 @@ def echo_server(tmp_path_factory):
     env.setdefault("ZENITH_TEMPERATURE", "0.7")
     env["ZENITH_ECHO_PROVIDER"] = str(prov_file)
 
-    server_script = f'''
+    server_script = f"""
 import os, sys
 os.environ["ZENITH_DB_PATH"] = {db_path!r}
 os.environ["ZENITH_LOG_LEVEL"] = "CRITICAL"
@@ -179,7 +181,7 @@ loader.load_config = _patched_load
 
 import uvicorn
 uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")
-'''
+"""
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
 
@@ -203,7 +205,9 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
     if not ready:
         proc.kill()
         stdout, stderr = proc.communicate(timeout=5)
-        pytest.fail(f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}")
+        pytest.fail(
+            f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+        )
 
     yield port
 
@@ -219,11 +223,13 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
 # SECTION 1: HTTP Endpoint Tests
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestHTTPEndpoints:
     """HTTP REST endpoints for health, status, and startup validation."""
 
     def test_health_returns_ok_with_version(self, echo_server):
         import urllib.request
+
         resp = urllib.request.urlopen(f"http://127.0.0.1:{echo_server}/health")
         data = json.loads(resp.read())
         assert data["status"] == "ok"
@@ -233,6 +239,7 @@ class TestHTTPEndpoints:
 
     def test_status_returns_ready_with_provider_info(self, echo_server):
         import urllib.request
+
         resp = urllib.request.urlopen(f"http://127.0.0.1:{echo_server}/status")
         data = json.loads(resp.read())
         assert data["ready"] is True
@@ -242,22 +249,17 @@ class TestHTTPEndpoints:
 
     def test_startup_validate_endpoint(self, echo_server):
         import urllib.request
+
         resp = urllib.request.urlopen(f"http://127.0.0.1:{echo_server}/startup/validate")
         data = json.loads(resp.read())
         assert "status" in data
         assert "missing" in data
 
-    def test_startup_provider_config_endpoint(self, echo_server):
-        import urllib.request
-        resp = urllib.request.urlopen(f"http://127.0.0.1:{echo_server}/startup/provider-config")
-        data = json.loads(resp.read())
-        assert "active_provider" in data
-        assert "providers" in data
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # SECTION 2: WebSocket Health & Protocol Tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestWSProtocol:
     """JSON-RPC protocol-level tests."""
@@ -308,6 +310,7 @@ class TestWSProtocol:
 # ═══════════════════════════════════════════════════════════════════════
 # SECTION 3: Session Management
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestSessionManagement:
     """Session CRUD operations via WebSocket."""
@@ -377,6 +380,7 @@ class TestSessionManagement:
 # SECTION 4: Prompt Processing & Event Pipeline
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestPromptProcessing:
     """Prompt → LLM → events pipeline."""
 
@@ -414,7 +418,9 @@ class TestPromptProcessing:
             await _ws_rpc(ws, "prompt.send", {"content": "Say hello", "mode": "build"})
             events = await _collect_events(ws, timeout=10)
             message_events = [e for e in events if e["params"]["kind"] == "message"]
-            assert len(message_events) > 0, f"No message events. Got: {[e['params']['kind'] for e in events]}"
+            assert len(message_events) > 0, (
+                f"No message events. Got: {[e['params']['kind'] for e in events]}"
+            )
 
     @pytest.mark.asyncio
     async def test_prompt_generates_success_event(self, echo_server):
@@ -474,6 +480,7 @@ class TestPromptProcessing:
 # SECTION 5: Multi-Turn Conversation
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestMultiTurnConversation:
     """Multiple prompts in the same session accumulate history."""
 
@@ -522,6 +529,7 @@ class TestMultiTurnConversation:
 # SECTION 6: Auto-Session on Prompt
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestAutoSession:
     """Sending a prompt without explicit session.create auto-creates a session."""
 
@@ -529,10 +537,14 @@ class TestAutoSession:
     async def test_prompt_without_session_creates_one(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             # Send prompt directly without session.create
-            resp = await _ws_rpc(ws, "prompt.send", {
-                "content": "Auto session test",
-                "mode": "build",
-            })
+            resp = await _ws_rpc(
+                ws,
+                "prompt.send",
+                {
+                    "content": "Auto session test",
+                    "mode": "build",
+                },
+            )
             assert "result" in resp
             assert resp["result"]["status"] == "processing"
             sid = resp["result"]["session_id"]
@@ -549,10 +561,14 @@ class TestAutoSession:
     @pytest.mark.asyncio
     async def test_auto_session_title_from_prompt(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(ws, "prompt.send", {
-                "content": "This is my custom title prompt",
-                "mode": "build",
-            })
+            resp = await _ws_rpc(
+                ws,
+                "prompt.send",
+                {
+                    "content": "This is my custom title prompt",
+                    "mode": "build",
+                },
+            )
             sid = resp["result"]["session_id"]
             await _collect_events(ws, timeout=10)
             # Session title should be the first 50 chars of the prompt
@@ -564,6 +580,7 @@ class TestAutoSession:
 # ═══════════════════════════════════════════════════════════════════════
 # SECTION 7: Provider Operations
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestProviderOperations:
     """Provider validation, model listing."""
@@ -600,6 +617,7 @@ class TestProviderOperations:
 # ═══════════════════════════════════════════════════════════════════════
 # SECTION 8: Tools
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestToolOperations:
     """Tool listing and availability."""
@@ -641,6 +659,7 @@ class TestToolOperations:
 # SECTION 9: Session Export
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestSessionExport:
     """Export session conversations as markdown."""
 
@@ -670,6 +689,7 @@ class TestSessionExport:
 # ═══════════════════════════════════════════════════════════════════════
 # SECTION 10: Workspace Operations
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestWorkspaceOperations:
     """Git operations via WebSocket."""
@@ -718,6 +738,7 @@ class TestWorkspaceOperations:
 # SECTION 11: Concurrent Sessions
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestConcurrentSessions:
     """Multiple sessions on the same WebSocket connection."""
 
@@ -754,6 +775,7 @@ class TestConcurrentSessions:
 # SECTION 12: Full Lifecycle (Create → Prompt → Resume → Export)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestFullLifecycle:
     """Complete session lifecycle from creation through export."""
 
@@ -781,10 +803,14 @@ class TestFullLifecycle:
             sid = create_resp["result"]["id"]
 
             # Step 6: Send prompt
-            prompt_resp = await _ws_rpc(ws, "prompt.send", {
-                "content": "Do something amazing",
-                "mode": "build",
-            })
+            prompt_resp = await _ws_rpc(
+                ws,
+                "prompt.send",
+                {
+                    "content": "Do something amazing",
+                    "mode": "build",
+                },
+            )
             assert prompt_resp["result"]["status"] == "processing"
             events = await _collect_events(ws, timeout=15)
             kinds = [e["params"]["kind"] for e in events]
@@ -805,7 +831,9 @@ class TestFullLifecycle:
             assert sid in ids
 
             # Step 9: Export session
-            export_resp = await _ws_rpc(ws, "session.export", {"output_dir": "zenith_exports_lifecycle"})
+            export_resp = await _ws_rpc(
+                ws, "session.export", {"output_dir": "zenith_exports_lifecycle"}
+            )
             assert "markdown" in export_resp["result"]
             assert "Lifecycle Test" in export_resp["result"]["markdown"]
 
@@ -818,16 +846,21 @@ class TestFullLifecycle:
 # SECTION 13: Error Handling & Edge Cases
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestErrorHandling:
     """Error handling and edge cases."""
 
     @pytest.mark.asyncio
     async def test_prompt_to_unavailable_provider(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(ws, "prompt.send", {
-                "content": "Hello",
-                "provider": "nonexistent_provider",
-            })
+            resp = await _ws_rpc(
+                ws,
+                "prompt.send",
+                {
+                    "content": "Hello",
+                    "provider": "nonexistent_provider",
+                },
+            )
             assert "error" in resp
             assert "not available" in resp["error"]["message"].lower()
 
@@ -921,6 +954,7 @@ class TestErrorHandling:
 # SECTION 14: Data Persistence
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestDataPersistence:
     """Verify data persists in SQLite across operations."""
 
@@ -971,6 +1005,7 @@ class TestDataPersistence:
 # SECTION 15: Connection Lifecycle
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestConnectionLifecycle:
     """WebSocket connection connect/disconnect behavior."""
 
@@ -1002,6 +1037,7 @@ class TestConnectionLifecycle:
 # ═══════════════════════════════════════════════════════════════════════
 # SECTION 16: Mode Handling
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestModeHandling:
     """Different prompt modes (build, chat, etc)."""

@@ -69,7 +69,10 @@ class ConversationSummarizer:
         prompt = self._build_prompt(conversation, previous_summary)
         try:
             kwargs = {}
-            if self.config.weak_model and "model" in inspect.signature(self.provider.complete).parameters:
+            if (
+                self.config.weak_model
+                and "model" in inspect.signature(self.provider.complete).parameters
+            ):
                 kwargs["model"] = self.config.weak_model
             result = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -94,9 +97,7 @@ class ConversationSummarizer:
             return (
                 "Update the anchored summary below with the new conversation. "
                 "Preserve still-true details, remove stale details, and merge in the new facts.\n\n"
-                "<previous-summary>\n"
-                + previous_summary
-                + "\n</previous-summary>\n\n"
+                "<previous-summary>\n" + previous_summary + "\n</previous-summary>\n\n"
                 "New conversation:\n"
                 + conversation
                 + "\n\nUse this Markdown template:\n"
@@ -120,8 +121,4 @@ class ConversationSummarizer:
         if not recent:
             return "Objective\n- Continue the prior conversation\n\nWork State\n- No prior context available."
         lines = "\n".join(f"- [{m.role}] {m.content[:200]}" for m in recent)
-        return (
-            "Objective\n- Continue the prior conversation\n\n"
-            "Important Details\n"
-            + lines
-        )
+        return "Objective\n- Continue the prior conversation\n\nImportant Details\n" + lines

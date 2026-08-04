@@ -67,7 +67,12 @@ class QuestionTool(BaseTool):
             return ToolResult(
                 success=True,
                 output=f"User answered: {answer}",
-                metadata={"question": question, "options": options, "answer": answer, "answered": True},
+                metadata={
+                    "question": question,
+                    "options": options,
+                    "answer": answer,
+                    "answered": True,
+                },
             )
         except Exception as e:
             logger.warning("Question callback failed: %s", e)

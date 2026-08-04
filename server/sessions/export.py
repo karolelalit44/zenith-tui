@@ -24,8 +24,8 @@ class SessionExporter:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        safe_title = re.sub(r'[^\w\s-]', '', session.title)[:50].strip()
-        safe_title = re.sub(r'\s+', '_', safe_title)
+        safe_title = re.sub(r"[^\w\s-]", "", session.title)[:50].strip()
+        safe_title = re.sub(r"\s+", "_", safe_title)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{safe_title}_{timestamp}.md"
         filepath = output_path / filename
@@ -107,7 +107,9 @@ class SessionExporter:
                 success = data.get("success", False)
                 path = data.get("metadata", {}).get("path", "")
                 if path:
-                    summaries.append(f"**Tool result:** `{tool}` → `{path}` ({'ok' if success else 'failed'})")
+                    summaries.append(
+                        f"**Tool result:** `{tool}` → `{path}` ({'ok' if success else 'failed'})"
+                    )
                 else:
                     summaries.append(f"**Tool result:** `{tool}` ({'ok' if success else 'failed'})")
             elif kind == "warning":

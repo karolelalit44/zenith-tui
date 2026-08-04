@@ -1,5 +1,5 @@
-from server.domain.events import Event, EventKind
 from server.api.protocol import JsonRpcRequest, make_error_response, make_event, make_response
+from server.domain.events import Event, EventKind
 
 
 def test_jsonrpc_request():

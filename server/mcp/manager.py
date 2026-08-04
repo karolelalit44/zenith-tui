@@ -22,14 +22,14 @@ class McpManager:
     abort the others — it is recorded with an error and skipped.
     """
 
-    def __init__(self, servers: dict[str, "McpServerConfig"]) -> None:
+    def __init__(self, servers: dict[str, McpServerConfig]) -> None:
         self._servers = dict(servers)
         self._clients: dict[str, McpClient] = {}
         self._status: dict[str, str] = {}
         self._errors: dict[str, str] = {}
 
     @property
-    def servers(self) -> dict[str, "McpServerConfig"]:
+    def servers(self) -> dict[str, McpServerConfig]:
         return self._servers
 
     @property
@@ -51,7 +51,8 @@ class McpManager:
                 self._status[name] = "connected"
                 logger.info(
                     "MCP server '%s' connected with %d tools",
-                    name, len(client.tools),
+                    name,
+                    len(client.tools),
                 )
             except Exception as e:
                 self._status[name] = "failed"

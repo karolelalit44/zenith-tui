@@ -10,7 +10,10 @@ logger = logging.getLogger(__name__)
 
 TOOL_PATTERNS = [
     # Fenced tool blocks: ```tool\n{"tool":"..."}\n```
-    re.compile(r"```(?:tool|json)?\s*\n?(\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\})\s*\n?```", re.IGNORECASE),
+    re.compile(
+        r"```(?:tool|json)?\s*\n?(\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\})\s*\n?```",
+        re.IGNORECASE,
+    ),
     # Inline tool JSON: {"tool":"...", "params":{...}}
     re.compile(r"(\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\"params\"\s*:\s*\{[\s\S]*?\}\s*\})"),
     # JSON array of tool calls: [{"tool":"...",...}, {"tool":"...",...}]
@@ -19,13 +22,22 @@ TOOL_PATTERNS = [
     re.compile(r"(\[[\s\S]*?\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\}[\s\S]*?\])"),
 ]
 
-UNCLOSED_PATTERN = re.compile(r"```(?:tool|json)?\s*\n?(\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*)$", re.IGNORECASE)
+UNCLOSED_PATTERN = re.compile(
+    r"```(?:tool|json)?\s*\n?(\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*)$", re.IGNORECASE
+)
 
 BRACKET_PATTERN = re.compile(r"\[(\w+)((?:\s+\w+=(?:\"[^\"]*\"|\S+))+\s*)\]")
 BRACKET_KV_PATTERN = re.compile(r'(\w+)=(?:"((?:[^"\\]|\\.)*)"|(\S+))')
 
+XML_TOOL_CALL_PATTERN = re.compile(r"<tool_call>([\s\S]*?)</tool_call>", re.IGNORECASE)
+XML_ARG_PAIR_PATTERN = re.compile(
+    r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>", re.DOTALL | re.IGNORECASE
+)
+
 # Tool names that are placeholders the model might echo literally
-PLACEHOLDER_TOOL_NAMES = frozenset({"tool_name", "tool", "function", "name", "call", "action", "command", "method"})
+PLACEHOLDER_TOOL_NAMES = frozenset(
+    {"tool_name", "tool", "function", "name", "call", "action", "command", "method"}
+)
 
 
 def _extract_string_value(text: str, key: str) -> str | None:
@@ -36,9 +48,9 @@ def _extract_string_value(text: str, key: str) -> str | None:
         raw = single_line.group(1)
         end_pos = single_line.end()
         # Reject empty matches that are actually start of triple-quoted content (""")
-        is_triple_quote = raw == '' and end_pos < len(text) and text[end_pos:end_pos + 1] == '"'
-        if '\n' not in raw and not is_triple_quote:
-            return raw.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+        is_triple_quote = raw == "" and end_pos < len(text) and text[end_pos : end_pos + 1] == '"'
+        if "\n" not in raw and not is_triple_quote:
+            return raw.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
 
     # Try multi-line match: content may contain actual newlines.
     # Use greedy .* to find the LAST closing " before closing braces.
@@ -47,24 +59,26 @@ def _extract_string_value(text: str, key: str) -> str | None:
     if multi_match:
         raw = multi_match.group(1)
         raw = raw.removeprefix('"')
-        return raw.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+        return raw.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
 
     # Fallback: content followed by single closing brace (e.g., at end of params)
     multi_match2 = re.search(rf'"{key}"\s*:\s*(.*)"\s*\}}', text, re.DOTALL)
     if multi_match2:
         raw = multi_match2.group(1)
         raw = raw.removeprefix('"')
-        return raw.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+        return raw.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
 
     return None
 
 
-def _extract_param_fallback(candidate: str, key: str, aliases: list[str] | None = None) -> str | None:
+def _extract_param_fallback(
+    candidate: str, key: str, aliases: list[str] | None = None
+) -> str | None:
     """Extract a parameter value by key name or alias variants."""
     result = _extract_string_value(candidate, key)
     if result is not None:
         return result
-    for alias in (aliases or []):
+    for alias in aliases or []:
         result = _extract_string_value(candidate, alias)
         if result is not None:
             return result
@@ -126,22 +140,52 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
         if tool_name in PLACEHOLDER_TOOL_NAMES:
             return None
         params: dict = {}
-        path_val = _extract_param_fallback(candidate, "path", ["filePath", "filepath", "file_path", "targetFile", "target_file", "filename", "file_name", "targetPath", "target_path", "dest", "destination", "src", "source"])
+        path_val = _extract_param_fallback(
+            candidate,
+            "path",
+            [
+                "filePath",
+                "filepath",
+                "file_path",
+                "targetFile",
+                "target_file",
+                "filename",
+                "file_name",
+                "targetPath",
+                "target_path",
+                "dest",
+                "destination",
+                "src",
+                "source",
+            ],
+        )
         if path_val is not None:
             params["path"] = path_val
         content_val = _extract_param_fallback(candidate, "content")
         if content_val is not None:
             params["content"] = content_val
-        old_val = _extract_param_fallback(candidate, "old_content", ["oldContent", "search", "find", "old_string", "original", "oldtext", "targettext"])
+        old_val = _extract_param_fallback(
+            candidate,
+            "old_content",
+            ["oldContent", "search", "find", "old_string", "original", "oldtext", "targettext"],
+        )
         if old_val is not None:
             params["old_content"] = old_val
-        new_val = _extract_param_fallback(candidate, "new_content", ["newContent", "replace", "new_string", "replacement", "newtext", "replacementtext"])
+        new_val = _extract_param_fallback(
+            candidate,
+            "new_content",
+            ["newContent", "replace", "new_string", "replacement", "newtext", "replacementtext"],
+        )
         if new_val is not None:
             params["new_content"] = new_val
-        cmd_val = _extract_param_fallback(candidate, "command", ["cmd", "commandString", "script", "exec", "run"])
+        cmd_val = _extract_param_fallback(
+            candidate, "command", ["cmd", "commandString", "script", "exec", "run"]
+        )
         if cmd_val is not None:
             params["command"] = cmd_val
-        pattern_val = _extract_param_fallback(candidate, "pattern", ["query", "glob", "searchPattern", "filter", "regex"])
+        pattern_val = _extract_param_fallback(
+            candidate, "pattern", ["query", "glob", "searchPattern", "filter", "regex"]
+        )
         if pattern_val is not None:
             params["pattern"] = pattern_val
         url_val = _extract_param_fallback(candidate, "url")
@@ -231,42 +275,88 @@ def parse_tool_calls(text: str) -> list[dict]:
             parsed = {"tool": tool_name, "params": normalize_file_params(params)}
             _add_call(parsed)
 
+    # Fallback: XML tool call format <tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>
+    if not calls:
+        for match in XML_TOOL_CALL_PATTERN.finditer(text):
+            content = match.group(1).strip()
+            if not content:
+                continue
+            parsed = _repair_and_parse_json(content)
+            if parsed and _add_call(parsed):
+                continue
+            arg_key_pos = content.find("<arg_key>")
+            if arg_key_pos >= 0:
+                tool_name = content[:arg_key_pos].strip()
+                params = {}
+                for kv in XML_ARG_PAIR_PATTERN.finditer(content):
+                    k = kv.group(1).strip()
+                    v = kv.group(2).strip()
+                    params[k] = v
+                if tool_name and tool_name not in PLACEHOLDER_TOOL_NAMES:
+                    parsed = {"tool": tool_name, "params": normalize_file_params(params)}
+                    _add_call(parsed)
+
     return calls
 
 
-
 def clean_tool_text(text: str) -> str:
-    """Clean out tool call blocks, inline tool JSON, and hallucinated output text from assistant messages."""
+    """Clean out tool call blocks, inline tool JSON, XML tool calls, and hallucinated output text from assistant messages."""
+    # XML format tool calls: <tool_call>...</tool_call>
+    cleaned = re.sub(
+        r"<tool_call>[\s\S]*?</tool_call>",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
     # Fenced single tool blocks
     cleaned = re.sub(
         r"```(?:tool|json)?\s*\n?\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\}\s*\n?```",
-        "", text, flags=re.IGNORECASE,
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
     )
     # Inline single tool JSON
     cleaned = re.sub(
         r"\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\"params\"\s*:\s*\{[\s\S]*?\}\s*\}",
-        "", cleaned,
+        "",
+        cleaned,
     )
     # Fenced JSON arrays of tool calls
     cleaned = re.sub(
         r"```(?:tool|json)?\s*\n?\[[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\]\s*\n?```",
-        "", cleaned, flags=re.IGNORECASE,
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
     )
     # Inline JSON arrays of tool calls
     cleaned = re.sub(
         r"\[[\s\S]*?\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\}[\s\S]*?\]",
-        "", cleaned,
+        "",
+        cleaned,
     )
     # Bracket format tool calls: [tool_name key="val"]
     cleaned = re.sub(
         r"\[(\w+)((?:\s+\w+=(?:\"[^\"]*\"|\S+))+\s*)\]",
-        "", cleaned,
+        "",
+        cleaned,
     )
     # Remove hallucinated mock output blocks (only when they look like structured output, not natural prose)
-    cleaned = re.sub(r"^Command:\s+.*$\n^Output:.*$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE)
-    cleaned = re.sub(r"^Successfully (?:created|wrote|deleted|edited) (?:new )?file:\s*[^\n]+$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE)
+    cleaned = re.sub(
+        r"^Command:\s+.*$\n^Output:.*$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r"^Successfully (?:created|wrote|deleted|edited) (?:new )?file:\s*[^\n]+$",
+        "",
+        cleaned,
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
     # Remove placeholder patterns
-    cleaned = re.sub(r"\[(?:PASTE|INSERT|TODO|HTML|UPDATED|ACTUAL|CURRENT|DESIRED)[^\]]{0,50}\]", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\[(?:PASTE|INSERT|TODO|HTML|UPDATED|ACTUAL|CURRENT|DESIRED)[^\]]{0,50}\]",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     cleaned = re.sub(r"\bYOUR_[\w_]+_HERE\b", "", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
@@ -276,7 +366,9 @@ class UnifiedResponseFormatter:
     """Unified response formatter — native FC only, no text-based parsing."""
 
     @staticmethod
-    def process_response(raw_content: str, raw_tool_calls: list[dict] | None = None) -> tuple[str, list[dict]]:
+    def process_response(
+        raw_content: str, raw_tool_calls: list[dict] | None = None
+    ) -> tuple[str, list[dict]]:
         tool_calls = []
 
         # First: try native function calls (OpenAI format)
@@ -320,4 +412,3 @@ class UnifiedResponseFormatter:
             return {"tool": tc["tool"], "params": params}
 
         return None
-

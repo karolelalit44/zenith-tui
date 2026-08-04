@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
-import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
+import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useTickAnimation } from '../../../hooks/useTickAnimation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ScenarioEvent } from '../../../types/scenario';
@@ -15,24 +15,40 @@ interface ScenarioRendererProps {
   onDismiss?: () => void;
 }
 
-const LiveSpinner: React.FC<{ label: string }> = React.memo(({ label }) => {
+function formatElapsedLive(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+}
+
+const LiveSpinner: React.FC<{ label: string }> = React.memo(() => {
   const spinnerTick = useTickAnimation(100);
   const { theme } = useTheme();
 
+  const spinnerChar = SPINNER_FRAMES[spinnerTick % SPINNER_FRAMES.length];
+  const elapsedMs = spinnerTick * 100;
+  const elapsedStr = formatElapsedLive(elapsedMs);
+
   return (
-    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      <Box flexDirection="row" alignItems="center" flexWrap="wrap">
-        <Text color={theme.colors.status.info} bold>
-          [IN PROGRESS]{' '}
-        </Text>
-        <Text color={theme.colors.status.success} bold>
-          {ASCII_SPINNER_FRAMES[spinnerTick % ASCII_SPINNER_FRAMES.length]}{' '}
-        </Text>
-        <Text color={theme.colors.text.bright} bold>
-          {label}
-        </Text>
-        <Text color={theme.colors.text.muted}> (Press ESC to cancel)</Text>
-      </Box>
+    <Box flexDirection="row" alignItems="center" width="100%" paddingX={1} marginBottom={1}>
+      {/* Spinner + label */}
+      <Text color={theme.colors.status.accent} bold>
+        {spinnerChar}{' '}
+      </Text>
+      <Text color={theme.colors.text.bright} bold>
+        Working
+      </Text>
+      <Text color={theme.colors.text.dim}> · </Text>
+      <Text color={theme.colors.text.muted}>{elapsedStr}</Text>
+
+      {/* Right-aligned hint — fills remaining space by pushing with a spacer */}
+      <Box flexGrow={1} />
+      <Text color={theme.colors.text.dim}>esc to interrupt</Text>
     </Box>
   );
 });

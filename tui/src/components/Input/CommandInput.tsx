@@ -1,20 +1,24 @@
-import { Box, Text } from 'ink';
-import React from 'react';
+import { Box, type Key, Text } from 'ink';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
-import type { TokenUsageStats } from '../../services/api/TokenUsageService';
-import { formatTokenCount } from '../../services/api/tokenEstimationService';
 import { getActiveGitBranch } from '../../services/git';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
 import type { FileAttachment } from '../../types/scenario';
+import { AttachmentChips } from './AttachmentChips';
+import { ComposerFooter } from './ComposerFooter';
 import { MultiLineTextInput } from './MultiLineTextInput';
+
+const PLACEHOLDERS = ['Ask anything…', 'Describe the change…', '@ file · / cmd · ? help'];
+const PLACEHOLDER_INTERVAL_MS = 4000;
 
 interface CommandInputProps {
   input: string;
   onInputChange: (value: string) => void;
   onSubmit: (value: string) => void;
   disabled?: boolean;
+  running?: boolean;
   attachments?: FileAttachment[];
   onRemoveAttachment?: (index: number) => void;
   historyUp?: () => string | undefined;
@@ -22,10 +26,14 @@ interface CommandInputProps {
   mode?: ScenarioMode;
   totalTokens?: number;
   maxTokens?: number;
-  isRunning?: boolean;
-  tokenUsageStats?: TokenUsageStats | null;
   workspaceName?: string;
   gitBranch?: string;
+  onCancel?: () => void;
+  onOpenHelp?: () => void;
+  onOpenMode?: () => void;
+  onClearInput?: () => void;
+  /** True while the inline slash-command menu is open (input is a / query). */
+  slashMenuOpen?: boolean;
 }
 
 export const CommandInput: React.FC<CommandInputProps> = React.memo(
@@ -34,30 +42,44 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onInputChange,
     onSubmit,
     disabled = false,
-    attachments,
-    onRemoveAttachment: _onRemoveAttachment,
+    running = false,
+    attachments = [],
+    onRemoveAttachment,
     historyUp,
     historyDown,
     mode = 'build',
     totalTokens = 0,
     maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
-    isRunning = false,
-    tokenUsageStats,
     workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
     gitBranch,
+    onCancel,
+    onOpenHelp,
+    onOpenMode,
+    onClearInput,
+    slashMenuOpen = false,
   }) => {
     const { theme } = useTheme();
     const { activeProvider } = useProvider();
-    const activeBranch = gitBranch || getActiveGitBranch();
-    const modelShort = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
-    const providerName = activeProvider.meta.name || 'Unknown';
+    const [placeholderIndex, setPlaceholderIndex] = useState(0);
 
-    const modeLabel = mode === 'plan' ? '[PLAN]' : '[BUILD]';
-    const modeColor = theme.colors.text.emerald;
+    useEffect(() => {
+      const timer = setInterval(
+        () => setPlaceholderIndex((i) => (i + 1) % PLACEHOLDERS.length),
+        PLACEHOLDER_INTERVAL_MS,
+      );
+      return () => clearInterval(timer);
+    }, []);
+
+    const activeBranch = gitBranch || getActiveGitBranch();
+    const providerName = activeProvider.meta.name || 'Unknown';
+    const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
     const columns = process.stdout.columns ?? 80;
-    const isSmall = columns < 65;
-    const isMedium = columns < 100;
+    const shortDir = useMemo(() => {
+      const parts = workspaceName.replace(/\\/g, '/').split('/');
+      return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : workspaceName;
+    }, [workspaceName]);
+    const dividerWidth = Math.max(0, columns - 6);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
     const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
@@ -66,53 +88,64 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
         ? maxTokens
         : activeModelInfo?.context_window || SESSION_STATUS_DEFAULTS.maxTokens;
 
-    const contextPercent = Math.min(100, Math.round((totalTokens / effectiveMaxTokens) * 100));
-    const totalBlocks = 10;
-    const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
-    const contextGauge = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
+    const handleSpecial = useCallback(
+      (char: string, key: Key, value: string): boolean => {
+        if (slashMenuOpen) {
+          const isEnter = key.return || char === '\n' || char === '\r';
+          // While the slash menu is open it owns navigation keys; swallow
+          // them here so the input never submits, jumps history, or inserts
+          // tabs. Regular typing still edits the input (and re-filters).
+          if (key.upArrow || key.downArrow || isEnter || key.tab || key.escape) return true;
+          return false;
+        }
+        if (!value.trim() && char === '?' && onOpenHelp) {
+          onOpenHelp();
+          return true;
+        }
+        if (!value.trim() && key.shift && (char === 'm' || char === 'M') && onOpenMode) {
+          onOpenMode();
+          return true;
+        }
+        if (key.ctrl && !running && (char === 'c' || char === 'C' || char === '\x03')) {
+          if (value) {
+            onInputChange('');
+          } else if (onClearInput) {
+            onClearInput();
+          }
+          return true;
+        }
+        if (key.escape && running && onCancel) {
+          onCancel();
+          return true;
+        }
+        return false;
+      },
+      [slashMenuOpen, onOpenHelp, onOpenMode, onInputChange, onClearInput, onCancel, running],
+    );
 
-    const dirParts = workspaceName.replace(/\\/g, '/').split('/');
-    const shortDir = dirParts.length > 2 ? `.../${dirParts.slice(-2).join('/')}` : workspaceName;
-
-    const grandTotal = tokenUsageStats?.totals?.grand_total_tokens ?? 0;
-    const requestCount = tokenUsageStats?.totals?.total_requests ?? 0;
-
-    const dividerWidth = Math.max(0, columns - 6);
+    const focused = !disabled;
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
-        {attachments && attachments.length > 0 && (
-          <Box flexDirection="row" flexWrap="wrap" marginBottom={0}>
-            {attachments.map((att, idx) => (
-              <Box key={idx} flexDirection="row" marginRight={1}>
-                <Text color={theme.colors.status.info}>[ATTACH]</Text>
-                <Text color={theme.colors.text.ethereal}> {att.name}</Text>
-                <Text color={theme.colors.text.muted}> </Text>
-                <Text color={theme.colors.status.error}>(#{idx + 1})</Text>
-              </Box>
-            ))}
-          </Box>
-        )}
+        <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
-        {/* Single Unified Input Card */}
         <Box
           flexDirection="column"
           width="100%"
           borderStyle="round"
-          borderColor={disabled ? theme.colors.border.muted : theme.colors.border.active}
+          borderColor={focused ? theme.colors.border.active : theme.colors.border.muted}
           paddingX={1}
           paddingY={0}
         >
-          {/* Primary Input Section */}
           <Box flexDirection="row" width="100%" alignItems="flex-start">
-            <Text color={disabled ? theme.colors.text.muted : theme.colors.text.emerald} bold>
-              {disabled ? '◌' : '❯'}{' '}
+            <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
+              {focused ? '❯' : '◌'}{' '}
             </Text>
             <Box flexDirection="column" flexGrow={1}>
               {disabled ? (
                 <Box flexDirection="row" alignItems="center" minHeight={1}>
                   <Text color={theme.colors.text.muted} italic>
-                    Processing... (Esc to cancel)
+                    Waiting for approval…
                   </Text>
                 </Box>
               ) : (
@@ -120,76 +153,38 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
                   value={input}
                   onChange={onInputChange}
                   onSubmit={onSubmit}
-                  placeholder="Ask anything..."
-                  focus={!disabled}
+                  placeholder={PLACEHOLDERS[placeholderIndex]}
+                  focus={focused}
                   historyUp={historyUp}
                   historyDown={historyDown}
+                  onSpecial={handleSpecial}
                 />
               )}
             </Box>
           </Box>
 
-          {/* Seamless Horizontal Divider Line */}
           <Box width="100%" marginY={0}>
             <Text color={theme.colors.border.muted} wrap="truncate-end">
               {'─'.repeat(dividerWidth)}
             </Text>
           </Box>
 
-          {/* Secondary Info Section */}
-          <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center">
-            {/* Left side: Mode & Model */}
-            <Box flexDirection="row" flexShrink={1}>
-              <Text color={modeColor}>{modeLabel} </Text>
-              <Text color={theme.colors.status.accent}>◇ </Text>
-              <Text color={theme.colors.text.muted} wrap="truncate-end">
-                {modelShort}
-                {!isSmall ? ` · ${providerName}` : ''}
-              </Text>
-            </Box>
-
-            {/* Right side: Repo / Branch | Tokens | Gauge | Reqs | State */}
-            <Box flexDirection="row" flexShrink={0} alignItems="center">
-              {!isMedium && <Text color={theme.colors.text.ethereal}>{shortDir}</Text>}
-              {activeBranch ? (
-                <>
-                  {!isMedium && <Text color={theme.colors.text.muted}> </Text>}
-                  <Text color={theme.colors.text.emerald}>({activeBranch})</Text>
-                </>
-              ) : null}
-              <Text color={theme.colors.text.muted}> | </Text>
-              <Text color={theme.colors.status.info}>{formatTokenCount(totalTokens)}</Text>
-              <Text color={theme.colors.text.muted}>/</Text>
-              <Text color={theme.colors.text.bright}>{formatTokenCount(effectiveMaxTokens)}</Text>
-              <Text color={theme.colors.text.muted}> tokens </Text>
-              <Text color={contextPercent > 80 ? theme.colors.status.warning : theme.colors.status.success}>
-                [{contextGauge}] {contextPercent}%
-              </Text>
-              {grandTotal > 0 && (
-                <>
-                  <Text color={theme.colors.text.muted}> (Σ </Text>
-                  <Text color={theme.colors.text.bright}>{formatTokenCount(grandTotal)}</Text>
-                  <Text color={theme.colors.text.muted}> total)</Text>
-                </>
-              )}
-              {requestCount > 0 && (
-                <>
-                  <Text color={theme.colors.text.muted}> | </Text>
-                  <Text color={theme.colors.text.muted}>{requestCount} req</Text>
-                </>
-              )}
-              <Text color={theme.colors.text.muted}> | </Text>
-              {isRunning ? (
-                <Text color={theme.colors.status.success} bold>
-                  Running
-                </Text>
-              ) : (
-                <Text color={theme.colors.text.muted}>Idle</Text>
-              )}
-            </Box>
-          </Box>
+          <ComposerFooter
+            mode={mode}
+            modelFallback={modelFallback}
+            providerName={providerName}
+            dir={shortDir}
+            branch={activeBranch}
+            totalTokens={totalTokens}
+            effectiveMaxTokens={effectiveMaxTokens}
+            running={running}
+            disabled={disabled}
+            inputEmpty={!input.trim()}
+          />
         </Box>
       </Box>
     );
   },
 );
+
+CommandInput.displayName = 'CommandInput';

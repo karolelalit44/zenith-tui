@@ -1,14 +1,8 @@
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ModelStore } from '../src/services/providers/ModelStore';
 import type { ModelSelection, ProviderInfo } from '../src/services/providers/types';
 
-let modelFile: string;
-
 function makeStore(): ModelStore {
-  process.env.ZENITH_MODEL_FILE = modelFile;
   return new ModelStore();
 }
 
@@ -16,11 +10,6 @@ const nvidiaProvider = (overrides: Partial<ProviderInfo> = {}): ProviderInfo => 
   id: 'nvidia',
   name: 'NVIDIA AI',
   description: '',
-  adapter: 'nvidia',
-  swatch: [],
-  capabilities: {},
-  api_key_prefix: null,
-  requires_api_key: true,
   config_fields: [],
   options: {},
   has_api_key: true,
@@ -50,22 +39,14 @@ const nvidiaProvider = (overrides: Partial<ProviderInfo> = {}): ProviderInfo => 
 
 describe('ModelStore', () => {
   beforeEach(() => {
-    modelFile = path.join(os.tmpdir(), `zenith-model-test-${Date.now()}-${Math.random()}.json`);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ current: null, recent: [], favorite: [] }), { status: 200 })),
+    );
   });
 
   afterEach(() => {
-    if (fs.existsSync(modelFile)) fs.unlinkSync(modelFile);
-    if (fs.existsSync(`${modelFile}.tmp`)) fs.unlinkSync(`${modelFile}.tmp`);
-    delete process.env.ZENITH_MODEL_FILE;
-  });
-
-  it('parses providerID/modelID from a slash string', () => {
-    const sel = ModelStore.parse('nvidia/nemotron-3-ultra-550b-a55b');
-    expect(sel.providerID).toBe('nvidia');
-    expect(sel.modelID).toBe('nemotron-3-ultra-550b-a55b');
-    expect(ModelStore.isModelValid('nvidia/nemotron')).toBe(true);
-    expect(ModelStore.isModelValid('nvidia/')).toBe(false);
-    expect(ModelStore.isModelValid(null)).toBe(false);
+    vi.unstubAllGlobals();
   });
 
   it('sets current model and pushes to recents (newest first, capped at 10)', () => {
@@ -88,7 +69,7 @@ describe('ModelStore', () => {
     expect(store.recent).toHaveLength(10);
   });
 
-  it('toggles favorites and persists them', () => {
+  it('toggles favorites', () => {
     const store = makeStore();
     const sel: ModelSelection = { providerID: 'openrouter', modelID: 'claude' };
 
@@ -99,65 +80,41 @@ describe('ModelStore', () => {
     expect(store.isFavorite(sel)).toBe(false);
   });
 
-  it('cycles through recent and favorite models', () => {
-    const store = makeStore();
-    const a: ModelSelection = { providerID: 'nvidia', modelID: 'a' };
-    const b: ModelSelection = { providerID: 'nvidia', modelID: 'b' };
-    const c: ModelSelection = { providerID: 'nvidia', modelID: 'c' };
-
-    expect(store.cycle()).toBeNull();
-    store.set(a);
-    store.set(b);
-    store.set(c);
-    // recent = [c, b, a]; current = c (newest first)
-    expect(store.cycle()).toEqual(b);
-    expect(store.cycle(true)).toEqual(a);
-
-    // Apply the selection, then cycle relative to the new current.
-    store.set(b);
-    // recent = [b, c, a]; current = b
-    expect(store.cycle()).toEqual(c);
-    expect(store.cycle(true)).toEqual(a);
-
-    store.toggleFavorite(a);
-    store.toggleFavorite(b);
-    store.toggleFavorite(c);
-    // favorites = [c, b, a]; current = b (index 1)
-    expect(store.cycleFavorite()).toEqual(a);
-    expect(store.cycleFavorite(true)).toEqual(c);
-  });
-
-  it('reloads state from disk on a new instance', () => {
+  it('hydrates current/recent/favorite from the backend SQL store', async () => {
     const store = makeStore();
     const sel: ModelSelection = { providerID: 'openai', modelID: 'gpt-4o' };
-    store.set(sel);
-    store.toggleFavorite(sel);
+    const other: ModelSelection = { providerID: 'openai', modelID: 'gpt-4o-mini' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ current: sel, recent: [sel, other], favorite: [sel] }), { status: 200 }),
+      ),
+    );
 
-    const reloaded = makeStore();
-    expect(reloaded.current).toEqual(sel);
-    expect(reloaded.isFavorite(sel)).toBe(true);
+    await store.hydrate();
+
+    expect(store.current).toEqual(sel);
+    expect(store.recent).toEqual([sel, other]);
+    expect(store.isFavorite(sel)).toBe(true);
   });
 
-  it('resolves the first valid model from the persistence chain', () => {
+  it('only resolves explicitly selected models (no default provider/model fallback)', () => {
     const providers = [nvidiaProvider()];
     const store = makeStore();
 
-    // No persisted state -> falls through to the active provider default model.
-    expect(store.getFirstValidModel(providers)).toEqual({
-      providerID: 'nvidia',
-      modelID: 'nemotron-3-ultra-550b-a55b',
-    });
+    // No persisted selection -> null (never falls back to a default provider/model).
+    expect(store.getFirstValidModel(providers)).toBeNull();
 
     // Persisted current wins when it exists in the provider list.
     const persisted: ModelSelection = { providerID: 'nvidia', modelID: 'nemotron-3-mini-4b' };
     store.set(persisted);
     expect(store.getFirstValidModel(providers)).toEqual(persisted);
 
-    // A stale current (provider not in list) is skipped.
+    // A stale current (provider not in list) is skipped, falling back to recents.
     store.set({ providerID: 'ghost', modelID: 'ghost-model' });
     const resolved = store.getFirstValidModel(providers);
-    expect(resolved?.providerID).toBe('nvidia');
-    expect(resolved?.modelID).toBe('nemotron-3-ultra-550b-a55b');
+    expect(resolved).toEqual(persisted);
   });
 
   it('formats a selection for display', () => {

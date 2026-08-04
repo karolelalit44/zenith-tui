@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 # File names to search for, in priority order (first match wins per directory)
 _CONTEXT_FILE_NAMES = [
+    "zenith.md",
+    "zenith.local.md",
     "AGENTS.md",
     "CLAUDE.md",
     "GEMINI.md",
@@ -52,11 +54,13 @@ def load_context_files(workspace_root: str) -> list[ContextFile]:
         if candidate.is_file() and candidate.resolve() not in seen:
             content = _read_file(candidate)
             if content:
-                results.append(ContextFile(
-                    path=str(candidate),
-                    content=content,
-                    scope="project",
-                ))
+                results.append(
+                    ContextFile(
+                        path=str(candidate),
+                        content=content,
+                        scope="project",
+                    )
+                )
                 seen.add(candidate.resolve())
 
     # 2. Search parent directories (up to MAX_PARENT_DEPTH levels)
@@ -69,11 +73,13 @@ def load_context_files(workspace_root: str) -> list[ContextFile]:
             if candidate.is_file() and candidate.resolve() not in seen:
                 content = _read_file(candidate)
                 if content:
-                    results.append(ContextFile(
-                        path=str(candidate),
-                        content=content,
-                        scope="parent",
-                    ))
+                    results.append(
+                        ContextFile(
+                            path=str(candidate),
+                            content=content,
+                            scope="parent",
+                        )
+                    )
                     seen.add(candidate.resolve())
         current = current.parent
 

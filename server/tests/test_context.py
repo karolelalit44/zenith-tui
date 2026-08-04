@@ -123,8 +123,7 @@ class TestContextManager:
 class TestHistoryManager:
     def test_get_recent_messages(self):
         messages = [
-            Message(session_id="s1", role="user", content=f"Message {i}")
-            for i in range(20)
+            Message(session_id="s1", role="user", content=f"Message {i}") for i in range(20)
         ]
         recent = HistoryManager.get_recent_messages(messages, count=5)
         assert len(recent) == 5

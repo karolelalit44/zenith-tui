@@ -170,10 +170,9 @@ class ToolRegistry:
         for mw in self._middleware:
             try:
                 outcome = await mw.before_execute(tool_name, params, ctx)
-                if outcome is not True:
+                if outcome is not True and isinstance(outcome, ToolResult):
                     # middleware returned a ToolResult — short-circuit
-                    if isinstance(outcome, ToolResult):
-                        return outcome
+                    return outcome
                     # unexpected return — skip this middleware
             except Exception:
                 logger.exception("Middleware before_execute failed: %s", type(mw).__name__)

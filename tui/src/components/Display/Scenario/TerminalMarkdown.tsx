@@ -162,37 +162,48 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     // Intercept raw tool call dumps like [file_write path="..." content="..."]
     const fileWriteMatch = line.trim().match(/^\[file_write\s+path=["']([^"']+)["']\s+content=["']([\s\S]*)["']\]?$/);
     if (fileWriteMatch) {
-      const filePath = fileWriteMatch[1];
+      const rawPath = fileWriteMatch[1];
+      const winPath = rawPath.replace(/\//g, '\\');
       const rawContent = fileWriteMatch[2].replace(/\\n/g, '\n').replace(/\\"/g, '"');
-      const ext = filePath.split('.').pop() || 'text';
+      const ext = rawPath.split('.').pop() || 'text';
       const fileCodeLines = rawContent.split('\n');
       const MAX_CODE_LINES = 15;
       const isTruncated = fileCodeLines.length > MAX_CODE_LINES;
       const visibleLines = isTruncated ? fileCodeLines.slice(0, MAX_CODE_LINES) : fileCodeLines;
+      const gutterWidth = Math.max(2, String(fileCodeLines.length).length);
 
       blocks.push(
         <Box key={`filewrite_${idx}`} flexDirection="column" marginY={1} width="100%">
-          <Box flexDirection="row" justifyContent="space-between" paddingX={1} backgroundColor={theme.colors.bg.modal}>
+          {/* 1. Green filled bullet ● & Update(winPath) */}
+          <Box flexDirection="row" alignItems="center" marginBottom={0}>
             <Text color={theme.colors.status.success} bold>
-              ✓ [FILE_WRITE] {filePath}
+              ●{' '}
             </Text>
-            <Text color={theme.colors.text.muted}>
+            <Text color={theme.colors.status.success} bold>
+              Update({winPath})
+            </Text>
+          </Box>
+          {/* 2. └ connector stats row */}
+          <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
+            <Text color={theme.colors.text.dim}>└ </Text>
+            <Text color={theme.colors.text.dim}>
               {fileCodeLines.length} {fileCodeLines.length === 1 ? 'line' : 'lines'}
             </Text>
           </Box>
-          <Box
-            flexDirection="column"
-            paddingX={1}
-            paddingY={0}
-            borderStyle="round"
-            borderColor={theme.colors.border.muted}
-          >
-            {visibleLines.map((cL, cIdx) => (
-              <Text key={cIdx}>{highlightCode(cL, ext)}</Text>
-            ))}
+          {/* 3. Code block with line number gutter */}
+          <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+            {visibleLines.map((cL, cIdx) => {
+              const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
+              return (
+                <Box key={cIdx} width="100%">
+                  <Text color={theme.colors.text.dim}>{numStr} </Text>
+                  <Text>{highlightCode(cL, ext)}</Text>
+                </Box>
+              );
+            })}
             {isTruncated && (
-              <Text color={theme.colors.text.muted} italic>
-                ... [{fileCodeLines.length - MAX_CODE_LINES} more lines collapsed]
+              <Text color={theme.colors.text.dim} italic>
+                ... [{fileCodeLines.length - MAX_CODE_LINES} more lines]
               </Text>
             )}
           </Box>
@@ -213,34 +224,116 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       }
       idx++; // skip closing ```
 
-      const MAX_CODE_LINES = 15;
+      const MAX_CODE_LINES = 25;
       const isTruncated = codeLines.length > MAX_CODE_LINES;
       const visibleLines = isTruncated ? codeLines.slice(0, MAX_CODE_LINES) : codeLines;
 
+      let removedCount = 0;
+      let addedCount = 0;
+      if (lang === 'DIFF') {
+        for (const cL of codeLines) {
+          if (cL.startsWith('-') && !cL.startsWith('---')) removedCount++;
+          if (cL.startsWith('+') && !cL.startsWith('+++')) addedCount++;
+        }
+      }
+
+      let diffStatsStr = '';
+      if (lang === 'DIFF') {
+        const parts: string[] = [];
+        if (removedCount) parts.push(`Removed ${removedCount} ${removedCount === 1 ? 'line' : 'lines'}`);
+        if (addedCount) parts.push(`Added ${addedCount} ${addedCount === 1 ? 'line' : 'lines'}`);
+        diffStatsStr = parts.join(', ') || `${codeLines.length} lines`;
+      }
+
+      const gutterWidth = Math.max(2, String(codeLines.length).length);
+      let lineCounter = 1;
+
       blocks.push(
         <Box key={`code_${idx}`} flexDirection="column" marginY={1} width="100%">
-          <Box flexDirection="row" justifyContent="space-between" paddingX={1} backgroundColor={theme.colors.bg.modal}>
-            <Text color={theme.colors.status.accent} bold>
-              [{lang}]
-            </Text>
-            <Text color={theme.colors.text.muted}>
-              {codeLines.length} {codeLines.length === 1 ? 'line' : 'lines'}
+          {/* Header */}
+          <Box flexDirection="row" alignItems="center" marginBottom={0}>
+            {lang === 'DIFF' ? (
+              <>
+                <Text color={theme.colors.status.success} bold>
+                  ●{' '}
+                </Text>
+                <Text color={theme.colors.status.success} bold>
+                  Update(diff)
+                </Text>
+              </>
+            ) : (
+              <Text color={theme.colors.status.accent} bold>
+                [{lang}]
+              </Text>
+            )}
+          </Box>
+          {/* └ Stats row */}
+          <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
+            <Text color={theme.colors.text.dim}>└ </Text>
+            <Text color={theme.colors.text.dim}>
+              {lang === 'DIFF' ? diffStatsStr : `${codeLines.length} ${codeLines.length === 1 ? 'line' : 'lines'}`}
               {isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
             </Text>
           </Box>
-          <Box
-            flexDirection="column"
-            paddingX={1}
-            paddingY={0}
-            borderStyle="round"
-            borderColor={theme.colors.border.muted}
-          >
-            {visibleLines.map((cL, cIdx) => (
-              <Text key={cIdx}>{highlightCode(cL, lang)}</Text>
-            ))}
+          {/* Code content with right-aligned line number gutter */}
+          <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+            {visibleLines.map((cL, cIdx) => {
+              if (lang === 'DIFF') {
+                const hunkMatch = cL.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                if (hunkMatch) {
+                  lineCounter = parseInt(hunkMatch[1], 10);
+                  return (
+                    <Box key={cIdx} width="100%">
+                      <Text color={theme.colors.text.dim}>{cL}</Text>
+                    </Box>
+                  );
+                }
+
+                if (cL.startsWith('-') && !cL.startsWith('---')) {
+                  const numStr = String(lineCounter).padStart(gutterWidth, ' ');
+                  const cleanContent = cL.startsWith('- ') ? cL.slice(2) : cL.slice(1);
+                  return (
+                    <Box key={cIdx} backgroundColor={theme.colors.diff.removeBg} width="100%">
+                      <Text color={theme.colors.text.dim}>{numStr} </Text>
+                      <Text color={theme.colors.diff.removeFg}>{cleanContent}</Text>
+                    </Box>
+                  );
+                }
+
+                if (cL.startsWith('+') && !cL.startsWith('+++')) {
+                  const numStr = String(lineCounter).padStart(gutterWidth, ' ');
+                  const cleanContent = cL.startsWith('+ ') ? cL.slice(2) : cL.slice(1);
+                  lineCounter++;
+                  return (
+                    <Box key={cIdx} backgroundColor={theme.colors.diff.addBg} width="100%">
+                      <Text color={theme.colors.text.dim}>{numStr} </Text>
+                      <Text color={theme.colors.diff.addFg}>{cleanContent}</Text>
+                    </Box>
+                  );
+                }
+
+                const numStr = String(lineCounter).padStart(gutterWidth, ' ');
+                const cleanContent = cL.startsWith(' ') ? cL.slice(1) : cL;
+                lineCounter++;
+                return (
+                  <Box key={cIdx} width="100%">
+                    <Text color={theme.colors.text.dim}>{numStr} </Text>
+                    <Text color={theme.colors.text.bright}>{cleanContent}</Text>
+                  </Box>
+                );
+              }
+
+              const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
+              return (
+                <Box key={cIdx} width="100%">
+                  <Text color={theme.colors.text.dim}>{numStr} </Text>
+                  <Text>{highlightCode(cL, lang)}</Text>
+                </Box>
+              );
+            })}
             {isTruncated && (
-              <Text color={theme.colors.text.muted} italic>
-                ... [{codeLines.length - MAX_CODE_LINES} more lines collapsed]
+              <Text color={theme.colors.text.dim} italic>
+                ... [{codeLines.length - MAX_CODE_LINES} more lines]
               </Text>
             )}
           </Box>
@@ -300,6 +393,55 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
           <Text color={theme.colors.text.bright} bold>
             {title}
           </Text>
+        </Box>,
+      );
+      idx++;
+      continue;
+    }
+
+    // Task List Item (- [x], - [ ], - [/])
+    if (/^\s*[-*+]\s+\[([ xX/~])\]\s+/.test(line)) {
+      const match = line.match(/^\s*[-*+]\s+\[([ xX/~])\]\s+(.*)/);
+      if (match) {
+        const mark = match[1].toLowerCase();
+        const itemText = match[2];
+        let symbol = '□';
+        let symbolColor = theme.colors.text.dim;
+        let isDone = false;
+        let isActive = false;
+
+        if (mark === 'x') {
+          symbol = '■';
+          symbolColor = theme.colors.status.warning; // Warm orange/coral fill
+          isDone = true;
+        } else if (mark === '/' || mark === '~') {
+          symbol = '▶';
+          symbolColor = theme.colors.status.info;
+          isActive = true;
+        }
+
+        blocks.push(
+          <Box key={`task_${idx}`} flexDirection="row" paddingLeft={1}>
+            <Box width={2}>
+              <Text color={symbolColor}>{symbol}</Text>
+            </Box>
+            <Text
+              color={isDone ? theme.colors.text.bright : isActive ? theme.colors.text.bright : theme.colors.text.muted}
+            >
+              {itemText}
+            </Text>
+          </Box>,
+        );
+        idx++;
+        continue;
+      }
+    }
+
+    // Tree Connector Lines (└, ├, │)
+    if (/^\s*[└├│]/.test(line)) {
+      blocks.push(
+        <Box key={`tree_${idx}`} flexDirection="row" paddingLeft={1}>
+          <Text color={theme.colors.text.dim}>{line}</Text>
         </Box>,
       );
       idx++;

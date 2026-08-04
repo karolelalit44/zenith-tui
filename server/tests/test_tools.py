@@ -4,6 +4,7 @@ import pytest
 
 from server.toolkit import create_default_registry
 from server.toolkit.base import ToolResult
+from server.toolkit.registry import ToolRegistry
 from server.toolkit.tools.bash import BashTool
 from server.toolkit.tools.file_delete import FileDeleteTool
 from server.toolkit.tools.file_edit import FileEditTool
@@ -11,7 +12,6 @@ from server.toolkit.tools.file_read import FileReadTool
 from server.toolkit.tools.file_write import FileWriteTool
 from server.toolkit.tools.glob import GlobTool
 from server.toolkit.tools.grep import GrepTool
-from server.toolkit.registry import ToolRegistry
 from server.toolkit.tools.webfetch import WebfetchTool
 
 # ── Tool Base & Result ──────────────────────────────────────────────
@@ -168,9 +168,7 @@ class TestFileWriteTool:
     @pytest.mark.asyncio
     async def test_write_file(self, temp_dir):
         tool = FileWriteTool()
-        result = await tool.execute(
-            {"path": "new.txt", "content": "hello"}, str(temp_dir)
-        )
+        result = await tool.execute({"path": "new.txt", "content": "hello"}, str(temp_dir))
         assert result.success
         assert (temp_dir / "new.txt").read_text() == "hello"
 
@@ -178,9 +176,7 @@ class TestFileWriteTool:
     async def test_write_existing_file(self, temp_dir):
         (temp_dir / "existing.txt").write_text("old")
         tool = FileWriteTool()
-        result = await tool.execute(
-            {"path": "existing.txt", "content": "new"}, str(temp_dir)
-        )
+        result = await tool.execute({"path": "existing.txt", "content": "new"}, str(temp_dir))
         assert not result.success
         assert "already exists" in result.error
 
@@ -327,9 +323,7 @@ class TestGrepTool:
         (temp_dir / "a.py").write_text("def hello(): pass")
         (temp_dir / "b.js").write_text("function hello() {}")
         tool = GrepTool()
-        result = await tool.execute(
-            {"pattern": "hello", "include": "*.py"}, str(temp_dir)
-        )
+        result = await tool.execute({"pattern": "hello", "include": "*.py"}, str(temp_dir))
         assert result.success
         assert result.metadata["count"] == 1
 

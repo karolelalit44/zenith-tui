@@ -57,7 +57,7 @@ class LoopDetector:
         self._signatures.append(sig)
         # Keep only the window
         if len(self._signatures) > self.window_size:
-            self._signatures = self._signatures[-self.window_size:]
+            self._signatures = self._signatures[-self.window_size :]
 
     def is_loop_detected(self) -> bool:
         """Check if the agent is stuck in a loop.

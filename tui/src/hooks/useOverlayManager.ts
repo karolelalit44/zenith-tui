@@ -1,7 +1,16 @@
 import { useCallback, useState } from 'react';
 import type { ScenarioMode } from '../types/scenario';
 
-export type OverlayType = 'none' | 'mode' | 'help' | 'settings' | 'context' | 'provider' | 'models' | 'usage';
+export type OverlayType =
+  | 'none'
+  | 'mode'
+  | 'help'
+  | 'settings'
+  | 'context'
+  | 'provider'
+  | 'models'
+  | 'usage'
+  | 'session';
 
 export interface UseOverlayManagerReturn {
   selectedMode: ScenarioMode;

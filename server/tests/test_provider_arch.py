@@ -16,6 +16,7 @@ from server.providers.retry import RetryPolicy
 
 # ── ProviderResponse ─────────────────────────────────────────────────────
 
+
 class TestProviderResponse:
     def test_create_response(self):
         resp = ProviderResponse(content="Hello", model="gpt-4")
@@ -36,6 +37,7 @@ class TestProviderResponse:
 
 # ── ProviderChunk ────────────────────────────────────────────────────────
 
+
 class TestProviderChunk:
     def test_text_chunk(self):
         chunk = ProviderChunk(delta="Hello")
@@ -50,6 +52,7 @@ class TestProviderChunk:
 
 # ── ModelInfo ────────────────────────────────────────────────────────────
 
+
 class TestModelInfo:
     def test_model_info(self):
         info = ModelInfo(id="gpt-4", name="GPT-4", provider="openai", context_window=8192)
@@ -59,6 +62,7 @@ class TestModelInfo:
 
 # ── ProviderRegistry ─────────────────────────────────────────────────────
 
+
 class TestProviderRegistry:
     def test_empty_registry(self):
         reg = ProviderRegistry()
@@ -67,16 +71,23 @@ class TestProviderRegistry:
 
     def test_register_provider(self):
         reg = ProviderRegistry()
+
         # Register a mock provider
         class MockProvider(BaseProvider):
             def __init__(self):
                 super().__init__(name="mock", model="mock-model")
 
-            async def complete(self, messages, **kw): return "ok"
+            async def complete(self, messages, **kw):
+                return "ok"
+
             async def stream(self, messages, **kw):
                 yield "ok"
-            async def validate(self): return True
-            async def list_models(self): return []
+
+            async def validate(self):
+                return True
+
+            async def list_models(self):
+                return []
 
         reg.register("mock", MockProvider())
         assert "mock" in reg.list_providers()
@@ -89,6 +100,7 @@ class TestProviderRegistry:
 
 
 # ── RetryPolicy ──────────────────────────────────────────────────────────
+
 
 class TestRetryPolicy:
     def test_default_policy(self):
@@ -115,6 +127,7 @@ class TestRetryPolicy:
 
     def test_calculate_delay_rate_limit(self):
         from server.domain.errors import RateLimitError
+
         p = RetryPolicy(base_delay=1.0, max_delay=10.0)
         err = RateLimitError("rate limited", retry_after=3.0)
         d = p.calculate_delay(err, 0)

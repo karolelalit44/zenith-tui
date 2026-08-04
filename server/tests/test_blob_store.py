@@ -89,15 +89,18 @@ class TestSyncEventBlob:
         repo = SyncEventRepository(db)
 
         await repo.record(
-            sid, "tool_result",
-            {"tool": "bash", "success": True, "output": "ok",
-             "metadata": {"output_lines": _big_lines()}},
+            sid,
+            "tool_result",
+            {
+                "tool": "bash",
+                "success": True,
+                "output": "ok",
+                "metadata": {"output_lines": _big_lines()},
+            },
             sequence=1,
         )
 
-        rows = await db.fetch_all(
-            "SELECT event_data FROM sync_events WHERE session_id = ?", (sid,)
-        )
+        rows = await db.fetch_all("SELECT event_data FROM sync_events WHERE session_id = ?", (sid,))
         stored = rows[0]["event_data"]
         # Blob pointer keeps the row tiny despite the 50k-line output
         assert len(stored) < 2000
@@ -127,18 +130,21 @@ class TestMessageBlob:
     async def test_events_json_stays_small_but_reads_full(self, session_service, db):
         sid = await make_session(session_service)
         event = tool_result(
-            "bash", True, sid, output="ok",
+            "bash",
+            True,
+            sid,
+            output="ok",
             metadata={"output_lines": _big_lines()},
         )
         msg = Message(
-            session_id=sid, role="assistant", content="ran a big command",
+            session_id=sid,
+            role="assistant",
+            content="ran a big command",
             events=[event],
         )
         await MessageRepository(db).create(msg)
 
-        row = await db.fetch_one(
-            "SELECT events_json FROM messages WHERE session_id = ?", (sid,)
-        )
+        row = await db.fetch_one("SELECT events_json FROM messages WHERE session_id = ?", (sid,))
         assert len(row["events_json"]) < 2000
         assert "@@zenith-lines:" in row["events_json"]
 
@@ -149,11 +155,16 @@ class TestMessageBlob:
     async def test_export_renders_full_content(self, session_service, db):
         sid = await make_session(session_service)
         event = tool_result(
-            "bash", True, sid, output="ok",
+            "bash",
+            True,
+            sid,
+            output="ok",
             metadata={"output_lines": _big_lines()},
         )
         msg = Message(
-            session_id=sid, role="assistant", content="ran a big command",
+            session_id=sid,
+            role="assistant",
+            content="ran a big command",
             events=[event],
         )
         await MessageRepository(db).create(msg)

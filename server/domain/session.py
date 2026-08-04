@@ -21,6 +21,7 @@ from .domain import ScenarioMode, SessionState
 
 class Session(BaseModel):
     """A conversation session with full lifecycle and state tracking."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str = "New Session"
     mode: ScenarioMode = ScenarioMode.BUILD
@@ -123,13 +124,15 @@ class Session(BaseModel):
             "updated_at": self.updated_at.isoformat(),
             "workspace_root": self.workspace_root,
             "is_active": int(self.is_active),
-            "metadata_json": str(self.metadata) if isinstance(self.metadata, str) else str(
-                __import__("json").dumps(self.metadata)
-            ),
+            "metadata_json": str(self.metadata)
+            if isinstance(self.metadata, str)
+            else str(__import__("json").dumps(self.metadata)),
             "parent_session_id": self.parent_session_id,
             "state": self.state.value,
             "plan_output": self.plan_output,
-            "plan_approved_at": self.plan_approved_at.isoformat() if self.plan_approved_at else None,
+            "plan_approved_at": self.plan_approved_at.isoformat()
+            if self.plan_approved_at
+            else None,
             "context_used": self.context_used,
             "context_window": self.context_window,
             "context_percent": self.context_percent,

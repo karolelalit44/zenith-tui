@@ -9,12 +9,14 @@ from enum import Enum, StrEnum
 
 class ScenarioMode(StrEnum):
     """Operating mode for the agent."""
+
     BUILD = "build"
     PLAN = "plan"
 
 
 class RiskLevel(StrEnum):
     """Risk level for tool execution and permission requests."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -23,6 +25,7 @@ class RiskLevel(StrEnum):
 
 class AgentRole(StrEnum):
     """Role assigned to an agent instance."""
+
     CODER = "coder"
     TASK = "task"
     REVIEWER = "reviewer"
@@ -30,6 +33,7 @@ class AgentRole(StrEnum):
 
 class AgentState(StrEnum):
     """Lifecycle state of an agent."""
+
     IDLE = "idle"
     PROCESSING = "processing"
     STREAMING = "streaming"
@@ -56,6 +60,7 @@ class SessionState(StrEnum):
     ARCHIVED → _terminal_
     CHECKPOINTING → ACTIVE (transient)
     """
+
     CREATED = "created"
     INITIALIZING = "initializing"
     ACTIVE = "active"
@@ -72,6 +77,7 @@ class SessionState(StrEnum):
 
 class PermissionDecision(StrEnum):
     """Decision returned by the permission service."""
+
     ALLOW = "allow"
     DENY = "deny"
     PERSISTENT_ALLOW = "persistent_allow"
@@ -80,13 +86,15 @@ class PermissionDecision(StrEnum):
 
 class DeliveryMode(Enum):
     """Event delivery mode for the event bus."""
-    LOSSY = "lossy"           # Drop if buffer full (default)
-    BLOCKING = "blocking"     # Block until delivered
-    PERSISTENT = "persistent" # Store and deliver later
+
+    LOSSY = "lossy"  # Drop if buffer full (default)
+    BLOCKING = "blocking"  # Block until delivered
+    PERSISTENT = "persistent"  # Store and deliver later
 
 
 class FinishReason(StrEnum):
     """Why the provider stopped generating."""
+
     STOP = "stop"
     LENGTH = "length"
     TOOL_CALLS = "tool_calls"

@@ -8,8 +8,8 @@ from server.agents.context import ContextManager
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.providers.base import BaseProvider
-from server.sessions.memory import MemoryStore
 from server.sessions.history import HistoryManager
+from server.sessions.memory import MemoryStore
 
 
 class TestMemoryStore:
@@ -85,8 +85,10 @@ class TestSummarizeMemoryDedup:
             db_path=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
         )
-        msgs = [Message(session_id="s1", role="user", content="build auth"),
-                Message(session_id="s1", role="assistant", content="done")]
+        msgs = [
+            Message(session_id="s1", role="user", content="build auth"),
+            Message(session_id="s1", role="assistant", content="done"),
+        ]
         hm = HistoryManager(config, self.SummaryProvider())
         summary = await hm.summarize(msgs, "test-model", session_id="s1")
 
@@ -175,19 +177,26 @@ class TestMemoryInContext:
         )
         cm = ContextManager(config)
         messages = cm.build_messages(
-            [], "SYS", "hi", "test-model", use_system_prompt=False, repo_map="",
+            [],
+            "SYS",
+            "hi",
+            "test-model",
+            use_system_prompt=False,
+            repo_map="",
         )
         assert all(m["role"] != "system" for m in messages)
         assert "<memory>" in messages[0]["content"]
 
     def test_new_session_same_workspace_loads_memory(self, temp_dir):
         MemoryStore(temp_dir).append("session-A", "DRY principle enforced")
-        cm = ContextManager(AppSettings(
-            max_context_tokens=128000,
-            repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        ))
+        cm = ContextManager(
+            AppSettings(
+                max_context_tokens=128000,
+                repo_map_enabled=False,
+                db_path=str(temp_dir / "test.db"),
+                workspace_root=str(temp_dir),
+            )
+        )
         memory_text = cm.get_memory()
         assert "DRY principle enforced" in memory_text
 

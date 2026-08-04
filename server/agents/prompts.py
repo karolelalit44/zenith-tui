@@ -8,23 +8,22 @@ from typing import Any
 
 from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
 from server.workspace.context import format_context_files, load_context_files
-from server.workspace.git import GitOps
 
 SYSTEM_GUIDELINES = """\
 <guidelines>
-- Code Actions: Use tools (file_read, file_edit, file_write, bash, glob, grep) to search, inspect, modify, test code.
+- Code Actions: Use available tools to inspect, analyze, write, or modify code as needed for the user's request.
 - General Queries: Answer directly in markdown text without tool calls.
 </guidelines>
 """
 
 BUILD_MODE_INSTRUCTIONS = """\
 ## MODE: BUILD
-Objective: Resolve coding tasks autonomously. Read before editing, make surgical edits, verify with tests. For greetings/general questions, respond in markdown without tools.
+Objective: Complete coding tasks autonomously. Understand the codebase, make minimal targeted changes, and verify your work.
 """
 
 PLAN_MODE_INSTRUCTIONS = """\
 ## MODE: PLAN
-Objective: Read-only codebase analysis & planning. Use read-only tools (file_read, glob, grep), output Markdown plan.
+Objective: Analyze the codebase using read-only tools and output a clear, structured Markdown implementation plan.
 """
 
 
@@ -39,7 +38,7 @@ def build_system_prompt(
 ) -> str:
     """Build a smart, high-density system prompt for BUILD or PLAN mode."""
     sections: list[str] = [
-        "You are Zenith, an AI coding assistant running in the CLI.",
+        "You are Zenith, an TUI AI coding assistant.",
         f"<env>\n{_build_env_section(workspace_root, mode)}\n</env>",
     ]
 
@@ -55,7 +54,9 @@ def build_system_prompt(
 
     context_files = load_context_files(workspace_root)
     if context_files:
-        sections.append(f"<project_context>\n{format_context_files(context_files)}\n</project_context>")
+        sections.append(
+            f"<project_context>\n{format_context_files(context_files)}\n</project_context>"
+        )
 
     return "\n\n".join(sections)
 
@@ -66,11 +67,14 @@ def build_plan_system_prompt(
     model_name: str = "",
 ) -> str:
     """Build a focused system prompt for plan mode."""
-    return build_system_prompt(workspace_root, mode="plan", provider_name=provider_name, model_name=model_name)
+    return build_system_prompt(
+        workspace_root, mode="plan", provider_name=provider_name, model_name=model_name
+    )
 
 
 def _build_env_section(workspace_root: str, mode: str) -> str:
     """Build the <env> metadata block efficiently."""
     os_name = platform.system()
-    today = datetime.now(UTC).strftime('%Y-%m-%d')
-    return f"OS: {os_name} | Mode: {mode} | Dir: {workspace_root} | Date: {today}"
+    shell_name = "powershell" if os_name == "Windows" else "bash"
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    return f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root} | Date: {today}"

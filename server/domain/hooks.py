@@ -95,7 +95,7 @@ class HookRunner:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(payload_bytes), timeout=self.timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return {

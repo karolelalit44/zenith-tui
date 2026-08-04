@@ -12,6 +12,24 @@ interface WelcomeScreenProps {
   workspace?: string;
 }
 
+function formatSessionTime(isoStr: string): string {
+  if (!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const date = d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+    return `${time} · ${date}`;
+  } catch {
+    return isoStr;
+  }
+}
+
+function formatTokens(n: number): string {
+  if (!n) return '';
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k tok`;
+  return `${n} tok`;
+}
+
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspace }) => {
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
@@ -25,6 +43,34 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
       .then(setRecentSessions)
       .catch(() => setRecentSessions([]));
   }, []);
+
+  const renderSessionRow = (session: SessionSummary, idx: number) => {
+    const timeStr = formatSessionTime(session.updated_at || session.created_at || '');
+    const tokStr = formatTokens(session.total_tokens);
+    const modeLabel = session.mode ? session.mode.toUpperCase() : '';
+    const title = session.title?.trim() || 'Untitled Session';
+
+    return (
+      <Box key={session.id || idx} flexDirection="row" alignItems="center" width="100%">
+        {/* Dim bullet */}
+        <Text color={theme.colors.text.dim}>· </Text>
+
+        {/* Timestamp */}
+        <Text color={theme.colors.text.dim}>{timeStr}</Text>
+
+        {/* Mode */}
+        {modeLabel ? <Text color={theme.colors.text.dim}>{`  ${modeLabel}  `}</Text> : <Text>{'  '}</Text>}
+
+        {/* Title — fills remaining space */}
+        <Text color={theme.colors.text.ethereal} wrap="truncate-end">
+          {title}
+        </Text>
+
+        {/* Token count */}
+        {tokStr ? <Text color={theme.colors.text.dim}>{`  ${tokStr}`}</Text> : null}
+      </Box>
+    );
+  };
 
   return (
     <RoundedBox title={APP_VERSION} borderColor={theme.colors.border.active} hasShadow={true}>
@@ -112,21 +158,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
                   No recent sessions
                 </Text>
               ) : (
-                recentSessions.map((session, idx) => (
-                  <Box key={session.id || idx} flexDirection="column" marginBottom={1} width="100%">
-                    <Box flexDirection="row" alignItems="center">
-                      <Text color={theme.colors.border.active}>│ </Text>
-                      <Text color={theme.colors.text.ethereal} bold wrap="truncate-end">
-                        {session.title}
-                      </Text>
-                    </Box>
-                    <Box paddingLeft={2}>
-                      <Text color={theme.colors.text.dim}>
-                        {session.state} · {session.message_count} msgs · {session.total_tokens} tok
-                      </Text>
-                    </Box>
-                  </Box>
-                ))
+                recentSessions.map((session, idx) => renderSessionRow(session, idx))
               )}
             </Box>
           </Box>

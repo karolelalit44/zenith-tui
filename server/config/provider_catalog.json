@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "default_active_provider": "nvidia",
   "providers": {
     "openrouter": {
       "id": "openrouter",

@@ -2,9 +2,15 @@
 
 **Plan**: `inputbox-section-fix`
 **Branch**: `fix/ser-tu-communication-n-separations`
-**Date**: 2026-08-02
-**Status**: Draft
-**Version**: 1.0
+**Date**: 2026-08-03
+**Status**: Draft (reviewed against current `fix/ser-tu-communication-n-separations` code)
+**Version**: 1.1
+
+> **2026-08-03 review delta** (from `01-detailed-design.md` §2 + `02-todo-list.md`):
+> - Line refs refreshed: composer render block is `App.tsx:360-376` (was `:316-332`); global-key handling is `useTerminalKeyboard.ts:93-222` (was `:77-164`).
+> - Phase 7 is partly **already implemented**: `BackendScenarioProvider.abortFlag` exists (`BackendScenarioProvider.ts:13`, checked at `:147`, set by `abort()` at `:304-307`) and `useScenario.abort()` already calls `runnerRef.abort()` + local resets (`useScenario.ts:182-186`). Only the `wsClient.cancelPrompt(sessionId)` wiring is new.
+> - Design seam confirmed: `Message.metadata` persists via `metadata_json` (`repositories.py:280-292`); `Session` already has `model` + `metadata` (`session.py:31,40`). `LLMProvider.complete_typed` already shows the temp/max_tokens finally-restore pattern (`llm_provider.py:648-736`); the streaming path reads `self.max_tokens`/`self.temperature` per call via `_build_completion_kwargs` (`llm_provider.py:377-378`), so executor-level attribute mutation in try/finally is the correct seam.
+> - Test impact: keep `tui/tests/commandService.test.ts` (covers `/help /provider /models /clear /compact /clear-tools` through the future registry adapter) and `tui/tests/backendScenarioProvider.test.ts` (already covers abort / no-partial-tail) green.
 
 ---
 

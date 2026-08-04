@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 # ANSI escape sequences: CSI, OSC (hyperlinks), DCS/APC/PM/SOS, charset select.
 ANSI_RE = re.compile(
-    r"\x1b\[[0-9;?]*[A-Za-z]"        # CSI
+    r"\x1b\[[0-9;?]*[A-Za-z]"  # CSI
     r"|\x1b\][^\x07]*(?:\x07|\x1b\\)"  # OSC (terminated by BEL or ST)
-    r"|\x1b[PXQ^_][^\x1b]*\x1b\\"      # DCS/APC/PM/SOS (terminated by ST)
-    r"|\x1b[()][A-Za-z0-9]"            # charset selection
+    r"|\x1b[PXQ^_][^\x1b]*\x1b\\"  # DCS/APC/PM/SOS (terminated by ST)
+    r"|\x1b[()][A-Za-z0-9]"  # charset selection
 )
 
 # Rough char -> token conversion used for the tokensSaved figure.

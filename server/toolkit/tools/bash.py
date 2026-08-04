@@ -8,8 +8,8 @@ import platform
 import shutil
 from typing import Any
 
-from .background import get_background_manager
 from ..base import BaseTool, ToolResult
+from .background import get_background_manager
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +74,18 @@ class BashTool(BaseTool):
 
         # Explicit background request
         if run_in_background:
-            return await self._start_background(command, workspace_root, params.get("description", ""))
+            return await self._start_background(
+                command, workspace_root, params.get("description", "")
+            )
 
         # Synchronous execution with auto-background support
         return await self._execute_sync(command, workspace_root, timeout, auto_background_after)
 
     async def _start_background(
-        self, command: str, workspace_root: str, description: str,
+        self,
+        command: str,
+        workspace_root: str,
+        description: str,
     ) -> ToolResult:
         """Start a command in the background immediately."""
         manager = get_background_manager()
@@ -118,7 +123,11 @@ class BashTool(BaseTool):
         )
 
     async def _execute_sync(
-        self, command: str, workspace_root: str, timeout: int, auto_background_after: int,
+        self,
+        command: str,
+        workspace_root: str,
+        timeout: int,
+        auto_background_after: int,
     ) -> ToolResult:
         """Execute a command synchronously with streaming output and auto-background support."""
         process = None
@@ -153,8 +162,16 @@ class BashTool(BaseTool):
                         break
                     chunks.append(chunk)
 
-            stdout_task = asyncio.create_task(_read_stream(process.stdout, stdout_chunks)) if process.stdout else None
-            stderr_task = asyncio.create_task(_read_stream(process.stderr, stderr_chunks)) if process.stderr else None
+            stdout_task = (
+                asyncio.create_task(_read_stream(process.stdout, stdout_chunks))
+                if process.stdout
+                else None
+            )
+            stderr_task = (
+                asyncio.create_task(_read_stream(process.stderr, stderr_chunks))
+                if process.stderr
+                else None
+            )
 
             try:
                 # Wait for completion or auto-background threshold

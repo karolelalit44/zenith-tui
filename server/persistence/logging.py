@@ -70,7 +70,7 @@ def timed_db_log(
     error: str = "",
     level: int = logging.INFO,
     **fields: object,
-) -> "_Timer":
+) -> _Timer:
     """Return a started timer to pair with :func:`db_log`.
 
     Usage::

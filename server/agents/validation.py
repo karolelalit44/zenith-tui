@@ -10,7 +10,7 @@ REFLECTION_ERROR_LIMIT = 6  # kept for backward compat; prefer reflection_error_
 
 def reflection_error_limit(context_window: int = 128000) -> int:
     """Return a reflection error limit proportional to model context window.
-    
+
     Base is 3; scales by +1 per 64K tokens of context beyond 32K.
     Examples: 8K→3, 32K→3, 64K→4, 128K→5, 200K→6, 1M→18.
     """
@@ -19,8 +19,12 @@ def reflection_error_limit(context_window: int = 128000) -> int:
     extra = (context_window - 32_000) // 64_000
     return min(3 + extra, 20)
 
+
 _PLACEHOLDER_PATTERNS_RAW = [
-    (r"\[[\w\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\w\s]*\]", "placeholder pattern"),
+    (
+        r"\[[\w\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\w\s]*\]",
+        "placeholder pattern",
+    ),
     (r"\bYOUR_[\w_]+_HERE\b", "YOUR_..._HERE placeholder"),
     (r"\b(?:PLACEHOLDER|TODO|FIXME|XXX|TBD)\b", "TODO/placeholder marker"),
     (r"\[HTML\]", "HTML placeholder"),
@@ -78,6 +82,7 @@ def check_python_syntax(command: str, workspace_root: str) -> str | None:
         return None
     try:
         import py_compile
+
         py_compile.compile(str(full), doraise=True)
     except py_compile.PyCompileError as e:
         return (
@@ -100,7 +105,7 @@ def detect_interactive_command(command: str) -> str | None:
 def strip_cd_prefix(command: str) -> str:
     m = _CD_PREFIX_RE.match(command.strip())
     if m:
-        stripped = command.strip()[m.end():].strip()
+        stripped = command.strip()[m.end() :].strip()
         if stripped:
             return stripped
     return command
@@ -110,12 +115,14 @@ def schemas_to_openai_tools(schemas: list[dict]) -> list[dict]:
     tools = []
     for s in schemas:
         schema = s.get("schema", {})
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": s["name"],
-                "description": s.get("description", ""),
-                "parameters": schema,
+        tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": s["name"],
+                    "description": s.get("description", ""),
+                    "parameters": schema,
+                },
             }
-        })
+        )
     return tools

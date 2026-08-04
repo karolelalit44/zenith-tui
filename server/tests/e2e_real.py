@@ -3,6 +3,7 @@
 Run manually with:
     python -m pytest server/tests/test_e2e_real.py -v -s --timeout=120
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +30,7 @@ def log(msg: str) -> None:
 async def wait_for_backend(timeout: int = 30) -> bool:
     """Poll /health until the zenith is ready."""
     import httpx
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -49,6 +51,7 @@ async def wait_for_backend(timeout: int = 30) -> bool:
 async def test_health_rest() -> dict:
     """Test REST health endpoint."""
     import httpx
+
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{BACKEND_URL}/health", timeout=5)
         assert r.status_code == 200, f"health failed: {r.status_code}"
@@ -61,11 +64,14 @@ async def test_health_rest() -> dict:
 async def test_startup_validate() -> dict:
     """Test startup validation endpoint."""
     import httpx
+
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{BACKEND_URL}/startup/validate", timeout=5)
         assert r.status_code == 200, f"startup/validate failed: {r.status_code}"
         data = r.json()
-        log(f"REST /startup/validate: status={data.get('status')}, provider={data.get('active_provider')}, missing={data.get('missing')}")
+        log(
+            f"REST /startup/validate: status={data.get('status')}, provider={data.get('active_provider')}, missing={data.get('missing')}"
+        )
         return data
 
 
@@ -84,7 +90,14 @@ async def test_session_lifecycle() -> str:
     """Create a session, verify it, then use it."""
     async with websockets.connect(WS_URL) as ws:
         # Create session
-        req = json.dumps({"jsonrpc": "2.0", "id": "2", "method": "session.create", "params": {"title": "E2E Test"}})
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "2",
+                "method": "session.create",
+                "params": {"title": "E2E Test"},
+            }
+        )
         await ws.send(req)
         resp = await asyncio.wait_for(ws.recv(), timeout=5)
         data = json.loads(resp)
@@ -107,7 +120,11 @@ async def test_session_lifecycle() -> str:
 async def test_prompt_submission(session_id: str, model_override: str | None = None) -> list[dict]:
     """Submit a prompt and collect all events."""
     async with websockets.connect(WS_URL) as ws:
-        params: dict = {"content": "Write a one-line Python function that returns the sum of two numbers.", "mode": "build", "session_id": session_id}
+        params: dict = {
+            "content": "Write a one-line Python function that returns the sum of two numbers.",
+            "mode": "build",
+            "session_id": session_id,
+        }
         if model_override:
             params["model"] = model_override
         req = json.dumps({"jsonrpc": "2.0", "id": "4", "method": "prompt.send", "params": params})
@@ -199,7 +216,14 @@ async def run_all_tests() -> bool:
                     log(f"  ✓ Prompt with {model} succeeded")
                     break
                 elif "error" in kinds:
-                    err_msg = next((e.get("data", {}).get("message", "") for e in events if e.get("kind") == "error"), "")
+                    err_msg = next(
+                        (
+                            e.get("data", {}).get("message", "")
+                            for e in events
+                            if e.get("kind") == "error"
+                        ),
+                        "",
+                    )
                     log(f"  Model {model} returned error: {err_msg}")
             except Exception as e:
                 log(f"  Model {model} failed: {e}")
@@ -243,9 +267,16 @@ async def main():
 
     log("Starting zenith server...")
     proc = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "uvicorn", "transport.server:app",
-        "--host", "localhost", "--port", str(BACKEND_PORT),
-        "--log-level", "info",
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "transport.server:app",
+        "--host",
+        "localhost",
+        "--port",
+        str(BACKEND_PORT),
+        "--log-level",
+        "info",
         cwd=str(ZENITH_DIR),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,

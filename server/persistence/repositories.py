@@ -1,17 +1,17 @@
 import json
+import logging
 import uuid as _uuid
 from datetime import datetime, timedelta
-from pathlib import Path
 
 from sqlalchemy import delete, func, select, text, update
 
-from server.domain.events import Event
 from server.domain.domain import SessionState
+from server.domain.events import Event
 from server.domain.message import Message
 from server.domain.session import Session
 
 from .blob_store import BlobStore
-from .connection import Database
+from .connection import Database, resolve_db_path
 from .models import (
     AppSettingRecord,
     BudgetSettingsRecord,
@@ -28,13 +28,35 @@ from .models import (
 )
 from .safe import safe_db
 
-CATALOG_PATH = Path(__file__).parent.parent / "config" / "provider_catalog.json"
+_catalog_cache: dict | None = None
+_logger = logging.getLogger(__name__)
 
 
-def load_catalog() -> dict:
-    """Load the provider catalog from the canonical JSON file."""
-    with open(CATALOG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+def reset_catalog_cache() -> None:
+    global _catalog_cache
+    _catalog_cache = None
+
+
+def load_catalog(db_path: str | None = None) -> dict:
+    """Load the provider catalog from the SQL DB.
+
+    The catalog is static reference data seeded by migration 004; cache it so
+    per-call readers (provider listing, validation, prompt enrichment) stay
+    cheap. When ``db_path`` is given (tests, non-default DBs) the cache is
+    bypassed and the given database is read directly. The database is the single
+    source of truth — no JSON catalog file is read or merged at runtime.
+    """
+    global _catalog_cache
+    if db_path is None:
+        if _catalog_cache is not None:
+            return _catalog_cache
+        db_path = resolve_db_path()
+    from server.persistence.provider_config_repo import read_catalog
+
+    catalog = read_catalog(db_path)
+    if db_path == resolve_db_path():
+        _catalog_cache = catalog
+    return catalog
 
 
 def _iso(value) -> str | None:
@@ -95,7 +117,9 @@ class SessionRepository:
             metadata=json.loads(r.metadata_json or "{}"),
             parent_session_id=r.parent_session_id,
             plan_output=r.plan_output or "",
-            plan_approved_at=datetime.fromisoformat(r.plan_approved_at) if r.plan_approved_at else None,
+            plan_approved_at=datetime.fromisoformat(r.plan_approved_at)
+            if r.plan_approved_at
+            else None,
             message_count=r.message_count,
             total_tokens=r.total_tokens,
             total_cost=float(r.total_cost or 0),
@@ -121,12 +145,16 @@ class SessionRepository:
     async def list_active(self) -> list[Session]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(SessionRecord)
-                    .where(SessionRecord.is_active == True)  # noqa: E712
-                    .order_by(SessionRecord.updated_at.desc())
+                (
+                    await s.execute(
+                        select(SessionRecord)
+                        .where(SessionRecord.is_active.is_(True))
+                        .order_by(SessionRecord.updated_at.desc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return [self._record_to_session(r) for r in rows]
 
     @safe_db("list_sessions", table="sessions")
@@ -140,7 +168,7 @@ class SessionRepository:
     ) -> list[Session]:
         stmt = select(SessionRecord)
         if not include_archived:
-            stmt = stmt.where(SessionRecord.is_active == True)  # noqa: E712
+            stmt = stmt.where(SessionRecord.is_active.is_(True))
         if state_filter:
             stmt = stmt.where(SessionRecord.state == state_filter)
         if search:
@@ -158,35 +186,36 @@ class SessionRepository:
     ) -> list[dict]:
         async with self.db.session() as s:
             msg_count_sub = (
-                select(MessageRecord.session_id, func.count(MessageRecord.id).label("actual_msg_count"))
+                select(
+                    MessageRecord.session_id, func.count(MessageRecord.id).label("actual_msg_count")
+                )
                 .where(MessageRecord.role == "user")
                 .group_by(MessageRecord.session_id)
                 .subquery()
             )
 
-            stmt = (
-                select(
-                    SessionRecord.id,
-                    SessionRecord.title,
-                    SessionRecord.mode,
-                    SessionRecord.state,
-                    SessionRecord.provider,
-                    SessionRecord.model,
-                    func.coalesce(msg_count_sub.c.actual_msg_count, SessionRecord.message_count).label("message_count"),
-                    SessionRecord.total_tokens,
-                    SessionRecord.total_cost,
-                    SessionRecord.context_percent,
-                    SessionRecord.created_at,
-                    SessionRecord.updated_at,
-                    SessionRecord.is_active,
-                    SessionRecord.error_count,
-                    SessionRecord.last_error,
-                    SessionRecord.parent_session_id,
-                )
-                .outerjoin(msg_count_sub, SessionRecord.id == msg_count_sub.c.session_id)
-            )
+            stmt = select(
+                SessionRecord.id,
+                SessionRecord.title,
+                SessionRecord.mode,
+                SessionRecord.state,
+                SessionRecord.provider,
+                SessionRecord.model,
+                func.coalesce(msg_count_sub.c.actual_msg_count, SessionRecord.message_count).label(
+                    "message_count"
+                ),
+                SessionRecord.total_tokens,
+                SessionRecord.total_cost,
+                SessionRecord.context_percent,
+                SessionRecord.created_at,
+                SessionRecord.updated_at,
+                SessionRecord.is_active,
+                SessionRecord.error_count,
+                SessionRecord.last_error,
+                SessionRecord.parent_session_id,
+            ).outerjoin(msg_count_sub, SessionRecord.id == msg_count_sub.c.session_id)
             if not include_archived:
-                stmt = stmt.where(SessionRecord.is_active == True)  # noqa: E712
+                stmt = stmt.where(SessionRecord.is_active.is_(True))
             stmt = stmt.where(
                 (func.coalesce(msg_count_sub.c.actual_msg_count, SessionRecord.message_count) > 0)
                 | (SessionRecord.total_tokens > 0)
@@ -233,7 +262,7 @@ class SessionRepository:
             rec = (
                 await s.execute(
                     select(SessionRecord)
-                    .where(SessionRecord.plan_output != "", SessionRecord.is_active == True)  # noqa: E712
+                    .where(SessionRecord.plan_output != "", SessionRecord.is_active.is_(True))
                     .order_by(SessionRecord.updated_at.desc())
                     .limit(1)
                 )
@@ -252,7 +281,9 @@ class SessionRepository:
                 parent_session_id=rec.parent_session_id,
                 state=rec.state or "created",
                 plan_output=rec.plan_output or "",
-                plan_approved_at=datetime.fromisoformat(rec.plan_approved_at) if rec.plan_approved_at else None,
+                plan_approved_at=datetime.fromisoformat(rec.plan_approved_at)
+                if rec.plan_approved_at
+                else None,
             )
 
     @safe_db("delete_session", table="sessions")
@@ -304,13 +335,17 @@ class MessageRepository:
     async def get_by_session(self, session_id: str, limit: int = 50) -> list[Message]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(MessageRecord)
-                    .where(MessageRecord.session_id == session_id)
-                    .order_by(MessageRecord.created_at.desc())
-                    .limit(limit)
+                (
+                    await s.execute(
+                        select(MessageRecord)
+                        .where(MessageRecord.session_id == session_id)
+                        .order_by(MessageRecord.created_at.desc())
+                        .limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         messages = []
         for r in reversed(rows):
             events_data = json.loads(r.events_json or "[]")
@@ -352,12 +387,16 @@ class MessageRepository:
         """Delete tool-result messages for a session. Returns rows removed."""
         async with self.db.session() as s:
             ids = (
-                await s.execute(
-                    select(MessageRecord.id).where(
-                        MessageRecord.session_id == session_id, MessageRecord.role == "tool"
+                (
+                    await s.execute(
+                        select(MessageRecord.id).where(
+                            MessageRecord.session_id == session_id, MessageRecord.role == "tool"
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if ids:
                 await s.execute(delete(MessageRecord).where(MessageRecord.id.in_(list(ids))))
                 await s.commit()
@@ -401,27 +440,29 @@ def _seed_providers_from_catalog(catalog: dict) -> list[dict]:
     """Convert catalog JSON to the seed data format expected by ensure_seeded()."""
     providers = []
     for pid, p in catalog["providers"].items():
-        providers.append({
-            "id": pid,
-            "name": p["name"],
-            "description": p.get("description", ""),
-            "model": p["default_model"],
-            "base_url": p["base_url"],
-            "adapter": p.get("adapter", "openai_compat"),
-            "capabilities": p.get("capabilities", {}),
-            "api_key_prefix": p.get("api_key_prefix"),
-            "swatch": p.get("swatch", []),
-            "is_active": 1 if pid == catalog.get("default_active_provider") else 0,
-            "models": [
-                {
-                    "id": m["id"],
-                    "name": m["name"],
-                    "context_window": m.get("context_window", 128000),
-                    "is_default": 1 if m.get("is_default") else 0,
-                }
-                for m in p.get("models", [])
-            ],
-        })
+        providers.append(
+            {
+                "id": pid,
+                "name": p["name"],
+                "description": p.get("description", ""),
+                "model": p["default_model"],
+                "base_url": p["base_url"],
+                "adapter": p.get("adapter", "openai_compat"),
+                "capabilities": p.get("capabilities", {}),
+                "api_key_prefix": p.get("api_key_prefix"),
+                "swatch": p.get("swatch", []),
+                "is_active": 0,
+                "models": [
+                    {
+                        "id": m["id"],
+                        "name": m["name"],
+                        "context_window": m.get("context_window", 128000),
+                        "is_default": 1 if m.get("is_default") else 0,
+                    }
+                    for m in p.get("models", [])
+                ],
+            }
+        )
     return providers
 
 
@@ -435,18 +476,16 @@ class ProviderRepositoryDB:
 
         Adds any catalog provider/model rows that are missing (so existing DBs
         pick up newly-added providers like ``openai_compatible`` / ``custom`` /
-        ``tokenrouter``) and seeds the default active provider when none is set.
-        Never overwrites existing rows — user-saved keys/URLs/models win.
+        ``tokenrouter``). Never overwrites existing rows — user-saved keys/URLs/
+        models win, and no provider is implicitly activated (no default provider).
         """
         async with self.db.session() as s:
-            catalog = load_catalog()
+            catalog = load_catalog(self.db.db_path)
             seed_providers = _seed_providers_from_catalog(catalog)
-            default_provider = catalog.get("default_active_provider", "nvidia")
             now = datetime.now().isoformat()
 
             existing = {
-                pid: True
-                for pid in (await s.execute(select(ProviderRecord.id))).scalars().all()
+                pid: True for pid in (await s.execute(select(ProviderRecord.id))).scalars().all()
             }
 
             for p in seed_providers:
@@ -460,11 +499,8 @@ class ProviderRepositoryDB:
                         api_key="",
                         model=p["model"],
                         base_url=p["base_url"],
-                        max_tokens=4096,
-                        temperature=0.7,
                         is_active=p["is_active"],
                         swatch_json=json.dumps(p["swatch"]),
-                        adapter_type=p["adapter"],
                         capabilities_json=json.dumps(p["capabilities"]),
                         api_key_prefix=p["api_key_prefix"],
                         updated_at=now,
@@ -494,18 +530,34 @@ class ProviderRepositoryDB:
                         },
                     )
 
-            active = (
-                await s.execute(
-                    select(AppSettingRecord.value).where(AppSettingRecord.key == "active_provider")
+            # Curated providers: the SQL catalog_models list is authoritative.
+            # Drop any stale live-discovered rows (e.g. hundreds of OpenRouter
+            # models written by an older validation path). Custom-flow providers
+            # keep their user-defined models untouched.
+            for pid, provider in catalog.get("providers", {}).items():
+                if provider.get("custom_flow"):
+                    continue
+                curated = {m["id"] for m in provider.get("models", [])}
+                if not curated:
+                    continue
+                stored = (
+                    (
+                        await s.execute(
+                            text("SELECT id FROM provider_models WHERE provider_id = :pid"),
+                            {"pid": pid},
+                        )
+                    )
+                    .scalars()
+                    .all()
                 )
-            ).scalar_one_or_none()
-            if not active:
-                await s.execute(
-                    text(
-                        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"
-                    ),
-                    {"key": "active_provider", "value": default_provider},
-                )
+                for mid in stored:
+                    if mid not in curated:
+                        await s.execute(
+                            text(
+                                "DELETE FROM provider_models WHERE provider_id = :pid AND id = :mid"
+                            ),
+                            {"pid": pid, "mid": mid},
+                        )
             await s.commit()
 
     @safe_db("get_active_provider", table="app_settings")
@@ -520,22 +572,22 @@ class ProviderRepositoryDB:
                 return row
             active_id = (
                 await s.execute(
-                    select(ProviderRecord.id).where(ProviderRecord.is_active == True).limit(1)  # noqa: E712
+                    select(ProviderRecord.id).where(ProviderRecord.is_active.is_(True)).limit(1)
                 )
             ).scalar_one_or_none()
-            return active_id or "nvidia"
+            return active_id or ""
 
     @safe_db("set_active_provider", table="providers")
     async def set_active_provider_id(self, provider_id: str) -> None:
         async with self.db.session() as s:
             await s.execute(update(ProviderRecord).values(is_active=False))
             await s.execute(
-                update(ProviderRecord).where(ProviderRecord.id == provider_id).values(is_active=True)
+                update(ProviderRecord)
+                .where(ProviderRecord.id == provider_id)
+                .values(is_active=True)
             )
             await s.execute(
-                text(
-                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"
-                ),
+                text("INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"),
                 {"key": "active_provider", "value": provider_id},
             )
             await s.commit()
@@ -545,18 +597,33 @@ class ProviderRepositoryDB:
         if not rec:
             return None
         models = (
-            await s.execute(
-                select(ProviderModelRecord)
-                .where(ProviderModelRecord.provider_id == provider_id)
-                .order_by(ProviderModelRecord.is_default.desc(), ProviderModelRecord.name)
+            (
+                await s.execute(
+                    select(ProviderModelRecord)
+                    .where(ProviderModelRecord.provider_id == provider_id)
+                    .order_by(ProviderModelRecord.is_default.desc(), ProviderModelRecord.name)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         p = {
             k: getattr(rec, k)
             for k in (
-                "id", "name", "description", "api_key", "model", "base_url",
-                "max_tokens", "temperature", "is_active", "swatch_json",
-                "adapter_type", "capabilities_json", "api_key_prefix", "updated_at",
+                "id",
+                "name",
+                "description",
+                "api_key",
+                "model",
+                "base_url",
+                "max_tokens",
+                "temperature",
+                "is_active",
+                "swatch_json",
+                "adapter_type",
+                "capabilities_json",
+                "api_key_prefix",
+                "updated_at",
             )
         }
         p["models"] = [
@@ -582,9 +649,7 @@ class ProviderRepositoryDB:
     async def list_providers(self) -> dict[str, dict]:
         await self.ensure_seeded()
         async with self.db.session() as s:
-            ids = (
-                await s.execute(select(ProviderRecord.id))
-            ).scalars().all()
+            ids = (await s.execute(select(ProviderRecord.id))).scalars().all()
             providers = {}
             for pid in ids:
                 p = await self._get_provider_with_models(s, pid)
@@ -637,12 +702,12 @@ class ProviderRepositoryDB:
             if set_active:
                 await s.execute(update(ProviderRecord).values(is_active=False))
                 await s.execute(
-                    update(ProviderRecord).where(ProviderRecord.id == provider_id).values(is_active=True)
+                    update(ProviderRecord)
+                    .where(ProviderRecord.id == provider_id)
+                    .values(is_active=True)
                 )
                 await s.execute(
-                    text(
-                        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"
-                    ),
+                    text("INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"),
                     {"key": "active_provider", "value": provider_id},
                 )
             await s.commit()
@@ -652,10 +717,16 @@ class ProviderRepositoryDB:
         await self.ensure_seeded()
         async with self.db.session() as s:
             models = (
-                await s.execute(
-                    select(ProviderModelRecord).where(ProviderModelRecord.provider_id == provider_id)
+                (
+                    await s.execute(
+                        select(ProviderModelRecord).where(
+                            ProviderModelRecord.provider_id == provider_id
+                        )
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return [
                 {
                     "id": m.id,
@@ -677,7 +748,7 @@ class TokenUsageRepository:
         if self._price_cache is None:
             self._price_cache = {}
             try:
-                catalog = load_catalog()
+                catalog = load_catalog(self.db.db_path)
                 for prov_id, prov_data in catalog.get("providers", {}).items():
                     for m in prov_data.get("models", []):
                         p = m.get("pricing", {})
@@ -725,7 +796,9 @@ class TokenUsageRepository:
             input_cost = (input_tokens or prompt_tokens) * price["input"] / 1_000_000
             output_cost = (output_tokens or completion_tokens) * price["output"] / 1_000_000
             cache_read_cost = (cache_read_tokens or 0) * price.get("cache_read", 0) / 1_000_000
-            cache_creation_cost = (cache_creation_tokens or 0) * price.get("cache_creation", 0) / 1_000_000
+            cache_creation_cost = (
+                (cache_creation_tokens or 0) * price.get("cache_creation", 0) / 1_000_000
+            )
             cost_usd = round(input_cost + output_cost + cache_read_cost + cache_creation_cost, 6)
         record_id = str(_uuid.uuid4())
         async with self.db.session() as s:
@@ -778,7 +851,7 @@ class TokenUsageRepository:
         from datetime import datetime as _dt
 
         try:
-            catalog = load_catalog()
+            catalog = load_catalog(self.db.db_path)
             now = _dt.now().isoformat()
             async with self.db.session() as s:
                 for prov_id, prov_data in catalog.get("providers", {}).items():
@@ -805,20 +878,34 @@ class TokenUsageRepository:
             pass
 
     @safe_db("token_stats", table="token_usage")
-    async def get_stats_by_model(self, since: str | None = None, until: str | None = None) -> list[dict]:
+    async def get_stats_by_model(
+        self, since: str | None = None, until: str | None = None
+    ) -> list[dict]:
         stmt = (
             select(
                 TokenUsageRecord.provider,
                 TokenUsageRecord.model,
                 func.count().label("request_count"),
-                func.coalesce(func.sum(TokenUsageRecord.input_tokens), 0).label("total_input_tokens"),
-                func.coalesce(func.sum(TokenUsageRecord.output_tokens), 0).label("total_output_tokens"),
-                func.coalesce(func.sum(TokenUsageRecord.prompt_tokens), 0).label("total_prompt_tokens"),
-                func.coalesce(func.sum(TokenUsageRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.coalesce(func.sum(TokenUsageRecord.input_tokens), 0).label(
+                    "total_input_tokens"
+                ),
+                func.coalesce(func.sum(TokenUsageRecord.output_tokens), 0).label(
+                    "total_output_tokens"
+                ),
+                func.coalesce(func.sum(TokenUsageRecord.prompt_tokens), 0).label(
+                    "total_prompt_tokens"
+                ),
+                func.coalesce(func.sum(TokenUsageRecord.completion_tokens), 0).label(
+                    "total_completion_tokens"
+                ),
                 func.coalesce(func.sum(TokenUsageRecord.total_tokens), 0).label("total_tokens"),
                 func.coalesce(func.sum(TokenUsageRecord.cost_usd), 0).label("total_cost_usd"),
-                func.coalesce(func.sum(TokenUsageRecord.cache_read_tokens), 0).label("total_cache_read"),
-                func.coalesce(func.sum(TokenUsageRecord.cache_creation_tokens), 0).label("total_cache_creation"),
+                func.coalesce(func.sum(TokenUsageRecord.cache_read_tokens), 0).label(
+                    "total_cache_read"
+                ),
+                func.coalesce(func.sum(TokenUsageRecord.cache_creation_tokens), 0).label(
+                    "total_cache_creation"
+                ),
                 func.max(TokenUsageRecord.context_window).label("context_window"),
             )
             .where(TokenUsageRecord.step_index == -1)
@@ -841,11 +928,19 @@ class TokenUsageRepository:
             func.coalesce(func.sum(TokenUsageRecord.input_tokens), 0).label("grand_total_input"),
             func.coalesce(func.sum(TokenUsageRecord.output_tokens), 0).label("grand_total_output"),
             func.coalesce(func.sum(TokenUsageRecord.prompt_tokens), 0).label("grand_total_prompt"),
-            func.coalesce(func.sum(TokenUsageRecord.completion_tokens), 0).label("grand_total_completion"),
+            func.coalesce(func.sum(TokenUsageRecord.completion_tokens), 0).label(
+                "grand_total_completion"
+            ),
             func.coalesce(func.sum(TokenUsageRecord.cost_usd), 0).label("grand_total_cost_usd"),
-            func.coalesce(func.sum(TokenUsageRecord.cache_read_tokens), 0).label("grand_total_cache_read"),
-            func.coalesce(func.sum(TokenUsageRecord.cache_creation_tokens), 0).label("grand_total_cache_creation"),
-            func.count(func.distinct(TokenUsageRecord.provider + ":" + TokenUsageRecord.model)).label("unique_models"),
+            func.coalesce(func.sum(TokenUsageRecord.cache_read_tokens), 0).label(
+                "grand_total_cache_read"
+            ),
+            func.coalesce(func.sum(TokenUsageRecord.cache_creation_tokens), 0).label(
+                "grand_total_cache_creation"
+            ),
+            func.count(
+                func.distinct(TokenUsageRecord.provider + ":" + TokenUsageRecord.model)
+            ).label("unique_models"),
         ).where(TokenUsageRecord.step_index == -1)
         if since:
             stmt = stmt.where(TokenUsageRecord.created_at >= since)
@@ -895,13 +990,21 @@ class TokenUsageRepository:
             rec = (
                 await s.execute(
                     select(BudgetSettingsRecord)
-                    .where(BudgetSettingsRecord.session_id == session_id, BudgetSettingsRecord.active == True)  # noqa: E712
+                    .where(
+                        BudgetSettingsRecord.session_id == session_id,
+                        BudgetSettingsRecord.active.is_(True),
+                    )
                     .order_by(BudgetSettingsRecord.created_at.desc())
                     .limit(1)
                 )
             ).scalar_one_or_none()
             if not rec:
-                return {"active": False, "max_session_cost": 0, "max_daily_cost": 0, "max_monthly_cost": 0}
+                return {
+                    "active": False,
+                    "max_session_cost": 0,
+                    "max_daily_cost": 0,
+                    "max_monthly_cost": 0,
+                }
 
             now = _dt.now()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
@@ -926,7 +1029,14 @@ class TokenUsageRepository:
             }
 
     @safe_db("upsert_budget", table="budget_settings")
-    async def upsert_budget(self, session_id: str, max_session_cost: float, max_daily_cost: float, max_monthly_cost: float, active: bool = True) -> None:
+    async def upsert_budget(
+        self,
+        session_id: str,
+        max_session_cost: float,
+        max_daily_cost: float,
+        max_monthly_cost: float,
+        active: bool = True,
+    ) -> None:
         from datetime import datetime as _dt
 
         now = _dt.now().isoformat()
@@ -949,12 +1059,19 @@ class TokenUsageRepository:
     async def get_per_step_stats(self, session_id: str) -> list[dict]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(TokenUsageRecord)
-                    .where(TokenUsageRecord.session_id == session_id, TokenUsageRecord.step_index >= 0)
-                    .order_by(TokenUsageRecord.step_index.asc())
+                (
+                    await s.execute(
+                        select(TokenUsageRecord)
+                        .where(
+                            TokenUsageRecord.session_id == session_id,
+                            TokenUsageRecord.step_index >= 0,
+                        )
+                        .order_by(TokenUsageRecord.step_index.asc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return [self._record_to_dict(r) for r in rows]
 
     def _record_to_dict(self, r: TokenUsageRecord) -> dict:
@@ -964,31 +1081,54 @@ class TokenUsageRepository:
     async def get_efficiency(self, session_id: str) -> dict:
         async with self.db.session() as s:
             total_row = (
-                await s.execute(
-                    select(
-                        func.coalesce(func.sum(TokenUsageRecord.total_tokens), 0).label("total_consumed"),
-                        func.coalesce(func.sum(TokenUsageRecord.cost_usd), 0).label("total_cost"),
-                    ).where(TokenUsageRecord.session_id == session_id)
+                (
+                    await s.execute(
+                        select(
+                            func.coalesce(func.sum(TokenUsageRecord.total_tokens), 0).label(
+                                "total_consumed"
+                            ),
+                            func.coalesce(func.sum(TokenUsageRecord.cost_usd), 0).label(
+                                "total_cost"
+                            ),
+                        ).where(TokenUsageRecord.session_id == session_id)
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             final_row = (
-                await s.execute(
-                    select(TokenUsageRecord.total_tokens.label("final_context"))
-                    .where(TokenUsageRecord.session_id == session_id, TokenUsageRecord.step_index == -1)
-                    .order_by(TokenUsageRecord.created_at.desc())
-                    .limit(1)
+                (
+                    await s.execute(
+                        select(TokenUsageRecord.total_tokens.label("final_context"))
+                        .where(
+                            TokenUsageRecord.session_id == session_id,
+                            TokenUsageRecord.step_index == -1,
+                        )
+                        .order_by(TokenUsageRecord.created_at.desc())
+                        .limit(1)
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             deg_rows = (
-                await s.execute(
-                    select(
-                        func.count().label("count"),
-                        func.coalesce(
-                            func.sum(ContextDegradationRecord.before_tokens - ContextDegradationRecord.after_tokens), 0
-                        ).label("waste"),
-                    ).where(ContextDegradationRecord.session_id == session_id)
+                (
+                    await s.execute(
+                        select(
+                            func.count().label("count"),
+                            func.coalesce(
+                                func.sum(
+                                    ContextDegradationRecord.before_tokens
+                                    - ContextDegradationRecord.after_tokens
+                                ),
+                                0,
+                            ).label("waste"),
+                        ).where(ContextDegradationRecord.session_id == session_id)
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
 
         total_consumed = int(total_row["total_consumed"] or 0)
         total_cost = float(total_row["total_cost"] or 0)
@@ -1001,19 +1141,25 @@ class TokenUsageRepository:
             "final_context_used": final_context,
             "waste_ratio": round(waste_ratio, 4),
             "summarization_count": deg["count"],
-            "average_context_utilization": round(final_context / total_consumed, 4) if total_consumed > 0 else 0.0,
+            "average_context_utilization": round(final_context / total_consumed, 4)
+            if total_consumed > 0
+            else 0.0,
         }
 
     @safe_db("get_session_token_usage", table="token_usage")
     async def get_session_token_usage(self, session_id: str) -> list[dict]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(TokenUsageRecord)
-                    .where(TokenUsageRecord.session_id == session_id)
-                    .order_by(TokenUsageRecord.created_at.asc())
+                (
+                    await s.execute(
+                        select(TokenUsageRecord)
+                        .where(TokenUsageRecord.session_id == session_id)
+                        .order_by(TokenUsageRecord.created_at.asc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return [self._record_to_dict(r) for r in rows]
 
     @safe_db("record_token_usage", table="token_usage")
@@ -1046,7 +1192,9 @@ class TokenUsageRepository:
             input_cost = (input_tokens or prompt_tokens) * price["input"] / 1_000_000
             output_cost = (output_tokens or completion_tokens) * price["output"] / 1_000_000
             cache_read_cost = (cache_read_tokens or 0) * price.get("cache_read", 0) / 1_000_000
-            cache_creation_cost = (cache_creation_tokens or 0) * price.get("cache_creation", 0) / 1_000_000
+            cache_creation_cost = (
+                (cache_creation_tokens or 0) * price.get("cache_creation", 0) / 1_000_000
+            )
             cost_usd = round(input_cost + output_cost + cache_read_cost + cache_creation_cost, 6)
         record_id = str(_uuid.uuid4())
         async with self.db.session() as s:
@@ -1083,20 +1231,40 @@ class TokenUsageRepository:
     async def get_lifetime_stats(self) -> dict:
         async with self.db.session() as s:
             row = (
-                await s.execute(
-                    select(
-                        func.count().label("total_requests"),
-                        func.coalesce(func.sum(TokenUsageRecord.total_tokens), 0).label("grand_total_tokens"),
-                        func.coalesce(func.sum(TokenUsageRecord.cost_usd), 0).label("grand_total_cost"),
-                        func.coalesce(func.sum(TokenUsageRecord.input_tokens), 0).label("grand_total_input"),
-                        func.coalesce(func.sum(TokenUsageRecord.output_tokens), 0).label("grand_total_output"),
-                        func.coalesce(func.sum(TokenUsageRecord.cache_read_tokens), 0).label("grand_total_cache_read"),
-                        func.coalesce(func.sum(TokenUsageRecord.cache_creation_tokens), 0).label("grand_total_cache_write"),
-                        func.coalesce(func.sum(TokenUsageRecord.reasoning_tokens), 0).label("grand_total_reasoning"),
-                        func.count(func.distinct(TokenUsageRecord.session_id)).label("total_sessions"),
+                (
+                    await s.execute(
+                        select(
+                            func.count().label("total_requests"),
+                            func.coalesce(func.sum(TokenUsageRecord.total_tokens), 0).label(
+                                "grand_total_tokens"
+                            ),
+                            func.coalesce(func.sum(TokenUsageRecord.cost_usd), 0).label(
+                                "grand_total_cost"
+                            ),
+                            func.coalesce(func.sum(TokenUsageRecord.input_tokens), 0).label(
+                                "grand_total_input"
+                            ),
+                            func.coalesce(func.sum(TokenUsageRecord.output_tokens), 0).label(
+                                "grand_total_output"
+                            ),
+                            func.coalesce(func.sum(TokenUsageRecord.cache_read_tokens), 0).label(
+                                "grand_total_cache_read"
+                            ),
+                            func.coalesce(
+                                func.sum(TokenUsageRecord.cache_creation_tokens), 0
+                            ).label("grand_total_cache_write"),
+                            func.coalesce(func.sum(TokenUsageRecord.reasoning_tokens), 0).label(
+                                "grand_total_reasoning"
+                            ),
+                            func.count(func.distinct(TokenUsageRecord.session_id)).label(
+                                "total_sessions"
+                            ),
+                        )
                     )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             return dict(row) if row else {}
 
 
@@ -1143,7 +1311,9 @@ class CheckpointRepository:
                 )
             ).scalar_one_or_none()
             if rec:
-                result = {c.name: getattr(rec, c.name) for c in SessionCheckpointRecord.__table__.columns}
+                result = {
+                    c.name: getattr(rec, c.name) for c in SessionCheckpointRecord.__table__.columns
+                }
                 result["snapshot_data"] = json.loads(result["snapshot_data"])
                 return result
             return None
@@ -1152,13 +1322,17 @@ class CheckpointRepository:
     async def list_by_session(self, session_id: str, limit: int = 20) -> list[dict]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(SessionCheckpointRecord)
-                    .where(SessionCheckpointRecord.session_id == session_id)
-                    .order_by(SessionCheckpointRecord.created_at.desc())
-                    .limit(limit)
+                (
+                    await s.execute(
+                        select(SessionCheckpointRecord)
+                        .where(SessionCheckpointRecord.session_id == session_id)
+                        .order_by(SessionCheckpointRecord.created_at.desc())
+                        .limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         result = []
         for r in rows:
             d = {c.name: getattr(r, c.name) for c in SessionCheckpointRecord.__table__.columns}
@@ -1170,17 +1344,23 @@ class CheckpointRepository:
     async def delete_old(self, session_id: str, keep: int = 5) -> int:
         async with self.db.session() as s:
             ids = (
-                await s.execute(
-                    select(SessionCheckpointRecord.id)
-                    .where(SessionCheckpointRecord.session_id == session_id)
-                    .order_by(SessionCheckpointRecord.created_at.desc())
-                    .offset(keep)
+                (
+                    await s.execute(
+                        select(SessionCheckpointRecord.id)
+                        .where(SessionCheckpointRecord.session_id == session_id)
+                        .order_by(SessionCheckpointRecord.created_at.desc())
+                        .offset(keep)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             ids = list(ids)
             if not ids:
                 return 0
-            await s.execute(delete(SessionCheckpointRecord).where(SessionCheckpointRecord.id.in_(ids)))
+            await s.execute(
+                delete(SessionCheckpointRecord).where(SessionCheckpointRecord.id.in_(ids))
+            )
             await s.commit()
             return len(ids)
 
@@ -1231,12 +1411,19 @@ class SyncEventRepository:
     async def get_since(self, session_id: str, sequence: int = 0) -> list[dict]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(SyncEventRecord)
-                    .where(SyncEventRecord.session_id == session_id, SyncEventRecord.sequence > sequence)
-                    .order_by(SyncEventRecord.sequence.asc())
+                (
+                    await s.execute(
+                        select(SyncEventRecord)
+                        .where(
+                            SyncEventRecord.session_id == session_id,
+                            SyncEventRecord.sequence > sequence,
+                        )
+                        .order_by(SyncEventRecord.sequence.asc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         result = []
         for r in rows:
             d = {c.name: getattr(r, c.name) for c in SyncEventRecord.__table__.columns}
@@ -1268,7 +1455,9 @@ class SessionStatusHistoryRepository:
         self.db = db
 
     @safe_db("record_status_history", table="session_status_history")
-    async def record(self, session_id: str, from_state: str | None, to_state: str, reason: str = "") -> str:
+    async def record(
+        self, session_id: str, from_state: str | None, to_state: str, reason: str = ""
+    ) -> str:
         hid = str(_uuid.uuid4())
         async with self.db.session() as s:
             s.add(
@@ -1288,13 +1477,17 @@ class SessionStatusHistoryRepository:
     async def get_history(self, session_id: str, limit: int = 50) -> list[dict]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(SessionStatusHistoryRecord)
-                    .where(SessionStatusHistoryRecord.session_id == session_id)
-                    .order_by(SessionStatusHistoryRecord.created_at.desc())
-                    .limit(limit)
+                (
+                    await s.execute(
+                        select(SessionStatusHistoryRecord)
+                        .where(SessionStatusHistoryRecord.session_id == session_id)
+                        .order_by(SessionStatusHistoryRecord.created_at.desc())
+                        .limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return [
                 {c.name: getattr(r, c.name) for c in SessionStatusHistoryRecord.__table__.columns}
                 for r in rows
@@ -1306,7 +1499,9 @@ class DraftRepository:
         self.db = db
 
     @safe_db("save_draft", table="session_drafts")
-    async def save(self, session_id: str, prompt: str = "", context: dict | None = None, ttl_hours: int = 24) -> str:
+    async def save(
+        self, session_id: str, prompt: str = "", context: dict | None = None, ttl_hours: int = 24
+    ) -> str:
         did = str(_uuid.uuid4())
         expires = (datetime.now() + timedelta(hours=ttl_hours)).isoformat()
         async with self.db.session() as s:
@@ -1335,7 +1530,9 @@ class DraftRepository:
                 )
             ).scalar_one_or_none()
             if rec:
-                result = {c.name: getattr(rec, c.name) for c in SessionDraftRecord.__table__.columns}
+                result = {
+                    c.name: getattr(rec, c.name) for c in SessionDraftRecord.__table__.columns
+                }
                 result["context"] = json.loads(result["context"])
                 return result
             return None
@@ -1344,12 +1541,16 @@ class DraftRepository:
     async def list_expired(self) -> list[dict]:
         async with self.db.session() as s:
             rows = (
-                await s.execute(
-                    select(SessionDraftRecord).where(
-                        SessionDraftRecord.expires_at < datetime.now().isoformat()
+                (
+                    await s.execute(
+                        select(SessionDraftRecord).where(
+                            SessionDraftRecord.expires_at < datetime.now().isoformat()
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return [
                 {c.name: getattr(r, c.name) for c in SessionDraftRecord.__table__.columns}
                 for r in rows

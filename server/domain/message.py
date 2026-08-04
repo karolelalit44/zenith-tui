@@ -22,6 +22,7 @@ from .events import Event
 
 class ToolCall(BaseModel):
     """A structured tool call from the LLM."""
+
     id: str = Field(default_factory=lambda: f"call_{uuid.uuid4().hex[:12]}")
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -30,6 +31,7 @@ class ToolCall(BaseModel):
 
 class ToolResult(BaseModel):
     """Result of a tool execution."""
+
     tool_call_id: str
     success: bool
     output: str = ""
@@ -44,6 +46,7 @@ class Message(BaseModel):
     Backward-compatible with the existing interface:
     - session_id, role, content, events, token_count, created_at, metadata
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str
     role: str  # "system", "user", "assistant", "tool"

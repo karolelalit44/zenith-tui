@@ -61,8 +61,9 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = React.memo(({ event, co
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center">
+        <Text color={theme.colors.text.dim}>└ </Text>
         <Text color={theme.colors.status.info} bold>
-          {isPending ? <>[{ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]} RUN] </> : <>{'>'} RUN </>}
+          {isPending ? <>[{ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]} RUN] </> : <>RUN </>}
         </Text>
         <Text color={theme.colors.text.bright} bold>
           {event.tool}

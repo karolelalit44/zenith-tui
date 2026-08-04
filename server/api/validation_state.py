@@ -84,7 +84,10 @@ def get_last_error(provider_id: str) -> str:
 def snapshot() -> dict[str, dict[str, object]]:
     """Full copy of session state (for tests/debugging)."""
     with _lock:
-        return {pid: dict(entry.extra, status=entry.status, last_error=entry.last_error) for pid, entry in _statuses.items()}
+        return {
+            pid: dict(entry.extra, status=entry.status, last_error=entry.last_error)
+            for pid, entry in _statuses.items()
+        }
 
 
 def _get(provider_id: str) -> _Entry:

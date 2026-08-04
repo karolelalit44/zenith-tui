@@ -29,7 +29,7 @@ class TestParseToolCalls:
         assert len(calls) == 0
 
     def test_parse_invalid_json(self):
-        text = '```tool\nnot json\n```'
+        text = "```tool\nnot json\n```"
         calls = parse_tool_calls(text)
         assert len(calls) == 0
 
@@ -40,11 +40,11 @@ class TestParseToolCalls:
 
     def test_parse_mixed_content(self):
         text = (
-            'I will run two commands.\n'
+            "I will run two commands.\n"
             '```tool\n{"tool": "bash", "params": {"command": "echo a"}}\n```\n'
-            'And also this.\n'
+            "And also this.\n"
             '```tool\n{"tool": "bash", "params": {"command": "echo b"}}\n```\n'
-            'Done!'
+            "Done!"
         )
         calls = parse_tool_calls(text)
         assert len(calls) == 2
@@ -72,8 +72,6 @@ class TestFormatToolResult:
         assert len(formatted) < 16000
 
     def test_format_with_metadata(self):
-        result = ToolResult(
-            success=True, output="ok", metadata={"exit_code": 0}
-        )
+        result = ToolResult(success=True, output="ok", metadata={"exit_code": 0})
         formatted = _format_tool_result("bash", result)
         assert "Metadata" in formatted

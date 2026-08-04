@@ -53,7 +53,4 @@ class FileTracker:
 
     def get_files_by_operation(self, operation: str) -> list[str]:
         """Get files filtered by operation type."""
-        return [
-            path for path, info in self._changes.items()
-            if info["operation"] == operation
-        ]
+        return [path for path, info in self._changes.items() if info["operation"] == operation]

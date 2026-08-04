@@ -17,12 +17,18 @@ class StubProvider(BaseProvider):
     def __init__(self, total_tokens: int = 0, context_window: int = 128000):
         super().__init__("test", "test-model")
         self._context_window = context_window
-        self._cumulative_usage = {"total_tokens": total_tokens, "prompt_tokens": 0, "completion_tokens": 0}
+        self._cumulative_usage = {
+            "total_tokens": total_tokens,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
 
     async def complete(self, messages: list[dict], tools=None) -> str:
         return "summarized"
 
-    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
+    async def stream(
+        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
+    ):
         for char in "summarized":
             yield (char, None)
 
@@ -36,6 +42,7 @@ class StubProvider(BaseProvider):
 def _fake_ws(captured: dict):
     async def send_text(_self, text):
         captured["text"] = text
+
     return type("W", (), {"send_text": send_text})()
 
 
@@ -60,6 +67,7 @@ async def test_db(test_config):
 @pytest.fixture
 def registry():
     from server.providers.registry import ProviderRegistry
+
     reg = ProviderRegistry()
     reg.register("test", StubProvider())
     return reg
@@ -68,6 +76,7 @@ def registry():
 @pytest.fixture
 def handler(test_config, test_db, registry):
     from server.api.websocket import ZenithHandler
+
     h = ZenithHandler(test_config, test_db, registry)
     events = []
 
@@ -85,8 +94,12 @@ class TestContextCommands:
         session = await h.session_repo.create(Session(title="Compact Test"))
 
         for i in range(5):
-            await h.message_repo.create(Message(session_id=session.id, role="user", content=f"User prompt {i}"))
-            await h.message_repo.create(Message(session_id=session.id, role="assistant", content=f"Assistant response {i}"))
+            await h.message_repo.create(
+                Message(session_id=session.id, role="user", content=f"User prompt {i}")
+            )
+            await h.message_repo.create(
+                Message(session_id=session.id, role="assistant", content=f"Assistant response {i}")
+            )
 
         ws = _fake_ws({})
         await h.handlers._context_compact(ws, 1, session.id)
@@ -108,7 +121,7 @@ class TestContextCommands:
 
     @pytest.mark.asyncio
     async def test_clear_tools_removes_tool_events(self, handler):
-        h, events = handler
+        h, _ = handler
         session = await h.session_repo.create(Session(title="Clear Tools Test"))
 
         msg = Message(
@@ -116,8 +129,16 @@ class TestContextCommands:
             role="assistant",
             content="done",
             events=[
-                Event(kind=EventKind.TOOL_CALL, data={"tool": "bash", "params": {"command": "ls"}}, session_id=session.id),
-                Event(kind=EventKind.TOOL_RESULT, data={"tool": "bash", "output": "file1\nfile2"}, session_id=session.id),
+                Event(
+                    kind=EventKind.TOOL_CALL,
+                    data={"tool": "bash", "params": {"command": "ls"}},
+                    session_id=session.id,
+                ),
+                Event(
+                    kind=EventKind.TOOL_RESULT,
+                    data={"tool": "bash", "output": "file1\nfile2"},
+                    session_id=session.id,
+                ),
                 Event(kind=EventKind.MESSAGE, data={"text": "listed files"}, session_id=session.id),
             ],
         )

@@ -20,7 +20,9 @@ class LspManager:
     Each client is shared across all files it serves.
     """
 
-    def __init__(self, workspace_root: str, custom_servers: dict[str, dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self, workspace_root: str, custom_servers: dict[str, dict[str, Any]] | None = None
+    ) -> None:
         self.workspace_root = workspace_root
         self._clients: dict[str, LspClient] = {}
         self._ext_to_server: dict[str, str] = {}
@@ -85,7 +87,11 @@ class LspManager:
             root_uri = Path(self.workspace_root).as_uri()
             await client.initialize(root_uri, self.workspace_root)
             self._clients[server_name] = client
-            logger.info("LSP client '%s' ready for %s files", server_name, list(config.get("file_types", [Path("").suffix])))
+            logger.info(
+                "LSP client '%s' ready for %s files",
+                server_name,
+                list(config.get("file_types", [Path("").suffix])),
+            )
             return client
         except Exception as e:
             logger.warning("Failed to start LSP server '%s': %s", server_name, e)

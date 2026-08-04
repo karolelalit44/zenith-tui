@@ -27,50 +27,53 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
 
   const filled = Math.round(barWidth * progress);
 
-  const activeIdx = event.steps.findIndex((s) => s.status === 'active');
-
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
-        <Text color={theme.colors.text.emerald} bold>
-          [{event.label}]
+        <Text color={theme.colors.status.warning} bold>
+          * {event.label}
         </Text>
         <Text color={theme.colors.text.muted}> </Text>
         <Text color={theme.colors.status.success}>{'\u2588'.repeat(filled)}</Text>
         <Text color={theme.colors.text.muted}>{'\u2591'.repeat(barWidth - filled)}</Text>
         <Text color={theme.colors.text.muted}> </Text>
-        <Text color={theme.colors.text.emerald} bold>
+        <Text color={theme.colors.text.bright} bold>
           {Math.round(progress * 100)}%
         </Text>
         {event.iteration !== undefined && (
           <>
             <Text color={theme.colors.text.muted}> </Text>
-            <Text color={theme.colors.text.muted}>(iter {event.iteration})</Text>
+            <Text color={theme.colors.text.dim}>(iter {event.iteration})</Text>
           </>
         )}
       </Box>
 
       {event.steps.length > 0 && (
-        <Box flexDirection="column" paddingLeft={2}>
+        <Box flexDirection="column" paddingLeft={1}>
           {event.steps.map((step, idx) => {
             let icon: string;
             let color: string;
+            let textColor: string;
             switch (step.status) {
               case 'done':
-                icon = '✓';
-                color = theme.colors.text.emerald;
+                icon = '■';
+                color = theme.colors.status.warning;
+                textColor = theme.colors.text.bright;
                 break;
               case 'active':
                 icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
                 color = theme.colors.text.ethereal;
+                textColor = theme.colors.text.bright;
                 break;
               case 'error':
-                icon = '✗';
-                color = theme.colors.text.error;
+                icon = '■';
+                color = theme.colors.status.error;
+                textColor = theme.colors.text.error;
                 break;
               default:
-                icon = '○';
-                color = theme.colors.text.muted;
+                icon = '□';
+                color = theme.colors.text.dim;
+                textColor = theme.colors.text.muted;
                 break;
             }
             return (
@@ -78,9 +81,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
                 <Box width={2}>
                   <Text color={color}>{icon}</Text>
                 </Box>
-                <Text color={idx === activeIdx ? theme.colors.text.ethereal : theme.colors.text.muted}>
-                  {step.label}
-                </Text>
+                <Text color={textColor}>{step.label}</Text>
               </Box>
             );
           })}

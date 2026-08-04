@@ -33,7 +33,7 @@ class BlobStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def from_db_path(cls, db_path: str) -> "BlobStore":
+    def from_db_path(cls, db_path: str) -> BlobStore:
         """Derive the blob directory from the DB location (``data/blobs/``)."""
         return cls(Path(db_path).parent / "blobs")
 
@@ -48,7 +48,7 @@ class BlobStore:
         """Return the full content for a blob pointer, or the input unchanged."""
         if not isinstance(pointer, str) or not pointer.startswith(BLOB_PREFIX):
             return pointer
-        blob_id = pointer[len(BLOB_PREFIX):]
+        blob_id = pointer[len(BLOB_PREFIX) :]
         path = self.root / f"{blob_id}.txt"
         if not path.exists():
             return "[blob missing]"
@@ -67,9 +67,7 @@ class BlobStore:
                 size = sum(len(x) + 1 for x in data)
                 if len(data) > LINES_THRESHOLD or size > LINES_CHAR_BUDGET:
                     blob_id = uuid.uuid4().hex
-                    (self.root / f"{blob_id}.txt").write_text(
-                        "\n".join(data), encoding="utf-8"
-                    )
+                    (self.root / f"{blob_id}.txt").write_text("\n".join(data), encoding="utf-8")
                     return LINES_PREFIX + blob_id
             return [self.pack(v, threshold) for v in data]
         if isinstance(data, str):
@@ -86,7 +84,7 @@ class BlobStore:
             return [self.unpack(v) for v in data]
         if isinstance(data, str):
             if data.startswith(LINES_PREFIX):
-                blob_id = data[len(LINES_PREFIX):]
+                blob_id = data[len(LINES_PREFIX) :]
                 path = self.root / f"{blob_id}.txt"
                 if path.exists():
                     return path.read_text(encoding="utf-8", errors="replace").split("\n")

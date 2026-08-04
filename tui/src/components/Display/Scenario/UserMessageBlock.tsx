@@ -31,16 +31,23 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
 
   return (
     <Box flexDirection="column" width={boxWidth} marginBottom={1} paddingX={1}>
-      <Box flexDirection="row" justifyContent="space-between" width="100%" backgroundColor={theme.colors.bg.modal} paddingX={1} paddingY={1}>
+      <Box
+        flexDirection="row"
+        justifyContent="space-between"
+        width="100%"
+        backgroundColor={theme.colors.bg.modal}
+        borderStyle="round"
+        borderColor={theme.colors.bg.modal}
+        paddingX={1}
+        paddingY={0}
+      >
         <Box flexShrink={1}>
           <Text color={theme.colors.text.bright} wrap="wrap">
             {prompt}
           </Text>
         </Box>
         <Box marginLeft={2} flexShrink={0}>
-          <Text color={theme.colors.text.muted}>
-            {timeStr}
-          </Text>
+          <Text color={theme.colors.text.muted}>{timeStr}</Text>
         </Box>
       </Box>
     </Box>

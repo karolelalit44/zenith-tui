@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
-import optionsData from '../../../services/api/options.json';
+import { commandRegistry } from '../../../services/api/CommandRegistry';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { AutocompleteDropdownProps } from './types';
 
@@ -9,31 +9,68 @@ interface CommandEntry {
   description: string;
 }
 
-const COMMAND_LIST: CommandEntry[] = optionsData.commands;
+const COMMAND_LIST: CommandEntry[] = commandRegistry
+  .filter((c) => c.slash)
+  .map((c) => ({ command: c.slash as string, description: c.description }));
 
-export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ input, onSelect, onClose }) => {
+/**
+ * Inline slash-command menu anchored beneath the composer. It is fully driven
+ * by the `input` prop (the composer stays mounted and focused; typing edits
+ * the input which re-filters this list on every keystroke). This component
+ * only reacts to menu navigation keys — everything else is left to the input.
+ */
+export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
+  input,
+  onSelect,
+  onClose,
+  onQueryChange,
+}) => {
   const { theme } = useTheme();
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const cleanInput = input.startsWith('/') ? input : `/${input}`;
-  const filtered = COMMAND_LIST.filter((c) => c.command.toLowerCase().includes(cleanInput.toLowerCase()));
+  const query = input.startsWith('/') ? input.slice(1) : input;
+  const queryLower = query.toLowerCase();
+  const filtered = COMMAND_LIST.filter(
+    (c) => c.command.slice(1).toLowerCase().includes(queryLower) || c.description.toLowerCase().includes(queryLower),
+  );
 
-  useInput((_char, key) => {
-    if (filtered.length === 0) return;
+  // Real-time filtering: reset the highlight whenever the query changes.
+  const [lastQuery, setLastQuery] = useState(query);
+  if (lastQuery !== query) {
+    setLastQuery(query);
+    setActiveIndex(0);
+  }
+
+  useInput((char, key) => {
     if (key.escape) {
       onClose();
-    } else if (key.upArrow) {
-      setActiveIndex((prev) => Math.max(0, prev - 1));
-    } else if (key.downArrow) {
-      setActiveIndex((prev) => Math.min(filtered.length - 1, prev + 1));
-    } else if (key.return) {
-      onSelect(filtered[activeIndex]?.command || '');
+      return;
     }
+    if (key.upArrow) {
+      setActiveIndex((prev) => Math.max(0, prev - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setActiveIndex((prev) => Math.min(filtered.length - 1, prev + 1));
+      return;
+    }
+    if (key.return || char === '\n' || char === '\r') {
+      const entry = filtered[activeIndex];
+      if (entry) onSelect(entry.command);
+      return;
+    }
+    if (key.tab) {
+      const entry = filtered[activeIndex] ?? filtered[0];
+      if (entry && onQueryChange) onQueryChange(entry.command);
+      return;
+    }
+    // Regular characters, backspace, arrows etc. are handled by the still
+    // focused input field, which updates `input` and re-filters this list.
   });
 
   if (filtered.length === 0) {
     return (
-      <Box flexDirection="column" marginTop={1} paddingX={1}>
+      <Box flexDirection="column" paddingX={1}>
         <Text color={theme.colors.text.muted}>No matching slash commands.</Text>
       </Box>
     );
@@ -47,19 +84,21 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({ inpu
       borderColor={theme.colors.status.accent}
       paddingX={1}
       paddingY={1}
-      marginTop={1}
     >
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
         <Text color={theme.colors.status.accent} bold>
           [SLASH COMMANDS]
         </Text>
-        <Text color={theme.colors.text.muted}> — Type to filter · ↑/↓ navigate · Enter select · Esc back</Text>
+        <Text color={theme.colors.text.muted}>
+          {' '}
+          — Type to filter · ↑/↓ navigate · Enter select · Tab complete · Esc close
+        </Text>
       </Box>
 
       {filtered.map((cmd, i) => {
         const isActive = i === activeIndex;
         return (
-          <Box key={i} flexDirection="row" alignItems="center">
+          <Box key={cmd.command} flexDirection="row" alignItems="center">
             <Box width={2} flexShrink={0}>
               <Text color={isActive ? theme.colors.status.success : theme.colors.text.muted}>
                 {isActive ? '▸' : ' '}

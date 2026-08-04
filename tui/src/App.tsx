@@ -6,6 +6,7 @@ import { ScrollIndicator } from './components/Display/ScrollIndicator';
 import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
+import { CommandPalette } from './components/Input/CommandPalette';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
 import { ASCII_SPINNER_FRAMES } from './constants/animation';
 import { AppProvider } from './context/AppContext';
@@ -18,8 +19,10 @@ import { useScrollState } from './hooks/useScrollState';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { useTickAnimation } from './hooks/useTickAnimation';
 import { OverlayRouter } from './routes/OverlayRouter';
+import { ExitScreen } from './screens/Exit/ExitScreen';
 import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
+import type { CommandRunContext } from './services/api/CommandRegistry';
 import { commandService } from './services/api/CommandService';
 import { addSession } from './services/api/SessionRepository';
 import { startupService } from './services/api/StartupService';
@@ -27,7 +30,10 @@ import type { TokenUsageStats } from './services/api/TokenUsageService';
 import { tokenUsageService } from './services/api/TokenUsageService';
 import { estimateTokensForEvents } from './services/api/tokenEstimationService';
 import { loadUserProfile } from './services/api/userProfileService';
+import { savePlanToFile } from './services/export/markdownExport';
+import { modelStore } from './services/providers/ModelStore';
 import { providerRepository } from './services/providers/ProviderRepository';
+import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
 import type { ScenarioEvent } from './types/scenario';
@@ -42,6 +48,7 @@ export const App: React.FC = () => {
     setWorkspace(process.cwd());
   }, []);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
+  const [exitPhase, setExitPhase] = useState<'idle' | 'exiting'>('idle');
 
   useEffect(() => {
     startupService.initialize().then(setStartupState);
@@ -50,6 +57,7 @@ export const App: React.FC = () => {
   }, []);
 
   const toggleThinking = useCallback(() => setThinkingCollapsed((p) => !p), []);
+  const [showPalette, setShowPalette] = useState(false);
 
   const {
     turns,
@@ -104,8 +112,28 @@ export const App: React.FC = () => {
     removeAttachment,
   } = useAutocomplete();
 
-  const { events, isRunning, startScenario, abort, activeConfirmation, respondConfirmation, eventsRef, lastSessionId } =
-    useScenario();
+  const handleSetShowPalette = useCallback(
+    (show: boolean) => {
+      setShowPalette(show);
+      if (show) {
+        closeAutocomplete();
+        closeFilePicker();
+      }
+    },
+    [closeAutocomplete, closeFilePicker],
+  );
+
+  const {
+    events,
+    isRunning,
+    startScenario,
+    abort,
+    activeConfirmation,
+    respondConfirmation,
+    eventsRef,
+    lastSessionId,
+    setActiveSessionId,
+  } = useScenario();
   const { activeProvider } = useProvider();
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
@@ -161,39 +189,92 @@ export const App: React.FC = () => {
       .catch(() => {});
   }, [lastSessionId, addTurn, completeActiveTurn, selectedMode]);
 
+  const handleSavePlan = useCallback(() => {
+    const targetTurn = turns[turns.length - 1];
+    const targetEvents = isRunning ? events : targetTurn?.events || [];
+    if (targetEvents.length > 0) {
+      savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
+      if (targetTurn) {
+        markTurnSaved(targetTurn.id);
+      }
+    }
+  }, [turns, events, isRunning, markTurnSaved]);
+
+  const handleExit = useCallback(() => {
+    setExitPhase('exiting');
+  }, []);
+
+  const handleSessionResume = useCallback(
+    (sessionId: string, _summary: SessionSummary) => {
+      setActiveSessionId(sessionId);
+      clearTurns();
+    },
+    [setActiveSessionId, clearTurns],
+  );
+
+  const handleCancel = useCallback(() => {
+    abort();
+    abortActiveTurn(eventsRef.current);
+  }, [abort, abortActiveTurn, eventsRef]);
+
+  const commandCtx = useMemo<CommandRunContext>(
+    () => ({
+      openOverlay,
+      clearTurns,
+      compactTurns: handleCompact,
+      clearTools: handleClearTools,
+      setMode: handleModeSelect,
+      openModelPicker: () => openOverlay('models'),
+      openPalette: () => handleSetShowPalette(true),
+      toggleThinking,
+      savePlan: handleSavePlan,
+      triggerExit: handleExit,
+    }),
+    [
+      openOverlay,
+      clearTurns,
+      handleCompact,
+      handleClearTools,
+      handleModeSelect,
+      handleSetShowPalette,
+      toggleThinking,
+      handleSavePlan,
+      handleExit,
+    ],
+  );
+
   const handleSubmit = useCallback(
     (value: string) => {
       const trimmed = value.trim();
       if (!trimmed) return;
       if (trimmed.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(trimmed, {
-          openOverlay,
-          clearTurns,
-          compactTurns: handleCompact,
-          clearTools: handleClearTools,
-          setMode: handleModeSelect,
-        });
+        commandService.dispatchCommand(trimmed, commandCtx);
         return;
       }
+
+      const sel = modelStore.current;
+      const providerInfo = sel ? providerRepository.getProviderInfo(sel.providerID) : undefined;
+      const selConfigured = Boolean(
+        providerInfo &&
+          (providerInfo.has_api_key || providerInfo.validation_status === 'validated' || providerInfo.is_active),
+      );
+      const selValid = Boolean(
+        sel &&
+          providerInfo &&
+          selConfigured &&
+          (providerInfo.models[sel.modelID] || providerInfo.model === sel.modelID),
+      );
+      const modelSel = selValid ? sel : null;
+      const providerId = modelSel?.providerID ?? activeProvider.id;
+      const modelId = modelSel?.modelID;
+
       addHistory(trimmed);
-      addTurn(trimmed, selectedMode);
+      addTurn(trimmed, selectedMode, modelId);
       clearInput();
-      startScenario(trimmed, selectedMode, activeProvider.id);
+      startScenario(trimmed, selectedMode, providerId, modelId, attachments);
     },
-    [
-      selectedMode,
-      startScenario,
-      activeProvider.id,
-      addTurn,
-      clearInput,
-      openOverlay,
-      clearTurns,
-      handleCompact,
-      handleClearTools,
-      handleModeSelect,
-      addHistory,
-    ],
+    [selectedMode, startScenario, activeProvider.id, addTurn, clearInput, commandCtx, addHistory, attachments],
   );
 
   useTerminalKeyboard({
@@ -215,6 +296,9 @@ export const App: React.FC = () => {
     scrollDown,
     scrollToTop,
     scrollToBottom,
+    showPalette,
+    setShowPalette: handleSetShowPalette,
+    slashMenuOpen: showAutocomplete,
   });
 
   useEffect(() => {
@@ -229,23 +313,30 @@ export const App: React.FC = () => {
     (cmd: string) => {
       if (cmd.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(cmd, {
-          openOverlay,
-          clearTurns,
-          compactTurns: handleCompact,
-          clearTools: handleClearTools,
-          setMode: handleModeSelect,
-        });
+        commandService.dispatchCommand(cmd, commandCtx);
       } else {
         handleAutocompleteSelect(cmd);
       }
     },
-    [clearInput, openOverlay, clearTurns, handleCompact, handleClearTools, handleModeSelect, handleAutocompleteSelect],
+    [clearInput, commandCtx, handleAutocompleteSelect],
   );
 
   const handleRetry = useCallback(() => {
-    if (activeTurn && !isRunning) startScenario(activeTurn.prompt, activeTurn.mode, activeProvider.id);
+    if (activeTurn && !isRunning)
+      startScenario(activeTurn.prompt, activeTurn.mode, activeProvider.id, activeTurn.model);
   }, [activeTurn, isRunning, startScenario, activeProvider.id]);
+
+  const handleOpenHelp = useCallback(() => openOverlay('help'), [openOverlay]);
+
+  const handleOpenProvider = useCallback(() => {
+    closeOverlay();
+    openOverlay('provider');
+  }, [closeOverlay, openOverlay]);
+
+  const handleToggleMode = useCallback(
+    () => handleModeSelect(selectedMode === 'plan' ? 'build' : 'plan'),
+    [handleModeSelect, selectedMode],
+  );
 
   const handleSetupComplete = useCallback(() => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });
@@ -293,6 +384,11 @@ export const App: React.FC = () => {
         <SetupWizard startupState={startupState} onComplete={handleSetupComplete} />
       </Box>
     );
+  }
+
+  // Exit screen — replaces entire UI
+  if (exitPhase === 'exiting') {
+    return <ExitScreen />;
   }
 
   return (
@@ -357,22 +453,32 @@ export const App: React.FC = () => {
           </Box>
         )}
 
-        {!showAutocomplete && !showFilePicker && !isOverlayOpen && (
+        {!showFilePicker && !isOverlayOpen && !showPalette && (
           <CommandInput
             input={input}
             onInputChange={handleInputChange}
             onSubmit={handleSubmit}
-            disabled={isRunning}
+            running={isRunning}
+            disabled={!!(activeConfirmation && !activeConfirmation.answered)}
             attachments={attachments}
             onRemoveAttachment={removeAttachment}
             historyUp={historyUp}
             historyDown={historyDown}
             mode={selectedMode}
             totalTokens={liveTotalTokens}
-            isRunning={isRunning}
-            tokenUsageStats={tokenUsageStats}
             workspaceName={workspace}
+            onCancel={handleCancel}
+            onOpenHelp={handleOpenHelp}
+            onOpenMode={handleToggleMode}
+            onClearInput={clearInput}
+            slashMenuOpen={showAutocomplete}
           />
+        )}
+
+        {showPalette && (
+          <Box marginTop={1} width="100%">
+            <CommandPalette ctx={commandCtx} onClose={() => handleSetShowPalette(false)} />
+          </Box>
         )}
 
         {showAutocomplete && (
@@ -381,6 +487,7 @@ export const App: React.FC = () => {
               input={input}
               onSelect={handleAutocompleteSelectWithRouter}
               onClose={closeAutocomplete}
+              onQueryChange={handleInputChange}
             />
           </Box>
         )}
@@ -409,6 +516,8 @@ export const App: React.FC = () => {
           onSelectMode={handleModeSelect}
           onClose={closeOverlay}
           onComplete={handleSetupComplete}
+          onOpenProvider={handleOpenProvider}
+          onResumeSession={handleSessionResume}
         />
 
         <SessionStatusBar

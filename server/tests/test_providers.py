@@ -104,10 +104,18 @@ class TestProviderRegistry:
                 model="claude-sonnet-4-20250514",
                 is_active=False,
             ),
+            "groq": ProviderConfig(
+                api_key="test-key",
+                model="",
+                is_active=False,
+            ),
         }
         registry = ProviderRegistry.from_config(providers_config, "openai")
-        assert registry.get("openai") is not None
-        assert registry.get("anthropic") is None  # inactive, not registered
+        assert registry.get("openai") is not None  # active + configured
+        assert (
+            registry.get("anthropic") is not None
+        )  # configured but inactive — registered so a switch works
+        assert registry.get("groq") is None  # not configured (no model) — skipped
 
 
 class _MockProvider(BaseProvider):

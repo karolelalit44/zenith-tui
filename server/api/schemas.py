@@ -7,11 +7,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from server.config.env import require_float, require_int
-
-_DEFAULT_MAX_TOKENS = require_int("ZENITH_MAX_TOKENS")
-_DEFAULT_TEMPERATURE = require_float("ZENITH_TEMPERATURE")
-
 
 class StartupStatus(str, Enum):
     READY = "ready"
@@ -34,27 +29,6 @@ class StartupResult(BaseModel):
     active_model: str = ""
     provider_count: int = 0
     message: str = ""
-
-
-class ProviderSetupRequest(BaseModel):
-    provider: str
-    api_key: str = ""
-    model: str = ""
-    base_url: str = ""
-    max_tokens: int = _DEFAULT_MAX_TOKENS
-    temperature: float = _DEFAULT_TEMPERATURE
-
-
-class ProviderSetupResult(BaseModel):
-    valid: bool
-    provider: str = ""
-    model: str = ""
-    message: str = ""
-
-
-class ProviderConfigResponse(BaseModel):
-    active_provider: str = ""
-    providers: dict[str, dict[str, Any]] = {}
 
 
 class ProviderModelInfo(BaseModel):
@@ -93,20 +67,33 @@ class ProviderInfo(BaseModel):
     is_active: bool = False
     model: str = ""
     models: dict[str, ProviderModelInfo] = Field(default_factory=dict)
+    is_popular: bool = False
+    base_url_style: str = ""
+    supports_prompt_caching: bool = False
+    supports_thinking_headers: bool = False
+    custom_flow: bool = False
+    env_keys: list[str] = Field(default_factory=list)
 
 
 class ProviderListResponse(BaseModel):
     all: list[ProviderInfo] = Field(default_factory=list)
-    default: dict[str, str] = Field(default_factory=dict)
+    active: str = ""
     connected: list[str] = Field(default_factory=list)
-
-
-class ProviderAuthRequest(BaseModel):
-    api_key: str = ""
 
 
 class ProviderModelRequest(BaseModel):
     model: str
+
+
+class ModelSelection(BaseModel):
+    providerID: str
+    modelID: str
+
+
+class ModelStoreRequest(BaseModel):
+    current: ModelSelection | None = None
+    recent: list[ModelSelection] = Field(default_factory=list)
+    favorite: list[ModelSelection] = Field(default_factory=list)
 
 
 class ProviderValidationRequest(BaseModel):

@@ -2,9 +2,6 @@
 
 export type ProviderId = string;
 
-/** Catalog `adapter` values (aligned to `provider_catalog.json`). */
-export type ProviderAdapter = 'openrouter' | 'openai_compatible' | 'openai_compat' | 'nvidia' | 'groq' | 'gemini';
-
 export type ProviderStatus = 'unconfigured' | 'configured' | 'validated' | 'failed';
 
 export type ValidationStepStatus = 'pending' | 'running' | 'success' | 'failed';
@@ -35,21 +32,7 @@ export interface ModelInfo {
   name: string;
   description?: string;
   context_window?: number;
-  parameters?: string;
-  architecture?: string;
-  input_modalities?: string[];
-  output_modalities?: string[];
-  tags?: string[];
-  model_capabilities?: {
-    function_calling?: boolean;
-    structured_output?: boolean;
-    reasoning?: boolean;
-    thinking?: boolean;
-  };
-  speed_tier?: 'fast' | 'moderate' | 'slow';
-  best_for?: string[];
   is_default?: boolean;
-  pricing?: Record<string, unknown>;
 }
 
 export interface ProviderMeta {
@@ -57,7 +40,6 @@ export interface ProviderMeta {
   name: string;
   description: string;
   defaultModel: string;
-  swatch: string[];
   fields: ProviderConfigField[];
   availableModels?: ModelInfo[];
 }
@@ -72,6 +54,11 @@ export interface ProviderState {
   apiKeyMasked?: string;
   validationStatus?: ProviderStatus;
   lastValidationError?: string;
+  isPopular: boolean;
+  isCustomFlow: boolean;
+  baseUrlStyle: string;
+  supportsPromptCaching: boolean;
+  supportsThinkingHeaders: boolean;
 }
 
 /** Mirrors `server/api/schemas.py: ProviderModelInfo`. */
@@ -82,15 +69,6 @@ export interface ProviderModelInfo {
   description: string;
   is_default: boolean;
   status?: string;
-  parameters?: unknown;
-  architecture?: unknown;
-  input_modalities?: unknown;
-  output_modalities?: unknown;
-  tags?: string[];
-  model_capabilities?: Record<string, unknown>;
-  speed_tier?: string | null;
-  best_for?: string[];
-  pricing?: Record<string, unknown>;
 }
 
 /** Mirrors `server/api/schemas.py: ProviderInfo`. */
@@ -98,11 +76,6 @@ export interface ProviderInfo {
   id: string;
   name: string;
   description: string;
-  adapter: ProviderAdapter | string;
-  swatch: string[];
-  capabilities: Record<string, unknown>;
-  api_key_prefix: string | null;
-  requires_api_key: boolean;
   config_fields: ProviderConfigField[];
   options: Record<string, unknown>;
   has_api_key: boolean;
@@ -112,12 +85,18 @@ export interface ProviderInfo {
   is_active: boolean;
   model: string;
   models: Record<string, ProviderModelInfo>;
+  is_popular: boolean;
+  base_url_style: string;
+  supports_prompt_caching: boolean;
+  supports_thinking_headers: boolean;
+  custom_flow: boolean;
+  env_keys: string[];
 }
 
 /** Mirrors `server/api/schemas.py: ProviderListResponse`. */
 export interface ProviderListResponse {
   all: ProviderInfo[];
-  default: Record<string, string>;
+  active: string;
   connected: string[];
 }
 

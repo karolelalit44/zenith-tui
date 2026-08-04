@@ -84,9 +84,7 @@ def get_applied(db_path: str) -> list[str]:
         return []
     conn = sqlite3.connect(db_path)
     try:
-        rows = conn.execute(
-            f"SELECT version FROM {TRACKING_TABLE} ORDER BY version"
-        ).fetchall()
+        rows = conn.execute(f"SELECT version FROM {TRACKING_TABLE} ORDER BY version").fetchall()
         return [r[0] for r in rows]
     finally:
         conn.close()
@@ -125,8 +123,7 @@ def stamp(db_path: str, version: str, title: str = "") -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
-            f"INSERT OR IGNORE INTO {TRACKING_TABLE} (version, title, applied_at) "
-            "VALUES (?, ?, ?)",
+            f"INSERT OR IGNORE INTO {TRACKING_TABLE} (version, title, applied_at) VALUES (?, ?, ?)",
             (version, title, datetime.now().isoformat()),
         )
         conn.commit()

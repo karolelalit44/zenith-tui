@@ -2,7 +2,7 @@
 
 **Plan**: `inputbox-section-fix`
 **Branch**: `fix/ser-tu-communication-n-separations`
-**Date**: 2026-08-02
+**Date**: 2026-08-03
 
 > This document defines what **must** be present for the work to be considered complete and releasable, and what is **optional** (can be deferred without blocking signoff). Sections marked **MUST** are non-negotiable for `03-signoff-checklist.md` to pass.
 
@@ -30,7 +30,7 @@
 
 ## 3. MUST — Quality gates
 
-- [x] Spec: `npm run typecheck && npm run lint && npm run test` pass (TUI).
+- [x] Spec: `npm run typecheck && npm run lint && npm run test` pass (TUI) — includes keeping `tui/tests/commandService.test.ts` (registry adapter) and `tui/tests/backendScenarioProvider.test.ts` (abort flag) green.
 - [x] Spec: `python -m pytest server/tests` pass (backend), including new override/cancel/attachment tests.
 - [x] Spec: manual verification matrix (section 9 of `01-detailed-design.md`) passes end-to-end.
 - [x] Spec: no regression in existing slash commands, session/history persistence, or confirmation flow.

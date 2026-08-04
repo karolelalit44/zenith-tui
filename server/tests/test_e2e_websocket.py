@@ -28,7 +28,7 @@ def _get_free_port() -> int:
 # ── Live server fixture (subprocess) ─────────────────────────────────
 
 _SERVER_READY_TIMEOUT = 20
-_ECHO_PROVIDER_CODE = '''
+_ECHO_PROVIDER_CODE = """
 import asyncio
 import logging
 logging.disable(logging.CRITICAL)
@@ -50,7 +50,7 @@ class EchoProvider(BaseProvider):
         return True
     async def list_models(self):
         return ["echo-v1"]
-'''
+"""
 
 
 @pytest.fixture(scope="module")
@@ -66,7 +66,6 @@ def echo_server(tmp_path_factory):
 
     env = os.environ.copy()
     # Ensure all required env vars are set for the subprocess
-    env.setdefault("ZENITH_ACTIVE_PROVIDER", "echo")
     env.setdefault("ZENITH_DB_PATH", db_path)
     env.setdefault("ZENITH_LOG_LEVEL", "CRITICAL")
     env.setdefault("ZENITH_MAX_CONTEXT_TOKENS", "128000")
@@ -86,7 +85,7 @@ def echo_server(tmp_path_factory):
     env.setdefault("ZENITH_TEMPERATURE", "0.7")
     env["ZENITH_ECHO_PROVIDER"] = str(prov_file)
 
-    server_script = f'''
+    server_script = f"""
 import os, sys
 os.environ["ZENITH_DB_PATH"] = {db_path!r}
 os.environ["ZENITH_LOG_LEVEL"] = "CRITICAL"
@@ -124,7 +123,7 @@ loader.load_config = _patched_load
 
 import uvicorn
 uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")
-'''
+"""
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
 
@@ -149,7 +148,9 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
     if not ready:
         proc.kill()
         stdout, stderr = proc.communicate(timeout=5)
-        pytest.fail(f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}")
+        pytest.fail(
+            f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+        )
 
     yield port
 
@@ -163,29 +164,34 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
 
 # ── HTTP endpoint tests (in-process, no server needed) ────────────────
 
+
 @pytest.mark.asyncio
 async def test_http_health():
     """Server health endpoint returns ok."""
     from httpx import ASGITransport, AsyncClient
 
     import server.api.server as srv
+    from server.api.server import create_app
+    from server.api.websocket import ZenithHandler
     from server.config.providers import ProviderConfig
     from server.config.settings import AppSettings
     from server.persistence.connection import Database
     from server.providers.base import BaseProvider
     from server.providers.registry import ProviderRegistry
-    from server.api.server import create_app
-    from server.api.websocket import ZenithHandler
 
     class _HP(BaseProvider):
         def __init__(self):
             super().__init__("echo", "echo-v1")
+
         async def complete(self, messages, tools=None):
             return "ok"
+
         async def stream(self, messages, tools=None):
             yield ("ok", None)
+
         async def validate(self):
             return True
+
         async def list_models(self):
             return ["echo-v1"]
 
@@ -223,23 +229,27 @@ async def test_http_status():
     from httpx import ASGITransport, AsyncClient
 
     import server.api.server as srv
+    from server.api.server import create_app
+    from server.api.websocket import ZenithHandler
     from server.config.providers import ProviderConfig
     from server.config.settings import AppSettings
     from server.persistence.connection import Database
     from server.providers.base import BaseProvider
     from server.providers.registry import ProviderRegistry
-    from server.api.server import create_app
-    from server.api.websocket import ZenithHandler
 
     class _SP(BaseProvider):
         def __init__(self):
             super().__init__("echo", "echo-v1")
+
         async def complete(self, messages, tools=None):
             return "ok"
+
         async def stream(self, messages, tools=None):
             yield ("ok", None)
+
         async def validate(self):
             return True
+
         async def list_models(self):
             return ["echo-v1"]
 
@@ -272,6 +282,7 @@ async def test_http_status():
 
 
 # ── WebSocket JSON-RPC protocol tests (live server) ──────────────────
+
 
 async def _ws_rpc(ws, method: str, params: dict[str, Any] | None = None) -> dict:
     """Send a JSON-RPC request and wait for the response."""
@@ -366,10 +377,14 @@ async def test_ws_prompt_full_event_pipeline(echo_server):
         sid = create_resp["result"]["id"]
 
         # Send prompt
-        prompt_resp = await _ws_rpc(ws, "prompt.send", {
-            "content": "Hello from E2E test",
-            "mode": "build",
-        })
+        prompt_resp = await _ws_rpc(
+            ws,
+            "prompt.send",
+            {
+                "content": "Hello from E2E test",
+                "mode": "build",
+            },
+        )
         assert "result" in prompt_resp
         assert prompt_resp["result"]["status"] == "processing"
         assert prompt_resp["result"]["session_id"] == sid

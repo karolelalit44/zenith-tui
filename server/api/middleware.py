@@ -18,12 +18,18 @@ PROVIDER_METHODS = {
 }
 
 
-def validate_provider_config(config: AppSettings) -> None:
-    """Validate that the active provider is properly configured.
+def validate_provider_config(config: AppSettings, provider: str | None = None) -> None:
+    """Validate that a provider is properly configured.
+
+    Validates the *requested* provider when one is named (the TUI sends an
+    explicit ``provider`` on ``prompt.send``/``provider.*`` RPCs), falling back
+    to the active provider when none is named. This keeps the gate in sync with
+    the provider the frontend actually selected instead of always checking the
+    active one.
 
     Raises ConfigError if validation fails.
     """
-    active = config.active_provider
+    active = (provider or config.active_provider or "").strip()
     if not active:
         raise ConfigError("No active provider configured.")
 
@@ -31,21 +37,19 @@ def validate_provider_config(config: AppSettings) -> None:
     provider_config = providers.get(active)
     if not provider_config:
         raise ConfigError(
-            f"Active provider '{active}' is not configured. "
+            f"Provider '{active}' is not configured. "
             f"Available: {list(providers.keys()) or 'none'}. "
             "Use the /provider command to configure a provider."
         )
 
     if not provider_config.api_key or not provider_config.api_key.strip():
         raise ConfigError(
-            f"API key for '{active}' is missing. "
-            "Configure it via the /provider command."
+            f"API key for '{active}' is missing. Configure it via the /provider command."
         )
 
     if not provider_config.model or not provider_config.model.strip():
         raise ConfigError(
-            f"Model for '{active}' is not set. "
-            "Select a model via the /provider command."
+            f"Model for '{active}' is not set. Select a model via the /provider command."
         )
 
 
@@ -65,13 +69,12 @@ def wrap_handler(dispatch_fn: Callable) -> Callable:
     async def middleware(ws, method: str, rid, params: dict, session_id: str | None):
         if require_provider(method):
             try:
-                validate_provider_config(dispatch_fn.__self__.config)
+                requested = (params or {}).get("provider") or None
+                validate_provider_config(dispatch_fn.__self__.config, requested)
             except ConfigError as e:
                 from .protocol import make_error_response
 
-                await ws.send_text(
-                    make_error_response(rid, -32000, str(e))
-                )
+                await ws.send_text(make_error_response(rid, -32000, str(e)))
                 return session_id
         return await dispatch_fn(ws, method, rid, params, session_id)
 

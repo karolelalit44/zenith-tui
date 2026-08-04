@@ -17,12 +17,23 @@ from typing import Any
 
 from sqlalchemy import create_engine, event, inspect, select, text, update
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session as SASession, sessionmaker
+from sqlalchemy.orm import Session as SASession
+from sqlalchemy.orm import sessionmaker
 
 from server.persistence.connection import resolve_db_path
-from server.persistence.models import AppSettingRecord, ProviderModelRecord, ProviderRecord
+from server.persistence.models import (
+    AppSettingRecord,
+    CatalogModelRecord,
+    CatalogProviderRecord,
+    ProviderModelRecord,
+    ProviderRecord,
+)
 
 logger = logging.getLogger(__name__)
+
+MODEL_STORE_KEY = "model_store"
+
+EMPTY_CATALOG: dict[str, Any] = {"version": 1, "providers": {}}
 
 
 def mask_api_key(key: str | None) -> str:
@@ -115,54 +126,59 @@ def read_provider_config_full(db_path: str | None = None) -> tuple[str, dict[str
     """Read full provider config with models, enriched with catalog data."""
     db_path = db_path or resolve_db_path()
     if not Path(db_path).exists():
-        return "nvidia", {}
+        return "", {}
 
     from server.persistence.repositories import load_catalog
 
     engine = _engine(db_path)
     try:
         if not _has_table(engine, "providers"):
-            return "nvidia", {}
+            return "", {}
         with _session(engine)() as s:
             active = s.execute(
                 select(AppSettingRecord.value).where(AppSettingRecord.key == "active_provider")
             ).scalar_one_or_none()
-            active = active if active else "nvidia"
+            active = active or ""
 
             p_rows = s.execute(select(ProviderRecord)).scalars().all()
             result_providers: dict[str, dict[str, Any]] = {}
             for r in p_rows:
                 pid = r.id
-                m_rows = s.execute(
-                    select(ProviderModelRecord)
-                    .where(ProviderModelRecord.provider_id == pid)
-                    .order_by(ProviderModelRecord.is_default.desc(), ProviderModelRecord.name)
-                ).scalars().all()
+                m_rows = (
+                    s.execute(
+                        select(ProviderModelRecord)
+                        .where(ProviderModelRecord.provider_id == pid)
+                        .order_by(ProviderModelRecord.is_default.desc(), ProviderModelRecord.name)
+                    )
+                    .scalars()
+                    .all()
+                )
 
                 catalog = load_catalog()
                 catalog_models = {
-                    m["id"]: m
-                    for m in catalog.get("providers", {}).get(pid, {}).get("models", [])
+                    m["id"]: m for m in catalog.get("providers", {}).get(pid, {}).get("models", [])
                 }
 
                 enriched_models = []
                 for m in m_rows:
                     cat = catalog_models.get(m.id, {})
-                    enriched_models.append({
-                        "id": m.id,
-                        "name": m.name,
-                        "context_window": m.context_window,
-                        "description": m.description,
-                        "is_default": m.is_default,
-                        "parameters": cat.get("parameters"),
-                        "architecture": cat.get("architecture"),
-                        "input_modalities": cat.get("input_modalities"),
-                        "output_modalities": cat.get("output_modalities"),
-                        "tags": cat.get("tags"),
-                        "model_capabilities": cat.get("model_capabilities"),
-                        "speed_tier": cat.get("speed_tier"),
-                        "best_for": cat.get("best_for"),
-                    })
+                    enriched_models.append(
+                        {
+                            "id": m.id,
+                            "name": m.name,
+                            "context_window": m.context_window,
+                            "description": m.description,
+                            "is_default": m.is_default,
+                            "parameters": cat.get("parameters"),
+                            "architecture": cat.get("architecture"),
+                            "input_modalities": cat.get("input_modalities"),
+                            "output_modalities": cat.get("output_modalities"),
+                            "tags": cat.get("tags"),
+                            "model_capabilities": cat.get("model_capabilities"),
+                            "speed_tier": cat.get("speed_tier"),
+                            "best_for": cat.get("best_for"),
+                        }
+                    )
 
                 p_dict = {
                     "id": r.id,
@@ -189,7 +205,7 @@ def read_provider_config_full(db_path: str | None = None) -> tuple[str, dict[str
         return active, result_providers
     except Exception as e:
         logger.warning("read_provider_config_full failed: %s", e)
-        return "nvidia", {}
+        return "", {}
     finally:
         engine.dispose()
 
@@ -253,7 +269,9 @@ def save_provider_config(
             if set_active:
                 s.execute(update(ProviderRecord).values(is_active=False))
                 s.execute(
-                    update(ProviderRecord).where(ProviderRecord.id == provider).values(is_active=True)
+                    update(ProviderRecord)
+                    .where(ProviderRecord.id == provider)
+                    .values(is_active=True)
                 )
                 s.execute(
                     text("INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"),
@@ -285,14 +303,16 @@ def upsert_provider_models(
     try:
         with _session(engine)() as s:
             # Ensure the parent provider row exists (FK target for provider_models).
+            # Numeric defaults (max_tokens/temperature) come from the column
+            # server defaults in the schema — never hardcoded here.
             s.execute(
                 text(
                     """
                     INSERT OR IGNORE INTO providers
-                        (id, name, description, api_key, model, base_url, max_tokens, temperature,
-                         is_active, swatch_json, adapter_type, capabilities_json, api_key_prefix, updated_at)
+                        (id, name, description, api_key, model, base_url,
+                         is_active, swatch_json, capabilities_json, api_key_prefix, updated_at)
                     VALUES
-                        (:id, :name, '', '', '', '', 4096, 0.7, 0, '[]', 'openai_compat', '{}', NULL, :now)
+                        (:id, :name, '', '', '', '', 0, '[]', '{}', NULL, :now)
                     """
                 ),
                 {"id": provider, "name": provider.title(), "now": datetime.now().isoformat()},
@@ -326,5 +346,155 @@ def upsert_provider_models(
     except Exception as e:
         logger.warning("upsert_provider_models failed: %s", e)
         raise
+    finally:
+        engine.dispose()
+
+
+def read_catalog(db_path: str | None = None) -> dict[str, Any]:
+    """Read the provider catalog from the SQL tables.
+
+    Returns the classic ``{"version", "providers"}`` shape so existing callers
+    keep working. The catalog rows are created by the ``004_catalog_seed``
+    migration — this module never embeds provider or model names. Returns an
+    empty catalog when the DB is missing or not migrated.
+    """
+    db_path = db_path or resolve_db_path()
+    if not Path(db_path).exists():
+        return EMPTY_CATALOG
+    engine = _engine(db_path)
+    try:
+        if not _has_table(engine, "catalog_providers"):
+            return EMPTY_CATALOG
+        with _session(engine)() as s:
+            p_rows = (
+                s.execute(select(CatalogProviderRecord).order_by(CatalogProviderRecord.sort_order))
+                .scalars()
+                .all()
+            )
+            if not p_rows:
+                return EMPTY_CATALOG
+            providers: dict[str, dict[str, Any]] = {}
+            for r in p_rows:
+                m_rows = (
+                    s.execute(
+                        select(CatalogModelRecord)
+                        .where(CatalogModelRecord.provider_id == r.id)
+                        .order_by(CatalogModelRecord.is_default.desc(), CatalogModelRecord.name)
+                    )
+                    .scalars()
+                    .all()
+                )
+                models = []
+                for m in m_rows:
+                    models.append(
+                        {
+                            "id": m.id,
+                            "name": m.name,
+                            "description": m.description,
+                            "context_window": m.context_window,
+                            "parameters": m.parameters,
+                            "architecture": m.architecture,
+                            "input_modalities": json.loads(m.input_modalities or "[]"),
+                            "output_modalities": json.loads(m.output_modalities or "[]"),
+                            "tags": json.loads(m.tags or "[]"),
+                            "model_capabilities": json.loads(m.model_capabilities_json or "{}"),
+                            "speed_tier": m.speed_tier,
+                            "best_for": json.loads(m.best_for or "[]"),
+                            "pricing": json.loads(m.pricing_json or "{}"),
+                            "is_default": bool(m.is_default),
+                            "tokenizer": m.tokenizer,
+                            "prompt_tier": m.prompt_tier,
+                        }
+                    )
+                providers[r.id] = {
+                    "id": r.id,
+                    "name": r.name,
+                    "description": r.description,
+                    "adapter": r.adapter,
+                    "litellm_prefix": r.litellm_prefix,
+                    "default_model": r.default_model,
+                    "base_url": r.base_url,
+                    "api_key_prefix": r.api_key_prefix,
+                    "requires_api_key": bool(r.requires_api_key),
+                    "swatch": json.loads(r.swatch_json or "[]"),
+                    "capabilities": json.loads(r.capabilities_json or "{}"),
+                    "config_fields": json.loads(r.config_fields_json or "[]"),
+                    "env_keys": json.loads(r.env_keys_json or "[]"),
+                    "is_popular": bool(r.is_popular),
+                    "base_url_style": r.base_url_style,
+                    "supports_prompt_caching": bool(r.supports_prompt_caching),
+                    "supports_thinking_headers": bool(r.supports_thinking_headers),
+                    "custom_flow": bool(r.custom_flow),
+                    "models": models,
+                }
+            return {
+                "version": 1,
+                "providers": providers,
+            }
+    except Exception as e:
+        logger.warning("read_catalog failed: %s", e)
+        return EMPTY_CATALOG
+    finally:
+        engine.dispose()
+
+
+def read_model_store(db_path: str | None = None) -> dict[str, Any]:
+    """Read the persisted model store (current/recent/favorite) from app_settings.
+
+    Returns ``{"current", "recent", "favorite"}`` (or empty dict when unset).
+    """
+    db_path = db_path or resolve_db_path()
+    if not Path(db_path).exists():
+        return {}
+    engine = _engine(db_path)
+    try:
+        if not _has_table(engine, "app_settings"):
+            return {}
+        with _session(engine)() as s:
+            raw = s.execute(
+                select(AppSettingRecord.value).where(AppSettingRecord.key == MODEL_STORE_KEY)
+            ).scalar_one_or_none()
+            if not raw:
+                return {}
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+            return {}
+    except Exception as e:
+        logger.warning("read_model_store failed: %s", e)
+        return {}
+    finally:
+        engine.dispose()
+
+
+def write_model_store(db_path: str | None, data: dict[str, Any]) -> None:
+    """Persist the model store (current/recent/favorite) in app_settings.
+
+    The row is deleted when the store is empty so the setting stays clean.
+    """
+    db_path = db_path or resolve_db_path()
+    if not Path(db_path).exists():
+        return
+    payload = {
+        "current": data.get("current") or None,
+        "recent": [s for s in (data.get("recent") or []) if isinstance(s, dict)],
+        "favorite": [s for s in (data.get("favorite") or []) if isinstance(s, dict)],
+    }
+    engine = _engine(db_path)
+    try:
+        with _session(engine)() as s:
+            if not payload["current"] and not payload["recent"] and not payload["favorite"]:
+                s.execute(
+                    text("DELETE FROM app_settings WHERE key = :key"),
+                    {"key": MODEL_STORE_KEY},
+                )
+            else:
+                s.execute(
+                    text("INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"),
+                    {"key": MODEL_STORE_KEY, "value": json.dumps(payload)},
+                )
+            s.commit()
+    except Exception as e:
+        logger.warning("write_model_store failed: %s", e)
     finally:
         engine.dispose()

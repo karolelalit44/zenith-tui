@@ -82,7 +82,9 @@ def write_stub_server(path):
 
 
 def make_config(tmp_path) -> McpServerConfig:
-    return McpServerConfig(command=os.sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")])
+    return McpServerConfig(
+        command=os.sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")]
+    )
 
 
 @pytest.fixture
@@ -189,7 +191,9 @@ async def test_registry_execute_runs_mcp_tool(tmp_path):
         for w in manager.build_wrappers():
             registry.register(w)
         result = await registry.execute(
-            "mcp_stub_echo", {"text": "via-registry"}, workspace_root=".",
+            "mcp_stub_echo",
+            {"text": "via-registry"},
+            workspace_root=".",
             allowed_mcp=None,
         )
         assert result.success

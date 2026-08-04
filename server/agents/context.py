@@ -22,7 +22,7 @@ def _prompt_buffer(system_prompt: str) -> int:
 
 
 def _get_model_context_window(model: str, fallback: int = 128000) -> int:
-    """Resolve per-model context window from provider_catalog.json."""
+    """Resolve per-model context window from the SQL provider catalog."""
     try:
         cat = load_catalog()
         for prov in cat.get("providers", {}).values():
@@ -69,6 +69,7 @@ def _get_repo_map_instance(workspace_root: str, refresh: str = "files"):
     repo = _REPO_MAP_INSTANCES.get(key)
     if repo is None:
         from server.workspace.repo_map import RepoMap
+
         repo = RepoMap(workspace_root, refresh=refresh)
         _REPO_MAP_INSTANCES[key] = repo
     return repo
@@ -131,6 +132,7 @@ class ContextManager:
             return self._memory_cache
         try:
             from server.sessions.memory import MemoryStore
+
             self._memory_cache = MemoryStore(self.config.workspace_root).load()
         except Exception as e:
             logger.warning("Failed to load memory: %s", e)
@@ -150,9 +152,27 @@ class ContextManager:
         score = 0.0
 
         # Code file extensions & slash paths
-        if any(ext in p_lower for ext in (
-            ".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".css", ".html", ".go", ".rs", ".c", ".cpp", ".h", ".toml", ".sql", ".sh"
-        )):
+        if any(
+            ext in p_lower
+            for ext in (
+                ".py",
+                ".ts",
+                ".tsx",
+                ".js",
+                ".jsx",
+                ".json",
+                ".css",
+                ".html",
+                ".go",
+                ".rs",
+                ".c",
+                ".cpp",
+                ".h",
+                ".toml",
+                ".sql",
+                ".sh",
+            )
+        ):
             score += 0.5
 
         if "/" in prompt or "\\" in prompt:
@@ -160,10 +180,36 @@ class ContextManager:
 
         # Code & editing directives
         code_keywords = (
-            "code", "file", "function", "class", "def ", "const ", "let ", "var ",
-            "interface", "type ", "bug", "fix", "refactor", "test", "pytest", "error",
-            "exception", "traceback", "import", "export", "return", "git", "commit",
-            "build", "compile", "script", "server", "api", "tui", "repo"
+            "code",
+            "file",
+            "function",
+            "class",
+            "def ",
+            "const ",
+            "let ",
+            "var ",
+            "interface",
+            "type ",
+            "bug",
+            "fix",
+            "refactor",
+            "test",
+            "pytest",
+            "error",
+            "exception",
+            "traceback",
+            "import",
+            "export",
+            "return",
+            "git",
+            "commit",
+            "build",
+            "compile",
+            "script",
+            "server",
+            "api",
+            "tui",
+            "repo",
         )
         if any(kw in p_lower for kw in code_keywords):
             score += 0.3
@@ -174,8 +220,12 @@ class ContextManager:
 
         # Recent history signals
         if history:
-            recent_text = " ".join(m.content.lower() for m in history[-3:] if hasattr(m, "content") and m.content)
-            if any(ext in recent_text for ext in (".py", ".ts", ".tsx", ".js", "error", "traceback")):
+            recent_text = " ".join(
+                m.content.lower() for m in history[-3:] if hasattr(m, "content") and m.content
+            )
+            if any(
+                ext in recent_text for ext in (".py", ".ts", ".tsx", ".js", "error", "traceback")
+            ):
                 score += 0.2
 
         return min(1.0, score)
@@ -211,7 +261,9 @@ class ContextManager:
         # Repo map block — skipped by default unless explicitly provided
         repo_map_text = repo_map if repo_map is not None else ""
 
-        repo_map_block = f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else ""
+        repo_map_block = (
+            f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else ""
+        )
         repo_map_tokens = self.token_counter.count(repo_map_block, model) if repo_map_block else 0
 
         # Durable memory block (HP-7) — workspace facts from memory/*.md.
@@ -236,40 +288,62 @@ class ContextManager:
             if repo_map_block:
                 messages.append({"role": "system", "content": repo_map_block})
                 used += repo_map_tokens
-                logger.info("Repo map injected into context: %d chars, %d tokens", len(repo_map_text), repo_map_tokens)
+                logger.info(
+                    "Repo map injected into context: %d chars, %d tokens",
+                    len(repo_map_text),
+                    repo_map_tokens,
+                )
             if memory_block and used + memory_tokens + pbuf <= budget:
                 messages.append({"role": "system", "content": memory_block})
                 used += memory_tokens
                 memory_injected = True
-                logger.info("Memory injected into context: %d chars, %d tokens", len(memory_text), memory_tokens)
+                logger.info(
+                    "Memory injected into context: %d chars, %d tokens",
+                    len(memory_text),
+                    memory_tokens,
+                )
             elif memory_block:
-                logger.warning("Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget)
+                logger.warning(
+                    "Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget
+                )
         else:
             used += repo_map_tokens
             if memory_block and used + memory_tokens + pbuf <= budget:
                 used += memory_tokens
                 memory_injected = True
             elif memory_block:
-                logger.warning("Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget)
+                logger.warning(
+                    "Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget
+                )
 
         # 2. Plan block (injected as system message — exempt from truncation, high priority)
         if plan_block:
             plan_tokens = self.token_counter.count(plan_block, model)
             if used + plan_tokens + pbuf <= budget:
-                messages.append({
-                    "role": "system",
-                    "content": f"<plan_to_execute>\n{plan_block}\n</plan_to_execute>\n\nYou MUST execute the plan above exactly. Create every file listed, implement every component, and follow the architecture decisions described."
-                })
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": f"<plan_to_execute>\n{plan_block}\n</plan_to_execute>\n\nYou MUST execute the plan above exactly. Create every file listed, implement every component, and follow the architecture decisions described.",
+                    }
+                )
                 used += plan_tokens
-                logger.info("Plan block injected into context: %d chars, %d tokens", len(plan_block), plan_tokens)
+                logger.info(
+                    "Plan block injected into context: %d chars, %d tokens",
+                    len(plan_block),
+                    plan_tokens,
+                )
             else:
-                logger.warning("Plan block too large to inject (%d tokens, budget %d)", plan_tokens, budget)
+                logger.warning(
+                    "Plan block too large to inject (%d tokens, budget %d)", plan_tokens, budget
+                )
 
         # 3. Summary (if provided, takes precedence over old history)
         if summary:
             summary_tokens = self.token_counter.count(summary, model)
             if used + summary_tokens <= budget:
-                messages.append({"role": "user", "content": f"[Previous conversation summary]\n{summary}"})
+                messages.append(
+                    {"role": "user", "content": f"[Previous conversation summary]\n{summary}"}
+                )
                 messages.append({"role": "assistant", "content": "Understood."})
                 used += summary_tokens + SUMMARY_FRAMING_TOKENS
 

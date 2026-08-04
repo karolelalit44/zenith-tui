@@ -113,6 +113,7 @@ class AppContainer:
         """Start infrastructure (DB, repos, etc.)."""
         # Database
         from server.persistence.connection import resolve_db_path
+
         self.db = Database(resolve_db_path())
         await self.db.connect()
         logger.info("Database connected")
@@ -123,6 +124,7 @@ class AppContainer:
 
         # Seed provider catalog
         from server.persistence.repositories import ProviderRepositoryDB
+
         provider_repo = ProviderRepositoryDB(self.db)
         await provider_repo.ensure_seeded()
 
@@ -152,6 +154,7 @@ class AppContainer:
     def reload_config(self) -> None:
         """Hot-reload configuration (e.g. after setup wizard)."""
         from server.config.loader import load_config
+
         self.config = load_config()
         self.provider_registry = ProviderRegistry.from_config(
             self.config.providers, self.config.active_provider

@@ -1,14 +1,14 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from server.api.server import create_app
+from server.api.websocket import ZenithHandler
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.persistence.connection import Database
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
-from server.api.server import create_app
-from server.api.websocket import ZenithHandler
 
 
 class EchoProvider(BaseProvider):
@@ -21,7 +21,9 @@ class EchoProvider(BaseProvider):
         user_msg = messages[-1]["content"] if messages else ""
         return f"Echo: {user_msg}"
 
-    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
+    async def stream(
+        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
+    ):
         response = await self.complete(messages)
         for word in response.split():
             yield (word + " ", None)
@@ -168,15 +170,20 @@ async def test_e2e_provider_validate(test_config, test_db, test_registry):
 @pytest.mark.asyncio
 async def test_e2e_config_bootstrap(temp_dir):
     from server.config.loader import create_default_config, load_config
+
     config_path = create_default_config(str(temp_dir))
     assert config_path.exists()
     config = load_config(str(temp_dir))
-    assert config.active_provider == "nvidia"
+    # No default provider: the app must not auto-activate a provider on a fresh
+    # workspace. active_provider stays empty until the user explicitly picks a
+    # model in the setup wizard.
+    assert config.active_provider == ""
 
 
 @pytest.mark.asyncio
 async def test_e2e_error_handling():
     from server.domain.errors import ConfigError, ProviderError
+
     try:
         raise ProviderError("test error", provider="openai")
     except ProviderError as e:
@@ -251,7 +258,12 @@ async def test_e2e_websocket_session_and_prompt(test_config, test_db, test_regis
 
 @pytest.mark.asyncio
 async def test_e2e_error_classification():
-    from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
+    from server.domain.errors import (
+        AuthenticationError,
+        ProviderError,
+        RateLimitError,
+        TimeoutError,
+    )
     from server.providers.llm_provider import _classify_provider_error
 
     exc = _classify_provider_error(Exception("401 Unauthorized"), "test")

@@ -51,9 +51,7 @@ def init(db_path: str | None):
 
     target = _resolve_db_option(db_path)
     result = DatabaseStartupService(target).run()
-    click.echo(
-        f"Database ready: mode={result['mode']} version={result['version']} path={target}"
-    )
+    click.echo(f"Database ready: mode={result['mode']} version={result['version']} path={target}")
 
 
 @db.command()

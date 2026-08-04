@@ -50,9 +50,7 @@ class PermissionRepository:
         await self.db.commit()
 
     async def clear_session(self, session_id: str) -> None:
-        await self.db.execute(
-            "DELETE FROM permissions WHERE session_id = ?", (session_id,)
-        )
+        await self.db.execute("DELETE FROM permissions WHERE session_id = ?", (session_id,))
         await self.db.commit()
 
     def _row_to_grant(self, row: dict) -> PermissionGrant:

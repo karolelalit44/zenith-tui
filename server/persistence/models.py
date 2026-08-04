@@ -160,6 +160,72 @@ class AppSettingRecord(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class CatalogProviderRecord(Base):
+    """Reference provider metadata — SQL source of truth for the catalog.
+
+    Mirrors the old JSON catalog provider entries. Distinct from
+    the ``providers`` table, which holds per-machine user state (API keys,
+    active provider, selected model).
+    """
+
+    __tablename__ = "catalog_providers"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    adapter: Mapped[str] = mapped_column(Text, nullable=False, server_default="openai_compat")
+    litellm_prefix: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    default_model: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    base_url: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    api_key_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requires_api_key: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="1")
+    swatch_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    capabilities_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    config_fields_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    options_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    env_keys_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    is_popular: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
+    base_url_style: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    supports_prompt_caching: Mapped[bool] = mapped_column(
+        BoolInt, nullable=False, server_default="0"
+    )
+    supports_thinking_headers: Mapped[bool] = mapped_column(
+        BoolInt, nullable=False, server_default="0"
+    )
+    custom_flow: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+
+class CatalogModelRecord(Base):
+    """Curated model details per provider — SQL source of truth for model specs."""
+
+    __tablename__ = "catalog_models"
+    __table_args__ = (PrimaryKeyConstraint("provider_id", "id"),)
+
+    provider_id: Mapped[str] = mapped_column(
+        ForeignKey("catalog_providers.id", ondelete="CASCADE"), nullable=False
+    )
+    id: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    context_window: Mapped[int] = mapped_column(Integer, nullable=False, server_default="128000")
+    parameters: Mapped[str | None] = mapped_column(Text, nullable=True)
+    architecture: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_modalities: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    output_modalities: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    tags: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    model_capabilities_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    speed_tier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    best_for: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    pricing_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    is_default: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
+    tokenizer: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    prompt_tier: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+Index("idx_catalog_models_provider", CatalogModelRecord.provider_id)
+
+
 # ---------------------------------------------------------------------------
 # Token usage / context / pricing / budget
 # ---------------------------------------------------------------------------

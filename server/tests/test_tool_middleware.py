@@ -15,6 +15,7 @@ from server.toolkit.registry import ToolRegistry
 
 # ── Test tool for middleware tests ────────────────────────────────────────
 
+
 class EchoTool(BaseTool):
     name = "echo"
     description = "Echoes input"
@@ -47,6 +48,7 @@ class FailingTool(BaseTool):
 
 # ── Tool base ────────────────────────────────────────────────────────────
 
+
 class TestToolBase:
     def test_tool_result_success(self):
         r = ToolResult(success=True, output="ok")
@@ -68,6 +70,7 @@ class TestToolBase:
 
 
 # ── Tool registry ────────────────────────────────────────────────────────
+
 
 class TestToolRegistry:
     def test_register_and_get(self):
@@ -114,6 +117,7 @@ class TestToolRegistry:
 
 # ── Middleware chain ──────────────────────────────────────────────────────
 
+
 class TestMiddlewareChain:
     @pytest.mark.asyncio
     async def test_before_execute_short_circuit(self):
@@ -133,6 +137,7 @@ class TestMiddlewareChain:
         class UpperMiddleware(ToolMiddleware):
             async def before_execute(self, name, params, ctx):
                 return True
+
             async def after_execute(self, name, params, result, ctx):
                 result.output = result.output.upper()
                 return result
@@ -148,6 +153,7 @@ class TestMiddlewareChain:
         class RecoverMiddleware(ToolMiddleware):
             async def before_execute(self, name, params, ctx):
                 return True
+
             async def on_error(self, name, params, error, ctx):
                 return ToolResult(success=True, output="recovered")
 
@@ -166,6 +172,7 @@ class TestMiddlewareChain:
             async def before_execute(self, name, params, ctx):
                 order.append("mw1_before")
                 return True
+
             async def after_execute(self, name, params, result, ctx):
                 order.append("mw1_after")
                 return result
@@ -174,6 +181,7 @@ class TestMiddlewareChain:
             async def before_execute(self, name, params, ctx):
                 order.append("mw2_before")
                 return True
+
             async def after_execute(self, name, params, result, ctx):
                 order.append("mw2_after")
                 return result
@@ -187,6 +195,7 @@ class TestMiddlewareChain:
 
 
 # ── Individual middleware ─────────────────────────────────────────────────
+
 
 class TestSafetyCheckMiddleware:
     @pytest.mark.asyncio
@@ -225,6 +234,7 @@ class TestPermissionMiddleware:
     async def test_callback_approves(self):
         async def approve(name, params, ctx):
             return True
+
         mw = PermissionMiddleware(check=approve)
         ctx = ToolContext(request_id="r1", mode="build")
         result = await mw.before_execute("bash", {"command": "ls"}, ctx)
@@ -234,6 +244,7 @@ class TestPermissionMiddleware:
     async def test_callback_denies(self):
         async def deny(name, params, ctx):
             return ToolResult(success=False, error="denied")
+
         mw = PermissionMiddleware(check=deny)
         ctx = ToolContext(request_id="r1", mode="build")
         result = await mw.before_execute("bash", {"command": "ls"}, ctx)

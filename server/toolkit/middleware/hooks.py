@@ -38,10 +38,7 @@ class HookMiddleware(ToolMiddleware):
         for r in results:
             if r["exit_code"] != 0:
                 detail = r["stderr"] or r["stdout"]
-                msg = (
-                    f"Blocked by PreToolUse hook '{r['command']}' "
-                    f"(exit {r['exit_code']})"
-                )
+                msg = f"Blocked by PreToolUse hook '{r['command']}' (exit {r['exit_code']})"
                 if detail:
                     msg += f": {detail[:500]}"
                 return ToolResult(success=False, error=msg)

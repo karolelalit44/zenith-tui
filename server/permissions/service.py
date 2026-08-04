@@ -27,6 +27,7 @@ PermissionCallback = Callable[["PermissionRequest"], PermissionDecision]
 
 class PermissionRequest(BaseModel):
     """A pending permission request."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tool_name: str
     description: str
@@ -38,6 +39,7 @@ class PermissionRequest(BaseModel):
 
 class PermissionGrant(BaseModel):
     """A stored permission grant."""
+
     tool_name: str
     decision: PermissionDecision
     expires_at: datetime | None = None
@@ -55,28 +57,22 @@ class PermissionService:
         risk_level: RiskLevel,
         params: dict[str, Any],
         session_id: str,
-    ) -> PermissionDecision:
-        ...
+    ) -> PermissionDecision: ...
 
     async def grant_persistent(
         self,
         tool_name: str,
         decision: PermissionDecision,
         session_id: str | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    async def revoke_persistent(self, tool_name: str, session_id: str | None = None) -> None:
-        ...
+    async def revoke_persistent(self, tool_name: str, session_id: str | None = None) -> None: ...
 
-    async def get_grants(self, session_id: str) -> list[PermissionGrant]:
-        ...
+    async def get_grants(self, session_id: str) -> list[PermissionGrant]: ...
 
-    async def clear_session(self, session_id: str) -> None:
-        ...
+    async def clear_session(self, session_id: str) -> None: ...
 
-    def set_callback(self, callback: PermissionCallback) -> None:
-        ...
+    def set_callback(self, callback: PermissionCallback) -> None: ...
 
     async def get_decision(
         self,
@@ -88,7 +84,6 @@ class PermissionService:
         HP-8: used by permission middleware to enforce persisted rules
         without an interactive UI round-trip.
         """
-        ...
 
 
 class DefaultPermissionService(PermissionService):
@@ -189,8 +184,8 @@ class DefaultPermissionService(PermissionService):
             decision = self._callback(req)
             if asyncio.iscoroutine(decision):
                 decision = await decision
-        except Exception as e:
-            logger.exception("Permission callback error: %s", e)
+        except Exception:
+            logger.exception("Permission callback error")
             return PermissionDecision.DENY
 
         return decision
@@ -203,8 +198,7 @@ class DefaultPermissionService(PermissionService):
     ) -> None:
         # Remove existing grant for this tool+session
         self._grants = [
-            g for g in self._grants
-            if not (g.tool_name == tool_name and g.session_id == session_id)
+            g for g in self._grants if not (g.tool_name == tool_name and g.session_id == session_id)
         ]
         grant = PermissionGrant(
             tool_name=tool_name,
@@ -221,8 +215,7 @@ class DefaultPermissionService(PermissionService):
 
     async def revoke_persistent(self, tool_name: str, session_id: str | None = None) -> None:
         self._grants = [
-            g for g in self._grants
-            if not (g.tool_name == tool_name and g.session_id == session_id)
+            g for g in self._grants if not (g.tool_name == tool_name and g.session_id == session_id)
         ]
         if self._repo is not None:
             try:
@@ -232,10 +225,7 @@ class DefaultPermissionService(PermissionService):
 
     async def get_grants(self, session_id: str) -> list[PermissionGrant]:
         await self._ensure_loaded()
-        return [
-            g for g in self._grants
-            if g.session_id is None or g.session_id == session_id
-        ]
+        return [g for g in self._grants if g.session_id is None or g.session_id == session_id]
 
     async def clear_session(self, session_id: str) -> None:
         self._grants = [g for g in self._grants if g.session_id != session_id]

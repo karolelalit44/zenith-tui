@@ -34,8 +34,12 @@ class HistoryManager:
         Falls back to a truncated summary on failure.
         """
         from server.agents.summarizer import ConversationSummarizer
+
         return await ConversationSummarizer(self.config, self.provider).summarize(
-            messages, model, session_id=session_id, previous_summary=previous_summary,
+            messages,
+            model,
+            session_id=session_id,
+            previous_summary=previous_summary,
         )
 
     @staticmethod

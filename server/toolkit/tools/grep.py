@@ -40,9 +40,7 @@ class GrepTool(BaseTool):
         include = params.get("include", None)
 
         if not search_path.exists():
-            return ToolResult(
-                success=False, error=f"Search path not found: {search_path}"
-            )
+            return ToolResult(success=False, error=f"Search path not found: {search_path}")
 
         try:
             regex = re.compile(pattern, re.IGNORECASE)

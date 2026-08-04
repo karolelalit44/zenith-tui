@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GitStatus:
     """Structured git status."""
+
     is_git_repo: bool
     branch: str = ""
     modified: list[str] = field(default_factory=list)
@@ -32,6 +33,7 @@ class GitStatus:
 @dataclass
 class GitCommit:
     """A single git commit."""
+
     hash: str
     message: str
     author: str
@@ -41,6 +43,7 @@ class GitCommit:
 @dataclass
 class FileVersion:
     """A recorded version of a file."""
+
     path: str
     operation: str  # "created", "modified", "deleted"
     content: str
@@ -50,6 +53,7 @@ class FileVersion:
 @dataclass
 class LintResult:
     """Result of a lint operation."""
+
     file_path: str
     linter: str
     success: bool
@@ -61,47 +65,33 @@ class WorkspaceService:
     """Abstract workspace service interface."""
 
     @property
-    def root(self) -> Path:
-        ...
+    def root(self) -> Path: ...
 
-    async def get_git_status(self) -> GitStatus:
-        ...
+    async def get_git_status(self) -> GitStatus: ...
 
-    async def get_diff(self, ref: str | None = None) -> str:
-        ...
+    async def get_diff(self, ref: str | None = None) -> str: ...
 
-    async def get_log(self, limit: int = 10) -> list[GitCommit]:
-        ...
+    async def get_log(self, limit: int = 10) -> list[GitCommit]: ...
 
-    async def commit(self, message: str, files: list[str] | None = None) -> dict:
-        ...
+    async def commit(self, message: str, files: list[str] | None = None) -> dict: ...
 
-    def get_prompt_context(self) -> str:
-        ...
+    def get_prompt_context(self) -> str: ...
 
-    async def get_repo_map(self, max_tokens: int = 1000) -> str:
-        ...
+    async def get_repo_map(self, max_tokens: int = 1000) -> str: ...
 
-    def track_file(self, file_path: str, operation: str, content: str = "") -> None:
-        ...
+    def track_file(self, file_path: str, operation: str, content: str = "") -> None: ...
 
-    def get_tracked_files(self) -> list[str]:
-        ...
+    def get_tracked_files(self) -> list[str]: ...
 
-    def get_file_history(self, file_path: str) -> list[FileVersion]:
-        ...
+    def get_file_history(self, file_path: str) -> list[FileVersion]: ...
 
-    def get_file_changes_summary(self) -> str:
-        ...
+    def get_file_changes_summary(self) -> str: ...
 
-    async def get_context_files(self) -> list[dict[str, str]]:
-        ...
+    async def get_context_files(self) -> list[dict[str, str]]: ...
 
-    async def run_linter(self, file_path: str, linter: str | None = None) -> LintResult:
-        ...
+    async def run_linter(self, file_path: str, linter: str | None = None) -> LintResult: ...
 
-    def is_gitignored(self, file_path: str) -> bool:
-        ...
+    def is_gitignored(self, file_path: str) -> bool: ...
 
 
 class DefaultWorkspaceService(WorkspaceService):
@@ -120,18 +110,21 @@ class DefaultWorkspaceService(WorkspaceService):
     def _get_git(self):
         if self._git is None:
             from server.workspace.git import GitOps
+
             self._git = GitOps(str(self._root))
         return self._git
 
     def _get_tracker(self):
         if self._tracker is None:
             from server.workspace.tracker import FileTracker
+
             self._tracker = FileTracker(str(self._root))
         return self._tracker
 
     def _get_repo_map(self):
         if self._repo_map is None:
             from server.workspace.repo_map import RepoMap
+
             self._repo_map = RepoMap(str(self._root))
         return self._repo_map
 
@@ -195,12 +188,14 @@ class DefaultWorkspaceService(WorkspaceService):
         if file_path not in changes:
             return []
         info = changes[file_path]
-        return [FileVersion(
-            path=file_path,
-            operation=info["operation"],
-            content=info["content"],
-            timestamp=info["timestamp"],
-        )]
+        return [
+            FileVersion(
+                path=file_path,
+                operation=info["operation"],
+                content=info["content"],
+                timestamp=info["timestamp"],
+            )
+        ]
 
     def get_file_changes_summary(self) -> str:
         tracker = self._get_tracker()
@@ -208,11 +203,13 @@ class DefaultWorkspaceService(WorkspaceService):
 
     async def get_context_files(self) -> list[dict[str, str]]:
         from server.workspace.context import load_context_files
+
         files = load_context_files(str(self._root))
         return [{"path": f.path, "content": f.content, "scope": f.scope} for f in files]
 
     async def run_linter(self, file_path: str, linter: str | None = None) -> LintResult:
         from server.toolkit.auto_lint import run_lint
+
         try:
             result = await run_lint(file_path, str(self._root))
             return LintResult(

@@ -1,15 +1,16 @@
-import { envInt, requireInt } from '../../config/env';
-import type { AppStartupState, ProviderSetupRequest, ProviderSetupResult, StartupResult } from '../../types/startup';
+import { appConfig } from '../../config/appConfig';
+import type { AppStartupState, StartupResult } from '../../types/startup';
+import { modelStore } from '../providers/ModelStore';
 import { providerRepository } from '../providers/ProviderRepository';
-import { fetchJson } from './fetchJson';
+import { ApiError, BaseApiService } from './BaseApiService';
 
-const VALIDATION_TIMEOUT = requireInt('ZENITH_VALIDATION_TIMEOUT') * 1000 + 5000;
+const {
+  connectRetries: CONNECT_RETRIES,
+  initialDelayMs: CONNECT_INITIAL_DELAY_MS,
+  maxDelayMs: CONNECT_MAX_DELAY_MS,
+} = appConfig.startup;
 
-const CONNECT_RETRIES = envInt('ZENITH_STARTUP_RETRIES', 30);
-const CONNECT_INITIAL_DELAY_MS = envInt('ZENITH_STARTUP_RETRY_DELAY_MS', 250);
-const CONNECT_MAX_DELAY_MS = envInt('ZENITH_STARTUP_RETRY_MAX_DELAY_MS', 1000);
-
-export class StartupService {
+export class StartupService extends BaseApiService {
   private _state: AppStartupState = {
     phase: 'loading',
     result: null,
@@ -42,6 +43,7 @@ export class StartupService {
   }
 
   private isConnectionError(err: unknown): boolean {
+    if (err instanceof ApiError && err.code === 'network') return true;
     if (err instanceof TypeError && err.message === 'Failed to fetch') return true;
     if (err instanceof Error) {
       const m = err.message;
@@ -59,7 +61,7 @@ export class StartupService {
   private async probe(): Promise<StartupResult | null> {
     for (let attempt = 0; attempt <= CONNECT_RETRIES; attempt++) {
       try {
-        return await fetchJson<StartupResult>('/startup/validate');
+        return await this.get<StartupResult>('/startup/validate');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         if ((this.isConnectionError(err) || this.isBackendNotReady(err)) && attempt < CONNECT_RETRIES) {
@@ -88,6 +90,7 @@ export class StartupService {
 
     try {
       await providerRepository.refreshFromBackend();
+      await modelStore.hydrate();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this._state = { phase: 'error', result: null, error: message };
@@ -98,36 +101,6 @@ export class StartupService {
     this._state = { phase: result.status === 'ready' ? 'ready' : 'setup', result, error: null };
     this._notify();
     return this._state;
-  }
-
-  async validateProvider(request: ProviderSetupRequest): Promise<ProviderSetupResult> {
-    try {
-      return await fetchJson<ProviderSetupResult>('/startup/validate-provider', {
-        method: 'POST',
-        body: JSON.stringify(request),
-        timeout: VALIDATION_TIMEOUT,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      return { valid: false, provider: request.provider, model: request.model, message };
-    }
-  }
-
-  async saveProviderConfig(request: ProviderSetupRequest): Promise<ProviderSetupResult> {
-    try {
-      return await fetchJson<ProviderSetupResult>('/startup/save-config', {
-        method: 'POST',
-        body: JSON.stringify(request),
-        timeout: VALIDATION_TIMEOUT,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      return { valid: false, provider: request.provider, model: request.model, message };
-    }
-  }
-
-  async revalidateAfterSetup(): Promise<AppStartupState> {
-    return this.initialize();
   }
 }
 

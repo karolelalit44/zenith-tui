@@ -44,7 +44,9 @@ class TaskTracker:
         self._next_id += 1
         return task
 
-    def update(self, task_id: str, status: str | None = None, description: str | None = None) -> Task | None:
+    def update(
+        self, task_id: str, status: str | None = None, description: str | None = None
+    ) -> Task | None:
         """Update a task's status or description."""
         for task in self._tasks:
             if task.id == task_id:
@@ -197,4 +199,7 @@ class TodoTool(BaseTool):
             return ToolResult(success=True, output=output)
 
         else:
-            return ToolResult(success=False, error=f"Unknown action: {action}. Use 'add', 'update', 'list', or 'summary'.")
+            return ToolResult(
+                success=False,
+                error=f"Unknown action: {action}. Use 'add', 'update', 'list', or 'summary'.",
+            )

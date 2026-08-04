@@ -11,22 +11,6 @@ export interface StartupResult {
   message: string;
 }
 
-export interface ProviderSetupRequest {
-  provider: string;
-  api_key: string;
-  model: string;
-  base_url: string;
-  max_tokens: number;
-  temperature: number;
-}
-
-export interface ProviderSetupResult {
-  valid: boolean;
-  provider: string;
-  model: string;
-  message: string;
-}
-
 export interface AppStartupState {
   phase: 'loading' | 'setup' | 'ready' | 'error';
   result: StartupResult | null;

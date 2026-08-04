@@ -65,6 +65,7 @@ class RetryPolicy:
         jitter: Whether to add random jitter to the delay.
         retryable_errors: Tuple of exception types that trigger a retry.
     """
+
     max_retries: int = 3
     base_delay: float = 0.125
     max_delay: float = 60.0
@@ -94,7 +95,7 @@ class RetryPolicy:
         if isinstance(error, RateLimitError) and error.retry_after is not None:
             return min(error.retry_after, self.max_delay)
 
-        delay = self.base_delay * (2 ** attempt)
+        delay = self.base_delay * (2**attempt)
         if self.jitter:
             delay += random.uniform(0, 0.5)
         return min(delay, self.max_delay)
@@ -204,7 +205,10 @@ async def retry_stream(
                 delay = _calculate_delay(e, attempt, base_delay, max_delay)
             logger.warning(
                 "Stream retry %d/%d after %.1fs: %s",
-                attempt + 1, max_retries, delay, str(e),
+                attempt + 1,
+                max_retries,
+                delay,
+                str(e),
             )
             await asyncio.sleep(delay)
         except ProviderError:
@@ -219,7 +223,10 @@ async def retry_stream(
                 delay = _calculate_delay(e, attempt, base_delay, max_delay)
             logger.warning(
                 "Stream retry %d/%d after %.1fs: %s",
-                attempt + 1, max_retries, delay, str(e),
+                attempt + 1,
+                max_retries,
+                delay,
+                str(e),
             )
             await asyncio.sleep(delay)
 
@@ -236,5 +243,5 @@ def _calculate_delay(
     if isinstance(error, RateLimitError) and error.retry_after is not None:
         return min(error.retry_after, max_delay)
 
-    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+    delay = base_delay * (2**attempt) + random.uniform(0, 0.5)
     return min(delay, max_delay)

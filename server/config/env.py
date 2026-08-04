@@ -11,11 +11,13 @@ from dotenv import load_dotenv
 def _init_dotenv() -> None:
     try:
         from dotenv import find_dotenv
+
         env_path = find_dotenv(usecwd=True)
         if env_path:
             load_dotenv(env_path, override=False)
     except Exception:
         pass
+
 
 _init_dotenv()
 
@@ -25,8 +27,7 @@ def require_env(key: str) -> str:
     val = os.environ.get(key)
     if val is None or val.strip() == "":
         raise RuntimeError(
-            f"Required environment variable '{key}' is not set. "
-            f"Set it before starting the server."
+            f"Required environment variable '{key}' is not set. Set it before starting the server."
         )
     return val.strip()
 
@@ -48,9 +49,7 @@ def require_float(key: str) -> float:
     try:
         return float(val)
     except ValueError:
-        raise RuntimeError(
-            f"Environment variable '{key}' must be a float, got: {val!r}"
-        ) from None
+        raise RuntimeError(f"Environment variable '{key}' must be a float, got: {val!r}") from None
 
 
 def optional_int(key: str, default: int) -> int:

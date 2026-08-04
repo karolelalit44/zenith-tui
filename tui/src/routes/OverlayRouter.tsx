@@ -1,17 +1,16 @@
 import { Box } from 'ink';
 import React from 'react';
+import { ModelPickerFlow } from '../components/Model/ModelPickerFlow';
 import type { OverlayType } from '../hooks/useOverlayManager';
 import { ContextModal } from '../screens/Context/ContextModal';
 import { HelpModal } from '../screens/Help/HelpModal';
 import { ModeSelectScreen } from '../screens/ModeSelect';
-import { ModelPicker } from '../screens/Provider/ModelPicker';
 import { ProviderFlow } from '../screens/Provider/ProviderFlow';
+import { SessionBrowserModal } from '../screens/Session/SessionBrowserModal';
 import { SettingsModal } from '../screens/Settings/SettingsModal';
 import UsageModal from '../screens/Usage/UsageModal';
 import type { TokenUsageStats } from '../services/api/TokenUsageService';
-import { modelStore } from '../services/providers/ModelStore';
-import { providerRepository } from '../services/providers/ProviderRepository';
-import { providerService } from '../services/providers/ProviderService';
+import type { SessionSummary } from '../services/transport/WebSocketClient';
 import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
 
 interface OverlayRouterProps {
@@ -24,6 +23,8 @@ interface OverlayRouterProps {
   onSelectMode: (mode: ScenarioMode) => void;
   onClose: () => void;
   onComplete: () => void;
+  onOpenProvider?: () => void;
+  onResumeSession?: (sessionId: string, summary: SessionSummary) => void;
 }
 
 export const OverlayRouter: React.FC<OverlayRouterProps> = ({
@@ -35,6 +36,8 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
   onSelectMode,
   onClose,
   onComplete,
+  onOpenProvider,
+  onResumeSession,
 }) => {
   if (!isOverlayOpen) return null;
 
@@ -67,21 +70,23 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
       )}
       {overlay === 'models' && (
         <Box flexDirection="column" marginTop={1} width="100%">
-          <ModelPicker
-            onSelect={(sel) => {
-              void providerRepository.setModel(sel.providerID, sel.modelID).then(() => {
-                modelStore.set(sel);
-                providerService.notifyChange();
-              });
-              onClose();
-            }}
-            onClose={onClose}
-          />
+          <ModelPickerFlow onClose={onClose} onOpenProvider={onOpenProvider} />
         </Box>
       )}
       {overlay === 'usage' && (
         <Box flexDirection="column" marginTop={1} width="100%">
           <UsageModal onClose={onClose} />
+        </Box>
+      )}
+      {overlay === 'session' && (
+        <Box flexDirection="column" marginTop={1} width="100%">
+          <SessionBrowserModal
+            onClose={onClose}
+            onResume={(id, summary) => {
+              onResumeSession?.(id, summary);
+              onClose();
+            }}
+          />
         </Box>
       )}
     </>
