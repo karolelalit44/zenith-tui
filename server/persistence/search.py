@@ -55,13 +55,22 @@ class SearchRepository:
         return hits
 
     async def index_parity(self) -> dict:
-        msg_count = await self.db.fetch_one("SELECT COUNT(*) AS n FROM messages")
+        from sqlalchemy import func, select
+
+        from server.persistence.models import MessageRecord, SessionRecord
+
+        async with self.db.session() as s:
+            msg_count = (
+                await s.execute(select(func.count()).select_from(MessageRecord))
+            ).scalar() or 0
+            sess_count = (
+                await s.execute(select(func.count()).select_from(SessionRecord))
+            ).scalar() or 0
         fts_count = await self.db.fetch_one("SELECT COUNT(*) AS n FROM message_fts")
-        sess_count = await self.db.fetch_one("SELECT COUNT(*) AS n FROM sessions")
         sess_fts_count = await self.db.fetch_one("SELECT COUNT(*) AS n FROM session_fts")
         return {
-            "messages": msg_count["n"] if msg_count else 0,
+            "messages": msg_count,
             "message_fts": fts_count["n"] if fts_count else 0,
-            "sessions": sess_count["n"] if sess_count else 0,
+            "sessions": sess_count,
             "session_fts": sess_fts_count["n"] if sess_fts_count else 0,
         }

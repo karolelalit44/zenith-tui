@@ -10,11 +10,6 @@ logger = logging.getLogger(__name__)
 _question_callback: Callable[[str, list[str]], Awaitable[str]] | None = None
 
 
-def set_question_callback(callback: Callable[[str, list[str]], Awaitable[str]] | None) -> None:
-    global _question_callback
-    _question_callback = callback
-
-
 class QuestionTool(BaseTool):
     name = "question"
     description = "Ask user interactive question"

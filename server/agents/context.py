@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from server.config.constants import CONTEXT_SUMMARY_THRESHOLD
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.persistence.repositories import load_catalog
@@ -37,7 +38,7 @@ def _adaptive_reserve(model: str, context_window: int) -> int:
 
 def _adaptive_summary_threshold(model: str, context_window: int) -> float:
     if context_window >= 200000:
-        return 0.85
+        return CONTEXT_SUMMARY_THRESHOLD
     if context_window >= 32000:
         return 0.8
     return 0.75

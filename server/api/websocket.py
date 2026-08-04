@@ -14,7 +14,6 @@ from server.toolkit import create_default_registry
 from server.toolkit.middleware import PermissionMiddleware
 from server.toolkit.registry import ToolRegistry
 
-from ..agents.prompt_executor import PromptExecutor
 from .handlers import MethodHandlers
 from .protocol import Connection, JsonRpcRequest, TransportService, make_error_response, make_event
 
@@ -166,9 +165,6 @@ class ConnectionManager(TransportService):
         )
         return len(new_events)
 
-    def get_sequence(self, session_id: str) -> int:
-        return self._sequences.get(session_id, 0)
-
 
 class ZenithHandler:
     def __init__(
@@ -205,14 +201,6 @@ class ZenithHandler:
         self.manager = ConnectionManager()
         self.handlers = MethodHandlers(config, db, registry, self.tool_registry)
         self.handlers._permission_service = self.permission_service
-        self._executor = PromptExecutor(
-            config,
-            registry.get(config.active_provider),
-            self.tool_registry,
-            self.handlers.session_repo,
-            self.handlers.message_repo,
-            self.handlers.skill_loader,
-        )
         self.handlers.manager = self.manager
         self._session_service = DefaultSessionService(
             session_repo=SessionRepository(db),
@@ -229,15 +217,6 @@ class ZenithHandler:
 
     def _reload_config(self) -> None:
         self.handlers.reload_config()
-        self._executor = PromptExecutor(
-            self.handlers.config,
-            self.handlers.registry.get(self.handlers.config.active_provider),
-            self.tool_registry,
-            self.handlers.session_repo,
-            self.handlers.message_repo,
-            self.handlers.skill_loader,
-        )
-        self.handlers._shared_executor = self._executor
 
     @property
     def session_repo(self):

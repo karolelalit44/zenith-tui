@@ -134,12 +134,6 @@ class Database:
         result = await self.execute(sql, params)
         return [dict(r) for r in result.mappings().all()]
 
-    async def executemany(self, sql: str, rows: list[tuple]) -> bool:
-        conn = await self._ensure_connection()
-        for row in rows:
-            await conn.exec_driver_sql(sql, row)
-        return True
-
     async def commit(self):
         conn = await self._ensure_connection()
         await conn.commit()

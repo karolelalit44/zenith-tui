@@ -59,22 +59,6 @@ class Session(BaseModel):
         self.total_tokens += tokens
         self.total_cost += cost
 
-    def record_error(self, error: str) -> None:
-        self.error_count += 1
-        self.last_error = error
-
-    def to_legacy_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "mode": self.mode.value,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "workspace_root": self.workspace_root,
-            "is_active": self.is_active,
-            "metadata": self.metadata,
-        }
-
     def to_summary_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,

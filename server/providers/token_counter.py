@@ -84,11 +84,6 @@ class TokenCounter:
         total += _REPLY_PRIMING
         return total
 
-    def fallback_usage(self, prompt: str, completion: str, model: str) -> tuple[int, int]:
-        inp = self.count(prompt, model) if prompt else 0
-        out = self.count(completion, model) if completion else 0
-        return (inp, out)
-
     @staticmethod
     def _count_heuristic(text: str) -> int:
         return max(1, len(text) // 4)

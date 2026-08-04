@@ -40,7 +40,6 @@ from .errors import (
 )
 from .events import AsyncEventBus, Event, EventBus, EventKind, Subscription, make_event
 from .message import Message, ToolCall
-from .message import ToolResult as MessageToolResult
 from .session import Session
 from .session import SessionState as SessionLifecycle
 
@@ -66,7 +65,6 @@ __all__ = [
     "McpHandshakeFailed",
     "McpNotConnected",
     "Message",
-    "MessageToolResult",
     "ModelNotFoundError",
     "PermissionDecision",
     "PermissionDenied",

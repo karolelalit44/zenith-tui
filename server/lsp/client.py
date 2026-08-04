@@ -189,25 +189,11 @@ class LspClient:
         await self._send_notification("textDocument/didOpen", params)
         self._open_files.add(uri)
 
-    async def did_change(self, file_path: str, content: str, version: int | None = None) -> None:
-        uri = Path(file_path).as_uri()
-        ver = version or len(self._open_files) + 1
-        params = {
-            "textDocument": {"uri": uri, "version": ver},
-            "contentChanges": [{"text": content}],
-        }
-        await self._send_notification("textDocument/didChange", params)
-
     async def did_close(self, file_path: str) -> None:
         uri = Path(file_path).as_uri()
         params = {"textDocument": {"uri": uri}}
         await self._send_notification("textDocument/didClose", params)
         self._open_files.discard(uri)
-
-    async def did_save(self, file_path: str, content: str) -> None:
-        uri = Path(file_path).as_uri()
-        params = {"textDocument": {"uri": uri}, "text": content}
-        await self._send_notification("textDocument/didSave", params)
 
     async def get_diagnostics(self, file_path: str, content: str) -> list[dict]:
         language_id = get_language_id(file_path)
@@ -276,35 +262,6 @@ class LspClient:
                     }
                 )
         return definitions
-
-    async def goto_references(
-        self, file_path: str, content: str, line: int, character: int
-    ) -> list[dict]:
-        language_id = get_language_id(file_path)
-        await self.did_open(file_path, language_id, content)
-        uri = Path(file_path).as_uri()
-        params = {
-            "textDocument": {"uri": uri},
-            "position": {"line": line, "character": character},
-            "context": {"includeDeclaration": True},
-        }
-        try:
-            result = await self._send_request("textDocument/references", params, timeout=10.0)
-        except Exception:
-            result = None
-        await self.did_close(file_path)
-        if result is None:
-            return []
-        references = []
-        for loc in result if isinstance(result, list) else []:
-            references.append(
-                {
-                    "file": _uri_to_path(loc.get("uri", "")),
-                    "line": loc.get("range", {}).get("start", {}).get("line", 0),
-                    "character": loc.get("range", {}).get("start", {}).get("character", 0),
-                }
-            )
-        return references
 
     async def rename(
         self, file_path: str, content: str, line: int, character: int, new_name: str

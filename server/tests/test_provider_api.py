@@ -108,6 +108,10 @@ def test_get_provider_list_after_auth_and_model(tmp_path):
 
 
 async def test_ensure_seeded_reconcile(tmp_path):
+    from sqlalchemy import select
+
+    from server.persistence.models import ProviderModelRecord, ProviderRecord
+
     db_file = str(tmp_path / "test.db")
     _bootstrap_db(db_file)
     db = Database(db_file)
@@ -117,13 +121,29 @@ async def test_ensure_seeded_reconcile(tmp_path):
         await repo.ensure_seeded()
         catalog = load_catalog(db_file)
         expected = list(catalog["providers"].keys())
-        providers = await repo.list_providers()
+
+        async def _provider_map():
+            async with db.session() as s:
+                providers = (await s.execute(select(ProviderRecord))).scalars().all()
+                result = {}
+                for rec in providers:
+                    models = (
+                        await s.execute(
+                            select(ProviderModelRecord).where(
+                                ProviderModelRecord.provider_id == rec.id
+                            )
+                        )
+                    ).scalars().all()
+                    result[rec.id] = {"id": rec.id, "models": [m.id for m in models]}
+                return result
+
+        providers = await _provider_map()
         assert sorted(providers.keys()) == sorted(expected)
         for pid in expected:
             assert providers[pid]["models"], f"provider {pid} has no seeded models"
         before = {pid: len(p["models"]) for pid, p in providers.items()}
         await repo.ensure_seeded()
-        providers2 = await repo.list_providers()
+        providers2 = await _provider_map()
         assert sorted(providers2.keys()) == sorted(expected)
         assert {pid: len(p["models"]) for pid, p in providers2.items()} == before
     finally:

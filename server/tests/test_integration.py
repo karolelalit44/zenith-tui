@@ -18,7 +18,6 @@ from server.sessions.export import SessionExporter
 from server.skills.loader import SkillLoader
 from server.toolkit import create_default_registry
 from server.workspace.repo_map import RepoMap
-from server.workspace.tracker import FileTracker
 
 
 class EchoProvider(BaseProvider):
@@ -292,17 +291,6 @@ class TestSkillLoader:
         assert "Loaded Skills" in prompt
         assert "skills/test-skill/SKILL.md" in prompt
         assert "long body that must not be embedded verbatim" not in prompt
-
-
-class TestFileTrackerIntegration:
-    def test_tracks_tool_operations(self):
-        tracker = FileTracker(".")
-        tracker.track("new.py", "create", "print('hello')")
-        tracker.track("old.py", "edit", "old content")
-        tracker.track("del.py", "delete")
-        assert tracker.has_changes()
-        assert len(tracker.get_changed_files()) == 3
-        assert "create" in tracker.get_summary()
 
 
 class TestGracefulShutdown:

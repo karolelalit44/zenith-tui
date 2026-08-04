@@ -88,34 +88,3 @@ class ModelInfo(BaseModel):
     edit_format: str = "tool"
 
 
-class ProviderService(ABC):
-    @property
-    @abstractmethod
-    def name(self) -> str: ...
-
-    @property
-    @abstractmethod
-    def model(self) -> str: ...
-
-    @abstractmethod
-    async def complete(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-    ) -> ProviderResponse: ...
-
-    @abstractmethod
-    async def stream(
-        self, messages: list[dict], tools: list[dict] | None = None
-    ) -> AsyncIterator[ProviderChunk]: ...
-
-    @abstractmethod
-    async def validate(self) -> bool: ...
-
-    @abstractmethod
-    async def list_models(self) -> list[ModelInfo]: ...
-
-    @abstractmethod
-    def count_tokens(self, messages: list[dict]) -> int: ...

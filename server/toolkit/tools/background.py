@@ -4,7 +4,6 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +20,6 @@ class BackgroundJob:
     done: bool = False
     exit_code: int | None = None
     error: Exception | None = None
-
-    def is_running(self) -> bool:
-        return not self.done and self.process.returncode is None
 
 
 class BackgroundJobManager:
@@ -101,26 +97,6 @@ class BackgroundJobManager:
 
     def remove(self, job_id: str) -> bool:
         return self._jobs.pop(job_id, None) is not None
-
-    def list_jobs(self) -> list[dict[str, Any]]:
-        result = []
-        for job_id, job in self._jobs.items():
-            result.append(
-                {
-                    "id": job_id,
-                    "command": job.command,
-                    "description": job.description,
-                    "done": job.done,
-                    "exit_code": job.exit_code,
-                }
-            )
-        return result
-
-    def cleanup_completed(self) -> int:
-        to_remove = [job_id for job_id, job in self._jobs.items() if job.done]
-        for job_id in to_remove:
-            del self._jobs[job_id]
-        return len(to_remove)
 
 
 _background_manager: BackgroundJobManager | None = None

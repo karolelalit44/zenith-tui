@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -12,7 +11,6 @@ from pydantic import BaseModel, Field
 from server.domain.domain import PermissionDecision, RiskLevel
 
 logger = logging.getLogger(__name__)
-PermissionCallback = Callable[["PermissionRequest"], PermissionDecision]
 
 
 class PermissionRequest(BaseModel):
@@ -53,8 +51,6 @@ class PermissionService:
 
     async def clear_session(self, session_id: str) -> None: ...
 
-    def set_callback(self, callback: PermissionCallback) -> None: ...
-
     async def get_decision(self, tool_name: str, session_id: str) -> PermissionDecision | None:
         pass
 
@@ -63,7 +59,6 @@ class DefaultPermissionService(PermissionService):
     def __init__(self, repo=None) -> None:
         self._grants: list[PermissionGrant] = []
         self._repo = repo
-        self._callback: PermissionCallback | None = None
         self._pending: dict[str, asyncio.Future[PermissionDecision]] = {}
         self._load_started = False
 
@@ -80,9 +75,6 @@ class DefaultPermissionService(PermissionService):
     async def refresh(self) -> None:
         self._load_started = False
         await self._ensure_loaded()
-
-    def set_callback(self, callback: PermissionCallback) -> None:
-        self._callback = callback
 
     async def get_decision(self, tool_name: str, session_id: str) -> PermissionDecision | None:
         await self._ensure_loaded()

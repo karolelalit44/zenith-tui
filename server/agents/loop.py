@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
+from server.config.constants import CONTEXT_SUMMARY_THRESHOLD
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.domain import FinishReason
 from server.domain.errors import ZenithError
@@ -271,7 +272,7 @@ class AgentLoop:
                 if task_completed:
                     post_comp_iterations += 1
                 token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                if token_info.percent > 0.85:
+                if token_info.percent > CONTEXT_SUMMARY_THRESHOLD:
                     logger.warning(
                         "Context window %.1f%% full — summarizing", token_info.percent * 100
                     )

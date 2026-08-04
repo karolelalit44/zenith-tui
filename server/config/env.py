@@ -38,14 +38,6 @@ def require_int(key: str) -> int:
         ) from None
 
 
-def require_float(key: str) -> float:
-    val = require_env(key)
-    try:
-        return float(val)
-    except ValueError:
-        raise RuntimeError(f"Environment variable '{key}' must be a float, got: {val!r}") from None
-
-
 def optional_int(key: str, default: int) -> int:
     val = os.environ.get(key, "").strip()
     if not val:

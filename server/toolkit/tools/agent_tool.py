@@ -19,9 +19,6 @@ class SubAgentTool(BaseTool):
     def __init__(self, provider: Any | None = None) -> None:
         self._provider = provider
 
-    def set_provider(self, provider: Any) -> None:
-        self._provider = provider
-
     def get_schema(self) -> dict:
         return {
             "type": "object",

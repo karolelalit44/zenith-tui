@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
-from collections.abc import Awaitable, Callable
 
 from server.agents.validation import (
     check_python_syntax,
@@ -14,7 +13,6 @@ from server.agents.validation import (
 from server.domain.events import Event
 from server.providers import responder as r
 from server.toolkit.base import ToolResult
-from server.toolkit.command_safety import assess_command
 from server.toolkit.registry import ToolRegistry
 from server.workspace.git import GitOps
 
@@ -134,22 +132,6 @@ def check_self_delete(tool_name: str, tool_params: dict, created_files: set[str]
     return None
 
 
-async def confirm_risky_command(
-    tool_params: dict, confirm_callback: Callable[[str, str, str], Awaitable[bool]]
-) -> bool:
-    command = tool_params.get("command", "")
-    assessment = assess_command(command)
-    if not assessment.is_risky:
-        return True
-    logger.info(
-        "RISKY COMMAND: '%s' reason=%s level=%s", command, assessment.reason, assessment.risk_level
-    )
-    try:
-        return await confirm_callback("bash", assessment.reason, assessment.risk_level)
-    except Exception:
-        return False
-
-
 async def execute_tool(
     tool_registry: ToolRegistry,
     tool_name: str,
@@ -225,9 +207,3 @@ def auto_commit(workspace_root: str, files: list[str]) -> None:
                 logger.debug("AUTO-COMMIT skipped: %s", result.get("error", "unknown"))
     except Exception as e:
         logger.debug("AUTO-COMMIT failed: %s", e)
-
-
-async def reject_tool(tool_name: str, reason: str, session_id: str) -> tuple[Event, str]:
-    warning = r.warning(f"Tool '{tool_name}' rejected: {reason}", session_id)
-    feedback = f"[Tool rejected] {reason} Please provide the actual content, not a placeholder."
-    return (warning, feedback)

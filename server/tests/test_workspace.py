@@ -4,7 +4,6 @@ import pytest
 
 from server.workspace.git import GitOps
 from server.workspace.repo_map import RepoMap
-from server.workspace.tracker import FileTracker
 
 
 def _has_git() -> bool:
@@ -130,51 +129,6 @@ class TestGitOps:
         assert len(log) >= 1
         assert log[0]["message"] == "First commit"
 
-
-class TestFileTracker:
-    def test_track_file(self):
-        tracker = FileTracker(".")
-        tracker.track("test.py", "create")
-        assert tracker.has_changes()
-        assert "test.py" in tracker.get_changed_files()
-
-    def test_track_multiple(self):
-        tracker = FileTracker(".")
-        tracker.track("a.py", "create")
-        tracker.track("b.py", "edit")
-        assert len(tracker.get_changed_files()) == 2
-
-    def test_get_summary(self):
-        tracker = FileTracker(".")
-        tracker.track("a.py", "create")
-        tracker.track("b.py", "create")
-        summary = tracker.get_summary()
-        assert "2" in summary
-        assert "create" in summary
-
-    def test_empty_summary(self):
-        tracker = FileTracker(".")
-        assert tracker.get_summary() == "No files changed."
-
-    def test_clear(self):
-        tracker = FileTracker(".")
-        tracker.track("a.py", "create")
-        tracker.clear()
-        assert not tracker.has_changes()
-
-    def test_get_files_by_operation(self):
-        tracker = FileTracker(".")
-        tracker.track("a.py", "create")
-        tracker.track("b.py", "edit")
-        creates = tracker.get_files_by_operation("create")
-        assert creates == ["a.py"]
-
-    def test_content_capped(self):
-        tracker = FileTracker(".")
-        big_content = "x" * 20000
-        tracker.track("big.txt", "create", big_content)
-        changes = tracker.get_changes()
-        assert len(changes["big.txt"]["content"]) <= 10000
 
 
 class TestRepoMap:

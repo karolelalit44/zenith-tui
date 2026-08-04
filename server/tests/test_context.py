@@ -1,7 +1,6 @@
 from server.agents.context import ContextManager, TokenInfo
 from server.config.settings import AppSettings
 from server.domain.message import Message, ToolCall
-from server.sessions.history import HistoryManager
 
 
 class TestContextManager:
@@ -108,35 +107,6 @@ class TestContextManager:
         ctx = ContextManager(config)
         tokens = ctx.count_tokens("Hello, World!", "gpt-4")
         assert tokens > 0
-
-
-class TestHistoryManager:
-    def test_get_recent_messages(self):
-        messages = [
-            Message(session_id="s1", role="user", content=f"Message {i}") for i in range(20)
-        ]
-        recent = HistoryManager.get_recent_messages(messages, count=5)
-        assert len(recent) == 5
-        assert recent[0].content == "Message 15"
-        assert recent[-1].content == "Message 19"
-
-    def test_get_recent_messages_fewer_than_count(self):
-        messages = [Message(session_id="s1", role="user", content="Hello")]
-        recent = HistoryManager.get_recent_messages(messages, count=10)
-        assert len(recent) == 1
-
-    def test_fallback_summary(self):
-        messages = [
-            Message(session_id="s1", role="user", content="Hello"),
-            Message(session_id="s1", role="assistant", content="Hi there!"),
-        ]
-        summary = HistoryManager._fallback_summary(messages)
-        assert "Hello" in summary
-        assert "Hi there!" in summary
-
-    def test_fallback_summary_empty(self):
-        summary = HistoryManager._fallback_summary([])
-        assert summary == "No prior context available."
 
 
 class _FakeUsageProvider:

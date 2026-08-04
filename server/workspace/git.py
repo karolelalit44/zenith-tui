@@ -114,10 +114,6 @@ class GitOps:
         code, stdout, stderr = self._run("diff", "--cached")
         return stdout if code == 0 else stderr
 
-    def diffstat(self) -> str:
-        code, stdout, stderr = self._run("diff", "--stat")
-        return stdout if code == 0 else stderr
-
     def log(self, count: int = 10) -> list[dict]:
         code, stdout, _stderr = self._run(
             "log", f"--max-count={count}", "--pretty=format:%H|%s|%an|%ai"

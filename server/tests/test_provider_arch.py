@@ -10,7 +10,6 @@ from server.providers.base import (
     ToolCallDelta,
 )
 from server.providers.registry import ProviderRegistry
-from server.providers.retry import RetryPolicy
 
 
 class TestProviderResponse:
@@ -85,33 +84,3 @@ class TestProviderRegistry:
             reg.require("nonexistent")
 
 
-class TestRetryPolicy:
-    def test_default_policy(self):
-        p = RetryPolicy()
-        assert p.max_retries == 3
-        assert p.base_delay > 0
-
-    def test_from_env(self):
-        p = RetryPolicy.from_env()
-        assert p.max_retries >= 1
-
-    def test_for_stream(self):
-        p = RetryPolicy.for_stream()
-        assert p.max_retries >= 1
-
-    def test_calculate_delay(self):
-        p = RetryPolicy(base_delay=1.0, max_delay=10.0)
-        err = TimeoutError("timeout")
-        d0 = p.calculate_delay(err, 0)
-        d1 = p.calculate_delay(err, 1)
-        d2 = p.calculate_delay(err, 2)
-        assert d0 <= d1 <= d2 + 0.5
-        assert d2 <= 10.0
-
-    def test_calculate_delay_rate_limit(self):
-        from server.domain.errors import RateLimitError
-
-        p = RetryPolicy(base_delay=1.0, max_delay=10.0)
-        err = RateLimitError("rate limited", retry_after=3.0)
-        d = p.calculate_delay(err, 0)
-        assert d == 3.0

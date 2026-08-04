@@ -6,7 +6,7 @@ from server.config.providers import ProviderConfig
 from server.domain.errors import ConfigError
 from server.persistence.repositories import load_catalog
 
-from .base import BaseProvider, ProviderService
+from .base import BaseProvider
 from .llm_provider import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -40,20 +40,6 @@ def _resolve_model_defaults(provider_name: str, model_id: str) -> dict[str, floa
     return {"max_tokens": int(max_tokens), "temperature": float(temperature)}
 
 
-def get_model_capabilities(provider_name: str, model_id: str) -> dict:
-    info = _get_model_info(provider_name, model_id)
-    return {
-        "thinking": info.get("model_capabilities", {}).get("thinking", False),
-        "reasoning": info.get("model_capabilities", {}).get("reasoning", False),
-        "function_calling": info.get("model_capabilities", {}).get("function_calling", True),
-        "structured_output": info.get("model_capabilities", {}).get("structured_output", False),
-        "context_window": info.get("context_window", 128000),
-        "speed_tier": info.get("speed_tier", "moderate"),
-        "tags": info.get("tags", []),
-        "best_for": info.get("best_for", []),
-    }
-
-
 class ProviderRegistry:
     def __init__(self):
         self._providers: dict[str, BaseProvider] = {}
@@ -72,23 +58,8 @@ class ProviderRegistry:
             )
         return provider
 
-    def get_typed(self, name: str) -> ProviderService | None:
-        provider = self._providers.get(name)
-        if isinstance(provider, ProviderService):
-            return provider
-        return None
-
-    def require_typed(self, name: str) -> ProviderService:
-        provider = self.get_typed(name)
-        if provider is None:
-            raise ConfigError(f"Provider '{name}' does not implement ProviderService")
-        return provider
-
     def list_providers(self) -> list[str]:
         return list(self._providers.keys())
-
-    def list_typed(self) -> dict[str, ProviderService]:
-        return {name: p for name, p in self._providers.items() if isinstance(p, ProviderService)}
 
     @classmethod
     def from_config(

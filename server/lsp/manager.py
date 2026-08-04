@@ -32,9 +32,6 @@ class LspManager:
         all_servers = {**DEFAULT_SERVERS, **self._custom_servers}
         return all_servers.get(ext)
 
-    def supports_file(self, file_path: str) -> bool:
-        return self.get_server_for_file(file_path) is not None
-
     def _get_server_name(self, file_path: str) -> str | None:
         config = self.get_server_for_file(file_path)
         if config is None:
@@ -74,18 +71,6 @@ class LspManager:
             logger.warning("Failed to start LSP server '%s': %s", server_name, e)
             await client.stop()
             return None
-
-    async def shutdown_all(self) -> None:
-        for name, client in list(self._clients.items()):
-            try:
-                await client.stop()
-            except Exception as e:
-                logger.warning("Error stopping LSP '%s': %s", name, e)
-        self._clients.clear()
-
-    def active_servers(self) -> list[str]:
-        return [name for name, c in self._clients.items() if c.initialized]
-
 
 _manager: LspManager | None = None
 

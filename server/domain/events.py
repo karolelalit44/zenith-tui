@@ -113,14 +113,6 @@ class EventBus:
 
     def unsubscribe(self, subscription_id: str) -> None: ...
 
-    async def get_persistent_events(
-        self, session_id: str, since: float | None = None
-    ) -> list[Event]: ...
-
-    @property
-    def dropped_count(self) -> int:
-        return 0
-
 
 class AsyncEventBus(EventBus):
     def __init__(self, buffer_size: int = 4096) -> None:
@@ -158,15 +150,6 @@ class AsyncEventBus(EventBus):
                 entry.queue.put_nowait(None)
             except asyncio.QueueFull:
                 pass
-
-    async def get_persistent_events(
-        self, session_id: str, since: float | None = None
-    ) -> list[Event]:
-        return []
-
-    @property
-    def dropped_count(self) -> int:
-        return self._dropped
 
     def _matches(self, entry: _SubscriptionEntry, event: Event) -> bool:
         if entry.event_type is not None and event.kind != entry.event_type:

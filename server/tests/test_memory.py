@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
 from server.agents.context import ContextManager
 from server.config.settings import AppSettings
-from server.domain.message import Message
-from server.providers.base import BaseProvider
-from server.sessions.history import HistoryManager
 from server.sessions.memory import MemoryStore
 
 
@@ -56,62 +51,6 @@ class TestMemoryStore:
         store.append("s-1", "   ")
         assert not (store.dir / "s-1.md").exists()
         assert store.load() == ""
-
-
-class TestSummarizeMemoryDedup:
-    class SummaryProvider(BaseProvider):
-        def __init__(self):
-            super().__init__("test", "test-model")
-
-        async def complete(self, messages, tools=None) -> str:
-            return "KEY DECISION: the auth token must be rotated daily."
-
-        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-            response = await self.complete(messages)
-            for char in response:
-                yield (char, None)
-
-        async def validate(self) -> bool:
-            return True
-
-        async def list_models(self) -> list[str]:
-            return ["test-model"]
-
-    @pytest.mark.asyncio
-    async def test_summarize_does_not_duplicate_into_memory(self, temp_dir):
-        config = AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
-        msgs = [
-            Message(session_id="s1", role="user", content="build auth"),
-            Message(session_id="s1", role="assistant", content="done"),
-        ]
-        hm = HistoryManager(config, self.SummaryProvider())
-        summary = await hm.summarize(msgs, "test-model", session_id="s1")
-        assert "auth token" in summary
-        assert not (temp_dir / "memory" / "s1.md").exists()
-
-    @pytest.mark.asyncio
-    async def test_no_context_fallback_not_persisted(self, temp_dir):
-        class EmptyProvider(BaseProvider):
-            def __init__(self):
-                super().__init__("test", "test-model")
-
-            async def complete(self, messages, tools=None) -> str:
-                raise RuntimeError("down")
-
-            async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-                return
-                yield
-
-            async def validate(self) -> bool:
-                return True
-
-            async def list_models(self) -> list[str]:
-                return ["test-model"]
-
-        config = AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
-        hm = HistoryManager(config, EmptyProvider())
-        await hm.summarize([], "test-model", session_id="s1")
-        assert not (temp_dir / "memory" / "s1.md").exists()
 
 
 class TestMemoryInContext:

@@ -14,9 +14,6 @@ class ZenithError(Exception):
         self.recoverable = recoverable
         self.cause = cause
 
-    def to_dict(self) -> dict:
-        return {"error": str(self), "code": self.code, "recoverable": self.recoverable}
-
 
 class ConfigError(ZenithError):
     def __init__(self, message: str, cause: Exception | None = None):
@@ -222,17 +219,6 @@ class PersistenceError(ZenithError):
         super().__init__(message, code="PERSISTENCE_ERROR", recoverable=recoverable, cause=cause)
         self.operation = operation
         self.table = table
-
-
-class PersistenceUnavailableError(PersistenceError):
-    def __init__(
-        self,
-        message: str = "Database unavailable",
-        operation: str = "",
-        cause: Exception | None = None,
-    ):
-        super().__init__(message, operation=operation, recoverable=True, cause=cause)
-        self.code = "PERSISTENCE_UNAVAILABLE"
 
 
 class PersistenceOperationError(PersistenceError):

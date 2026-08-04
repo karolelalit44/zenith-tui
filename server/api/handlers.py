@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from fastapi import WebSocket
 
 import server.providers.responder as r
+from server.config.constants import DEFAULT_BASH_TIMEOUT
 from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
@@ -71,7 +72,6 @@ class MethodHandlers:
         self.exporter = SessionExporter()
         self._pending_confirmations: dict[str, asyncio.Future[bool]] = {}
         self.manager = None
-        self._shared_executor = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
 
@@ -745,7 +745,7 @@ class MethodHandlers:
         )
         await manager.send_event(session_id, event)
         try:
-            return await asyncio.wait_for(future, timeout=120)
+            return await asyncio.wait_for(future, timeout=DEFAULT_BASH_TIMEOUT)
         except TimeoutError:
             self._pending_confirmations.pop(confirmation_id, None)
             return False

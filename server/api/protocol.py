@@ -1,35 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from server.domain.events import Event
-
-
-class JsonRpcMethod(StrEnum):
-    SESSION_CREATE = "session.create"
-    SESSION_LIST = "session.list"
-    SESSION_RESUME = "session.resume"
-    SESSION_EXPORT = "session.export"
-    SESSION_SEARCH = "session.search"
-    PROMPT_SEND = "prompt.send"
-    PROMPT_CANCEL = "prompt.cancel"
-    PROVIDER_VALIDATE = "provider.validate"
-    PROVIDER_MODELS = "provider.models"
-    PROVIDER_LIST = "provider.list"
-    TOOLS_LIST = "tools.list"
-    WORKSPACE_STATUS = "workspace.status"
-    WORKSPACE_DIFF = "workspace.diff"
-    WORKSPACE_LOG = "workspace.log"
-    WORKSPACE_REPO_MAP = "workspace.repo_map"
-    PERMISSION_RESPONSE = "permission.response"
-    PERMISSION_GRANT = "permission.grant"
-    PERMISSION_REVOKE = "permission.revoke"
-    PERMISSION_LIST = "permission.list"
-    HEALTH = "health"
 
 
 class JsonRpcRequest(BaseModel):

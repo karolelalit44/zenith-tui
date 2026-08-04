@@ -2,7 +2,6 @@ import pytest
 
 from server.api.protocol import (
     Connection,
-    JsonRpcMethod,
     JsonRpcRequest,
     JsonRpcResponse,
     TransportService,
@@ -12,35 +11,6 @@ from server.api.protocol import (
 )
 from server.api.websocket import ConnectionManager
 from server.domain.events import Event, EventKind
-
-
-class TestJsonRpcMethod:
-    def test_all_methods_exist(self):
-        methods = [
-            "session.create",
-            "session.list",
-            "session.resume",
-            "session.export",
-            "prompt.send",
-            "prompt.cancel",
-            "provider.validate",
-            "provider.models",
-            "provider.list",
-            "tools.list",
-            "workspace.status",
-            "workspace.diff",
-            "workspace.log",
-            "workspace.repo_map",
-            "permission.response",
-            "health",
-        ]
-        for m in methods:
-            assert JsonRpcMethod(m) is not None
-
-    def test_method_values_are_strings(self):
-        for m in JsonRpcMethod:
-            assert isinstance(m.value, str)
-            assert len(m.value) > 0
 
 
 class TestJsonRpcRequest:

@@ -43,12 +43,6 @@ class TaskTracker:
     def get_all(self) -> list[Task]:
         return self._tasks.copy()
 
-    def get_pending(self) -> list[Task]:
-        return [t for t in self._tasks if t.status in ("pending", "in_progress")]
-
-    def get_completed(self) -> list[Task]:
-        return [t for t in self._tasks if t.status == "completed"]
-
     def format_summary(self) -> str:
         if not self._tasks:
             return "No tasks tracked."

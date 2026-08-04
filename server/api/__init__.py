@@ -3,7 +3,6 @@ import os
 
 from .protocol import (
     Connection,
-    JsonRpcMethod,
     JsonRpcNotification,
     JsonRpcRequest,
     JsonRpcResponse,
@@ -27,7 +26,6 @@ for _noisy in ("aiosqlite", "sqlalchemy.engine", "sqlalchemy.engine.Engine", "Li
 __all__ = [
     "Connection",
     "ConnectionManager",
-    "JsonRpcMethod",
     "JsonRpcNotification",
     "JsonRpcRequest",
     "JsonRpcResponse",

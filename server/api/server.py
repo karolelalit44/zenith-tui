@@ -281,19 +281,6 @@ async def token_usage_stats(since: str | None = None, until: str | None = None):
         return {"models": [], "totals": {}}
 
 
-@app.get("/usage/token-stats/{session_id}")
-async def token_usage_session(session_id: str):
-    if _handler is None:
-        return {"usage": []}
-    try:
-        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
-        usage = await repo.get_session_token_usage(session_id)
-        return {"usage": usage}
-    except Exception as e:
-        logger.warning("Failed to fetch session token usage: %s", e)
-        return {"usage": []}
-
-
 @app.get("/usage/cost-summary")
 async def token_cost_summary(period: str = "all"):
     if _handler is None:
@@ -363,19 +350,6 @@ async def token_usage_efficiency(session_id: str):
     except Exception as e:
         logger.warning("Failed to fetch efficiency: %s", e)
         return {}
-
-
-@app.post("/usage/seed-pricing")
-async def seed_pricing():
-    if _handler is None:
-        return {"ok": False}
-    try:
-        repo = TokenUsageRepository(_handler.handlers.session_repo.db)
-        await repo.seed_pricing()
-        return {"ok": True}
-    except Exception as e:
-        logger.warning("Failed to seed pricing: %s", e)
-        return {"ok": False}
 
 
 @app.websocket(WS_PATH)

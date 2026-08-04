@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 
 logger = logging.getLogger("zenith.persistence")
 
@@ -42,19 +41,3 @@ def db_log(
     logger.log(level, " ".join(parts))
 
 
-class _Timer:
-    def __init__(self) -> None:
-        self._start = time.perf_counter()
-
-    @property
-    def elapsed_ms(self) -> float:
-        return (time.perf_counter() - self._start) * 1000.0
-
-
-def timed_db_log(
-    operation: str, *, table: str = "", error: str = "", level: int = logging.INFO, **fields: object
-) -> _Timer:
-    timer = _Timer()
-    if error:
-        db_log(operation, table=table, status="error", error=error, level=level, **fields)
-    return timer
