@@ -1,16 +1,7 @@
-"""Tests for P1 — prompt.send per-prompt overrides (model/temperature/max_tokens)
-and attachments, plus the prompt.cancel RPC.
-
-Covers: provider mutation + finally-restore, message metadata persistence,
-session row update, prompt.cancel on an in-flight task (idempotent no-op when
-no executor), and the attachment reader guards (traversal / size / binary).
-"""
 
 import asyncio
 import json
-
 import pytest
-
 from server.agents.prompt_executor import ATTACHMENT_MAX_FILE, PromptExecutor, read_attachment
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
@@ -31,13 +22,7 @@ class RecordingProvider(BaseProvider):
         return f"Echo: {user_msg}"
 
     async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-        self.calls.append(
-            {
-                "model": self.model,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-            }
-        )
+        self.calls.append({"model": self.model, "temperature": self.temperature, "max_tokens": self.max_tokens})
         response = await self.complete(messages)
         if self.slow:
             for ch in response:
@@ -63,12 +48,7 @@ def _fake_ws(captured: dict):
 
 @pytest.fixture
 def test_config(temp_dir):
-    return AppSettings(
-        providers={"test": ProviderConfig(model="base-model", is_active=True)},
-        active_provider="test",
-        db_path=str(temp_dir / "test.db"),
-        workspace_root=str(temp_dir),
-    )
+    return AppSettings(providers={"test": ProviderConfig(model="base-model", is_active=True)}, active_provider="test", db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
 
 
 @pytest.fixture
@@ -107,14 +87,7 @@ def _make_executor(config, provider, db):
     from server.skills.loader import SkillLoader
     from server.toolkit import create_default_registry
 
-    return PromptExecutor(
-        config,
-        provider,
-        create_default_registry(),
-        SessionRepository(db),
-        MessageRepository(db),
-        SkillLoader(str(config.workspace_root)),
-    )
+    return PromptExecutor(config, provider, create_default_registry(), SessionRepository(db), MessageRepository(db), SkillLoader(str(config.workspace_root)))
 
 
 class TestProviderOverrides:
@@ -124,17 +97,7 @@ class TestProviderOverrides:
         executor = _make_executor(test_config, provider, test_db)
         session = await executor._session_repo.create(Session(title="Override Test"))
 
-        await executor._execute(
-            session.id,
-            "hello",
-            "build",
-            None,
-            None,
-            model_override="override-model",
-            temperature=0.2,
-            max_tokens=123,
-            attachments=[],
-        )
+        await executor._execute(session.id, "hello", "build", None, None, model_override="override-model", temperature=0.2, max_tokens=123, attachments=[])
 
         assert provider.calls, "provider.stream was never called"
         observed = provider.calls[0]
@@ -168,24 +131,7 @@ class TestPromptPersistence:
         captured = {}
         ws = _fake_ws(captured)
 
-        sid = await h.handlers._prompt(
-            ws,
-            1,
-            {
-                "content": "Use the file",
-                "mode": "build",
-                "provider": "test",
-                "model": "override-model",
-                "temperature": 0.1,
-                "max_tokens": 777,
-                "attachments": [
-                    {"path": "notes.txt"},
-                    {"path": "notes.txt"},
-                    {"path": "missing.txt"},
-                ],
-            },
-            session.id,
-        )
+        sid = await h.handlers._prompt(ws, 1, {"content": "Use the file", "mode": "build", "provider": "test", "model": "override-model", "temperature": 0.1, "max_tokens": 777, "attachments": [{"path": "notes.txt"}, {"path": "notes.txt"}, {"path": "missing.txt"}]}, session.id)
         assert sid == session.id
 
         executor = h.handlers._session_executors[session.id]
@@ -207,16 +153,7 @@ class TestPromptPersistence:
         captured = {}
         ws = _fake_ws(captured)
 
-        await h.handlers._prompt(
-            ws,
-            1,
-            {
-                "content": "hello",
-                "mode": "build",
-                "provider": "test",
-            },
-            session.id,
-        )
+        await h.handlers._prompt(ws, 1, {"content": "hello", "mode": "build", "provider": "test"}, session.id)
 
         executor = h.handlers._session_executors[session.id]
         await executor._active_task
@@ -230,15 +167,7 @@ class TestPromptPersistence:
         h, _ = handler
         captured = {}
         ws = _fake_ws(captured)
-        await h.handlers._prompt(
-            ws,
-            1,
-            {
-                "content": "hello",
-                "temperature": 2.5,
-            },
-            None,
-        )
+        await h.handlers._prompt(ws, 1, {"content": "hello", "temperature": 2.5}, None)
         assert "-32602" in captured["text"]
         assert "temperature" in captured["text"]
 
@@ -247,15 +176,7 @@ class TestPromptPersistence:
         h, _ = handler
         captured = {}
         ws = _fake_ws(captured)
-        await h.handlers._prompt(
-            ws,
-            1,
-            {
-                "content": "hello",
-                "max_tokens": 0,
-            },
-            None,
-        )
+        await h.handlers._prompt(ws, 1, {"content": "hello", "max_tokens": 0}, None)
         assert "-32602" in captured["text"]
         assert "max_tokens" in captured["text"]
 
@@ -268,16 +189,7 @@ class TestPromptCancel:
         captured = {}
         ws = _fake_ws(captured)
 
-        sid = await h.handlers._prompt(
-            ws,
-            1,
-            {
-                "content": "Slow prompt",
-                "mode": "build",
-                "provider": "test",
-            },
-            session.id,
-        )
+        sid = await h.handlers._prompt(ws, 1, {"content": "Slow prompt", "mode": "build", "provider": "test"}, session.id)
         assert sid == session.id
 
         await asyncio.sleep(0.05)
@@ -345,13 +257,7 @@ class TestAttachmentGuards:
         (temp_dir / "a.txt").write_text("AAA")
         events = []
 
-        injected = await executor._inject_attachments(
-            "user text",
-            [{"path": "a.txt"}, {"path": "missing.txt"}],
-            "s1",
-            None,
-            events,
-        )
+        injected = await executor._inject_attachments("user text", [{"path": "a.txt"}, {"path": "missing.txt"}], "s1", None, events)
 
         assert '<attachment path="a.txt">\nAAA\n</attachment>' in injected
         assert injected.endswith("user text")
@@ -364,13 +270,7 @@ class TestAttachmentGuards:
         executor = _make_executor(test_config, provider, test_db)
         events = []
 
-        injected = await executor._inject_attachments(
-            "user text",
-            [{"path": "virtual.py", "content": "print('x')"}],
-            "s1",
-            None,
-            events,
-        )
+        injected = await executor._inject_attachments("user text", [{"path": "virtual.py", "content": "print('x')"}], "s1", None, events)
 
         assert "<attachment path=\"virtual.py\">\nprint('x')\n</attachment>" in injected
         assert events == []
@@ -383,17 +283,7 @@ class TestAttachmentGuards:
         captured = {}
         ws = _fake_ws(captured)
 
-        await h.handlers._prompt(
-            ws,
-            1,
-            {
-                "content": "Read the file",
-                "mode": "build",
-                "provider": "test",
-                "attachments": [{"path": "data.txt"}],
-            },
-            session.id,
-        )
+        await h.handlers._prompt(ws, 1, {"content": "Read the file", "mode": "build", "provider": "test", "attachments": [{"path": "data.txt"}]}, session.id)
 
         executor = h.handlers._session_executors[session.id]
         await executor._active_task
@@ -411,20 +301,9 @@ class TestNormalizeAttachments:
     def test_dedupes_caps_and_filters(self):
         from server.api.handlers import _normalize_attachments
 
-        raw = [
-            {"path": "a.txt"},
-            {"path": "a.txt"},
-            {"path": "  b.txt  "},
-            {"path": ""},
-            "not-a-dict",
-            {"path": "c.txt", "name": "C", "content": "inline"},
-        ]
+        raw = [{"path": "a.txt"}, {"path": "a.txt"}, {"path": " b.txt "}, {"path": ""}, "not-a-dict", {"path": "c.txt", "name": "C", "content": "inline"}]
         result = _normalize_attachments(raw)
-        assert result == [
-            {"path": "a.txt"},
-            {"path": "b.txt"},
-            {"path": "c.txt", "name": "C", "content": "inline"},
-        ]
+        assert result == [{"path": "a.txt"}, {"path": "b.txt"}, {"path": "c.txt", "name": "C", "content": "inline"}]
 
     def test_caps_at_25(self):
         from server.api.handlers import _normalize_attachments

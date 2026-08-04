@@ -1,27 +1,6 @@
-"""SQLAlchemy 2.0 ORM models — persistence layer for the Zenith database.
-
-These models mirror the schema produced by Alembic migrations 0001-0002
-exactly (table/column names, types, constraints, indexes). They are the
-persistence layer only; the public domain models live in ``server/domain``
-and repositories map between the two.
-
-FTS5 virtual tables (``message_fts``, ``session_fts``) are NOT declared here —
-virtual tables are created by the migration via ``op.execute`` and are queried
-with ``text()`` (see ``search.py``). That is the single sanctioned raw-SQL
-exception in the codebase.
-"""
 
 from __future__ import annotations
-
-from sqlalchemy import (
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    PrimaryKeyConstraint,
-    Text,
-    TypeDecorator,
-)
+from sqlalchemy import (Float, ForeignKey, Index, Integer, PrimaryKeyConstraint, Text, TypeDecorator)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -30,7 +9,6 @@ class Base(DeclarativeBase):
 
 
 class BoolInt(TypeDecorator[int]):
-    """SQLite stores booleans as INTEGER 0/1; expose them as Python bool."""
 
     impl = Integer
     cache_ok = True
@@ -42,9 +20,6 @@ class BoolInt(TypeDecorator[int]):
         return bool(value) if value is not None else None
 
 
-# ---------------------------------------------------------------------------
-# Core session tables
-# ---------------------------------------------------------------------------
 
 
 class SessionRecord(Base):
@@ -95,9 +70,7 @@ class MessageRecord(Base):
     __tablename__ = "messages"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     events_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
@@ -141,9 +114,7 @@ class ProviderModelRecord(Base):
     __table_args__ = (PrimaryKeyConstraint("provider_id", "id"),)
 
     id: Mapped[str] = mapped_column(Text, nullable=False)
-    provider_id: Mapped[str] = mapped_column(
-        ForeignKey("providers.id", ondelete="CASCADE"), nullable=False
-    )
+    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     context_window: Mapped[int] = mapped_column(Integer, nullable=False, server_default="128000")
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -161,12 +132,6 @@ class AppSettingRecord(Base):
 
 
 class CatalogProviderRecord(Base):
-    """Reference provider metadata — SQL source of truth for the catalog.
-
-    Mirrors the old JSON catalog provider entries. Distinct from
-    the ``providers`` table, which holds per-machine user state (API keys,
-    active provider, selected model).
-    """
 
     __tablename__ = "catalog_providers"
 
@@ -186,25 +151,18 @@ class CatalogProviderRecord(Base):
     env_keys_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
     is_popular: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
     base_url_style: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    supports_prompt_caching: Mapped[bool] = mapped_column(
-        BoolInt, nullable=False, server_default="0"
-    )
-    supports_thinking_headers: Mapped[bool] = mapped_column(
-        BoolInt, nullable=False, server_default="0"
-    )
+    supports_prompt_caching: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
+    supports_thinking_headers: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
     custom_flow: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
 
 class CatalogModelRecord(Base):
-    """Curated model details per provider — SQL source of truth for model specs."""
 
     __tablename__ = "catalog_models"
     __table_args__ = (PrimaryKeyConstraint("provider_id", "id"),)
 
-    provider_id: Mapped[str] = mapped_column(
-        ForeignKey("catalog_providers.id", ondelete="CASCADE"), nullable=False
-    )
+    provider_id: Mapped[str] = mapped_column(ForeignKey("catalog_providers.id", ondelete="CASCADE"), nullable=False)
     id: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -226,18 +184,13 @@ class CatalogModelRecord(Base):
 Index("idx_catalog_models_provider", CatalogModelRecord.provider_id)
 
 
-# ---------------------------------------------------------------------------
-# Token usage / context / pricing / budget
-# ---------------------------------------------------------------------------
 
 
 class TokenUsageRecord(Base):
     __tablename__ = "token_usage"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     provider: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     model: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -269,9 +222,7 @@ class ContextDegradationRecord(Base):
     __tablename__ = "context_degradation"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     step_index: Mapped[int] = mapped_column(Integer, nullable=False)
     before_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     after_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -296,9 +247,7 @@ class BudgetSettingsRecord(Base):
     __tablename__ = "budget_settings"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     max_session_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     max_daily_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     max_monthly_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
@@ -315,9 +264,7 @@ class BudgetEventRecord(Base):
     __tablename__ = "budget_events"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     current_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     budget_limit: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
@@ -325,18 +272,13 @@ class BudgetEventRecord(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-# ---------------------------------------------------------------------------
-# Session management
-# ---------------------------------------------------------------------------
 
 
 class SessionCheckpointRecord(Base):
     __tablename__ = "session_checkpoints"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     checkpoint_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="automatic")
     step_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     snapshot_data: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
@@ -352,9 +294,7 @@ class SyncEventRecord(Base):
     __tablename__ = "sync_events"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     event_data: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -368,9 +308,7 @@ class SessionStatusHistoryRecord(Base):
     __tablename__ = "session_status_history"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     from_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     to_state: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -384,9 +322,7 @@ class SessionDraftRecord(Base):
     __tablename__ = "session_drafts"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     context: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
     expires_at: Mapped[str] = mapped_column(Text, nullable=False)
@@ -397,9 +333,6 @@ Index("idx_drafts_session", SessionDraftRecord.session_id)
 Index("idx_drafts_expires", SessionDraftRecord.expires_at)
 
 
-# ---------------------------------------------------------------------------
-# Permissions
-# ---------------------------------------------------------------------------
 
 
 class PermissionRecord(Base):

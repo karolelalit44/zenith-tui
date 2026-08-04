@@ -1,4 +1,3 @@
-"""Tests for agent loop: tool call parsing, formatting, multi-step."""
 
 from server.agents.loop import _format_tool_result
 from server.providers.parser import parse_tool_calls
@@ -14,10 +13,7 @@ class TestParseToolCalls:
         assert calls[0]["params"]["command"] == "ls"
 
     def test_parse_multiple_tool_calls(self):
-        text = (
-            'Let me check.\n```tool\n{"tool": "glob", "params": {"pattern": "*.py"}}\n```\n'
-            'And also.\n```tool\n{"tool": "grep", "params": {"pattern": "def"}}\n```'
-        )
+        text = ('Let me check.\n```tool\n{"tool": "glob", "params": {"pattern": "*.py"}}\n```\n' 'And also.\n```tool\n{"tool": "grep", "params": {"pattern": "def"}}\n```')
         calls = parse_tool_calls(text)
         assert len(calls) == 2
         assert calls[0]["tool"] == "glob"
@@ -39,13 +35,7 @@ class TestParseToolCalls:
         assert len(calls) == 0
 
     def test_parse_mixed_content(self):
-        text = (
-            "I will run two commands.\n"
-            '```tool\n{"tool": "bash", "params": {"command": "echo a"}}\n```\n'
-            "And also this.\n"
-            '```tool\n{"tool": "bash", "params": {"command": "echo b"}}\n```\n'
-            "Done!"
-        )
+        text = ("I will run two commands.\n" '```tool\n{"tool": "bash", "params": {"command": "echo a"}}\n```\n' "And also this.\n" '```tool\n{"tool": "bash", "params": {"command": "echo b"}}\n```\n' "Done!")
         calls = parse_tool_calls(text)
         assert len(calls) == 2
 

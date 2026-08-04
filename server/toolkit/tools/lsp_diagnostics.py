@@ -1,9 +1,6 @@
-"""LSP diagnostics tool — get lint/typecheck diagnostics for a file."""
 
 from __future__ import annotations
-
 from typing import Any
-
 from ..base import BaseTool, ToolResult
 
 
@@ -12,27 +9,16 @@ class LspDiagnosticsTool(BaseTool):
     description = "Get LSP diagnostics for file"
 
     def get_schema(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {
-                "filepath": {
-                    "type": "string",
-                    "description": "File path",
-                },
-            },
-            "required": ["filepath"],
-        }
+        return {"type": "object", "properties": {"filepath": {"type": "string", "description": "File path"}}, "required": ["filepath"]}
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         from pathlib import Path
-
         from server.lsp.manager import get_lsp_manager
 
         filepath = params.get("filepath", "")
         if not filepath:
             return ToolResult(success=False, error="No filepath provided")
 
-        # Resolve path
         path = Path(filepath)
         if not path.is_absolute():
             path = Path(workspace_root) / path
@@ -43,18 +29,12 @@ class LspDiagnosticsTool(BaseTool):
 
         manager = get_lsp_manager()
         if manager is None:
-            return ToolResult(
-                success=False,
-                error="LSP manager not initialized. LSP integration is not available.",
-            )
+            return ToolResult(success=False, error="LSP manager not initialized. LSP integration is not available.")
 
         client = await manager.get_client(str(path))
         if client is None:
             ext = path.suffix
-            return ToolResult(
-                success=False,
-                error=f"No LSP server available for '{ext}' files. Install the appropriate language server (e.g., pyright, typescript-language-server, gopls).",
-            )
+            return ToolResult(success=False, error=f"No LSP server available for '{ext}' files. Install the appropriate language server (e.g., pyright, typescript-language-server, gopls).")
 
         content = path.read_text(encoding="utf-8", errors="replace")
         try:
@@ -63,11 +43,7 @@ class LspDiagnosticsTool(BaseTool):
             return ToolResult(success=False, error=f"LSP diagnostics request failed: {e}")
 
         if not diagnostics:
-            return ToolResult(
-                success=True,
-                output=f"No diagnostics for {path.name}",
-                metadata={"diagnostics": [], "server": client.name},
-            )
+            return ToolResult(success=True, output=f"No diagnostics for {path.name}", metadata={"diagnostics": [], "server": client.name})
 
         lines = [f"Found {len(diagnostics)} diagnostic(s) in {path.name} ({client.name}):"]
         for d in diagnostics:
@@ -82,8 +58,4 @@ class LspDiagnosticsTool(BaseTool):
             lines.append(f"  {severity.upper()} {path.name}:{line_num}:{col} {prefix}{message}")
 
         output = "\n".join(lines)
-        return ToolResult(
-            success=True,
-            output=output,
-            metadata={"diagnostics": diagnostics, "count": len(diagnostics), "server": client.name},
-        )
+        return ToolResult(success=True, output=output, metadata={"diagnostics": diagnostics, "count": len(diagnostics), "server": client.name})

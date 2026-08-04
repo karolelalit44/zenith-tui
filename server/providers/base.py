@@ -1,32 +1,11 @@
-"""Provider base classes — typed interfaces for LLM providers.
-
-This module provides:
-- BaseProvider: the existing interface (kept for backward compatibility)
-- ProviderService: the new typed interface with structured responses
-- ProviderResponse / ProviderChunk: typed response models
-- TokenUsage / ToolCall / ToolCallDelta: structured data models
-
-The new interface adds:
-- Typed responses (not just str)
-- Token usage tracking
-- Structured tool call deltas for streaming
-- Model listing with metadata
-- Token counting integration
-"""
 
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
-
 from pydantic import BaseModel, Field
-
 from server.domain.domain import FinishReason
 
-# ---------------------------------------------------------------------------
-# Existing interface (backward compatible)
-# ---------------------------------------------------------------------------
 
 
 class BaseProvider(ABC):
@@ -40,13 +19,7 @@ class BaseProvider(ABC):
     async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str: ...
 
     @abstractmethod
-    async def stream(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        tool_choice: str | None = None,
-        response_format: dict | None = None,
-    ) -> AsyncIterator[tuple[str, str | None]]: ...
+    async def stream(self, messages: list[dict], tools: list[dict] | None = None, tool_choice: str | None = None, response_format: dict | None = None) -> AsyncIterator[tuple[str, str | None]]: ...
 
     @abstractmethod
     async def validate(self) -> bool: ...
@@ -55,13 +28,9 @@ class BaseProvider(ABC):
     async def list_models(self) -> list[str]: ...
 
 
-# ---------------------------------------------------------------------------
-# New typed interface
-# ---------------------------------------------------------------------------
 
 
 class TokenUsage(BaseModel):
-    """Token usage for a single request."""
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -70,7 +39,6 @@ class TokenUsage(BaseModel):
 
 
 class ToolCall(BaseModel):
-    """A structured tool call from the LLM."""
 
     id: str = ""
     name: str = ""
@@ -79,7 +47,6 @@ class ToolCall(BaseModel):
 
 
 class ToolCallDelta(BaseModel):
-    """Incremental tool call data during streaming."""
 
     index: int = 0
     id: str | None = None
@@ -88,7 +55,6 @@ class ToolCallDelta(BaseModel):
 
 
 class ProviderResponse(BaseModel):
-    """Structured response from a provider completion call."""
 
     content: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
@@ -100,7 +66,6 @@ class ProviderResponse(BaseModel):
 
 
 class ProviderChunk(BaseModel):
-    """A single chunk from a streaming response."""
 
     delta: str = ""
     tool_call_delta: ToolCallDelta | None = None
@@ -110,7 +75,6 @@ class ProviderChunk(BaseModel):
 
 
 class ModelInfo(BaseModel):
-    """Metadata about an available model."""
 
     id: str
     name: str
@@ -126,11 +90,6 @@ class ModelInfo(BaseModel):
 
 
 class ProviderService(ABC):
-    """Abstract provider service interface.
-
-    This is the new typed interface. BaseProvider is kept for backward
-    compatibility with existing code that expects str returns.
-    """
 
     @property
     @abstractmethod
@@ -141,20 +100,10 @@ class ProviderService(ABC):
     def model(self) -> str: ...
 
     @abstractmethod
-    async def complete(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-    ) -> ProviderResponse: ...
+    async def complete(self, messages: list[dict], tools: list[dict] | None = None, temperature: float | None = None, max_tokens: int | None = None) -> ProviderResponse: ...
 
     @abstractmethod
-    async def stream(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-    ) -> AsyncIterator[ProviderChunk]: ...
+    async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[ProviderChunk]: ...
 
     @abstractmethod
     async def validate(self) -> bool: ...

@@ -1,9 +1,6 @@
-"""Integration tests — full workflow tests across all modules."""
 
 from pathlib import Path
-
 import pytest
-
 from server.agents.context import ContextManager
 from server.agents.loop import AgentLoop
 from server.agents.recovery import RecoverableAgentLoop
@@ -22,11 +19,9 @@ from server.toolkit import create_default_registry
 from server.workspace.repo_map import RepoMap
 from server.workspace.tracker import FileTracker
 
-# ── Test Provider ───────────────────────────────────────────────────
 
 
 class EchoProvider(BaseProvider):
-    """Provider that echoes input and can simulate tool calls."""
 
     def __init__(self, respond_with_tool: bool = False):
         super().__init__("test", "test-model")
@@ -40,9 +35,7 @@ class EchoProvider(BaseProvider):
             return '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
         return f"Echo: {user_msg}"
 
-    async def stream(
-        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
-    ):
+    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)
@@ -54,17 +47,11 @@ class EchoProvider(BaseProvider):
         return ["test-model"]
 
 
-# ── Fixtures ────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def test_config(temp_dir):
-    return AppSettings(
-        providers={"test": ProviderConfig(model="test-model", is_active=True)},
-        active_provider="test",
-        db_path=str(temp_dir / "test.db"),
-        workspace_root=str(temp_dir),
-    )
+    return AppSettings(providers={"test": ProviderConfig(model="test-model", is_active=True)}, active_provider="test", db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
 
 
 @pytest.fixture
@@ -82,7 +69,6 @@ def test_registry():
     return registry
 
 
-# ── Full Agent Workflow ─────────────────────────────────────────────
 
 
 class TestAgentWorkflow:
@@ -109,7 +95,6 @@ class TestAgentWorkflow:
         async for event in agent.process_prompt("Read a file", "s1", [], "build"):
             events.append(event)
 
-        # Should have thinking, tool analysis, tool result, then final message
         kinds = [e.kind for e in events]
         assert EventKind.THINKING in kinds
         assert EventKind.TOOL_CALL in kinds or EventKind.SUCCESS in kinds
@@ -120,15 +105,11 @@ class TestAgentWorkflow:
         tool_registry = create_default_registry()
         AgentLoop(test_config, provider, tool_registry=tool_registry)
 
-        # Verify tool registry enforces plan mode
-        result = await tool_registry.execute(
-            "file_write", {"path": "x", "content": "y"}, ".", mode="plan"
-        )
+        result = await tool_registry.execute("file_write", {"path": "x", "content": "y"}, ".", mode="plan")
         assert not result.success
         assert "not available" in result.error
 
 
-# ── Error Recovery ──────────────────────────────────────────────────
 
 
 class TestErrorRecovery:
@@ -139,11 +120,11 @@ class TestErrorRecovery:
                 super().__init__("fail", "fail-model")
 
             async def complete(self, messages, tools=None):
-                raise Exception("API down")  # noqa: TRY002 - test stub
+                raise Exception("API down")
 
             async def stream(self, messages, tools=None):
                 yield ("should not reach", None)
-                raise Exception("API down")  # noqa: TRY002 - test stub
+                raise Exception("API down")
 
             async def validate(self):
                 return False
@@ -215,17 +196,13 @@ class TestErrorRecovery:
             events.append(event)
 
 
-# ── Session Export ──────────────────────────────────────────────────
 
 
 class TestSessionExport:
     def test_export_to_string(self):
         exporter = SessionExporter()
         session = Session(title="Test Session")
-        messages = [
-            Message(session_id=session.id, role="user", content="Hello"),
-            Message(session_id=session.id, role="assistant", content="Hi there!"),
-        ]
+        messages = [Message(session_id=session.id, role="user", content="Hello"), Message(session_id=session.id, role="assistant", content="Hi there!")]
         md = exporter.export_to_string(session, messages)
         assert "# Test Session" in md
         assert "Hello" in md
@@ -234,9 +211,7 @@ class TestSessionExport:
     def test_export_to_file(self, temp_dir):
         exporter = SessionExporter()
         session = Session(title="File Export")
-        messages = [
-            Message(session_id=session.id, role="user", content="Test"),
-        ]
+        messages = [Message(session_id=session.id, role="user", content="Test")]
         filepath = exporter.export(session, messages, str(temp_dir / "exports"))
         assert Path(filepath).exists()
         content = Path(filepath).read_text()
@@ -245,28 +220,13 @@ class TestSessionExport:
     def test_export_with_events(self):
         exporter = SessionExporter()
         session = Session(title="Events Test")
-        events = [
-            Event(kind=EventKind.THINKING, data={"text": "Thinking..."}),
-            Event(
-                kind=EventKind.TOOL_RESULT,
-                data={"tool": "file_write", "success": True, "metadata": {"path": "new.py"}},
-            ),
-            Event(kind=EventKind.ERROR, data={"message": "Something failed"}),
-        ]
-        messages = [
-            Message(
-                session_id=session.id,
-                role="assistant",
-                content="Result",
-                events=events,
-            ),
-        ]
+        events = [Event(kind=EventKind.THINKING, data={"text": "Thinking..."}), Event(kind=EventKind.TOOL_RESULT, data={"tool": "file_write", "success": True, "metadata": {"path": "new.py"}}), Event(kind=EventKind.ERROR, data={"message": "Something failed"})]
+        messages = [Message(session_id=session.id, role="assistant", content="Result", events=events)]
         md = exporter.export_to_string(session, messages)
         assert "Thinking" in md
         assert "tool_result" in md or "new.py" in md
 
 
-# ── SKILL.md Loader ────────────────────────────────────────────────
 
 
 class TestSkillLoader:
@@ -316,7 +276,6 @@ class TestSkillLoader:
         assert len(skills) == 0
 
     def test_ignores_skills_outside_skill_dirs(self, temp_dir):
-        # SKILL.md vendored in an arbitrary (e.g. dependency) dir must be ignored.
         stray = temp_dir / "lib" / "vendor" / "skill"
         stray.mkdir(parents=True)
         (stray / "SKILL.md").write_text("# Stray")
@@ -327,9 +286,7 @@ class TestSkillLoader:
     def test_skill_prompt_is_metadata_only(self, temp_dir):
         skills_dir = temp_dir / "skills" / "test-skill"
         skills_dir.mkdir(parents=True)
-        (skills_dir / "SKILL.md").write_text(
-            "# Test\n\nA long body that must not be embedded verbatim."
-        )
+        (skills_dir / "SKILL.md").write_text("# Test\n\nA long body that must not be embedded verbatim.")
 
         loader = SkillLoader(str(temp_dir))
         prompt = loader.get_skill_prompt()
@@ -338,7 +295,6 @@ class TestSkillLoader:
         assert "long body that must not be embedded verbatim" not in prompt
 
 
-# ── File Tracker ────────────────────────────────────────────────────
 
 
 class TestFileTrackerIntegration:
@@ -353,7 +309,6 @@ class TestFileTrackerIntegration:
         assert "create" in tracker.get_summary()
 
 
-# ── Graceful Shutdown ───────────────────────────────────────────────
 
 
 class TestGracefulShutdown:
@@ -381,27 +336,21 @@ class TestGracefulShutdown:
         shutdown.register_cleanup(cleanup)
         await shutdown.shutdown()
         await shutdown.shutdown()
-        assert len(called) == 1  # only called once
+        assert len(called) == 1
 
 
-# ── Context Manager ─────────────────────────────────────────────────
 
 
 class TestContextManagerIntegration:
     def test_build_messages_with_long_history(self, test_config):
         test_config.max_context_tokens = 5000
         ctx = ContextManager(test_config)
-        history = [
-            Message(session_id="s1", role="user", content=f"Message {i}: " + "word " * 200)
-            for i in range(100)
-        ]
+        history = [Message(session_id="s1", role="user", content=f"Message {i}: " + "word " * 200) for i in range(100)]
         messages = ctx.build_messages(history, "System.", "New.", "gpt-4")
-        # Should not include all 100 messages — budget limits it
-        assert len(messages) < 102  # system + all history + user
+        assert len(messages) < 102
         assert messages[-1]["content"] == "New."
 
 
-# ── Repo Map Integration ───────────────────────────────────────────
 
 
 class TestRepoMapIntegration:

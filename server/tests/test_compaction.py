@@ -1,19 +1,7 @@
-"""Tests for HP-4: micro-compaction + tool-result clearing pipeline."""
 
 import pytest
-
-from server.agents.compaction import (
-    CompactionStats,
-    compact_tool_output,
-    head_tail_trim,
-    strip_ansi,
-)
-from server.agents.loop import (
-    AgentLoop,
-    _find_compaction_cut,
-    _find_compaction_cut_budgeted,
-    _format_tool_result,
-)
+from server.agents.compaction import (CompactionStats, compact_tool_output, head_tail_trim, strip_ansi)
+from server.agents.loop import (AgentLoop, _find_compaction_cut, _find_compaction_cut_budgeted, _format_tool_result)
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
@@ -73,7 +61,6 @@ class TestCompactToolOutput:
         assert stats.chars_removed > 0
         assert stats.tokens_saved > 0
         assert len(compacted) < len(output) // 20
-        # Fact-preserving: head and tail both survive
         assert compacted.startswith("line 00000")
         assert compacted.rstrip().endswith("line 49999")
         assert "compacted" in stats.reason
@@ -99,11 +86,7 @@ class TestCompactToolOutput:
 
 class TestCompactionCutPoint:
     def _history(self, n: int) -> list[Message]:
-        # Alternating user / assistant so exchanges are 2 messages long.
-        return [
-            Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}")
-            for i in range(n)
-        ]
+        return [Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}") for i in range(n)]
 
     def test_short_history_summarizes_everything(self):
         assert _find_compaction_cut(self._history(5), keep_tail=8) == 0
@@ -112,27 +95,19 @@ class TestCompactionCutPoint:
         msgs = self._history(30)
         cut = _find_compaction_cut(msgs, keep_tail=8)
         assert cut > 0
-        # The prefix must end on a non-assistant message so a tool-result
-        # (assistant tool call + tool result) exchange is never split.
         assert msgs[cut - 1].role != "assistant"
-        # The verbatim tail may grow by one to reach the boundary.
         assert len(msgs) - cut <= 8 + 1
 
     def test_cut_prefers_user_boundary(self):
-        msgs = self._history(28)  # last exchange ends at index 27 (user), 28 total
+        msgs = self._history(28)
         cut = _find_compaction_cut(msgs, keep_tail=8)
-        # backing up from 20 lands on a user boundary
         assert msgs[cut - 1].role == "user"
 
 
 class TestCompactionCutTokenBudgeted:
-    """P2.8 — token-budgeted keep-tail with turn-boundary snapping."""
 
     def _history(self, n: int) -> list[Message]:
-        return [
-            Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}")
-            for i in range(n)
-        ]
+        return [Message(session_id="s", role=("user" if i % 2 == 0 else "assistant"), content=f"m{i}") for i in range(n)]
 
     def test_keeps_recent_exchanges_within_budget(self):
         msgs = self._history(30)
@@ -147,32 +122,13 @@ class TestCompactionCutTokenBudgeted:
         assert cut == 0
 
     def test_never_splits_tool_result_group(self):
-        msgs = [
-            Message(session_id="s", role="user", content="u1"),
-            Message(
-                session_id="s",
-                role="assistant",
-                content="call1",
-                tool_calls=[ToolCall(id="c1", name="bash", arguments={})],
-            ),
-            Message(session_id="s", role="tool", content="r1"),
-            Message(session_id="s", role="assistant", content="resp1"),
-        ]
+        msgs = [Message(session_id="s", role="user", content="u1"), Message(session_id="s", role="assistant", content="call1", tool_calls=[ToolCall(id="c1", name="bash", arguments={})]), Message(session_id="s", role="tool", content="r1"), Message(session_id="s", role="assistant", content="resp1")]
         cut = _find_compaction_cut_budgeted(msgs, keep_tokens=50, count_fn=lambda m: len(m) + 1)
         kept = msgs[cut:]
         assert not kept or kept[0].role != "tool"
 
     def test_live_exchange_always_kept_whole(self):
-        msgs = [
-            Message(session_id="s", role="user", content="old"),
-            Message(
-                session_id="s",
-                role="assistant",
-                content="huge " * 200,
-                tool_calls=[ToolCall(id="c2", name="bash", arguments={})],
-            ),
-            Message(session_id="s", role="tool", content="result"),
-        ]
+        msgs = [Message(session_id="s", role="user", content="old"), Message(session_id="s", role="assistant", content="huge " * 200, tool_calls=[ToolCall(id="c2", name="bash", arguments={})]), Message(session_id="s", role="tool", content="result")]
         cut = _find_compaction_cut_budgeted(msgs, keep_tokens=10, count_fn=lambda m: len(m) + 1)
         kept = msgs[cut:]
         assert kept[0].role == "assistant"
@@ -203,15 +159,7 @@ class TestContextCompactedEvent:
     def test_event_emitted_with_counts(self):
         output = _big_output(50000)
         _, stats = compact_tool_output(output, max_output=10000)
-        ev = r.context_compacted(
-            "bash",
-            stats.chars_removed,
-            stats.tokens_saved,
-            stats.reason,
-            "sess-1",
-            original_chars=stats.original_chars,
-            compacted_chars=stats.compacted_chars,
-        )
+        ev = r.context_compacted("bash", stats.chars_removed, stats.tokens_saved, stats.reason, "sess-1", original_chars=stats.original_chars, compacted_chars=stats.compacted_chars)
         assert ev.kind.value == "context_compacted"
         assert ev.data["tool"] == "bash"
         assert ev.data["charsRemoved"] > 0
@@ -225,7 +173,6 @@ class TestContextCompactedEvent:
 
 
 class _BigReadProvider(BaseProvider):
-    """Echo provider that first calls file_read on a huge file with no limit."""
 
     def __init__(self):
         super().__init__("test", "test-model")
@@ -237,9 +184,7 @@ class _BigReadProvider(BaseProvider):
             return '```tool\n{"tool": "file_read", "params": {"path": "big.txt", "limit": 100000}}\n```'
         return "Done."
 
-    async def stream(
-        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
-    ):
+    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages)
         for char in response:
             yield (char, None)
@@ -254,15 +199,8 @@ class _BigReadProvider(BaseProvider):
 class TestLoopEmitsCompactedEvent:
     @pytest.mark.asyncio
     async def test_live_turn_no_crash_and_event_fired(self, temp_dir):
-        (temp_dir / "big.txt").write_text(
-            "\n".join(f"data line {i:05d}" for i in range(50000)), encoding="utf-8"
-        )
-        config = AppSettings(
-            providers={"test": ProviderConfig(model="test-model", is_active=True)},
-            active_provider="test",
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        )
+        (temp_dir / "big.txt").write_text("\n".join(f"data line {i:05d}" for i in range(50000)), encoding="utf-8")
+        config = AppSettings(providers={"test": ProviderConfig(model="test-model", is_active=True)}, active_provider="test", db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
         provider = _BigReadProvider()
         agent = AgentLoop(config, provider, tool_registry=create_default_registry())
 
@@ -281,76 +219,37 @@ class TestLoopEmitsCompactedEvent:
 
 
 class TestRebuildReplaysLiveTurn:
-    """P0.2 — mid-turn compaction must preserve the in-flight tool exchange."""
 
     def _loop(self, temp_dir):
-        config = AppSettings(
-            providers={"test": ProviderConfig(model="test-model", is_active=True)},
-            active_provider="test",
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-            max_context_tokens=128000,
-        )
+        config = AppSettings(providers={"test": ProviderConfig(model="test-model", is_active=True)}, active_provider="test", db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir), max_context_tokens=128000)
         return AgentLoop(config, _BigReadProvider())
 
     def test_replays_live_tail_and_adds_continue(self, temp_dir):
         loop = self._loop(temp_dir)
-        history = [
-            Message(session_id="s", role="user", content="old request"),
-            Message(session_id="s", role="assistant", content="old reply"),
-        ]
+        history = [Message(session_id="s", role="user", content="old request"), Message(session_id="s", role="assistant", content="old reply")]
         initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
         base_len = len(initial)
         live = list(initial)
         live.append({"role": "assistant", "content": "I will read the file"})
         live.append({"role": "user", "content": "[Tool result] file content"})
 
-        rebuilt = loop._rebuild_messages(
-            live,
-            base_len,
-            history,
-            "System.",
-            "New.",
-            "test-model",
-            "",
-            True,
-            None,
-        )
-        # The in-flight tool exchange must survive the rebuild...
+        rebuilt = loop._rebuild_messages(live, base_len, history, "System.", "New.", "test-model", "", True, None)
         assert {"role": "assistant", "content": "I will read the file"} in rebuilt
         assert {"role": "user", "content": "[Tool result] file content"} in rebuilt
-        # ...and an explicit continuation nudge closes the turn.
         assert rebuilt[-1]["role"] == "user"
         assert "Continue if you have next steps" in rebuilt[-1]["content"]
 
     def test_no_live_tail_no_nudge(self, temp_dir):
         loop = self._loop(temp_dir)
         initial = loop.context_manager.build_messages([], "System.", "New.", "test-model")
-        rebuilt = loop._rebuild_messages(
-            list(initial),
-            len(initial),
-            [],
-            "System.",
-            "New.",
-            "test-model",
-            "",
-            True,
-            None,
-        )
+        rebuilt = loop._rebuild_messages(list(initial), len(initial), [], "System.", "New.", "test-model", "", True, None)
         assert rebuilt[-1]["content"] == "New."
 
 
 class TestPruneToolOutputs:
-    """P2.9 — cheap in-place pruning of old tool results before full compaction."""
 
     def _loop(self, temp_dir):
-        config = AppSettings(
-            providers={"test": ProviderConfig(model="test-model", is_active=True)},
-            active_provider="test",
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-            max_context_tokens=128000,
-        )
+        config = AppSettings(providers={"test": ProviderConfig(model="test-model", is_active=True)}, active_provider="test", db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir), max_context_tokens=128000)
         return AgentLoop(config, _BigReadProvider())
 
     def _tool_msg(self, tool: str, body: str) -> dict:
@@ -358,11 +257,7 @@ class TestPruneToolOutputs:
 
     def test_prunes_old_tool_results_keeps_recent(self, temp_dir):
         loop = self._loop(temp_dir)
-        messages = [
-            self._tool_msg("bash", "x" * 5000),
-            self._tool_msg("file_read", "y" * 5000),
-            self._tool_msg("bash", "z" * 5000),
-        ]
+        messages = [self._tool_msg("bash", "x" * 5000), self._tool_msg("file_read", "y" * 5000), self._tool_msg("bash", "z" * 5000)]
         stats = loop._prune_tool_outputs(messages, keep_turns=2, max_output=1000)
         assert stats["count"] == 1
         assert stats["chars_removed"] > 0
@@ -380,12 +275,7 @@ class TestPruneToolOutputs:
 
     def test_non_tool_messages_untouched(self, temp_dir):
         loop = self._loop(temp_dir)
-        messages = [
-            {"role": "user", "content": "plain request"},
-            {"role": "assistant", "content": "I will run a command"},
-            self._tool_msg("bash", "x" * 5000),
-            self._tool_msg("file_read", "y" * 5000),
-        ]
+        messages = [{"role": "user", "content": "plain request"}, {"role": "assistant", "content": "I will run a command"}, self._tool_msg("bash", "x" * 5000), self._tool_msg("file_read", "y" * 5000)]
         stats = loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
         assert stats["count"] == 1
         assert messages[0]["content"] == "plain request"
@@ -393,20 +283,14 @@ class TestPruneToolOutputs:
 
     def test_marks_compacted_and_is_idempotent(self, temp_dir):
         loop = self._loop(temp_dir)
-        messages = [
-            self._tool_msg("bash", "x" * 5000),
-            self._tool_msg("file_read", "y" * 5000),
-        ]
+        messages = [self._tool_msg("bash", "x" * 5000), self._tool_msg("file_read", "y" * 5000)]
         loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
         stats2 = loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
         assert stats2["count"] == 0
 
     def test_keeps_tool_header_and_output_tail(self, temp_dir):
         loop = self._loop(temp_dir)
-        messages = [
-            self._tool_msg("bash", "HEAD" + "x" * 5000 + "TAIL"),
-            self._tool_msg("file_read", "y" * 5000),
-        ]
+        messages = [self._tool_msg("bash", "HEAD" + "x" * 5000 + "TAIL"), self._tool_msg("file_read", "y" * 5000)]
         loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
         assert messages[0]["content"].startswith("[Tool: bash | Status: SUCCESS]")
         assert messages[0]["content"].endswith("TAIL")

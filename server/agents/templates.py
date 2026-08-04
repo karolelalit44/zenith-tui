@@ -1,7 +1,5 @@
-"""Prompt templates — variable-substitution template engine and PromptBuilder."""
 
 from __future__ import annotations
-
 import platform
 import re
 import sys
@@ -11,7 +9,6 @@ from typing import Any
 
 
 class PromptTemplate:
-    """Simple {{variable}} substitution template."""
 
     _VAR_RE = re.compile(r"\{\{(\w+)\}\}")
 
@@ -34,14 +31,12 @@ class PromptTemplate:
 
 
 class PromptBuilder:
-    """Loads .md templates from a directory and renders system/user prompts."""
 
     def __init__(self, config: Any = None) -> None:
         self._config = config
         self._templates: dict[str, PromptTemplate] = {}
 
     def load_templates(self, directory: Path) -> None:
-        """Load all .md files as templates keyed by stem."""
         for file in directory.glob("*.md"):
             template = PromptTemplate(file.read_text())
             self._templates[file.stem] = template
@@ -52,26 +47,17 @@ class PromptBuilder:
     def get(self, name: str) -> PromptTemplate | None:
         return self._templates.get(name)
 
-    async def build_system_prompt(
-        self,
-        role: str,
-        workspace_root: str,
-        context_files: list[str] | None = None,
-    ) -> str:
-        """Build system prompt from templates, role, and context."""
-        # Select role-specific template or fall back to base
+    async def build_system_prompt(self, role: str, workspace_root: str, context_files: list[str] | None = None) -> str:
         template = self._templates.get(f"system_{role}") or self._templates.get("system")
         if template is None:
             return ""
 
-        # Set built-in variables
         template.set("workspace_root", workspace_root)
         template.set("date", datetime.now(UTC).strftime("%Y-%m-%d"))
         template.set("platform", sys.platform)
         template.set("os", f"{platform.system()} {platform.release()}")
         template.set("python_version", platform.python_version())
 
-        # Load context files
         if context_files:
             parts: list[str] = []
             for fp in context_files:
@@ -84,13 +70,7 @@ class PromptBuilder:
 
         return template.render()
 
-    async def build_user_prompt(
-        self,
-        prompt: str,
-        repo_map: str | None = None,
-        file_context: list[str] | None = None,
-    ) -> str:
-        """Build user prompt with optional repo map and file context."""
+    async def build_user_prompt(self, prompt: str, repo_map: str | None = None, file_context: list[str] | None = None) -> str:
         parts = [prompt]
 
         if repo_map:

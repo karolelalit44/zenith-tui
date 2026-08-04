@@ -1,4 +1,3 @@
-"""Tests for context window manager and history manager."""
 
 from server.agents.context import ContextManager, TokenInfo
 from server.config.settings import AppSettings
@@ -10,27 +9,19 @@ class TestContextManager:
     def test_build_messages_basic(self):
         config = AppSettings(max_context_tokens=128000, repo_map_enabled=False)
         ctx = ContextManager(config)
-        history = [
-            Message(session_id="s1", role="user", content="Hello"),
-            Message(session_id="s1", role="assistant", content="Hi there!"),
-        ]
+        history = [Message(session_id="s1", role="user", content="Hello"), Message(session_id="s1", role="assistant", content="Hi there!")]
         messages = ctx.build_messages(history, "You are helpful.", "How are you?", "gpt-4")
         assert messages[0]["role"] == "system"
         assert messages[0]["content"] == "You are helpful."
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"] == "How are you?"
-        assert len(messages) == 4  # system + 2 history + user
+        assert len(messages) == 4
 
     def test_build_messages_with_summary(self):
         config = AppSettings(max_context_tokens=128000, repo_map_enabled=False)
         ctx = ContextManager(config)
-        history = [
-            Message(session_id="s1", role="user", content="Hello"),
-        ]
-        messages = ctx.build_messages(
-            history, "System.", "New prompt.", "gpt-4", summary="Previous topic was Python."
-        )
-        # Should have system + summary exchange + history + user
+        history = [Message(session_id="s1", role="user", content="Hello")]
+        messages = ctx.build_messages(history, "System.", "New prompt.", "gpt-4", summary="Previous topic was Python.")
         assert messages[0]["role"] == "system"
         assert "Previous topic was Python." in messages[1]["content"]
         assert messages[-1]["content"] == "New prompt."
@@ -38,14 +29,8 @@ class TestContextManager:
     def test_build_messages_respects_token_budget(self):
         config = AppSettings(max_context_tokens=1000, repo_map_enabled=False)
         ctx = ContextManager(config)
-        # Create a long history that exceeds budget
-        history = [
-            Message(session_id="s1", role="user", content="x " * 500),
-            Message(session_id="s1", role="assistant", content="y " * 500),
-            Message(session_id="s1", role="user", content="z " * 500),
-        ]
+        history = [Message(session_id="s1", role="user", content="x " * 500), Message(session_id="s1", role="assistant", content="y " * 500), Message(session_id="s1", role="user", content="z " * 500)]
         messages = ctx.build_messages(history, "System.", "New.", "gpt-4")
-        # Should drop older messages to stay within budget
         assert messages[0]["role"] == "system"
         assert messages[-1]["content"] == "New."
 
@@ -53,16 +38,13 @@ class TestContextManager:
         config = AppSettings(max_context_tokens=128000, repo_map_enabled=False)
         ctx = ContextManager(config)
         messages = ctx.build_messages([], "System.", "Hello.", "gpt-4")
-        assert len(messages) == 2  # system + user
+        assert len(messages) == 2
 
     def test_build_messages_keeps_tool_call_with_results(self):
         config = AppSettings(max_context_tokens=128000, repo_map_enabled=False)
         ctx = ContextManager(config)
         tc = ToolCall(id="call_1", name="bash", arguments={"command": "ls"})
-        history = [
-            Message(session_id="s1", role="assistant", content="", tool_calls=[tc]),
-            Message(session_id="s1", role="tool", content="file.txt"),
-        ]
+        history = [Message(session_id="s1", role="assistant", content="", tool_calls=[tc]), Message(session_id="s1", role="tool", content="file.txt")]
         messages = ctx.build_messages(history, "System.", "Next.", "gpt-4")
         roles = [m["role"] for m in messages]
         assert "tool" in roles
@@ -74,16 +56,9 @@ class TestContextManager:
         config = AppSettings(max_context_tokens=8000, repo_map_enabled=False)
         ctx = ContextManager(config)
         tc = ToolCall(id="call_2", name="file_read", arguments={"filepath": "a.py"})
-        history = [
-            Message(session_id="s1", role="assistant", content="x " * 12000, tool_calls=[tc]),
-            Message(session_id="s1", role="tool", content="tiny result"),
-            Message(session_id="s1", role="user", content="next"),
-            Message(session_id="s1", role="assistant", content="done"),
-        ]
+        history = [Message(session_id="s1", role="assistant", content="x " * 12000, tool_calls=[tc]), Message(session_id="s1", role="tool", content="tiny result"), Message(session_id="s1", role="user", content="next"), Message(session_id="s1", role="assistant", content="done")]
         messages = ctx.build_messages(history, "System.", "More.", "gpt-4")
         roles = [m["role"] for m in messages]
-        # The oversized assistant tool-call was dropped along with its tool
-        # result — a kept suffix must start at a turn boundary, never an orphan.
         assert "tool" not in roles
         for i, role in enumerate(roles):
             if role == "tool":
@@ -92,7 +67,6 @@ class TestContextManager:
     def test_should_summarize(self):
         config = AppSettings(max_context_tokens=100, summary_threshold=0.5)
         ctx = ContextManager(config)
-        # Create messages that exceed threshold
         messages = [{"role": "user", "content": "x " * 200}]
         assert ctx.should_summarize(messages, "gpt-4") is True
 
@@ -122,26 +96,19 @@ class TestContextManager:
 
 class TestHistoryManager:
     def test_get_recent_messages(self):
-        messages = [
-            Message(session_id="s1", role="user", content=f"Message {i}") for i in range(20)
-        ]
+        messages = [Message(session_id="s1", role="user", content=f"Message {i}") for i in range(20)]
         recent = HistoryManager.get_recent_messages(messages, count=5)
         assert len(recent) == 5
         assert recent[0].content == "Message 15"
         assert recent[-1].content == "Message 19"
 
     def test_get_recent_messages_fewer_than_count(self):
-        messages = [
-            Message(session_id="s1", role="user", content="Hello"),
-        ]
+        messages = [Message(session_id="s1", role="user", content="Hello")]
         recent = HistoryManager.get_recent_messages(messages, count=10)
         assert len(recent) == 1
 
     def test_fallback_summary(self):
-        messages = [
-            Message(session_id="s1", role="user", content="Hello"),
-            Message(session_id="s1", role="assistant", content="Hi there!"),
-        ]
+        messages = [Message(session_id="s1", role="user", content="Hello"), Message(session_id="s1", role="assistant", content="Hi there!")]
         summary = HistoryManager._fallback_summary(messages)
         assert "Hello" in summary
         assert "Hi there!" in summary
@@ -152,14 +119,12 @@ class TestHistoryManager:
 
 
 class _FakeUsageProvider:
-    """Provider stub exposing a cumulative-usage dict like LLMProvider."""
 
     def __init__(self, total_tokens: int = 0):
         self._cumulative_usage = {"total_tokens": total_tokens}
 
 
 class TestUsageBasedTriggers:
-    """P2.10 — usage-based triggers prefer provider totalTokens, fall back to estimation."""
 
     def test_usage_tokens_prefers_provider_report(self):
         ctx = ContextManager(AppSettings(max_context_tokens=128000))
@@ -201,7 +166,6 @@ class TestUsageBasedTriggers:
 
 
 class TestCodeRelevanceGating:
-    """Verify non-deterministic code relevance context gating."""
 
     def test_greeting_has_zero_code_relevance(self):
         ctx = ContextManager(AppSettings())

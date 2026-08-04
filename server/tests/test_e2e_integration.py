@@ -1,11 +1,3 @@
-"""Comprehensive end-to-end integration tests.
-
-Covers the full lifecycle: server startup → HTTP endpoints → WebSocket JSON-RPC
-→ session management → prompt processing → event pipeline → workspace ops →
-multi-turn conversations → concurrent sessions → export → error recovery.
-
-Uses a live uvicorn server with a mock EchoProvider (no API keys needed).
-"""
 
 import asyncio
 import json
@@ -17,11 +9,9 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
-
 import pytest
 import websockets
 
-# ── Helpers ──────────────────────────────────────────────────────────
 
 
 def _get_free_port() -> int:
@@ -31,7 +21,6 @@ def _get_free_port() -> int:
 
 
 async def _ws_rpc(ws, method: str, params: dict[str, Any] | None = None) -> dict:
-    """Send a JSON-RPC request and wait for the response with matching id."""
     rid = f"e2e_{method}_{int(time.time() * 1000000)}"
     request: dict[str, Any] = {"jsonrpc": "2.0", "id": rid, "method": method}
     if params:
@@ -47,7 +36,6 @@ async def _ws_rpc(ws, method: str, params: dict[str, Any] | None = None) -> dict
 
 
 async def _collect_events(ws, timeout: float = 15) -> list[dict]:
-    """Collect JSON-RPC event notifications."""
     events: list[dict] = []
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -63,7 +51,6 @@ async def _collect_events(ws, timeout: float = 15) -> list[dict]:
 
 
 async def _collect_all(ws, timeout: float = 5) -> list[dict]:
-    """Collect all messages (responses + events) from WS."""
     messages: list[dict] = []
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -77,22 +64,17 @@ async def _collect_all(ws, timeout: float = 5) -> list[dict]:
     return messages
 
 
-async def _send_prompt_and_collect(
-    ws, content: str, mode: str = "build", timeout: float = 15
-) -> tuple[dict, list[dict]]:
-    """Send a prompt, collect the processing response, then collect all events."""
+async def _send_prompt_and_collect(ws, content: str, mode: str = "build", timeout: float = 15) -> tuple[dict, list[dict]]:
     prompt_resp = await _ws_rpc(ws, "prompt.send", {"content": content, "mode": mode})
     events = await _collect_events(ws, timeout=timeout)
     return prompt_resp, events
 
 
-# ── Server fixture ───────────────────────────────────────────────────
 
 _ECHO_PROVIDER_CODE = """
 import asyncio
 import logging
 logging.disable(logging.CRITICAL)
-
 from server.providers.base import BaseProvider
 
 class EchoProvider(BaseProvider):
@@ -117,7 +99,6 @@ _SERVER_READY_TIMEOUT = 20
 
 @pytest.fixture(scope="module")
 def echo_server(tmp_path_factory):
-    """Start a real zenith server with EchoProvider in a subprocess."""
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
     str(tmp_path_factory.mktemp("workspace"))
@@ -154,7 +135,6 @@ import importlib.util
 spec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-
 import server.providers.registry as reg
 _orig_from_config = reg.ProviderRegistry.from_config
 
@@ -185,12 +165,7 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
 
-    proc = subprocess.Popen(
-        [sys.executable, str(server_file)],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    proc = subprocess.Popen([sys.executable, str(server_file)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     deadline = time.time() + _SERVER_READY_TIMEOUT
     ready = False
@@ -205,9 +180,7 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
     if not ready:
         proc.kill()
         stdout, stderr = proc.communicate(timeout=5)
-        pytest.fail(
-            f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}"
-        )
+        pytest.fail(f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}")
 
     yield port
 
@@ -219,13 +192,9 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
         proc.wait(timeout=5)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 1: HTTP Endpoint Tests
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestHTTPEndpoints:
-    """HTTP REST endpoints for health, status, and startup validation."""
 
     def test_health_returns_ok_with_version(self, echo_server):
         import urllib.request
@@ -256,13 +225,9 @@ class TestHTTPEndpoints:
         assert "missing" in data
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 2: WebSocket Health & Protocol Tests
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestWSProtocol:
-    """JSON-RPC protocol-level tests."""
 
     @pytest.mark.asyncio
     async def test_ws_health(self, echo_server):
@@ -307,13 +272,9 @@ class TestWSProtocol:
             assert r3["result"]["status"] == "ok"
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 3: Session Management
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestSessionManagement:
-    """Session CRUD operations via WebSocket."""
 
     @pytest.mark.asyncio
     async def test_session_create(self, echo_server):
@@ -376,13 +337,9 @@ class TestSessionManagement:
             assert resp["result"]["title"] == "New Session"
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 4: Prompt Processing & Event Pipeline
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestPromptProcessing:
-    """Prompt → LLM → events pipeline."""
 
     @pytest.mark.asyncio
     async def test_prompt_returns_processing_status(self, echo_server):
@@ -392,7 +349,6 @@ class TestPromptProcessing:
             assert "result" in resp
             assert resp["result"]["status"] == "processing"
             assert "session_id" in resp["result"]
-            # drain events
             await _collect_events(ws, timeout=3)
 
     @pytest.mark.asyncio
@@ -418,9 +374,7 @@ class TestPromptProcessing:
             await _ws_rpc(ws, "prompt.send", {"content": "Say hello", "mode": "build"})
             events = await _collect_events(ws, timeout=10)
             message_events = [e for e in events if e["params"]["kind"] == "message"]
-            assert len(message_events) > 0, (
-                f"No message events. Got: {[e['params']['kind'] for e in events]}"
-            )
+            assert len(message_events) > 0, (f"No message events. Got: {[e['params']['kind'] for e in events]}")
 
     @pytest.mark.asyncio
     async def test_prompt_generates_success_event(self, echo_server):
@@ -442,9 +396,7 @@ class TestPromptProcessing:
             await _ws_rpc(ws, "prompt.send", {"content": "Verify session", "mode": "build"})
             events = await _collect_events(ws, timeout=10)
             for evt in events:
-                assert evt["params"]["session_id"] == sid, (
-                    f"Event {evt['params']['kind']} session_id={evt['params']['session_id']} != {sid}"
-                )
+                assert evt["params"]["session_id"] == sid, (f"Event {evt['params']['kind']} session_id={evt['params']['session_id']} != {sid}")
 
     @pytest.mark.asyncio
     async def test_prompt_event_jsonrpc_structure(self, echo_server):
@@ -469,20 +421,15 @@ class TestPromptProcessing:
             await _ws_rpc(ws, "prompt.send", {"content": "unique_marker_xyz", "mode": "build"})
             events = await _collect_events(ws, timeout=10)
             message_events = [e for e in events if e["params"]["kind"] == "message"]
-            # Find the final (non-partial) message
             final_msgs = [e for e in message_events if not e["params"]["data"].get("partial")]
             assert len(final_msgs) > 0
             text = final_msgs[0]["params"]["data"].get("text", "")
             assert "unique_marker_xyz" in text
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 5: Multi-Turn Conversation
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestMultiTurnConversation:
-    """Multiple prompts in the same session accumulate history."""
 
     @pytest.mark.asyncio
     async def test_two_prompts_same_session_history_accumulates(self, echo_server):
@@ -490,26 +437,20 @@ class TestMultiTurnConversation:
             create_resp = await _ws_rpc(ws, "session.create", {"title": "Multi-Turn"})
             sid = create_resp["result"]["id"]
 
-            # First prompt
             await _ws_rpc(ws, "prompt.send", {"content": "First message", "mode": "build"})
             events1 = await _collect_events(ws, timeout=10)
 
-            # Second prompt
             await _ws_rpc(ws, "prompt.send", {"content": "Second message", "mode": "build"})
             events2 = await _collect_events(ws, timeout=10)
 
-            # Verify both got success events
             success1 = [e for e in events1 if e["params"]["kind"] == "success"]
             success2 = [e for e in events2 if e["params"]["kind"] == "success"]
             assert len(success1) > 0, "First prompt had no success event"
             assert len(success2) > 0, "Second prompt had no success event"
 
-            # Verify resume shows accumulated messages
             resume_resp = await _ws_rpc(ws, "session.resume", {"session_id": sid})
             messages = resume_resp["result"]["messages"]
-            assert len(messages) >= 4, (
-                f"Expected at least 4 messages (2 user + 2 assistant), got {len(messages)}"
-            )
+            assert len(messages) >= 4, (f"Expected at least 4 messages (2 user + 2 assistant), got {len(messages)}")
             roles = [m["role"] for m in messages]
             assert roles.count("user") >= 2
             assert roles.count("assistant") >= 2
@@ -525,35 +466,21 @@ class TestMultiTurnConversation:
             assert "Independent B" in titles
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 6: Auto-Session on Prompt
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestAutoSession:
-    """Sending a prompt without explicit session.create auto-creates a session."""
 
     @pytest.mark.asyncio
     async def test_prompt_without_session_creates_one(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            # Send prompt directly without session.create
-            resp = await _ws_rpc(
-                ws,
-                "prompt.send",
-                {
-                    "content": "Auto session test",
-                    "mode": "build",
-                },
-            )
+            resp = await _ws_rpc(ws, "prompt.send", {"content": "Auto session test", "mode": "build"})
             assert "result" in resp
             assert resp["result"]["status"] == "processing"
             sid = resp["result"]["session_id"]
             assert isinstance(sid, str)
             assert len(sid) > 0
-            # drain
             await _collect_events(ws, timeout=10)
 
-            # Verify session was created
             list_resp = await _ws_rpc(ws, "session.list")
             ids = [s["id"] for s in list_resp["result"]]
             assert sid in ids
@@ -561,29 +488,17 @@ class TestAutoSession:
     @pytest.mark.asyncio
     async def test_auto_session_title_from_prompt(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(
-                ws,
-                "prompt.send",
-                {
-                    "content": "This is my custom title prompt",
-                    "mode": "build",
-                },
-            )
+            resp = await _ws_rpc(ws, "prompt.send", {"content": "This is my custom title prompt", "mode": "build"})
             sid = resp["result"]["session_id"]
             await _collect_events(ws, timeout=10)
-            # Session title should be the first 50 chars of the prompt
             resume = await _ws_rpc(ws, "session.resume", {"session_id": sid})
             title = resume["result"]["session"]["title"]
             assert title == "This is my custom title prompt"
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 7: Provider Operations
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestProviderOperations:
-    """Provider validation, model listing."""
 
     @pytest.mark.asyncio
     async def test_provider_validate_echo(self, echo_server):
@@ -614,13 +529,9 @@ class TestProviderOperations:
             assert resp["result"]["models"] == []
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 8: Tools
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestToolOperations:
-    """Tool listing and availability."""
 
     @pytest.mark.asyncio
     async def test_tools_list_build_mode(self, echo_server):
@@ -655,13 +566,9 @@ class TestToolOperations:
             assert len(resp["result"]["tools"]) > 0
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 9: Session Export
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestSessionExport:
-    """Export session conversations as markdown."""
 
     @pytest.mark.asyncio
     async def test_session_export_after_prompt(self, echo_server):
@@ -686,13 +593,9 @@ class TestSessionExport:
             assert "no active session" in resp["error"]["message"].lower()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 10: Workspace Operations
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestWorkspaceOperations:
-    """Git operations via WebSocket."""
 
     @pytest.mark.asyncio
     async def test_workspace_status(self, echo_server):
@@ -700,7 +603,6 @@ class TestWorkspaceOperations:
             resp = await _ws_rpc(ws, "workspace.status")
             assert "result" in resp
             data = resp["result"]
-            # Either it's a git repo or it returns an error
             if data.get("is_git_repo"):
                 assert "branch" in data
                 assert "modified" in data
@@ -734,90 +636,64 @@ class TestWorkspaceOperations:
             assert "keyFiles" in data
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 11: Concurrent Sessions
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestConcurrentSessions:
-    """Multiple sessions on the same WebSocket connection."""
 
     @pytest.mark.asyncio
     async def test_interleaved_prompts_different_sessions(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            # Create two sessions
             s1 = await _ws_rpc(ws, "session.create", {"title": "Concurrent A"})
             s2 = await _ws_rpc(ws, "session.create", {"title": "Concurrent B"})
             sid1 = s1["result"]["id"]
             sid2 = s2["result"]["id"]
             assert sid1 != sid2
 
-            # Send prompt to session A (auto-sets session)
             await _ws_rpc(ws, "prompt.send", {"content": "From A", "mode": "build"})
             events_a = await _collect_events(ws, timeout=10)
             success_a = [e for e in events_a if e["params"]["kind"] == "success"]
             assert len(success_a) > 0
 
-            # Send prompt to session B (auto-sets session)
             await _ws_rpc(ws, "prompt.send", {"content": "From B", "mode": "build"})
             events_b = await _collect_events(ws, timeout=10)
             success_b = [e for e in events_b if e["params"]["kind"] == "success"]
             assert len(success_b) > 0
 
-            # Both sessions should exist in list
             list_resp = await _ws_rpc(ws, "session.list")
             ids = [s["id"] for s in list_resp["result"]]
             assert sid1 in ids
             assert sid2 in ids
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 12: Full Lifecycle (Create → Prompt → Resume → Export)
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestFullLifecycle:
-    """Complete session lifecycle from creation through export."""
 
     @pytest.mark.asyncio
     async def test_complete_lifecycle(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            # Step 1: Health check
             health = await _ws_rpc(ws, "health")
             assert health["result"]["status"] == "ok"
 
-            # Step 2: List tools
             tools_resp = await _ws_rpc(ws, "tools.list", {"mode": "build"})
             assert len(tools_resp["result"]["tools"]) > 0
 
-            # Step 3: Validate provider
             prov_resp = await _ws_rpc(ws, "provider.validate", {"provider": "echo"})
             assert prov_resp["result"]["valid"] is True
 
-            # Step 4: List models
             models_resp = await _ws_rpc(ws, "provider.models", {"provider": "echo"})
             assert "echo-v1" in models_resp["result"]["models"]
 
-            # Step 5: Create session
             create_resp = await _ws_rpc(ws, "session.create", {"title": "Lifecycle Test"})
             sid = create_resp["result"]["id"]
 
-            # Step 6: Send prompt
-            prompt_resp = await _ws_rpc(
-                ws,
-                "prompt.send",
-                {
-                    "content": "Do something amazing",
-                    "mode": "build",
-                },
-            )
+            prompt_resp = await _ws_rpc(ws, "prompt.send", {"content": "Do something amazing", "mode": "build"})
             assert prompt_resp["result"]["status"] == "processing"
             events = await _collect_events(ws, timeout=15)
             kinds = [e["params"]["kind"] for e in events]
             assert "thinking" in kinds
             assert "success" in kinds
 
-            # Step 7: Resume session and verify messages
             resume_resp = await _ws_rpc(ws, "session.resume", {"session_id": sid})
             messages = resume_resp["result"]["messages"]
             assert len(messages) >= 2
@@ -825,53 +701,35 @@ class TestFullLifecycle:
             assert "user" in roles
             assert "assistant" in roles
 
-            # Step 8: Session list
             list_resp = await _ws_rpc(ws, "session.list")
             ids = [s["id"] for s in list_resp["result"]]
             assert sid in ids
 
-            # Step 9: Export session
-            export_resp = await _ws_rpc(
-                ws, "session.export", {"output_dir": "zenith_exports_lifecycle"}
-            )
+            export_resp = await _ws_rpc(ws, "session.export", {"output_dir": "zenith_exports_lifecycle"})
             assert "markdown" in export_resp["result"]
             assert "Lifecycle Test" in export_resp["result"]["markdown"]
 
-            # Step 10: Workspace status
             ws_resp = await _ws_rpc(ws, "workspace.status")
             assert "result" in ws_resp
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 13: Error Handling & Edge Cases
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestErrorHandling:
-    """Error handling and edge cases."""
 
     @pytest.mark.asyncio
     async def test_prompt_to_unavailable_provider(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(
-                ws,
-                "prompt.send",
-                {
-                    "content": "Hello",
-                    "provider": "nonexistent_provider",
-                },
-            )
+            resp = await _ws_rpc(ws, "prompt.send", {"content": "Hello", "provider": "nonexistent_provider"})
             assert "error" in resp
             assert "not available" in resp["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_session_resume_after_second_ws_connect(self, echo_server):
-        """Session persists across WS reconnections (stored in DB)."""
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws1:
             create_resp = await _ws_rpc(ws1, "session.create", {"title": "Persistent Session"})
             sid = create_resp["result"]["id"]
 
-        # New connection
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             resume_resp = await _ws_rpc(ws2, "session.resume", {"session_id": sid})
             assert "result" in resume_resp
@@ -929,14 +787,11 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_rapid_fire_requests(self, echo_server):
-        """Send multiple RPC requests rapidly without waiting for responses."""
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            # Fire 5 health requests rapidly
             for i in range(5):
                 request = {"jsonrpc": "2.0", "id": f"rapid_{i}", "method": "health"}
                 await ws.send(json.dumps(request))
 
-            # Collect all responses
             responses = []
             deadline = time.time() + 10
             while len(responses) < 5 and time.time() < deadline:
@@ -950,13 +805,9 @@ class TestErrorHandling:
                 assert resp["result"]["status"] == "ok"
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 14: Data Persistence
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestDataPersistence:
-    """Verify data persists in SQLite across operations."""
 
     @pytest.mark.asyncio
     async def test_session_messages_persist(self, echo_server):
@@ -967,7 +818,6 @@ class TestDataPersistence:
             await _ws_rpc(ws, "prompt.send", {"content": "Persistent data", "mode": "build"})
             await _collect_events(ws, timeout=10)
 
-            # Create a new connection and verify data is there
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             resume = await _ws_rpc(ws2, "session.resume", {"session_id": sid})
             messages = resume["result"]["messages"]
@@ -982,18 +832,14 @@ class TestDataPersistence:
             s2 = await _ws_rpc(ws, "session.create", {"title": "Persist B"})
             sid1, sid2 = s1["result"]["id"], s2["result"]["id"]
 
-            # Send different prompts to each
-            # Switch to session 1
             await _ws_rpc(ws, "session.resume", {"session_id": sid1})
             await _ws_rpc(ws, "prompt.send", {"content": "Message for A", "mode": "build"})
             await _collect_events(ws, timeout=10)
 
-            # Switch to session 2
             await _ws_rpc(ws, "session.resume", {"session_id": sid2})
             await _ws_rpc(ws, "prompt.send", {"content": "Message for B", "mode": "build"})
             await _collect_events(ws, timeout=10)
 
-        # Verify on new connection
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             r1 = await _ws_rpc(ws2, "session.resume", {"session_id": sid1})
             r2 = await _ws_rpc(ws2, "session.resume", {"session_id": sid2})
@@ -1001,46 +847,34 @@ class TestDataPersistence:
             assert any("Message for B" in m["content"] for m in r2["result"]["messages"])
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 15: Connection Lifecycle
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestConnectionLifecycle:
-    """WebSocket connection connect/disconnect behavior."""
 
     @pytest.mark.asyncio
     async def test_clean_disconnect_reconnect(self, echo_server):
-        # Connect, do work, disconnect cleanly
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             resp = await _ws_rpc(ws, "health")
             assert resp["result"]["status"] == "ok"
 
-        # Reconnect should work
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             resp = await _ws_rpc(ws, "health")
             assert resp["result"]["status"] == "ok"
 
     @pytest.mark.asyncio
     async def test_disconnect_does_not_corrupt_server(self, echo_server):
-        # Abrupt disconnect
         ws = await websockets.connect(f"ws://127.0.0.1:{echo_server}/ws")
         await _ws_rpc(ws, "health")
         await ws.close()
 
-        # Server should still be functional
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             resp = await _ws_rpc(ws2, "health")
             assert resp["result"]["status"] == "ok"
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# SECTION 16: Mode Handling
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class TestModeHandling:
-    """Different prompt modes (build, chat, etc)."""
 
     @pytest.mark.asyncio
     async def test_build_mode_prompt(self, echo_server):

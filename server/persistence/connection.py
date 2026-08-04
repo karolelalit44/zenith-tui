@@ -1,32 +1,14 @@
-"""Async SQLAlchemy connection layer for Zenith.
-
-``Database`` owns an async engine + session factory over
-``sqlite+aiosqlite`` and runs the SQL-file migration runner on connect (via
-``DatabaseStartupService``). It no longer exposes raw SQL — the transient
-``execute``/``fetch_one``/``fetch_all``/``executemany``/``commit`` facade below
-exists only to keep legacy callers working until repositories are converted to
-ORM (T-022..T-031), after which it is removed.
-"""
 
 from __future__ import annotations
-
 import logging
 import os
 from pathlib import Path
-
 from sqlalchemy import event, text
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import (
-    AsyncConnection,
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import (AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine)
 
 logger = logging.getLogger(__name__)
 
-# Silence SQLAlchemy query logging and aiosqlite internal logs
 for _noisy in ("sqlalchemy", "sqlalchemy.engine", "sqlalchemy.engine.Engine", "aiosqlite"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
@@ -58,7 +40,6 @@ class Database:
     async def __aexit__(self, *exc):
         await self.close()
 
-    # ------------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
         from .startup import DatabaseStartupService
@@ -66,11 +47,7 @@ class Database:
         service = DatabaseStartupService(self.db_path)
         self.startup_result = service.run()
 
-        self._engine = create_async_engine(
-            f"sqlite+aiosqlite:///{Path(self.db_path).resolve()}",
-            echo=os.getenv("ZENITH_LOG_LEVEL", "").lower() == "debug",
-            pool_pre_ping=True,
-        )
+        self._engine = create_async_engine(f"sqlite+aiosqlite:///{Path(self.db_path).resolve()}", echo=os.getenv("ZENITH_LOG_LEVEL", "").lower() == "debug", pool_pre_ping=True)
         event.listen(self._engine.sync_engine, "connect", _set_pragmas)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
         logger.info("Database connected: %s", self.db_path)
@@ -95,10 +72,8 @@ class Database:
     def connected(self) -> bool:
         return self._engine is not None
 
-    # ------------------------------------------------------------------ access
 
     def session(self) -> AsyncSession:
-        """Return a new ORM session bound to the pool."""
         if self._session_factory is None:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._session_factory()
@@ -114,13 +89,10 @@ class Database:
             return False
 
     def get_current_version(self) -> str | None:
-        """Return the highest applied migration serial for this DB file."""
         from .startup import get_current_version
 
         return get_current_version(self.db_path)
 
-    # ------------------------------------------------------------------ legacy facade
-    # TODO(T-031): remove once all repositories use ORM sessions.
 
     async def _ensure_connection(self) -> AsyncConnection:
         if self._engine is None:

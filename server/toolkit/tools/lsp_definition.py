@@ -1,9 +1,6 @@
-"""LSP go-to-definition tool — find the definition of a symbol."""
 
 from __future__ import annotations
-
 from typing import Any
-
 from ..base import BaseTool, ToolResult
 
 
@@ -12,28 +9,10 @@ class LspDefinitionTool(BaseTool):
     description = "Go to symbol definition"
 
     def get_schema(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {
-                "filepath": {
-                    "type": "string",
-                    "description": "File path",
-                },
-                "line": {
-                    "type": "integer",
-                    "description": "Line (0-indexed)",
-                },
-                "character": {
-                    "type": "integer",
-                    "description": "Column (0-indexed)",
-                },
-            },
-            "required": ["filepath", "line", "character"],
-        }
+        return {"type": "object", "properties": {"filepath": {"type": "string", "description": "File path"}, "line": {"type": "integer", "description": "Line (0-indexed)"}, "character": {"type": "integer", "description": "Column (0-indexed)"}}, "required": ["filepath", "line", "character"]}
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         from pathlib import Path
-
         from server.lsp.manager import get_lsp_manager
 
         filepath = params.get("filepath", "")
@@ -58,10 +37,7 @@ class LspDefinitionTool(BaseTool):
         client = await manager.get_client(str(path))
         if client is None:
             ext = path.suffix
-            return ToolResult(
-                success=False,
-                error=f"No LSP server available for '{ext}' files.",
-            )
+            return ToolResult(success=False, error=f"No LSP server available for '{ext}' files.")
 
         content = path.read_text(encoding="utf-8", errors="replace")
         try:
@@ -70,11 +46,7 @@ class LspDefinitionTool(BaseTool):
             return ToolResult(success=False, error=f"LSP definition request failed: {e}")
 
         if not definitions:
-            return ToolResult(
-                success=True,
-                output=f"No definition found at {path.name}:{line + 1}:{character + 1}",
-                metadata={"definitions": [], "server": client.name},
-            )
+            return ToolResult(success=True, output=f"No definition found at {path.name}:{line + 1}:{character + 1}", metadata={"definitions": [], "server": client.name})
 
         lines = [f"Found {len(definitions)} definition(s):"]
         for defn in definitions:
@@ -84,8 +56,4 @@ class LspDefinitionTool(BaseTool):
             lines.append(f"  {def_file}:{def_line}:{def_col}")
 
         output = "\n".join(lines)
-        return ToolResult(
-            success=True,
-            output=output,
-            metadata={"definitions": definitions, "server": client.name},
-        )
+        return ToolResult(success=True, output=output, metadata={"definitions": definitions, "server": client.name})

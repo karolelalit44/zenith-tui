@@ -1,38 +1,18 @@
-"""Grep tool — search file contents using regex."""
 
 from __future__ import annotations
-
 import re
 from pathlib import Path
 from typing import Any
-
 from ..base import BaseTool, ToolResult
 
 
 class GrepTool(BaseTool):
     name = "grep"
     description = "Search file contents by regex"
-    requires_mode = None  # Available in both plan and build
+    requires_mode = None
 
     def get_schema(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Regex pattern",
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Search directory/file",
-                },
-                "include": {
-                    "type": "string",
-                    "description": "File pattern filter",
-                },
-            },
-            "required": ["pattern"],
-        }
+        return {"type": "object", "properties": {"pattern": {"type": "string", "description": "Regex pattern"}, "path": {"type": "string", "description": "Search directory/file"}, "include": {"type": "string", "description": "File pattern filter"}}, "required": ["pattern"]}
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         pattern = params.get("pattern", "")
@@ -70,10 +50,6 @@ class GrepTool(BaseTool):
                     continue
 
             output = "\n".join(matches) if matches else "No matches found"
-            return ToolResult(
-                success=True,
-                output=output,
-                metadata={"count": len(matches)},
-            )
+            return ToolResult(success=True, output=output, metadata={"count": len(matches)})
         except Exception as e:
             return ToolResult(success=False, error=str(e))

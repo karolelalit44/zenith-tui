@@ -1,25 +1,20 @@
-"""Coordinator — orchestrates sessions, prompts, and agent spawning."""
 
 from __future__ import annotations
-
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
-
 from server.domain.domain import AgentRole, ScenarioMode
 from server.domain.events import Event
 from server.domain.message import Message
 from server.domain.session import Session
 from server.sessions.service import SessionService
-
 from .runtime import AgentRuntime
 
 logger = logging.getLogger(__name__)
 
 
 class CoordinatorService(ABC):
-    """Abstract orchestrator — manages session lifecycle and prompt handling."""
 
     @abstractmethod
     async def create_session(self, title: str | None = None) -> Session: ...
@@ -31,14 +26,7 @@ class CoordinatorService(ABC):
     async def resume_session(self, session_id: str) -> Session: ...
 
     @abstractmethod
-    async def handle_prompt(
-        self,
-        session_id: str,
-        prompt: str,
-        mode: ScenarioMode,
-        role: AgentRole = AgentRole.CODER,
-        plan_context: str = "",
-    ) -> AsyncIterator[Event]: ...
+    async def handle_prompt(self, session_id: str, prompt: str, mode: ScenarioMode, role: AgentRole = AgentRole.CODER, plan_context: str = "") -> AsyncIterator[Event]: ...
 
     @abstractmethod
     def cancel_current(self) -> None: ...
@@ -48,13 +36,8 @@ class CoordinatorService(ABC):
 
 
 class DefaultCoordinator(CoordinatorService):
-    """Default coordinator wiring SessionService + AgentRuntime."""
 
-    def __init__(
-        self,
-        session_service: SessionService,
-        runtime: AgentRuntime,
-    ) -> None:
+    def __init__(self, session_service: SessionService, runtime: AgentRuntime) -> None:
         self._sessions = session_service
         self._runtime = runtime
 
@@ -69,34 +52,17 @@ class DefaultCoordinator(CoordinatorService):
         self._runtime.set_summary((session.metadata or {}).get("summary"))
         return session
 
-    async def handle_prompt(
-        self,
-        session_id: str,
-        prompt: str,
-        mode: ScenarioMode,
-        role: AgentRole = AgentRole.CODER,
-        plan_context: str = "",
-    ) -> AsyncIterator[Event]:
+    async def handle_prompt(self, session_id: str, prompt: str, mode: ScenarioMode, role: AgentRole = AgentRole.CODER, plan_context: str = "") -> AsyncIterator[Event]:
         await self._sessions.require(session_id)
 
-        # Persist user message
         user_msg = Message(role="user", content=prompt, session_id=session_id)
         await self._sessions.add_message(session_id, user_msg)
 
-        # Get history
         history = await self._sessions.get_history(session_id)
 
-        # Run agent loop
-        async for event in self._runtime.process_prompt(
-            prompt=prompt,
-            session_id=session_id,
-            history=history,
-            mode=mode.value if hasattr(mode, "value") else str(mode),
-            plan_context=plan_context,
-        ):
+        async for event in self._runtime.process_prompt(prompt=prompt, session_id=session_id, history=history, mode=mode.value if hasattr(mode, "value") else str(mode), plan_context=plan_context):
             yield event
 
-        # Persist assistant response if message event was yielded
         summary = self._runtime.summary
         if summary:
             session_obj = await self._sessions.get(session_id)
@@ -108,8 +74,4 @@ class DefaultCoordinator(CoordinatorService):
         self._runtime.cancel()
 
     async def get_agent_status(self, session_id: str) -> dict[str, Any]:
-        return {
-            "session_id": session_id,
-            "state": self._runtime.get_state().value,
-            "summary": self._runtime.summary,
-        }
+        return {"session_id": session_id, "state": self._runtime.get_state().value, "summary": self._runtime.summary}

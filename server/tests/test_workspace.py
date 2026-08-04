@@ -1,16 +1,12 @@
-"""Tests for workspace: git operations, file tracker, repo map."""
 
 import subprocess
-
 import pytest
-
 from server.workspace.git import GitOps
 from server.workspace.repo_map import RepoMap
 from server.workspace.tracker import FileTracker
 
 
 def _has_git() -> bool:
-    """Check if git is available on the system."""
     try:
         result = subprocess.run(["git", "--version"], capture_output=True, timeout=5)
         return result.returncode == 0
@@ -21,7 +17,6 @@ def _has_git() -> bool:
 HAS_GIT = _has_git()
 
 
-# ── Git Operations ─────────────────────────────────────────────────
 
 
 class TestGitOps:
@@ -77,16 +72,8 @@ class TestGitOps:
     @pytest.mark.skipif(not HAS_GIT, reason="git not available")
     def test_git_status(self, temp_dir):
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_dir), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_dir), capture_output=True)
         (temp_dir / "new_file.txt").write_text("hello")
         git = GitOps(str(temp_dir))
         status = git.status()
@@ -96,16 +83,8 @@ class TestGitOps:
     @pytest.mark.skipif(not HAS_GIT, reason="git not available")
     def test_git_commit(self, temp_dir):
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_dir), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_dir), capture_output=True)
         (temp_dir / "file.txt").write_text("content")
         git = GitOps(str(temp_dir))
         result = git.commit("Initial commit")
@@ -115,16 +94,8 @@ class TestGitOps:
     @pytest.mark.skipif(not HAS_GIT, reason="git not available")
     def test_git_diff(self, temp_dir):
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_dir), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_dir), capture_output=True)
         (temp_dir / "file.txt").write_text("initial")
         git = GitOps(str(temp_dir))
         git.commit("init")
@@ -135,16 +106,8 @@ class TestGitOps:
     @pytest.mark.skipif(not HAS_GIT, reason="git not available")
     def test_git_log(self, temp_dir):
         subprocess.run(["git", "init"], cwd=str(temp_dir), capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@test.com"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test"],
-            cwd=str(temp_dir),
-            capture_output=True,
-        )
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(temp_dir), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(temp_dir), capture_output=True)
         (temp_dir / "file.txt").write_text("content")
         git = GitOps(str(temp_dir))
         git.commit("First commit")
@@ -153,7 +116,6 @@ class TestGitOps:
         assert log[0]["message"] == "First commit"
 
 
-# ── File Tracker ────────────────────────────────────────────────────
 
 
 class TestFileTracker:
@@ -202,7 +164,6 @@ class TestFileTracker:
         assert len(changes["big.txt"]["content"]) <= 10000
 
 
-# ── Repo Map ────────────────────────────────────────────────────────
 
 
 class TestRepoMap:

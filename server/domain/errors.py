@@ -1,76 +1,19 @@
-"""Exception hierarchy — typed errors for every domain.
-
-Every ZenithError carries:
-- message: human-readable description
-- code: machine-readable string for client dispatch
-- recoverable: whether the caller should retry
-- cause: optional chained exception
-
-The hierarchy follows:
-    ZenithError
-    ├── ConfigError
-    ├── ProviderError
-    │   ├── RateLimitError
-    │   ├── AuthenticationError
-    │   ├── TimeoutError
-    │   └── ModelNotFoundError
-    ├── ToolError
-    │   ├── ToolPermissionDenied
-    │   ├── ToolNotFound
-    │   └── ToolValidationError
-    ├── SessionError
-    │   ├── SessionNotFound
-    │   └── SessionTransitionError
-    ├── TransportError
-    │   └── WebSocketError
-    ├── AgentError
-    │   ├── MaxIterationsError
-    │   ├── LoopDetectedError
-    │   └── AgentCancelledError
-    ├── LspError
-    │   ├── LspNotRunning
-    │   └── LspTimeout
-    ├── McpError
-    │   ├── McpNotConnected
-    │   └── McpHandshakeFailed
-    ├── PermissionError
-    │   └── PermissionDenied
-    └── PersistenceError
-        ├── PersistenceUnavailableError
-        ├── PersistenceOperationError
-        ├── PersistenceIntegrityError
-        └── MigrationError
-"""
 
 from __future__ import annotations
 
 
 class ZenithError(Exception):
-    """Base exception for all Zenith errors."""
 
-    def __init__(
-        self,
-        message: str,
-        code: str = "UNKNOWN",
-        recoverable: bool = False,
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str, code: str = "UNKNOWN", recoverable: bool = False, cause: Exception | None = None):
         super().__init__(message)
         self.code = code
         self.recoverable = recoverable
         self.cause = cause
 
     def to_dict(self) -> dict:
-        return {
-            "error": str(self),
-            "code": self.code,
-            "recoverable": self.recoverable,
-        }
+        return {"error": str(self), "code": self.code, "recoverable": self.recoverable}
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 
 
 class ConfigError(ZenithError):
@@ -78,32 +21,16 @@ class ConfigError(ZenithError):
         super().__init__(message, code="CONFIG_ERROR", recoverable=False, cause=cause)
 
 
-# ---------------------------------------------------------------------------
-# Provider
-# ---------------------------------------------------------------------------
 
 
 class ProviderError(ZenithError):
-    def __init__(
-        self,
-        message: str,
-        provider: str = "",
-        code: str = "PROVIDER_ERROR",
-        recoverable: bool = True,
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str, provider: str = "", code: str = "PROVIDER_ERROR", recoverable: bool = True, cause: Exception | None = None):
         super().__init__(message, code=code, recoverable=recoverable, cause=cause)
         self.provider = provider
 
 
 class RateLimitError(ProviderError):
-    def __init__(
-        self,
-        message: str = "Rate limit exceeded",
-        provider: str = "",
-        retry_after: float | None = None,
-        recoverable: bool = True,
-    ):
+    def __init__(self, message: str = "Rate limit exceeded", provider: str = "", retry_after: float | None = None, recoverable: bool = True):
         super().__init__(message, provider=provider, recoverable=recoverable)
         self.code = "RATE_LIMIT"
         self.retry_after = retry_after
@@ -116,9 +43,7 @@ class AuthenticationError(ProviderError):
 
 
 class TimeoutError(ProviderError):
-    def __init__(
-        self, message: str = "Request timed out", provider: str = "", timeout: float | None = None
-    ):
+    def __init__(self, message: str = "Request timed out", provider: str = "", timeout: float | None = None):
         super().__init__(message, provider=provider, recoverable=True)
         self.code = "TIMEOUT"
         self.timeout = timeout
@@ -131,15 +56,10 @@ class ModelNotFoundError(ProviderError):
         self.model = model
 
 
-# ---------------------------------------------------------------------------
-# Tool
-# ---------------------------------------------------------------------------
 
 
 class ToolError(ZenithError):
-    def __init__(
-        self, message: str, tool: str = "", recoverable: bool = True, cause: Exception | None = None
-    ):
+    def __init__(self, message: str, tool: str = "", recoverable: bool = True, cause: Exception | None = None):
         super().__init__(message, code="TOOL_ERROR", recoverable=recoverable, cause=cause)
         self.tool = tool
 
@@ -162,9 +82,6 @@ class ToolValidationError(ToolError):
         self.code = "TOOL_VALIDATION"
 
 
-# ---------------------------------------------------------------------------
-# Session
-# ---------------------------------------------------------------------------
 
 
 class SessionError(ZenithError):
@@ -181,18 +98,12 @@ class SessionNotFound(SessionError):
 
 class SessionTransitionError(SessionError):
     def __init__(self, session_id: str, from_state: str, to_state: str):
-        super().__init__(
-            f"Invalid session transition: {from_state} → {to_state}",
-            session_id=session_id,
-        )
+        super().__init__(f"Invalid session transition: {from_state} → {to_state}", session_id=session_id)
         self.code = "SESSION_TRANSITION"
         self.from_state = from_state
         self.to_state = to_state
 
 
-# ---------------------------------------------------------------------------
-# Transport
-# ---------------------------------------------------------------------------
 
 
 class TransportError(ZenithError):
@@ -206,19 +117,10 @@ class WebSocketError(TransportError):
         self.code = "WEBSOCKET_ERROR"
 
 
-# ---------------------------------------------------------------------------
-# Agent
-# ---------------------------------------------------------------------------
 
 
 class AgentError(ZenithError):
-    def __init__(
-        self,
-        message: str,
-        session_id: str = "",
-        recoverable: bool = False,
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str, session_id: str = "", recoverable: bool = False, cause: Exception | None = None):
         super().__init__(message, code="AGENT_ERROR", recoverable=recoverable, cause=cause)
         self.session_id = session_id
 
@@ -243,9 +145,6 @@ class AgentCancelledError(AgentError):
         self.code = "AGENT_CANCELLED"
 
 
-# ---------------------------------------------------------------------------
-# LSP
-# ---------------------------------------------------------------------------
 
 
 class LspError(ZenithError):
@@ -266,9 +165,6 @@ class LspTimeout(LspError):
         self.code = "LSP_TIMEOUT"
 
 
-# ---------------------------------------------------------------------------
-# MCP
-# ---------------------------------------------------------------------------
 
 
 class McpError(ZenithError):
@@ -289,9 +185,6 @@ class McpHandshakeFailed(McpError):
         self.code = "MCP_HANDSHAKE_FAILED"
 
 
-# ---------------------------------------------------------------------------
-# Permission
-# ---------------------------------------------------------------------------
 
 
 class PermissionError(ZenithError):
@@ -306,80 +199,39 @@ class PermissionDenied(PermissionError):
         self.code = "PERMISSION_DENIED"
 
 
-# ---------------------------------------------------------------------------
-# Persistence
-# ---------------------------------------------------------------------------
 
 
 class PersistenceError(ZenithError):
-    """Base error for all database failures.
 
-    Raised at repository boundaries (never raw sqlite/SQLAlchemy exceptions)
-    so handlers can return user-friendly responses while the root cause is
-    logged with full context.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        operation: str = "",
-        table: str = "",
-        recoverable: bool = True,
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str, operation: str = "", table: str = "", recoverable: bool = True, cause: Exception | None = None):
         super().__init__(message, code="PERSISTENCE_ERROR", recoverable=recoverable, cause=cause)
         self.operation = operation
         self.table = table
 
 
 class PersistenceUnavailableError(PersistenceError):
-    """Database unreachable / not connected."""
 
-    def __init__(
-        self,
-        message: str = "Database unavailable",
-        operation: str = "",
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str = "Database unavailable", operation: str = "", cause: Exception | None = None):
         super().__init__(message, operation=operation, recoverable=True, cause=cause)
         self.code = "PERSISTENCE_UNAVAILABLE"
 
 
 class PersistenceOperationError(PersistenceError):
-    """A database operation failed (query, insert, update, delete)."""
 
-    def __init__(
-        self,
-        message: str = "Database operation failed",
-        operation: str = "",
-        table: str = "",
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str = "Database operation failed", operation: str = "", table: str = "", cause: Exception | None = None):
         super().__init__(message, operation=operation, table=table, recoverable=True, cause=cause)
         self.code = "PERSISTENCE_OPERATION"
 
 
 class PersistenceIntegrityError(PersistenceError):
-    """A constraint was violated (e.g. FK, unique, NOT NULL)."""
 
-    def __init__(
-        self,
-        message: str = "Database integrity constraint violated",
-        operation: str = "",
-        table: str = "",
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str = "Database integrity constraint violated", operation: str = "", table: str = "", cause: Exception | None = None):
         super().__init__(message, operation=operation, table=table, recoverable=False, cause=cause)
         self.code = "PERSISTENCE_INTEGRITY"
 
 
 class MigrationError(PersistenceError):
-    """Schema migration failed."""
 
-    def __init__(
-        self,
-        message: str = "Database migration failed",
-        cause: Exception | None = None,
-    ):
+    def __init__(self, message: str = "Database migration failed", cause: Exception | None = None):
         super().__init__(message, operation="migrate", recoverable=False, cause=cause)
         self.code = "MIGRATION_ERROR"

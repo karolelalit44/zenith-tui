@@ -1,12 +1,9 @@
-"""Tests for agent architecture — templates, runtime, coordinator."""
 
 import pytest
-
 from server.agents.loop_detection import LoopDetector
 from server.agents.runtime import AgentRuntime
 from server.agents.templates import PromptBuilder, PromptTemplate
 
-# ── PromptTemplate ───────────────────────────────────────────────────────
 
 
 class TestPromptTemplate:
@@ -32,7 +29,6 @@ class TestPromptTemplate:
         assert t.variables == []
 
 
-# ── PromptBuilder ────────────────────────────────────────────────────────
 
 
 class TestPromptBuilder:
@@ -45,10 +41,7 @@ class TestPromptBuilder:
     @pytest.mark.asyncio
     async def test_build_system_prompt_with_template(self):
         builder = PromptBuilder()
-        builder.register(
-            "system_coder",
-            PromptTemplate("You are assistant, root={{workspace_root}}, date={{date}}"),
-        )
+        builder.register("system_coder", PromptTemplate("You are assistant, root={{workspace_root}}, date={{date}}"))
         result = await builder.build_system_prompt("coder", "/tmp")
         assert "/tmp" in result
         assert "assistant" in result
@@ -72,10 +65,9 @@ class TestPromptBuilder:
         builder = PromptBuilder()
         builder.load_templates(temp_dir)
         assert builder.get("system") is not None
-        assert builder.get("other") is None  # .txt not loaded
+        assert builder.get("other") is None
 
 
-# ── LoopDetector ─────────────────────────────────────────────────────────
 
 
 class TestLoopDetector:
@@ -106,7 +98,6 @@ class TestLoopDetector:
         assert det.window_fill == 2
 
 
-# ── System Prompt Building & Direct Response Guidelines ─────────
 
 
 class TestSystemPromptBuilding:
@@ -121,14 +112,10 @@ class TestSystemPromptBuilding:
         from server.agents.prompts import build_system_prompt
 
         dummy_schemas = [{"name": "file_read", "description": "Read file", "schema": {}}]
-        prompt = build_system_prompt(
-            workspace_root="/tmp/test", mode="build", tool_schemas=dummy_schemas
-        )
-        # Verify text schema block is omitted when native tools are present
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build", tool_schemas=dummy_schemas)
         assert "<available_tools>" not in prompt
 
 
-# ── AgentRuntime ABC ─────────────────────────────────────────────────────
 
 
 class TestAgentRuntimeABC:

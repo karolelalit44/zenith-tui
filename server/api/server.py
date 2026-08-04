@@ -1,21 +1,20 @@
-"""FastAPI server with graceful lifecycle management."""
-
 from __future__ import annotations
-
 import logging
 import os
 from contextlib import asynccontextmanager
 from importlib.metadata import version as _get_version
 from typing import TYPE_CHECKING
-
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import StreamingResponse
-
+from server.config.constants import HEALTH_PATH, WS_PATH
+from server.config.loader import load_config
+from server.persistence.connection import Database, resolve_db_path
+from server.persistence.logging import db_log
 from server.persistence.repositories import TokenUsageRepository
-
+from server.providers.registry import ProviderRegistry
+from server.toolkit import create_default_registry
 if TYPE_CHECKING:
     from server.mcp.manager import McpManager
-
 from .middleware import wrap_handler
 from .provider_validation import (
     get_model_selection,
@@ -37,15 +36,9 @@ try:
     __version__ = _get_version("zenith")
 except Exception:
     __version__ = "0.1.0"
-from server.config.loader import load_config
-from server.persistence.connection import Database, resolve_db_path
-from server.persistence.logging import db_log
-from server.providers.registry import ProviderRegistry
-from server.toolkit import create_default_registry
 
 logger = logging.getLogger(__name__)
 
-# Optional WebSocket auth token — set ZENITH_WS_TOKEN env var to enable
 _WS_TOKEN = os.environ.get("ZENITH_WS_TOKEN", "")
 
 _handler: ZenithHandler | None = None
@@ -53,118 +46,105 @@ _shutdown: GracefulShutdown | None = None
 _mcp_manager: McpManager | None = None
 _database: Database | None = None
 
-
 async def _do_startup() -> None:
     global _handler, _shutdown, _database
     logger.info("Starting Zenith backend...")
-
     _shutdown = GracefulShutdown()
 
-    db = Database(resolve_db_path())
-    _database = db
-    await db.connect()
-    logger.info("Database connected")
-    db_log(
-        "startup",
-        status="ok",
-        version=db.get_current_version() or "",
-        mode=db.startup_result.get("mode", "") if db.startup_result else "",
-        db=db.db_path,
-    )
-
-    from server.persistence.repositories import ProviderRepositoryDB
-
-    provider_repo = ProviderRepositoryDB(db)
-    await provider_repo.ensure_seeded()
-
-    config = load_config()
-    logger.info("Config loaded: provider=%s, db=%s", config.active_provider, config.db_path)
-
-    active_prov = config.providers.get(config.active_provider) if config.providers else None
-    if active_prov:
-        logger.info("Active provider: %s, model=%s", config.active_provider, active_prov.model)
-    else:
-        logger.warning("Active provider '%s' not found in DB providers", config.active_provider)
-
-    registry = ProviderRegistry.from_config(config.providers, config.active_provider)
-    logger.info("Providers registered: %s", registry.list_providers())
-
-    active_provider = registry.get(config.active_provider)
-    tool_registry = create_default_registry(
-        timeout=config.tools.max_bash_timeout,
-        provider=active_provider,
-    )
-
-    _handler = ZenithHandler(config=config, db=db, registry=registry, tool_registry=tool_registry)
-
-    # MCP servers — start and dynamically register mcp_* tools
-    global _mcp_manager
-    _mcp_manager = None
-    if config.mcp_servers:
-        from server.mcp.manager import McpManager
-
-        _mcp_manager = McpManager(config.mcp_servers)
-        await _mcp_manager.start()
-        for wrapper in _mcp_manager.build_wrappers():
-            tool_registry.register(wrapper)
-        logger.info(
-            "MCP servers ready: %s",
-            [
-                {"name": s["name"], "status": s["status"], "tools": s["tools"]}
-                for s in _mcp_manager.list_servers()
-            ],
-        )
-        if _mcp_manager.errors:
-            logger.warning("MCP servers with errors: %s", _mcp_manager.errors)
-
     try:
-        from server.lsp.manager import LspManager, set_lsp_manager
+        db = Database(resolve_db_path())
+        _database = db
+        await db.connect()
+        logger.info("Database connected")
+        db_log("startup", status="ok", version=db.get_current_version() or "", mode=db.startup_result.get("mode", "") if db.startup_result else "", db=db.db_path)
 
-        lsp_manager = LspManager(workspace_root=config.workspace_root)
-        set_lsp_manager(lsp_manager)
-        logger.info("LSP manager initialized")
+        from server.persistence.repositories import ProviderRepositoryDB
+
+        provider_repo = ProviderRepositoryDB(db)
+        await provider_repo.ensure_seeded()
+
+        config = load_config()
+        logger.info("Config loaded: provider=%s, db=%s", config.active_provider, config.db_path)
+
+        active_prov = config.providers.get(config.active_provider) if config.providers else None
+        if active_prov:
+            logger.info("Active provider: %s, model=%s", config.active_provider, active_prov.model)
+        else:
+            logger.warning("Active provider '%s' not found in DB providers", config.active_provider)
+
+        registry = ProviderRegistry.from_config(config.providers, config.active_provider)
+        logger.info("Providers registered: %s", registry.list_providers())
+
+        active_provider = registry.get(config.active_provider)
+        tool_registry = create_default_registry(timeout=config.tools.max_bash_timeout, provider=active_provider)
+
+        _handler = ZenithHandler(config=config, db=db, registry=registry, tool_registry=tool_registry)
+
+        global _mcp_manager
+        _mcp_manager = None
+        if config.mcp_servers:
+            from server.mcp.manager import McpManager
+
+            _mcp_manager = McpManager(config.mcp_servers)
+            await _mcp_manager.start()
+            for wrapper in _mcp_manager.build_wrappers():
+                tool_registry.register(wrapper)
+            logger.info("MCP servers ready: %s", [{"name": s["name"], "status": s["status"], "tools": s["tools"]} for s in _mcp_manager.list_servers()])
+            if _mcp_manager.errors:
+                logger.warning("MCP servers with errors: %s", _mcp_manager.errors)
+
+        try:
+            from server.lsp.manager import LspManager, set_lsp_manager
+
+            lsp_manager = LspManager(workspace_root=config.workspace_root)
+            set_lsp_manager(lsp_manager)
+            logger.info("LSP manager initialized")
+        except Exception as e:
+            logger.debug("LSP manager init skipped: %s", e)
+
+        try:
+            from server.persistence.repositories import TokenUsageRepository
+
+            pricing_repo = TokenUsageRepository(db)
+            await pricing_repo.seed_pricing()
+            logger.info("Pricing data seeded")
+        except Exception as e:
+            logger.warning("Failed to seed pricing data: %s", e)
+
+        _handler.handlers.dispatch = wrap_handler(_handler.handlers.dispatch)
+        _shutdown.register_cleanup(db.close)
+        logger.info("Handler initialized — server ready")
     except Exception as e:
-        logger.debug("LSP manager init skipped: %s", e)
-
-    try:
-        from server.persistence.repositories import TokenUsageRepository
-
-        pricing_repo = TokenUsageRepository(db)
-        await pricing_repo.seed_pricing()
-        logger.info("Pricing data seeded")
-    except Exception as e:
-        logger.warning("Failed to seed pricing data: %s", e)
-
-    _handler.handlers.dispatch = wrap_handler(_handler.handlers.dispatch)
-
-    _shutdown.register_cleanup(db.close)
-    logger.info("Handler initialized — server ready")
-
+        logger.error("Startup error encountered: %s", e)
+        raise
 
 async def _do_shutdown() -> None:
     global _handler, _shutdown, _mcp_manager
     logger.info("Shutting down Zenith backend...")
-    if _mcp_manager is not None:
-        await _mcp_manager.stop()
+    try:
+        if _mcp_manager is not None:
+            await _mcp_manager.stop()
+    finally:
         _mcp_manager = None
-    if _shutdown:
-        await _shutdown.shutdown()
-    _handler = None
-    _shutdown = None
-    logger.info("Zenith backend stopped")
-
+        try:
+            if _shutdown:
+                await _shutdown.shutdown()
+        finally:
+            _handler = None
+            _shutdown = None
+            logger.info("Zenith backend stopped")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await _do_startup()
-    yield
-    await _do_shutdown()
-
+    try:
+        await _do_startup()
+        yield
+    finally:
+        await _do_shutdown()
 
 app = FastAPI(title="Zenith Backend", version=__version__, lifespan=lifespan)
 
-
-@app.get("/health")
+@app.get(HEALTH_PATH)
 async def health():
     db_status = "ok"
     db_version: str | None = None
@@ -182,7 +162,6 @@ async def health():
         },
     }
 
-
 @app.get("/status")
 async def status():
     if _handler is None:
@@ -199,31 +178,22 @@ async def status():
         },
         "mcp": {
             "servers": _mcp_manager.list_servers() if _mcp_manager else [],
-            "tools": [
-                name for name in _handler.tool_registry.list_tools() if name.startswith("mcp_")
-            ],
+            "tools": [name for name in _handler.tool_registry.list_tools() if name.startswith("mcp_")],
         },
     }
 
-
 @app.get("/startup/validate")
 def startup_validate():
-    # Sync def on purpose: validate_startup() -> load_config() does blocking
-    # sqlite reads + schema reflection. Declaring it async would run that on the
-    # event loop and stall every other request (including readiness probes).
     result = validate_startup()
     return result.model_dump()
-
 
 @app.get("/startup/providers")
 def startup_providers_list():
     return get_provider_list().model_dump()
 
-
 @app.get("/startup/model-selection")
 def startup_model_selection_get():
     return get_model_selection()
-
 
 @app.put("/startup/model-selection")
 def startup_model_selection_put(request: ModelStoreRequest):
@@ -233,36 +203,18 @@ def startup_model_selection_put(request: ModelStoreRequest):
         logger.warning("Failed to save model selection: %s", e)
         raise HTTPException(status_code=500, detail=f"Failed to save model selection: {e}")
 
-
 @app.post("/startup/providers/{provider_id}/validate")
-async def startup_providers_validate(
-    provider_id: str,
-    request: ProviderValidationRequest | None = None,
-    stream: int = 1,
-):
+async def startup_providers_validate(provider_id: str, request: ProviderValidationRequest | None = None, stream: int = 1):
     if stream == 0:
         from server.providers.validation import validate_provider_collect
 
-        result = await validate_provider_collect(
-            provider_id=provider_id,
-            api_key=request.api_key if request else "",
-            base_url=request.base_url if request else "",
-            model=request.model if request else "",
-        )
+        result = await validate_provider_collect(provider_id=provider_id, api_key=request.api_key if request else "", base_url=request.base_url if request else "", model=request.model if request else "")
         if result.valid:
             _reload_config_after_validate(provider_id)
         return result.model_dump()
-    return StreamingResponse(
-        ndjson_validate_stream(provider_id, request, on_success=_reload_config_after_validate),
-        media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache"},
-    )
-
+    return StreamingResponse(ndjson_validate_stream(provider_id, request, on_success=_reload_config_after_validate), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache"})
 
 def _reload_config_after_validate(provider_id: str) -> None:
-    """After a successful provider validation the DB active provider changes,
-    but the in-memory config/registry would otherwise stay stale until a model
-    is committed. Reload now so the backend serves the provider just validated."""
     if _handler is None:
         return
     try:
@@ -270,7 +222,6 @@ def _reload_config_after_validate(provider_id: str) -> None:
         logger.info("Handler config reloaded after validating provider '%s'", provider_id)
     except Exception as e:
         logger.warning("Failed to reload config after validating '%s': %s", provider_id, e)
-
 
 @app.post("/startup/providers/{provider_id}/model")
 async def startup_providers_model(provider_id: str, request: ProviderModelRequest):
@@ -283,13 +234,8 @@ async def startup_providers_model(provider_id: str, request: ProviderModelReques
         raise HTTPException(status_code=500, detail=f"Failed to save model: {e}")
     if _handler is not None:
         _handler._reload_config()
-        logger.info(
-            "Handler config reloaded after model change: provider=%s, model=%s",
-            provider_id,
-            request.model,
-        )
+        logger.info("Handler config reloaded after model change: provider=%s, model=%s", provider_id, request.model)
     return info.model_dump()
-
 
 @app.get("/usage/token-stats")
 async def token_usage_stats(since: str | None = None, until: str | None = None):
@@ -304,7 +250,6 @@ async def token_usage_stats(since: str | None = None, until: str | None = None):
         logger.warning("Failed to fetch token stats: %s", e)
         return {"models": [], "totals": {}}
 
-
 @app.get("/usage/token-stats/{session_id}")
 async def token_usage_session(session_id: str):
     if _handler is None:
@@ -316,7 +261,6 @@ async def token_usage_session(session_id: str):
     except Exception as e:
         logger.warning("Failed to fetch session token usage: %s", e)
         return {"usage": []}
-
 
 @app.get("/usage/cost-summary")
 async def token_cost_summary(period: str = "all"):
@@ -330,7 +274,6 @@ async def token_cost_summary(period: str = "all"):
         logger.warning("Failed to fetch cost summary: %s", e)
         return {"data": []}
 
-
 @app.get("/usage/budget/{session_id}")
 async def token_budget_status(session_id: str):
     if _handler is None:
@@ -343,25 +286,17 @@ async def token_budget_status(session_id: str):
         logger.warning("Failed to fetch budget status: %s", e)
         return {"active": False}
 
-
 @app.post("/usage/budget")
 async def token_budget_upsert(data: dict):
     if _handler is None:
         return {"ok": False}
     try:
         repo = TokenUsageRepository(_handler.handlers.session_repo.db)
-        await repo.upsert_budget(
-            session_id=data["session_id"],
-            max_session_cost=float(data.get("max_session_cost", 0)),
-            max_daily_cost=float(data.get("max_daily_cost", 0)),
-            max_monthly_cost=float(data.get("max_monthly_cost", 0)),
-            active=bool(data.get("active", True)),
-        )
+        await repo.upsert_budget(session_id=data["session_id"], max_session_cost=float(data.get("max_session_cost", 0)), max_daily_cost=float(data.get("max_daily_cost", 0)), max_monthly_cost=float(data.get("max_monthly_cost", 0)), active=bool(data.get("active", True)))
         return {"ok": True}
     except Exception as e:
         logger.warning("Failed to upsert budget: %s", e)
         return {"ok": False}
-
 
 @app.get("/usage/steps/{session_id}")
 async def token_usage_steps(session_id: str):
@@ -375,7 +310,6 @@ async def token_usage_steps(session_id: str):
         logger.warning("Failed to fetch step stats: %s", e)
         return {"steps": []}
 
-
 @app.get("/usage/efficiency/{session_id}")
 async def token_usage_efficiency(session_id: str):
     if _handler is None:
@@ -387,7 +321,6 @@ async def token_usage_efficiency(session_id: str):
     except Exception as e:
         logger.warning("Failed to fetch efficiency: %s", e)
         return {}
-
 
 @app.post("/usage/seed-pricing")
 async def seed_pricing():
@@ -401,20 +334,17 @@ async def seed_pricing():
         logger.warning("Failed to seed pricing: %s", e)
         return {"ok": False}
 
-
-@app.websocket("/ws")
+@app.websocket(WS_PATH)
 async def websocket_endpoint(websocket: WebSocket):
     if _handler is None:
         logger.warning("WebSocket rejected: handler not initialized")
         await websocket.close(code=1011, reason="Server not ready")
         return
 
-    # Optional origin validation
     origin = websocket.headers.get("origin", "")
     if origin and "localhost" not in origin and "127.0.0.1" not in origin:
         logger.warning("WebSocket connection from unexpected origin: %s", origin)
 
-    # Optional token-based auth via query param: ws://host/ws?token=...
     if _WS_TOKEN:
         query_token = websocket.query_params.get("token", "")
         if query_token != _WS_TOKEN:
@@ -426,9 +356,9 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         await _handler.handle(websocket)
-    except Exception:
-        logger.exception("WebSocket handler error")
-
+    except Exception as e:
+        logger.exception("WebSocket handler error: %s", e)
+        raise
 
 def create_app() -> FastAPI:
     return app

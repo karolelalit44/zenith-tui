@@ -1,12 +1,8 @@
-"""MCP manager — owns MCP server connections and exposes their tools to the registry."""
 
 from __future__ import annotations
-
 import logging
 from typing import TYPE_CHECKING
-
 from server.toolkit.tools.mcp_tool import McpToolWrapper
-
 from .client import McpClient
 
 if TYPE_CHECKING:
@@ -16,11 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class McpManager:
-    """Starts/stops MCP servers and builds McpToolWrapper instances.
-
-    Each configured server is started on ``start()``. A failed server does not
-    abort the others — it is recorded with an error and skipped.
-    """
 
     def __init__(self, servers: dict[str, McpServerConfig]) -> None:
         self._servers = dict(servers)
@@ -41,7 +32,6 @@ class McpManager:
         return dict(self._errors)
 
     async def start(self) -> None:
-        """Start all configured MCP servers and discover their tools."""
         for name, cfg in self._servers.items():
             client = McpClient(name, cfg.command, cfg.args, cfg.env)
             self._clients[name] = client
@@ -49,18 +39,13 @@ class McpManager:
             try:
                 await client.start()
                 self._status[name] = "connected"
-                logger.info(
-                    "MCP server '%s' connected with %d tools",
-                    name,
-                    len(client.tools),
-                )
+                logger.info("MCP server '%s' connected with %d tools", name, len(client.tools))
             except Exception as e:
                 self._status[name] = "failed"
                 self._errors[name] = str(e)
                 logger.warning("MCP server '%s' failed to start: %s", name, e)
 
     async def stop(self) -> None:
-        """Stop all MCP server processes."""
         for name, client in self._clients.items():
             try:
                 await client.stop()
@@ -69,7 +54,6 @@ class McpManager:
                 logger.exception("Error stopping MCP server '%s'", name)
 
     def build_wrappers(self) -> list[McpToolWrapper]:
-        """Build tool wrappers for all connected servers' discovered tools."""
         wrappers: list[McpToolWrapper] = []
         for name, client in self._clients.items():
             if not client.initialized:
@@ -79,13 +63,4 @@ class McpManager:
         return wrappers
 
     def list_servers(self) -> list[dict]:
-        """Return per-server status metadata (for /status endpoint)."""
-        return [
-            {
-                "name": name,
-                "status": self._status.get(name, "unknown"),
-                "tools": len(client.tools),
-                "error": self._errors.get(name, ""),
-            }
-            for name, client in self._clients.items()
-        ]
+        return [{"name": name, "status": self._status.get(name, "unknown"), "tools": len(client.tools), "error": self._errors.get(name, "")} for name, client in self._clients.items()]

@@ -1,9 +1,5 @@
-"""
-Model capability tiering and provider prompt adaptation engine.
-"""
 
 from __future__ import annotations
-
 import logging
 from enum import Enum
 
@@ -16,9 +12,7 @@ class ModelTier(str, Enum):
     COMPACT = "compact"
 
 
-def detect_model_tier(
-    model_name: str, provider_name: str = "", catalog: dict | None = None
-) -> ModelTier:
+def detect_model_tier(model_name: str, provider_name: str = "", catalog: dict | None = None) -> ModelTier:
     
     if catalog is None:
         try:
@@ -41,7 +35,6 @@ def detect_model_tier(
 
 
 def get_tier_prompt_enhancements(tier: ModelTier) -> str:
-    """Return targeted prompt instructions based on model capability tier."""
     if tier == ModelTier.COMPACT:
         return """\
 <compact_model_rules>
@@ -60,5 +53,5 @@ CRITICAL INSTRUCTIONS FOR REASONING MODELS:
 3. Do NOT leave content payload blank or tiny (<30 chars) after finishing reasoning.
 </reasoning_model_rules>
 """
-    else:  # FLAGSHIP
+    else:
         return ""

@@ -1,21 +1,8 @@
-"""Session service — full session lifecycle management.
-
-Provides:
-- Complete CRUD operations
-- State machine transitions with validation
-- Checkpoint management
-- Draft management
-- Session sync events
-- Status history tracking
-- Export/import functionality
-"""
 
 from __future__ import annotations
-
 import logging
 from datetime import datetime
 from typing import Any
-
 from server.domain.domain import ScenarioMode, SessionState
 from server.domain.errors import SessionNotFound
 from server.domain.events import EventBus, EventKind, make_event
@@ -26,18 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class SessionService:
-    """Session service interface — all session lifecycle operations."""
 
-    async def create(
-        self,
-        title: str | None = None,
-        mode: ScenarioMode = ScenarioMode.BUILD,
-        provider: str | None = None,
-        model: str | None = None,
-        workspace_root: str | None = None,
-        parent_session_id: str | None = None,
-        metadata: dict | None = None,
-    ) -> Session: ...
+    async def create(self, title: str | None = None, mode: ScenarioMode = ScenarioMode.BUILD, provider: str | None = None, model: str | None = None, workspace_root: str | None = None, parent_session_id: str | None = None, metadata: dict | None = None) -> Session: ...
 
     async def get(self, session_id: str) -> Session | None: ...
 
@@ -45,20 +22,9 @@ class SessionService:
 
     async def list_active(self) -> list[Session]: ...
 
-    async def list_sessions(
-        self,
-        limit: int = 50,
-        offset: int = 0,
-        include_archived: bool = False,
-        search: str | None = None,
-        state_filter: str | None = None,
-    ) -> list[Session]: ...
+    async def list_sessions(self, limit: int = 50, offset: int = 0, include_archived: bool = False, search: str | None = None, state_filter: str | None = None) -> list[Session]: ...
 
-    async def list_summaries(
-        self,
-        limit: int = 10,
-        include_archived: bool = False,
-    ) -> list[dict]: ...
+    async def list_summaries(self, limit: int = 10, include_archived: bool = False) -> list[dict]: ...
 
     async def initialize(self, session_id: str) -> Session: ...
 
@@ -110,26 +76,12 @@ class SessionService:
 
     async def get_latest_sync_sequence(self, session_id: str) -> int: ...
 
-    async def record_sync_event(
-        self, session_id: str, event_type: str, event_data: dict, sequence: int | None = None
-    ) -> str: ...
+    async def record_sync_event(self, session_id: str, event_type: str, event_data: dict, sequence: int | None = None) -> str: ...
 
 
 class DefaultSessionService(SessionService):
-    """Session service backed by SQLite with full lifecycle management."""
 
-    def __init__(
-        self,
-        session_repo: Any,
-        message_repo: Any,
-        token_usage_repo: Any | None = None,
-        checkpoint_repo: Any | None = None,
-        sync_event_repo: Any | None = None,
-        status_history_repo: Any | None = None,
-        draft_repo: Any | None = None,
-        event_bus: EventBus | None = None,
-        hooks: Any | None = None,
-    ) -> None:
+    def __init__(self, session_repo: Any, message_repo: Any, token_usage_repo: Any | None = None, checkpoint_repo: Any | None = None, sync_event_repo: Any | None = None, status_history_repo: Any | None = None, draft_repo: Any | None = None, event_bus: EventBus | None = None, hooks: Any | None = None) -> None:
         self._session_repo = session_repo
         self._message_repo = message_repo
         self._token_usage_repo = token_usage_repo
@@ -138,97 +90,45 @@ class DefaultSessionService(SessionService):
         self._status_history_repo = status_history_repo
         self._draft_repo = draft_repo
         self._event_bus = event_bus
-        # HP-10: config-driven SessionStart hook runner.
         from server.domain.hooks import HookRunner
 
         self._hook_runner = HookRunner(hooks) if hooks is not None else None
 
-    # ── lifecycle transitions ──────────────────────────────────────────
 
     def _publish(self, kind: EventKind, data: dict, session_id: str | None = None) -> None:
         if self._event_bus:
             self._event_bus.publish(make_event(kind, data, session_id=session_id))
 
-    async def _transition(
-        self, session: Session, new_state: SessionState, reason: str = ""
-    ) -> Session:
+    async def _transition(self, session: Session, new_state: SessionState, reason: str = "") -> Session:
         from_state = session.state.value if hasattr(session.state, "value") else str(session.state)
         to_state = new_state.value if hasattr(new_state, "value") else str(new_state)
         session.transition(new_state)
         session = await self._session_repo.update(session)
         if self._status_history_repo:
             await self._status_history_repo.record(session.id, from_state, to_state, reason)
-        self._publish(
-            EventKind.SESSION_STATE_CHANGED,
-            {
-                "session_id": session.id,
-                "from_state": from_state,
-                "to_state": to_state,
-                "reason": reason,
-            },
-            session_id=session.id,
-        )
+        self._publish(EventKind.SESSION_STATE_CHANGED, {"session_id": session.id, "from_state": from_state, "to_state": to_state, "reason": reason}, session_id=session.id)
         return session
 
-    # ── CRUD ───────────────────────────────────────────────────────────
 
-    async def create(
-        self,
-        title: str | None = None,
-        mode: ScenarioMode = ScenarioMode.BUILD,
-        provider: str | None = None,
-        model: str | None = None,
-        workspace_root: str | None = None,
-        parent_session_id: str | None = None,
-        metadata: dict | None = None,
-    ) -> Session:
-        session = Session(
-            title=title or "New Session",
-            mode=mode,
-            state=SessionState.CREATED,
-            provider=provider,
-            model=model,
-            workspace_root=workspace_root or ".",
-            metadata=metadata or {},
-            parent_session_id=parent_session_id,
-        )
+    async def create(self, title: str | None = None, mode: ScenarioMode = ScenarioMode.BUILD, provider: str | None = None, model: str | None = None, workspace_root: str | None = None, parent_session_id: str | None = None, metadata: dict | None = None) -> Session:
+        session = Session(title=title or "New Session", mode=mode, state=SessionState.CREATED, provider=provider, model=model, workspace_root=workspace_root or ".", metadata=metadata or {}, parent_session_id=parent_session_id)
         await self._session_repo.create(session)
         if self._status_history_repo:
             await self._status_history_repo.record(session.id, None, "created", "Session created")
-        self._publish(
-            EventKind.SESSION_CREATED,
-            {
-                "session_id": session.id,
-                "title": session.title,
-                "mode": session.mode.value if hasattr(session.mode, "value") else session.mode,
-            },
-            session_id=session.id,
-        )
+        self._publish(EventKind.SESSION_CREATED, {"session_id": session.id, "title": session.title, "mode": session.mode.value if hasattr(session.mode, "value") else session.mode}, session_id=session.id)
         logger.info("Created session %s: %s", session.id, session.title)
         await self._run_session_start(session)
         return session
 
     async def _run_session_start(self, session: Session) -> None:
-        """Fire configured SessionStart hooks (HP-10). Non-zero exits are logged."""
         runner = getattr(self, "_hook_runner", None)
         if runner is None or not runner.enabled:
             return
         try:
-            results = await runner.run_session_start(
-                session.id,
-                title=session.title,
-                mode=session.mode.value if hasattr(session.mode, "value") else str(session.mode),
-                provider=session.provider or "",
-                workspace_root=session.workspace_root or ".",
-            )
+            results = await runner.run_session_start(session.id, title=session.title, mode=session.mode.value if hasattr(session.mode, "value") else str(session.mode), provider=session.provider or "", workspace_root=session.workspace_root or ".")
             for r in results:
                 if r["exit_code"] != 0:
-                    logger.warning(
-                        "SessionStart hook '%s' failed (exit %s): %s",
-                        r["command"],
-                        r["exit_code"],
-                        r["stderr"],
-                    )
+                    logger.warning("SessionStart hook '%s' failed (exit %s): %s", r["command"], r["exit_code"], r["stderr"])
         except Exception as e:
             logger.warning("SessionStart hook error for '%s': %s", session.id, e)
 
@@ -247,28 +147,12 @@ class DefaultSessionService(SessionService):
     async def list_active(self) -> list[Session]:
         return await self._session_repo.list_active()
 
-    async def list_sessions(
-        self,
-        limit: int = 50,
-        offset: int = 0,
-        include_archived: bool = False,
-        search: str | None = None,
-        state_filter: str | None = None,
-    ) -> list[Session]:
-        return await self._session_repo.list_all(
-            limit=limit,
-            offset=offset,
-            include_archived=include_archived,
-            search=search,
-            state_filter=state_filter,
-        )
+    async def list_sessions(self, limit: int = 50, offset: int = 0, include_archived: bool = False, search: str | None = None, state_filter: str | None = None) -> list[Session]:
+        return await self._session_repo.list_all(limit=limit, offset=offset, include_archived=include_archived, search=search, state_filter=state_filter)
 
     async def list_summaries(self, limit: int = 10, include_archived: bool = False) -> list[dict]:
-        return await self._session_repo.get_summaries(
-            limit=limit, include_archived=include_archived
-        )
+        return await self._session_repo.get_summaries(limit=limit, include_archived=include_archived)
 
-    # ── lifecycle operations ───────────────────────────────────────────
 
     async def initialize(self, session_id: str) -> Session:
         session = await self.require(session_id)
@@ -292,18 +176,13 @@ class DefaultSessionService(SessionService):
         self._publish(EventKind.SESSION_RESUMED, {"session_id": session_id}, session_id=session_id)
         return result
 
-    # ── messages ───────────────────────────────────────────────────────
 
     async def add_message(self, session_id: str, message: Message) -> None:
         await self._message_repo.create(message)
         session = await self._session_repo.get(session_id)
         if session:
             session.message_count += 1
-            if session.state in (
-                SessionState.CREATED,
-                SessionState.INITIALIZING,
-                SessionState.RESUMED,
-            ):
+            if session.state in (SessionState.CREATED, SessionState.INITIALIZING, SessionState.RESUMED):
                 await self._transition(session, SessionState.ACTIVE, "Message added")
             else:
                 await self._session_repo.update(session)
@@ -320,54 +199,27 @@ class DefaultSessionService(SessionService):
     async def get_token_count(self, session_id: str) -> int:
         return await self._message_repo.count_tokens(session_id)
 
-    # ── session updates ────────────────────────────────────────────────
 
     async def update_title(self, session_id: str, title: str) -> Session:
         session = await self.require(session_id)
         session.title = title
         session.updated_at = datetime.now()
         result = await self._session_repo.update(session)
-        self._publish(
-            EventKind.SESSION_RENAMED,
-            {
-                "session_id": session_id,
-                "title": title,
-            },
-            session_id=session_id,
-        )
+        self._publish(EventKind.SESSION_RENAMED, {"session_id": session_id, "title": title}, session_id=session_id)
         return result
 
     async def update_context(self, session_id: str, used: int, window: int) -> Session:
         session = await self.require(session_id)
         session.update_context(used, window)
         result = await self._session_repo.update(session)
-        self._publish(
-            EventKind.CONTEXT_UPDATED,
-            {
-                "session_id": session_id,
-                "context_used": used,
-                "context_window": window,
-                "context_percent": session.context_percent,
-            },
-            session_id=session_id,
-        )
+        self._publish(EventKind.CONTEXT_UPDATED, {"session_id": session_id, "context_used": used, "context_window": window, "context_percent": session.context_percent}, session_id=session_id)
         return result
 
     async def add_tokens(self, session_id: str, tokens: int, cost: float = 0.0) -> Session:
         session = await self.require(session_id)
         session.add_tokens(tokens, cost)
         result = await self._session_repo.update(session)
-        self._publish(
-            EventKind.TOKEN_USAGE_RECORDED,
-            {
-                "session_id": session_id,
-                "total_tokens": session.total_tokens,
-                "total_cost": session.total_cost,
-                "added_tokens": tokens,
-                "added_cost": cost,
-            },
-            session_id=session_id,
-        )
+        self._publish(EventKind.TOKEN_USAGE_RECORDED, {"session_id": session_id, "total_tokens": session.total_tokens, "total_cost": session.total_cost, "added_tokens": tokens, "added_cost": cost}, session_id=session_id)
         return result
 
     async def record_error(self, session_id: str, error: str) -> Session:
@@ -378,18 +230,9 @@ class DefaultSessionService(SessionService):
             await self._transition(session, SessionState.ERROR, error)
         else:
             await self._session_repo.update(session)
-        self._publish(
-            EventKind.SESSION_ERROR,
-            {
-                "session_id": session_id,
-                "error": error,
-                "error_count": session.error_count,
-            },
-            session_id=session_id,
-        )
+        self._publish(EventKind.SESSION_ERROR, {"session_id": session_id, "error": error, "error_count": session.error_count}, session_id=session_id)
         return result
 
-    # ── checkpointing ──────────────────────────────────────────────────
 
     async def checkpoint(self, session_id: str, checkpoint_type: str = "automatic") -> str:
         session = await self.require(session_id)
@@ -397,31 +240,14 @@ class DefaultSessionService(SessionService):
             raise RuntimeError("Checkpoint repository not available")
 
         if session.state == SessionState.ACTIVE:
-            await self._transition(
-                session, SessionState.CHECKPOINTING, f"Checkpoint: {checkpoint_type}"
-            )
+            await self._transition(session, SessionState.CHECKPOINTING, f"Checkpoint: {checkpoint_type}")
 
-        cid = await self._checkpoint_repo.create(
-            session_id=session_id,
-            checkpoint_type=checkpoint_type,
-            step_index=session.message_count,
-            snapshot_data=session.model_dump_for_db(),
-            token_count=session.total_tokens,
-            message_count=session.message_count,
-        )
+        cid = await self._checkpoint_repo.create(session_id=session_id, checkpoint_type=checkpoint_type, step_index=session.message_count, snapshot_data=session.model_dump_for_db(), token_count=session.total_tokens, message_count=session.message_count)
 
         if session.state == SessionState.CHECKPOINTING:
             await self._transition(session, SessionState.ACTIVE, "Checkpoint complete")
 
-        self._publish(
-            EventKind.SESSION_CHECKPOINT_CREATED,
-            {
-                "session_id": session_id,
-                "checkpoint_id": cid,
-                "checkpoint_type": checkpoint_type,
-            },
-            session_id=session_id,
-        )
+        self._publish(EventKind.SESSION_CHECKPOINT_CREATED, {"session_id": session_id, "checkpoint_id": cid, "checkpoint_type": checkpoint_type}, session_id=session_id)
         return cid
 
     async def restore_from_checkpoint(self, session_id: str) -> Session | None:
@@ -434,17 +260,9 @@ class DefaultSessionService(SessionService):
         session = Session(**snapshot)
         session.state = SessionState.RESUMED
         await self._session_repo.update(session)
-        self._publish(
-            EventKind.SESSION_RESTORED,
-            {
-                "session_id": session_id,
-                "checkpoint_id": checkpoint["id"],
-            },
-            session_id=session_id,
-        )
+        self._publish(EventKind.SESSION_RESTORED, {"session_id": session_id, "checkpoint_id": checkpoint["id"]}, session_id=session_id)
         return session
 
-    # ── archive / delete ───────────────────────────────────────────────
 
     async def archive(self, session_id: str) -> Session:
         session = await self.require(session_id)
@@ -459,15 +277,7 @@ class DefaultSessionService(SessionService):
 
     async def duplicate(self, session_id: str, new_title: str | None = None) -> Session:
         original = await self.require(session_id)
-        new_session = Session(
-            title=new_title or f"{original.title} (copy)",
-            mode=original.mode,
-            provider=original.provider,
-            model=original.model,
-            workspace_root=original.workspace_root,
-            metadata=original.metadata,
-            parent_session_id=original.parent_session_id,
-        )
+        new_session = Session(title=new_title or f"{original.title} (copy)", mode=original.mode, provider=original.provider, model=original.model, workspace_root=original.workspace_root, metadata=original.metadata, parent_session_id=original.parent_session_id)
         await self._session_repo.create(new_session)
         messages = await self.get_history(session_id)
         for msg in messages:
@@ -476,17 +286,8 @@ class DefaultSessionService(SessionService):
             msg.created_at = datetime.now()
             await self._message_repo.create(msg)
         if self._status_history_repo:
-            await self._status_history_repo.record(
-                new_session.id, None, "created", f"Duplicated from {session_id}"
-            )
-        self._publish(
-            EventKind.SESSION_DUPLICATED,
-            {
-                "session_id": new_session.id,
-                "original_id": session_id,
-            },
-            session_id=new_session.id,
-        )
+            await self._status_history_repo.record(new_session.id, None, "created", f"Duplicated from {session_id}")
+        self._publish(EventKind.SESSION_DUPLICATED, {"session_id": new_session.id, "original_id": session_id}, session_id=new_session.id)
         return new_session
 
     async def restore_from_archive(self, session_id: str) -> Session:
@@ -498,7 +299,6 @@ class DefaultSessionService(SessionService):
         self._publish(EventKind.SESSION_RESTORED, {"session_id": session_id}, session_id=session_id)
         return result
 
-    # ── export / import ────────────────────────────────────────────────
 
     async def export_markdown(self, session_id: str) -> str:
         from server.sessions.export import SessionExporter
@@ -511,17 +311,9 @@ class DefaultSessionService(SessionService):
         session.export_format = "markdown"
         session.exported_at = datetime.now()
         await self._session_repo.update(session)
-        self._publish(
-            EventKind.SESSION_EXPORTED,
-            {
-                "session_id": session_id,
-                "format": "markdown",
-            },
-            session_id=session_id,
-        )
+        self._publish(EventKind.SESSION_EXPORTED, {"session_id": session_id, "format": "markdown"}, session_id=session_id)
         return result
 
-    # ── drafts ─────────────────────────────────────────────────────────
 
     async def create_draft(self, session_id: str, prompt: str = "", ttl_hours: int = 24) -> str:
         if self._draft_repo is None:
@@ -538,14 +330,12 @@ class DefaultSessionService(SessionService):
             raise ValueError(f"Cannot promote non-draft session (state={session.state})")
         return await self._transition(session, SessionState.ACTIVE, "Draft promoted")
 
-    # ── status history ─────────────────────────────────────────────────
 
     async def get_status_history(self, session_id: str, limit: int = 50) -> list[dict]:
         if self._status_history_repo is None:
             return []
         return await self._status_history_repo.get_history(session_id, limit=limit)
 
-    # ── sync events ────────────────────────────────────────────────────
 
     async def get_sync_events(self, session_id: str, since_sequence: int = 0) -> list[dict]:
         if self._sync_event_repo is None:
@@ -557,11 +347,7 @@ class DefaultSessionService(SessionService):
             return 0
         return await self._sync_event_repo.get_latest_sequence(session_id)
 
-    async def record_sync_event(
-        self, session_id: str, event_type: str, event_data: dict, sequence: int | None = None
-    ) -> str:
+    async def record_sync_event(self, session_id: str, event_type: str, event_data: dict, sequence: int | None = None) -> str:
         if self._sync_event_repo is None:
             raise RuntimeError("Sync event repository not available")
-        return await self._sync_event_repo.record(
-            session_id, event_type, event_data, sequence=sequence
-        )
+        return await self._sync_event_repo.record(session_id, event_type, event_data, sequence=sequence)

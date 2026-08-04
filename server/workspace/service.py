@@ -1,14 +1,5 @@
-"""Workspace service — unified interface for git, files, repo map, and context files.
-
-Aggregates the existing workspace modules (git, tracker, repo_map, context)
-into a single service interface, adding:
-- File history tracking
-- Staleness detection
-- Linter integration
-"""
 
 from __future__ import annotations
-
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GitStatus:
-    """Structured git status."""
 
     is_git_repo: bool
     branch: str = ""
@@ -32,7 +22,6 @@ class GitStatus:
 
 @dataclass
 class GitCommit:
-    """A single git commit."""
 
     hash: str
     message: str
@@ -42,17 +31,15 @@ class GitCommit:
 
 @dataclass
 class FileVersion:
-    """A recorded version of a file."""
 
     path: str
-    operation: str  # "created", "modified", "deleted"
+    operation: str
     content: str
     timestamp: float
 
 
 @dataclass
 class LintResult:
-    """Result of a lint operation."""
 
     file_path: str
     linter: str
@@ -62,7 +49,6 @@ class LintResult:
 
 
 class WorkspaceService:
-    """Abstract workspace service interface."""
 
     @property
     def root(self) -> Path: ...
@@ -95,7 +81,6 @@ class WorkspaceService:
 
 
 class DefaultWorkspaceService(WorkspaceService):
-    """Workspace service backed by existing git, tracker, repo_map, context modules."""
 
     def __init__(self, workspace_root: str) -> None:
         self._root = Path(workspace_root).resolve()
@@ -131,15 +116,7 @@ class DefaultWorkspaceService(WorkspaceService):
     async def get_git_status(self) -> GitStatus:
         git = self._get_git()
         status = git.status()
-        return GitStatus(
-            is_git_repo=status.get("is_git_repo", False),
-            branch=status.get("branch", ""),
-            modified=status.get("modified", []),
-            staged=status.get("staged", []),
-            untracked=status.get("untracked", []),
-            clean=status.get("clean", True),
-            error=status.get("error", ""),
-        )
+        return GitStatus(is_git_repo=status.get("is_git_repo", False), branch=status.get("branch", ""), modified=status.get("modified", []), staged=status.get("staged", []), untracked=status.get("untracked", []), clean=status.get("clean", True), error=status.get("error", ""))
 
     async def get_diff(self, ref: str | None = None) -> str:
         git = self._get_git()
@@ -148,15 +125,7 @@ class DefaultWorkspaceService(WorkspaceService):
     async def get_log(self, limit: int = 10) -> list[GitCommit]:
         git = self._get_git()
         commits = git.log(count=limit)
-        return [
-            GitCommit(
-                hash=c["hash"],
-                message=c["message"],
-                author=c["author"],
-                date=c["date"],
-            )
-            for c in commits
-        ]
+        return [GitCommit(hash=c["hash"], message=c["message"], author=c["author"], date=c["date"]) for c in commits]
 
     async def commit(self, message: str, files: list[str] | None = None) -> dict:
         git = self._get_git()
@@ -188,14 +157,7 @@ class DefaultWorkspaceService(WorkspaceService):
         if file_path not in changes:
             return []
         info = changes[file_path]
-        return [
-            FileVersion(
-                path=file_path,
-                operation=info["operation"],
-                content=info["content"],
-                timestamp=info["timestamp"],
-            )
-        ]
+        return [FileVersion(path=file_path, operation=info["operation"], content=info["content"], timestamp=info["timestamp"])]
 
     def get_file_changes_summary(self) -> str:
         tracker = self._get_tracker()
@@ -212,20 +174,9 @@ class DefaultWorkspaceService(WorkspaceService):
 
         try:
             result = await run_lint(file_path, str(self._root))
-            return LintResult(
-                file_path=file_path,
-                linter=result.get("linter", linter or "unknown"),
-                success=result.get("success", False),
-                errors=result.get("errors", []),
-                output=result.get("output", ""),
-            )
+            return LintResult(file_path=file_path, linter=result.get("linter", linter or "unknown"), success=result.get("success", False), errors=result.get("errors", []), output=result.get("output", ""))
         except Exception as e:
-            return LintResult(
-                file_path=file_path,
-                linter=linter or "unknown",
-                success=False,
-                output=str(e),
-            )
+            return LintResult(file_path=file_path, linter=linter or "unknown", success=False, output=str(e))
 
     def is_gitignored(self, file_path: str) -> bool:
         git = self._get_git()

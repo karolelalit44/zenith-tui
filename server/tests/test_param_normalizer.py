@@ -1,4 +1,3 @@
-"""Tests for parameter normalizer module."""
 
 from server.toolkit.param_normalizer import normalize_file_params
 
@@ -13,14 +12,8 @@ def test_normalize_path_aliases():
 
 
 def test_normalize_content_aliases():
-    assert normalize_file_params({"search": "a", "replace": "b"}) == {
-        "old_content": "a",
-        "new_content": "b",
-    }
-    assert normalize_file_params({"oldContent": "a", "newContent": "b"}) == {
-        "old_content": "a",
-        "new_content": "b",
-    }
+    assert normalize_file_params({"search": "a", "replace": "b"}) == {"old_content": "a", "new_content": "b"}
+    assert normalize_file_params({"oldContent": "a", "newContent": "b"}) == {"old_content": "a", "new_content": "b"}
 
 
 def test_normalize_command_and_pattern():

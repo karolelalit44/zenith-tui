@@ -1,26 +1,13 @@
-"""Session model — represents a conversation session.
-
-A Session tracks:
-- Identity and metadata (id, title, mode)
-- Full lifecycle state (created → active → completed → archived)
-- Parent/child relationships for sub-agents
-- Configuration snapshot for the session duration
-- Context and token tracking
-"""
 
 from __future__ import annotations
-
 import uuid
 from datetime import datetime
 from typing import Any
-
 from pydantic import BaseModel, Field
-
 from .domain import ScenarioMode, SessionState
 
 
 class Session(BaseModel):
-    """A conversation session with full lifecycle and state tracking."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str = "New Session"
@@ -53,13 +40,11 @@ class Session(BaseModel):
     exported_at: datetime | None = None
 
     def transition(self, new_state: SessionState) -> None:
-        """Transition to a new state with validation."""
         _validate_session_transition(self.state, new_state)
         self.state = new_state
         self.updated_at = datetime.now()
 
     def archive(self) -> None:
-        """Archive the session."""
         self.transition(SessionState.ARCHIVED)
         self.is_active = False
 
@@ -81,122 +66,20 @@ class Session(BaseModel):
         self.last_error = error
 
     def to_legacy_dict(self) -> dict[str, Any]:
-        """Export as legacy dict for backward compatibility."""
-        return {
-            "id": self.id,
-            "title": self.title,
-            "mode": self.mode.value,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "workspace_root": self.workspace_root,
-            "is_active": self.is_active,
-            "metadata": self.metadata,
-        }
+        return {"id": self.id, "title": self.title, "mode": self.mode.value, "created_at": self.created_at.isoformat(), "updated_at": self.updated_at.isoformat(), "workspace_root": self.workspace_root, "is_active": self.is_active, "metadata": self.metadata}
 
     def to_summary_dict(self) -> dict[str, Any]:
-        """Compact representation for session listing."""
-        return {
-            "id": self.id,
-            "title": self.title,
-            "mode": self.mode.value,
-            "state": self.state.value,
-            "provider": self.provider,
-            "model": self.model,
-            "message_count": self.message_count,
-            "total_tokens": self.total_tokens,
-            "total_cost": round(self.total_cost, 4),
-            "context_percent": self.context_percent,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "is_active": self.is_active,
-            "error_count": self.error_count,
-            "last_error": self.last_error,
-            "parent_session_id": self.parent_session_id,
-        }
+        return {"id": self.id, "title": self.title, "mode": self.mode.value, "state": self.state.value, "provider": self.provider, "model": self.model, "message_count": self.message_count, "total_tokens": self.total_tokens, "total_cost": round(self.total_cost, 4), "context_percent": self.context_percent, "created_at": self.created_at.isoformat(), "updated_at": self.updated_at.isoformat(), "is_active": self.is_active, "error_count": self.error_count, "last_error": self.last_error, "parent_session_id": self.parent_session_id}
 
     def model_dump_for_db(self) -> dict[str, Any]:
-        """Serialize for database insert/update."""
-        return {
-            "id": self.id,
-            "title": self.title,
-            "mode": self.mode.value,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "workspace_root": self.workspace_root,
-            "is_active": int(self.is_active),
-            "metadata_json": str(self.metadata)
-            if isinstance(self.metadata, str)
-            else str(__import__("json").dumps(self.metadata)),
-            "parent_session_id": self.parent_session_id,
-            "state": self.state.value,
-            "plan_output": self.plan_output,
-            "plan_approved_at": self.plan_approved_at.isoformat()
-            if self.plan_approved_at
-            else None,
-            "context_used": self.context_used,
-            "context_window": self.context_window,
-            "context_percent": self.context_percent,
-            "total_tokens": self.total_tokens,
-            "total_cost": self.total_cost,
-            "error_count": self.error_count,
-            "last_error": self.last_error,
-            "agent_state": self.agent_state,
-            "message_count": self.message_count,
-            "model": self.model,
-            "provider": self.provider,
-        }
+        return {"id": self.id, "title": self.title, "mode": self.mode.value, "created_at": self.created_at.isoformat(), "updated_at": self.updated_at.isoformat(), "workspace_root": self.workspace_root, "is_active": int(self.is_active), "metadata_json": str(self.metadata) if isinstance(self.metadata, str) else str(__import__("json").dumps(self.metadata)), "parent_session_id": self.parent_session_id, "state": self.state.value, "plan_output": self.plan_output, "plan_approved_at": self.plan_approved_at.isoformat() if self.plan_approved_at else None, "context_used": self.context_used, "context_window": self.context_window, "context_percent": self.context_percent, "total_tokens": self.total_tokens, "total_cost": self.total_cost, "error_count": self.error_count, "last_error": self.last_error, "agent_state": self.agent_state, "message_count": self.message_count, "model": self.model, "provider": self.provider}
 
 
-# ---------------------------------------------------------------------------
-# State machine transitions
-# ---------------------------------------------------------------------------
 
-_VALID_TRANSITIONS: dict[SessionState, set[SessionState]] = {
-    SessionState.CREATED: {
-        SessionState.INITIALIZING,
-        SessionState.DRAFT,
-        SessionState.ACTIVE,
-        SessionState.ARCHIVED,
-    },
-    SessionState.DRAFT: {SessionState.ACTIVE, SessionState.ARCHIVED},
-    SessionState.INITIALIZING: {SessionState.ACTIVE, SessionState.ERROR, SessionState.ARCHIVED},
-    SessionState.ACTIVE: {
-        SessionState.ACTIVE,
-        SessionState.COMPLETED,
-        SessionState.SUMMARIZED,
-        SessionState.PAUSED,
-        SessionState.ERROR,
-        SessionState.CHECKPOINTING,
-        SessionState.EXPORTED,
-        SessionState.ARCHIVED,
-        SessionState.DRAFT,
-    },
-    SessionState.COMPLETED: {
-        SessionState.ACTIVE,
-        SessionState.SUMMARIZED,
-        SessionState.EXPORTED,
-        SessionState.ARCHIVED,
-    },
-    SessionState.RESUMED: {
-        SessionState.ACTIVE,
-        SessionState.COMPLETED,
-        SessionState.SUMMARIZED,
-        SessionState.EXPORTED,
-        SessionState.ARCHIVED,
-    },
-    SessionState.SUMMARIZED: {SessionState.RESUMED, SessionState.ACTIVE, SessionState.ARCHIVED},
-    SessionState.PAUSED: {SessionState.ACTIVE, SessionState.ARCHIVED, SessionState.SUMMARIZED},
-    SessionState.ERROR: {SessionState.ACTIVE, SessionState.ARCHIVED, SessionState.EXPORTED},
-    SessionState.EXPORTED: {SessionState.ACTIVE, SessionState.ARCHIVED},
-    SessionState.CHECKPOINTING: {SessionState.ACTIVE, SessionState.ERROR},
-    SessionState.ARCHIVED: set(),
-}
+_VALID_TRANSITIONS: dict[SessionState, set[SessionState]] = {SessionState.CREATED: {SessionState.INITIALIZING, SessionState.DRAFT, SessionState.ACTIVE, SessionState.ARCHIVED}, SessionState.DRAFT: {SessionState.ACTIVE, SessionState.ARCHIVED}, SessionState.INITIALIZING: {SessionState.ACTIVE, SessionState.ERROR, SessionState.ARCHIVED}, SessionState.ACTIVE: {SessionState.ACTIVE, SessionState.COMPLETED, SessionState.SUMMARIZED, SessionState.PAUSED, SessionState.ERROR, SessionState.CHECKPOINTING, SessionState.EXPORTED, SessionState.ARCHIVED, SessionState.DRAFT}, SessionState.COMPLETED: {SessionState.ACTIVE, SessionState.SUMMARIZED, SessionState.EXPORTED, SessionState.ARCHIVED}, SessionState.RESUMED: {SessionState.ACTIVE, SessionState.COMPLETED, SessionState.SUMMARIZED, SessionState.EXPORTED, SessionState.ARCHIVED}, SessionState.SUMMARIZED: {SessionState.RESUMED, SessionState.ACTIVE, SessionState.ARCHIVED}, SessionState.PAUSED: {SessionState.ACTIVE, SessionState.ARCHIVED, SessionState.SUMMARIZED}, SessionState.ERROR: {SessionState.ACTIVE, SessionState.ARCHIVED, SessionState.EXPORTED}, SessionState.EXPORTED: {SessionState.ACTIVE, SessionState.ARCHIVED}, SessionState.CHECKPOINTING: {SessionState.ACTIVE, SessionState.ERROR}, SessionState.ARCHIVED: set()}
 
 
 def _validate_session_transition(current: SessionState, target: SessionState) -> None:
     allowed = _VALID_TRANSITIONS.get(current, set())
     if target not in allowed:
-        raise ValueError(
-            f"Invalid session transition: {current.value} → {target.value}. "
-            f"Allowed: {', '.join(s.value for s in allowed) or '(none)'}"
-        )
+        raise ValueError(f"Invalid session transition: {current.value} → {target.value}. " f"Allowed: {', '.join(s.value for s in allowed) or '(none)'}")

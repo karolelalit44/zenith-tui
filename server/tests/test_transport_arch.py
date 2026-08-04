@@ -1,43 +1,14 @@
-"""Tests for transport architecture — protocol, ConnectionManager, TransportService."""
 
 import pytest
-
-from server.api.protocol import (
-    Connection,
-    JsonRpcMethod,
-    JsonRpcRequest,
-    JsonRpcResponse,
-    TransportService,
-    make_error_response,
-    make_event,
-    make_response,
-)
+from server.api.protocol import (Connection, JsonRpcMethod, JsonRpcRequest, JsonRpcResponse, TransportService, make_error_response, make_event, make_response)
 from server.api.websocket import ConnectionManager
 from server.domain.events import Event, EventKind
 
-# ── JsonRpcMethod ────────────────────────────────────────────────────────
 
 
 class TestJsonRpcMethod:
     def test_all_methods_exist(self):
-        methods = [
-            "session.create",
-            "session.list",
-            "session.resume",
-            "session.export",
-            "prompt.send",
-            "prompt.cancel",
-            "provider.validate",
-            "provider.models",
-            "provider.list",
-            "tools.list",
-            "workspace.status",
-            "workspace.diff",
-            "workspace.log",
-            "workspace.repo_map",
-            "permission.response",
-            "health",
-        ]
+        methods = ["session.create", "session.list", "session.resume", "session.export", "prompt.send", "prompt.cancel", "provider.validate", "provider.models", "provider.list", "tools.list", "workspace.status", "workspace.diff", "workspace.log", "workspace.repo_map", "permission.response", "health"]
         for m in methods:
             assert JsonRpcMethod(m) is not None
 
@@ -47,7 +18,6 @@ class TestJsonRpcMethod:
             assert len(m.value) > 0
 
 
-# ── JsonRpcRequest ───────────────────────────────────────────────────────
 
 
 class TestJsonRpcRequest:
@@ -62,7 +32,6 @@ class TestJsonRpcRequest:
         assert req.params == {}
 
 
-# ── JsonRpcResponse ──────────────────────────────────────────────────────
 
 
 class TestJsonRpcResponse:
@@ -76,7 +45,6 @@ class TestJsonRpcResponse:
         assert resp.error["code"] == -32601
 
 
-# ── Serialization helpers ────────────────────────────────────────────────
 
 
 class TestSerialization:
@@ -97,7 +65,6 @@ class TestSerialization:
         assert "message" in s
 
 
-# ── Connection model ─────────────────────────────────────────────────────
 
 
 class TestConnection:
@@ -107,7 +74,6 @@ class TestConnection:
         assert c.client == "127.0.0.1:1234"
 
 
-# ── TransportService ABC ────────────────────────────────────────────────
 
 
 class TestTransportServiceABC:
@@ -116,7 +82,6 @@ class TestTransportServiceABC:
             TransportService()
 
 
-# ── ConnectionManager ────────────────────────────────────────────────────
 
 
 class TestConnectionManager:
@@ -131,6 +96,5 @@ class TestConnectionManager:
     @pytest.mark.asyncio
     async def test_stop_disconnects_all(self):
         cm = ConnectionManager()
-        # No connections to disconnect
         await cm.stop()
         assert cm.get_connections() == []

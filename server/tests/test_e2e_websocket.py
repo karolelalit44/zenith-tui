@@ -1,8 +1,3 @@
-"""End-to-end tests: live server → WebSocket client → events → EventMapper validation.
-
-Tests the full pipeline: frontend request → zenith processing → events → frontend rendering.
-Uses a real uvicorn server with a mock EchoProvider to avoid needing API keys.
-"""
 
 import asyncio
 import json
@@ -14,7 +9,6 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
-
 import pytest
 import websockets
 
@@ -25,14 +19,12 @@ def _get_free_port() -> int:
         return s.getsockname()[1]
 
 
-# ── Live server fixture (subprocess) ─────────────────────────────────
 
 _SERVER_READY_TIMEOUT = 20
 _ECHO_PROVIDER_CODE = """
 import asyncio
 import logging
 logging.disable(logging.CRITICAL)
-
 from server.providers.base import BaseProvider
 
 class EchoProvider(BaseProvider):
@@ -55,17 +47,14 @@ class EchoProvider(BaseProvider):
 
 @pytest.fixture(scope="module")
 def echo_server(tmp_path_factory):
-    """Start a real zenith server with EchoProvider in a subprocess."""
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
     str(tmp_path_factory.mktemp("workspace"))
 
-    # Write the provider monkey-patch to a temp file
     prov_file = Path(tempfile.mktemp(suffix=".py"))
     prov_file.write_text(_ECHO_PROVIDER_CODE)
 
     env = os.environ.copy()
-    # Ensure all required env vars are set for the subprocess
     env.setdefault("ZENITH_DB_PATH", db_path)
     env.setdefault("ZENITH_LOG_LEVEL", "CRITICAL")
     env.setdefault("ZENITH_MAX_CONTEXT_TOKENS", "128000")
@@ -95,7 +84,6 @@ import importlib.util
 spec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-
 import server.providers.registry as reg
 _orig_from_config = reg.ProviderRegistry.from_config
 
@@ -127,14 +115,8 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
 
-    proc = subprocess.Popen(
-        [sys.executable, str(server_file)],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    proc = subprocess.Popen([sys.executable, str(server_file)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    # Wait for server to be ready
     deadline = time.time() + _SERVER_READY_TIMEOUT
     ready = False
     while time.time() < deadline:
@@ -148,9 +130,7 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
     if not ready:
         proc.kill()
         stdout, stderr = proc.communicate(timeout=5)
-        pytest.fail(
-            f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}"
-        )
+        pytest.fail(f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}")
 
     yield port
 
@@ -162,14 +142,11 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
         proc.wait(timeout=5)
 
 
-# ── HTTP endpoint tests (in-process, no server needed) ────────────────
 
 
 @pytest.mark.asyncio
 async def test_http_health():
-    """Server health endpoint returns ok."""
     from httpx import ASGITransport, AsyncClient
-
     import server.api.server as srv
     from server.api.server import create_app
     from server.api.websocket import ZenithHandler
@@ -196,12 +173,7 @@ async def test_http_health():
             return ["echo-v1"]
 
     tmp = Path(tempfile.mkdtemp())
-    cfg = AppSettings(
-        providers={"echo": ProviderConfig(model="echo-v1", is_active=True)},
-        active_provider="echo",
-        db_path=str(tmp / "db.sqlite"),
-        workspace_root=str(tmp),
-    )
+    cfg = AppSettings(providers={"echo": ProviderConfig(model="echo-v1", is_active=True)}, active_provider="echo", db_path=str(tmp / "db.sqlite"), workspace_root=str(tmp))
     db = Database(cfg.db_path)
     await db.connect()
     reg = ProviderRegistry()
@@ -225,9 +197,7 @@ async def test_http_health():
 
 @pytest.mark.asyncio
 async def test_http_status():
-    """Server status endpoint returns ready with provider info."""
     from httpx import ASGITransport, AsyncClient
-
     import server.api.server as srv
     from server.api.server import create_app
     from server.api.websocket import ZenithHandler
@@ -254,12 +224,7 @@ async def test_http_status():
             return ["echo-v1"]
 
     tmp = Path(tempfile.mkdtemp())
-    cfg = AppSettings(
-        providers={"echo": ProviderConfig(model="echo-v1", is_active=True)},
-        active_provider="echo",
-        db_path=str(tmp / "db.sqlite"),
-        workspace_root=str(tmp),
-    )
+    cfg = AppSettings(providers={"echo": ProviderConfig(model="echo-v1", is_active=True)}, active_provider="echo", db_path=str(tmp / "db.sqlite"), workspace_root=str(tmp))
     db = Database(cfg.db_path)
     await db.connect()
     reg = ProviderRegistry()
@@ -281,11 +246,9 @@ async def test_http_status():
         await db.close()
 
 
-# ── WebSocket JSON-RPC protocol tests (live server) ──────────────────
 
 
 async def _ws_rpc(ws, method: str, params: dict[str, Any] | None = None) -> dict:
-    """Send a JSON-RPC request and wait for the response."""
     rid = f"test_{method}_{int(time.time() * 1000)}"
     request: dict[str, Any] = {"jsonrpc": "2.0", "id": rid, "method": method}
     if params:
@@ -297,11 +260,9 @@ async def _ws_rpc(ws, method: str, params: dict[str, Any] | None = None) -> dict
         data = json.loads(raw)
         if "id" in data and data["id"] == rid:
             return data
-        # skip events, keep waiting for our response
 
 
 async def _collect_events(ws, timeout: float = 15) -> list[dict]:
-    """Collect all JSON-RPC event notifications from the WebSocket."""
     events: list[dict] = []
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -318,7 +279,6 @@ async def _collect_events(ws, timeout: float = 15) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_ws_session_create(echo_server):
-    """WebSocket session.create returns a valid session object."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "session.create", {"title": "E2E Test"})
@@ -330,7 +290,6 @@ async def test_ws_session_create(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_session_list(echo_server):
-    """WebSocket session.list returns sessions after creating one."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         await _ws_rpc(ws, "session.create", {"title": "List Test"})
@@ -345,7 +304,6 @@ async def test_ws_session_list(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_session_resume(echo_server):
-    """WebSocket session.resume returns session + messages."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         create_resp = await _ws_rpc(ws, "session.create", {"title": "Resume Test"})
@@ -362,46 +320,24 @@ async def test_ws_session_resume(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_prompt_full_event_pipeline(echo_server):
-    """Full pipeline: send prompt → receive thinking/message/success events.
-
-    Validates:
-    - prompt.send returns {session_id, status: processing}
-    - Event notifications arrive in JSON-RPC format
-    - Events include thinking → message(partial) → message(final) → success
-    - Each event has correct kind, data shape, session_id
-    """
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
-        # Create session
         create_resp = await _ws_rpc(ws, "session.create", {"title": "Pipeline Test"})
         sid = create_resp["result"]["id"]
 
-        # Send prompt
-        prompt_resp = await _ws_rpc(
-            ws,
-            "prompt.send",
-            {
-                "content": "Hello from E2E test",
-                "mode": "build",
-            },
-        )
+        prompt_resp = await _ws_rpc(ws, "prompt.send", {"content": "Hello from E2E test", "mode": "build"})
         assert "result" in prompt_resp
         assert prompt_resp["result"]["status"] == "processing"
         assert prompt_resp["result"]["session_id"] == sid
 
-        # Collect events
         events = await _collect_events(ws, timeout=15)
 
-        assert len(events) >= 3, (
-            f"Expected at least 3 events, got {len(events)}: "
-            f"{[e['params']['kind'] for e in events]}"
-        )
+        assert len(events) >= 3, (f"Expected at least 3 events, got {len(events)}: " f"{[e['params']['kind'] for e in events]}")
 
         kinds = [e["params"]["kind"] for e in events]
         assert "thinking" in kinds, f"Missing thinking event. Got: {kinds}"
         assert "success" in kinds, f"Missing success event. Got: {kinds}"
 
-        # Validate JSON-RPC event structure
         for evt in events:
             assert evt["jsonrpc"] == "2.0", "Event must have jsonrpc 2.0"
             assert evt["method"] == "event", "Event method must be 'event'"
@@ -410,15 +346,11 @@ async def test_ws_prompt_full_event_pipeline(echo_server):
             assert "id" in params, "Event params must have 'id'"
             assert "data" in params, "Event params must have 'data'"
             assert "session_id" in params, f"Event {params['kind']} must have session_id"
-            assert params["session_id"] == sid, (
-                f"Event session_id mismatch: {params['session_id']} != {sid}"
-            )
+            assert params["session_id"] == sid, (f"Event session_id mismatch: {params['session_id']} != {sid}")
 
-        # Validate thinking event shape
         thinking_evt = next(e for e in events if e["params"]["kind"] == "thinking")
         assert "text" in thinking_evt["params"]["data"]
 
-        # Validate success event shape
         success_evt = next(e for e in events if e["params"]["kind"] == "success")
         success_data = success_evt["params"]["data"]
         assert "message" in success_data
@@ -427,7 +359,6 @@ async def test_ws_prompt_full_event_pipeline(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_prompt_empty_rejected(echo_server):
-    """Empty prompt returns an error."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "prompt.send", {"content": "   ", "mode": "build"})
@@ -437,7 +368,6 @@ async def test_ws_prompt_empty_rejected(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_health(echo_server):
-    """WS health method returns ok."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "health")
@@ -447,7 +377,6 @@ async def test_ws_health(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_unknown_method(echo_server):
-    """Unknown method returns error -32601."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "nonexistent.method")
@@ -457,7 +386,6 @@ async def test_ws_unknown_method(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_tools_list(echo_server):
-    """tools.list returns tool schemas."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "tools.list", {"mode": "build"})
@@ -470,7 +398,6 @@ async def test_ws_tools_list(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_provider_validate(echo_server):
-    """provider.validate returns valid=True for the echo provider."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "provider.validate", {"provider": "echo"})
@@ -480,7 +407,6 @@ async def test_ws_provider_validate(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_provider_models(echo_server):
-    """provider.models returns model list."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "provider.models", {"provider": "echo"})
@@ -491,7 +417,6 @@ async def test_ws_provider_models(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_session_not_found(echo_server):
-    """session.resume with invalid ID returns error."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         resp = await _ws_rpc(ws, "session.resume", {"session_id": "nonexistent"})
@@ -501,7 +426,6 @@ async def test_ws_session_not_found(echo_server):
 
 @pytest.mark.asyncio
 async def test_ws_malformed_json(echo_server):
-    """Malformed JSON returns parse error."""
     port = echo_server
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         await ws.send("not json!!!")

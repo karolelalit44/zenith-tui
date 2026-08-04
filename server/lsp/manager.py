@@ -1,28 +1,18 @@
-"""LSP manager — manages language server client lifecycles."""
 
 from __future__ import annotations
-
 import asyncio
 import logging
 import shutil
 from pathlib import Path
 from typing import Any
-
 from .client import DEFAULT_SERVERS, LspClient
 
 logger = logging.getLogger(__name__)
 
 
 class LspManager:
-    """Manages LSP client instances, one per language server type.
 
-    Clients are lazily initialized when a file of the matching type is first requested.
-    Each client is shared across all files it serves.
-    """
-
-    def __init__(
-        self, workspace_root: str, custom_servers: dict[str, dict[str, Any]] | None = None
-    ) -> None:
+    def __init__(self, workspace_root: str, custom_servers: dict[str, dict[str, Any]] | None = None) -> None:
         self.workspace_root = workspace_root
         self._clients: dict[str, LspClient] = {}
         self._ext_to_server: dict[str, str] = {}
@@ -31,19 +21,16 @@ class LspManager:
         self._build_ext_index()
 
     def _build_ext_index(self) -> None:
-        """Map file extensions to server names."""
         servers = {**DEFAULT_SERVERS, **self._custom_servers}
         for ext, config in servers.items():
             self._ext_to_server[ext] = config.get("name", config.get("command", ext))
 
     def get_server_for_file(self, file_path: str) -> dict[str, Any] | None:
-        """Get the server config for a given file path, or None if unsupported."""
         ext = Path(file_path).suffix.lower()
         all_servers = {**DEFAULT_SERVERS, **self._custom_servers}
         return all_servers.get(ext)
 
     def supports_file(self, file_path: str) -> bool:
-        """Check if we have an LSP server for this file type."""
         return self.get_server_for_file(file_path) is not None
 
     def _get_server_name(self, file_path: str) -> str | None:
@@ -53,11 +40,6 @@ class LspManager:
         return config.get("name", config.get("command", ""))
 
     async def get_client(self, file_path: str) -> LspClient | None:
-        """Get or create an initialized LSP client for the given file type.
-
-        Returns None if no LSP server is configured for this file extension
-        or if the server binary is not found on PATH.
-        """
         server_name = self._get_server_name(file_path)
         if server_name is None:
             return None
@@ -76,22 +58,13 @@ class LspManager:
             logger.debug("LSP server '%s' not found on PATH", command)
             return None
 
-        client = LspClient(
-            name=server_name,
-            command=command,
-            args=config.get("args", []),
-            cwd=self.workspace_root,
-        )
+        client = LspClient(name=server_name, command=command, args=config.get("args", []), cwd=self.workspace_root)
         try:
             await client.start()
             root_uri = Path(self.workspace_root).as_uri()
             await client.initialize(root_uri, self.workspace_root)
             self._clients[server_name] = client
-            logger.info(
-                "LSP client '%s' ready for %s files",
-                server_name,
-                list(config.get("file_types", [Path("").suffix])),
-            )
+            logger.info("LSP client '%s' ready for %s files", server_name, list(config.get("file_types", [Path("").suffix])))
             return client
         except Exception as e:
             logger.warning("Failed to start LSP server '%s': %s", server_name, e)
@@ -99,7 +72,6 @@ class LspManager:
             return None
 
     async def shutdown_all(self) -> None:
-        """Shutdown all active LSP clients."""
         for name, client in list(self._clients.items()):
             try:
                 await client.stop()
@@ -108,11 +80,9 @@ class LspManager:
         self._clients.clear()
 
     def active_servers(self) -> list[str]:
-        """Return names of currently active LSP servers."""
         return [name for name, c in self._clients.items() if c.initialized]
 
 
-# Module-level singleton
 _manager: LspManager | None = None
 
 

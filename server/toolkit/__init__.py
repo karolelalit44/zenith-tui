@@ -1,4 +1,3 @@
-"""Tools module — provides all built-in tools."""
 
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
 from .registry import ToolRegistry
@@ -21,48 +20,10 @@ from .tools.question import QuestionTool
 from .tools.todo import TodoTool
 from .tools.webfetch import WebfetchTool
 
-__all__ = [
-    "BaseTool",
-    "BashTool",
-    "FileDeleteTool",
-    "FileEditTool",
-    "FileReadTool",
-    "FileWriteTool",
-    "GlobTool",
-    "GrepTool",
-    "JobKillTool",
-    "JobOutputTool",
-    "LspDefinitionTool",
-    "LspDiagnosticsTool",
-    "LspRenameTool",
-    "McpToolWrapper",
-    "MultiEditTool",
-    "QuestionTool",
-    "SubAgentTool",
-    "TodoTool",
-    "ToolContext",
-    "ToolMiddleware",
-    "ToolRegistry",
-    "ToolResult",
-    "WebfetchTool",
-]
+__all__ = ["BaseTool", "BashTool", "FileDeleteTool", "FileEditTool", "FileReadTool", "FileWriteTool", "GlobTool", "GrepTool", "JobKillTool", "JobOutputTool", "LspDefinitionTool", "LspDiagnosticsTool", "LspRenameTool", "McpToolWrapper", "MultiEditTool", "QuestionTool", "SubAgentTool", "TodoTool", "ToolContext", "ToolMiddleware", "ToolRegistry", "ToolResult", "WebfetchTool"]
 
 
-def create_default_registry(
-    timeout: int = 30,
-    provider: object | None = None,
-    permission_service: object | None = None,
-    hooks: object | None = None,
-) -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered.
-
-    HP-8: the safety middleware is always wired; the permission middleware is
-    wired when a ``permission_service`` is supplied, so persisted deny rules
-    block tools without a UI round-trip.
-
-    HP-10: the hook middleware is wired when a ``hooks`` config is supplied,
-    so PreToolUse/PostToolUse shell hooks gate tool execution.
-    """
+def create_default_registry(timeout: int = 30, provider: object | None = None, permission_service: object | None = None, hooks: object | None = None) -> ToolRegistry:
     from .middleware import HookMiddleware, PermissionMiddleware, SafetyCheckMiddleware
 
     registry = ToolRegistry()

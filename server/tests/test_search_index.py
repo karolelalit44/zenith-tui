@@ -1,11 +1,7 @@
-"""Tests for HP-9 — FTS5 search index over sessions/messages + session.search."""
 
 from __future__ import annotations
-
 from datetime import datetime
-
 import pytest
-
 from server.domain.message import Message
 from server.domain.session import Session
 from server.persistence.connection import Database
@@ -31,46 +27,13 @@ class TestSearchRepository:
         await db.connect()
         session_repo = SessionRepository(db)
         msg_repo = MessageRepository(db)
-        session = Session(
-            id="s-auth",
-            title="Auth token work",
-            state="active",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-        )
+        session = Session(id="s-auth", title="Auth token work", state="active", created_at=datetime.now(), updated_at=datetime.now())
         await session_repo.create(session)
-        session2 = Session(
-            id="s-other",
-            title="Frontend styling",
-            state="active",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-        )
+        session2 = Session(id="s-other", title="Frontend styling", state="active", created_at=datetime.now(), updated_at=datetime.now())
         await session_repo.create(session2)
-        await msg_repo.create(
-            Message(
-                session_id="s-auth",
-                role="user",
-                content="Please rotate the auth token every day.",
-                token_count=10,
-            )
-        )
-        await msg_repo.create(
-            Message(
-                session_id="s-auth",
-                role="assistant",
-                content="Done. The JWT auth token is now rotated daily.",
-                token_count=12,
-            )
-        )
-        await msg_repo.create(
-            Message(
-                session_id="s-other",
-                role="user",
-                content="Make the button blue please.",
-                token_count=8,
-            )
-        )
+        await msg_repo.create(Message(session_id="s-auth", role="user", content="Please rotate the auth token every day.", token_count=10))
+        await msg_repo.create(Message(session_id="s-auth", role="assistant", content="Done. The JWT auth token is now rotated daily.", token_count=12))
+        await msg_repo.create(Message(session_id="s-other", role="user", content="Make the button blue please.", token_count=8))
         return db, session_repo, msg_repo
 
     @pytest.mark.asyncio
@@ -134,15 +97,7 @@ class TestSearchRepository:
     async def test_triggers_keep_index_in_sync(self, temp_dir):
         db, _, msg_repo = await self._setup(temp_dir)
         try:
-            # Insert a new message → index updates via trigger
-            await msg_repo.create(
-                Message(
-                    session_id="s-other",
-                    role="assistant",
-                    content="The palette uses auth-themed accent colors.",
-                    token_count=9,
-                )
-            )
+            await msg_repo.create(Message(session_id="s-other", role="assistant", content="The palette uses auth-themed accent colors.", token_count=9))
             repo = SearchRepository(db)
             parity = await repo.index_parity()
             assert parity["messages"] == parity["message_fts"] == 4
@@ -164,22 +119,9 @@ class TestSessionSearchRPC:
 
             session_repo = SessionRepository(db)
             msg_repo = MessageRepository(db)
-            session = Session(
-                id="s1",
-                title="Auth token work",
-                state="active",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
-            )
+            session = Session(id="s1", title="Auth token work", state="active", created_at=datetime.now(), updated_at=datetime.now())
             await session_repo.create(session)
-            await msg_repo.create(
-                Message(
-                    session_id="s1",
-                    role="user",
-                    content="The auth token must be rotated daily.",
-                    token_count=9,
-                )
-            )
+            await msg_repo.create(Message(session_id="s1", role="user", content="The auth token must be rotated daily.", token_count=9))
 
             handlers = MethodHandlers.__new__(MethodHandlers)
             handlers.session_repo = session_repo

@@ -3,19 +3,15 @@ import logging
 import os
 import sys
 from pathlib import Path
-
 from dotenv import load_dotenv
-
 from server.persistence.connection import resolve_db_path
 from server.persistence.provider_config_repo import read_active_provider, read_providers
-
 from .settings import AppSettings
 
 logger = logging.getLogger(__name__)
 
 _catalog_cache: dict | None = None
 _validated_once: bool = False
-
 
 def _load_catalog() -> dict:
     global _catalog_cache
@@ -26,18 +22,11 @@ def _load_catalog() -> dict:
     _catalog_cache = load_catalog()
     return _catalog_cache
 
-
 def providers_requiring_key() -> set[str]:
     catalog = _load_catalog()
     return {pid for pid, p in catalog["providers"].items() if p.get("requires_api_key", True)}
 
-
 def parse_hooks_env(raw: str) -> dict | None:
-    """Parse a ZENITH_HOOKS JSON string into an AppSettings-compatible dict.
-
-    Expected shape: {"pre_tool_use": [...], "post_tool_use": [...],
-    "session_start": [...], "timeout": <int>}. Returns None when nothing usable.
-    """
     if not raw or not raw.strip():
         return None
     try:
@@ -60,10 +49,8 @@ def parse_hooks_env(raw: str) -> dict | None:
             pass
     return hooks or None
 
-
 def load_config(workspace_root: str = ".") -> AppSettings:
     load_dotenv()
-    # Load API keys from .keys file in the workspace root if present
     keys_path = Path(".keys")
     if keys_path.is_file():
         for line in keys_path.read_text().splitlines():
@@ -93,15 +80,8 @@ def load_config(workspace_root: str = ".") -> AppSettings:
 
     for pid, p_info in catalog_providers.items():
         if pid not in providers_dict:
-            providers_dict[pid] = {
-                "api_key": "",
-                "model": "",
-                "base_url": p_info.get("base_url"),
-                "is_active": pid == data.get("active_provider"),
-            }
+            providers_dict[pid] = {"api_key": "", "model": "", "base_url": p_info.get("base_url"), "is_active": pid == data.get("active_provider")}
 
-        # Inject API key from environment if current api_key is empty
-        # (candidate env var names come from the SQL catalog env_keys column)
         if not providers_dict[pid].get("api_key"):
             for env_var in p_info.get("env_keys") or []:
                 val = os.environ.get(env_var)
@@ -111,7 +91,6 @@ def load_config(workspace_root: str = ".") -> AppSettings:
 
     data["providers"] = providers_dict
 
-    # MCP servers from ZENITH_MCP_SERVERS (JSON): {"name": {"command": "...", "args": [...], "env": {...}}}
     mcp_raw = os.environ.get("ZENITH_MCP_SERVERS", "").strip()
     if mcp_raw:
         try:
@@ -119,22 +98,14 @@ def load_config(workspace_root: str = ".") -> AppSettings:
             mcp_servers: dict[str, dict] = {}
             for name, cfg in parsed.items():
                 if isinstance(cfg, dict) and cfg.get("command"):
-                    mcp_servers[str(name)] = {
-                        "command": str(cfg["command"]),
-                        "args": list(cfg.get("args") or []),
-                        "env": dict(cfg.get("env") or {}),
-                    }
+                    mcp_servers[str(name)] = {"command": str(cfg["command"]), "args": list(cfg.get("args") or []), "env": dict(cfg.get("env") or {})}
                 else:
-                    logger.warning(
-                        "MCP config: skipping invalid server '%s' (missing command)", name
-                    )
+                    logger.warning("MCP config: skipping invalid server '%s' (missing command)", name)
             if mcp_servers:
                 data["mcp_servers"] = mcp_servers
         except json.JSONDecodeError as e:
             logger.warning("Invalid ZENITH_MCP_SERVERS JSON — MCP servers disabled: %s", e)
 
-    # Hooks from ZENITH_HOOKS (JSON): {"pre_tool_use": [...], "post_tool_use": [...],
-    # "session_start": [...], "timeout": N}
     hooks_raw = os.environ.get("ZENITH_HOOKS", "").strip()
     if hooks_raw:
         hooks_cfg = parse_hooks_env(hooks_raw)
@@ -145,12 +116,7 @@ def load_config(workspace_root: str = ".") -> AppSettings:
     _validate_config(settings)
     return settings
 
-
 def _validate_config(settings: AppSettings) -> None:
-    """Run startup validation checks and log warnings for misconfigurations.
-
-    Only runs once to avoid spamming logs on every load_config() call.
-    """
     global _validated_once
     if _validated_once:
         return
@@ -168,24 +134,14 @@ def _validate_config(settings: AppSettings) -> None:
             if key.strip():
                 has_any_key = True
                 break
-            warnings.append(
-                f"Provider '{name}' is configured in zenith.db but missing a valid API key."
-            )
+            warnings.append(f"Provider '{name}' is configured in zenith.db but missing a valid API key.")
 
     if not has_any_key and not any(getattr(cfg, "api_key", None) for cfg in providers.values()):
-        warnings.append(
-            "No provider API keys found in zenith.db database. Configure at least one provider via setup wizard."
-        )
+        warnings.append("No provider API keys found in zenith.db database. Configure at least one provider via setup wizard.")
 
     catalog = _load_catalog()
-    if settings.active_provider not in providers and settings.active_provider not in catalog.get(
-        "providers", {}
-    ):
-        warnings.append(
-            f"Active provider '{settings.active_provider}' is not in the configured "
-            f"providers list {list(providers.keys()) or '[]'}. "
-            f"Set active provider in zenith.db."
-        )
+    if settings.active_provider not in providers and settings.active_provider not in catalog.get("providers", {}):
+        warnings.append(f"Active provider '{settings.active_provider}' is not in the configured " f"providers list {list(providers.keys()) or '[]'}. " f"Set active provider in zenith.db.")
 
     workspace = Path(settings.workspace_root)
     if not workspace.exists():
@@ -202,16 +158,11 @@ def _validate_config(settings: AppSettings) -> None:
     for warning in warnings:
         logger.warning("Config: %s", warning)
 
-    if warnings and os.getenv("ZENITH_STRICT_VALIDATION", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
+    if warnings and os.getenv("ZENITH_STRICT_VALIDATION", "").strip().lower() in ("1", "true", "yes"):
         print("Configuration errors detected:", file=sys.stderr)
         for w in warnings:
             print(f"  - {w}", file=sys.stderr)
         sys.exit(1)
-
 
 def create_default_config(workspace_root: str = ".") -> Path:
     db_path = Path(resolve_db_path())
@@ -220,7 +171,6 @@ def create_default_config(workspace_root: str = ".") -> Path:
     if not db_path.exists():
         db_path.touch()
     return db_path
-
 
 def save_config(settings: AppSettings, workspace_root: str = ".") -> Path:
     db_path = Path(resolve_db_path())

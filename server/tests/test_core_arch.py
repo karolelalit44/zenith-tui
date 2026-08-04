@@ -1,27 +1,11 @@
-"""Tests for core architecture — domain, events, message, session, errors."""
 
 import pytest
-
-from server.domain.domain import (
-    AgentRole,
-    DeliveryMode,
-    RiskLevel,
-    ScenarioMode,
-    SessionState,
-)
-from server.domain.errors import (
-    ConfigError,
-    ProviderError,
-    RateLimitError,
-    SessionNotFound,
-    SessionTransitionError,
-    ZenithError,
-)
+from server.domain.domain import (AgentRole, DeliveryMode, RiskLevel, ScenarioMode, SessionState)
+from server.domain.errors import (ConfigError, ProviderError, RateLimitError, SessionNotFound, SessionTransitionError, ZenithError)
 from server.domain.events import AsyncEventBus, Event, EventKind
 from server.domain.message import Message, ToolCall
 from server.domain.session import Session
 
-# ── Domain enums ─────────────────────────────────────────────────────────
 
 
 class TestDomainEnums:
@@ -45,7 +29,6 @@ class TestDomainEnums:
         assert DeliveryMode.BLOCKING.value == "blocking"
 
 
-# ── EventBus ─────────────────────────────────────────────────────────────
 
 
 class TestAsyncEventBus:
@@ -81,7 +64,6 @@ class TestAsyncEventBus:
         assert received is None
 
 
-# ── Message ──────────────────────────────────────────────────────────────
 
 
 class TestMessage:
@@ -89,7 +71,7 @@ class TestMessage:
         msg = Message(role="user", content="hello", session_id="s1")
         assert msg.role == "user"
         assert msg.content == "hello"
-        assert msg.id  # UUID string
+        assert msg.id
 
     def test_message_with_tool_calls(self):
         tc = ToolCall(id="call_1", name="bash", arguments={"command": "ls"})
@@ -102,7 +84,6 @@ class TestMessage:
         assert msg.parent_message_id == "msg_parent"
 
 
-# ── Session ──────────────────────────────────────────────────────────────
 
 
 class TestSession:
@@ -123,7 +104,6 @@ class TestSession:
             session.transition(SessionState.CREATED)
 
 
-# ── Errors ───────────────────────────────────────────────────────────────
 
 
 class TestErrors:

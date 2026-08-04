@@ -1,13 +1,9 @@
-"""Tests for MCP integration — McpClient, McpManager, dynamic tool registration, config loading."""
 
 from __future__ import annotations
-
 import json
 import os
 import textwrap
-
 import pytest
-
 from server.config.loader import load_config
 from server.config.settings import McpServerConfig
 from server.mcp.client import McpClient
@@ -82,9 +78,7 @@ def write_stub_server(path):
 
 
 def make_config(tmp_path) -> McpServerConfig:
-    return McpServerConfig(
-        command=os.sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")]
-    )
+    return McpServerConfig(command=os.sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")])
 
 
 @pytest.fixture
@@ -130,17 +124,10 @@ async def test_mcp_manager_registers_server_prefixed_tools(mcp_server):
         for w in wrappers:
             registry.register(w)
         assert "mcp_stub_echo" in registry.list_tools()
-        # Build mode (allowed_mcp=None) exposes all MCP tools
         assert "mcp_stub_echo" in registry.list_tools_for_mode("build")
-        # Plan mode ({}) hides them
         assert "mcp_stub_echo" not in registry.list_tools_for_mode("plan", allowed_mcp={})
-        # Explicit allowlist matches server-prefixed names
-        assert "mcp_stub_echo" in registry.list_tools_for_mode(
-            "build", allowed_mcp={"stub": ["echo"]}
-        )
-        assert "mcp_stub_echo" not in registry.list_tools_for_mode(
-            "build", allowed_mcp={"stub": ["failing"]}
-        )
+        assert "mcp_stub_echo" in registry.list_tools_for_mode("build", allowed_mcp={"stub": ["echo"]})
+        assert "mcp_stub_echo" not in registry.list_tools_for_mode("build", allowed_mcp={"stub": ["failing"]})
     finally:
         await manager.stop()
 
@@ -190,12 +177,7 @@ async def test_registry_execute_runs_mcp_tool(tmp_path):
         registry = ToolRegistry()
         for w in manager.build_wrappers():
             registry.register(w)
-        result = await registry.execute(
-            "mcp_stub_echo",
-            {"text": "via-registry"},
-            workspace_root=".",
-            allowed_mcp=None,
-        )
+        result = await registry.execute("mcp_stub_echo", {"text": "via-registry"}, workspace_root=".", allowed_mcp=None)
         assert result.success
         assert result.output == "via-registry"
     finally:

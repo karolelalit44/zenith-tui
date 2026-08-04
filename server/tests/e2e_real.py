@@ -1,11 +1,5 @@
-"""Real end-to-end test: starts zenith, connects WebSocket, submits a prompt, verifies events.
-
-Run manually with:
-    python -m pytest server/tests/test_e2e_real.py -v -s --timeout=120
-"""
 
 from __future__ import annotations
-
 import asyncio
 import json
 import os
@@ -28,7 +22,6 @@ def log(msg: str) -> None:
 
 
 async def wait_for_backend(timeout: int = 30) -> bool:
-    """Poll /health until the zenith is ready."""
     import httpx
 
     deadline = time.monotonic() + timeout
@@ -49,7 +42,6 @@ async def wait_for_backend(timeout: int = 30) -> bool:
 
 
 async def test_health_rest() -> dict:
-    """Test REST health endpoint."""
     import httpx
 
     async with httpx.AsyncClient() as client:
@@ -62,21 +54,17 @@ async def test_health_rest() -> dict:
 
 
 async def test_startup_validate() -> dict:
-    """Test startup validation endpoint."""
     import httpx
 
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{BACKEND_URL}/startup/validate", timeout=5)
         assert r.status_code == 200, f"startup/validate failed: {r.status_code}"
         data = r.json()
-        log(
-            f"REST /startup/validate: status={data.get('status')}, provider={data.get('active_provider')}, missing={data.get('missing')}"
-        )
+        log(f"REST /startup/validate: status={data.get('status')}, provider={data.get('active_provider')}, missing={data.get('missing')}")
         return data
 
 
 async def test_websocket_health() -> None:
-    """Connect via WebSocket and send a health check."""
     async with websockets.connect(WS_URL) as ws:
         req = json.dumps({"jsonrpc": "2.0", "id": "1", "method": "health"})
         await ws.send(req)
@@ -87,17 +75,8 @@ async def test_websocket_health() -> None:
 
 
 async def test_session_lifecycle() -> str:
-    """Create a session, verify it, then use it."""
     async with websockets.connect(WS_URL) as ws:
-        # Create session
-        req = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": "2",
-                "method": "session.create",
-                "params": {"title": "E2E Test"},
-            }
-        )
+        req = json.dumps({"jsonrpc": "2.0", "id": "2", "method": "session.create", "params": {"title": "E2E Test"}})
         await ws.send(req)
         resp = await asyncio.wait_for(ws.recv(), timeout=5)
         data = json.loads(resp)
@@ -105,7 +84,6 @@ async def test_session_lifecycle() -> str:
         session_id = data["result"]["id"]
         log(f"Session created: {session_id}")
 
-        # List sessions
         req = json.dumps({"jsonrpc": "2.0", "id": "3", "method": "session.list"})
         await ws.send(req)
         resp = await asyncio.wait_for(ws.recv(), timeout=5)
@@ -118,13 +96,8 @@ async def test_session_lifecycle() -> str:
 
 
 async def test_prompt_submission(session_id: str, model_override: str | None = None) -> list[dict]:
-    """Submit a prompt and collect all events."""
     async with websockets.connect(WS_URL) as ws:
-        params: dict = {
-            "content": "Write a one-line Python function that returns the sum of two numbers.",
-            "mode": "build",
-            "session_id": session_id,
-        }
+        params: dict = {"content": "Write a one-line Python function that returns the sum of two numbers.", "mode": "build", "session_id": session_id}
         if model_override:
             params["model"] = model_override
         req = json.dumps({"jsonrpc": "2.0", "id": "4", "method": "prompt.send", "params": params})
@@ -156,7 +129,6 @@ async def test_prompt_submission(session_id: str, model_override: str | None = N
 
 
 async def test_workspace_status() -> None:
-    """Test workspace status via WebSocket."""
     async with websockets.connect(WS_URL) as ws:
         req = json.dumps({"jsonrpc": "2.0", "id": "5", "method": "workspace.status"})
         await ws.send(req)
@@ -167,14 +139,8 @@ async def test_workspace_status() -> None:
 
 
 async def run_all_tests() -> bool:
-    """Run all e2e tests, return True if all pass."""
 
-    tests = [
-        ("REST /health", test_health_rest),
-        ("REST /startup/validate", test_startup_validate),
-        ("WS health", test_websocket_health),
-        ("Session lifecycle", lambda: test_session_lifecycle()),
-    ]
+    tests = [("REST /health", test_health_rest), ("REST /startup/validate", test_startup_validate), ("WS health", test_websocket_health), ("Session lifecycle", lambda: test_session_lifecycle())]
 
     results = []
     for name, coro_fn in tests:
@@ -190,20 +156,13 @@ async def run_all_tests() -> bool:
             results.append((name, False, str(e)))
             log(f"  ✗ {name}: {e}")
 
-    # Find session_id from session test
     session_id = None
     for name, ok, val in results:
         if name == "Session lifecycle" and ok:
             session_id = val
 
-    # Prompt test with model override for reliability
     if session_id:
-        # Try with a reliable free model first
-        reliable_models = [
-            "google/gemini-2.0-flash-exp:free",
-            "openrouter/auto",
-            "meta-llama/llama-3.1-8b-instruct",
-        ]
+        reliable_models = ["google/gemini-2.0-flash-exp:free", "openrouter/auto", "meta-llama/llama-3.1-8b-instruct"]
         prompt_ok = False
         events = []
         for model in reliable_models:
@@ -216,14 +175,7 @@ async def run_all_tests() -> bool:
                     log(f"  ✓ Prompt with {model} succeeded")
                     break
                 elif "error" in kinds:
-                    err_msg = next(
-                        (
-                            e.get("data", {}).get("message", "")
-                            for e in events
-                            if e.get("kind") == "error"
-                        ),
-                        "",
-                    )
+                    err_msg = next((e.get("data", {}).get("message", "") for e in events if e.get("kind") == "error"), "")
                     log(f"  Model {model} returned error: {err_msg}")
             except Exception as e:
                 log(f"  Model {model} failed: {e}")
@@ -236,7 +188,6 @@ async def run_all_tests() -> bool:
     else:
         results.append(("Prompt submission (skipped)", True, "no session"))
 
-    # Workspace test
     try:
         await test_workspace_status()
         results.append(("Workspace status", True, None))
@@ -262,27 +213,11 @@ async def run_all_tests() -> bool:
 
 
 async def main():
-    # Ensure we're in the project root
     os.chdir(str(ZENITH_DIR.parent))
 
     log("Starting zenith server...")
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "uvicorn",
-        "transport.server:app",
-        "--host",
-        "localhost",
-        "--port",
-        str(BACKEND_PORT),
-        "--log-level",
-        "info",
-        cwd=str(ZENITH_DIR),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
+    proc = await asyncio.create_subprocess_exec(sys.executable, "-m", "uvicorn", "transport.server:app", "--host", "localhost", "--port", str(BACKEND_PORT), "--log-level", "info", cwd=str(ZENITH_DIR), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
 
-    # Read zenith output in background
     async def reader():
         assert proc.stdout
         async for line in proc.stdout:

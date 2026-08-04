@@ -1,9 +1,6 @@
-"""Job kill tool — terminate a background job."""
 
 from __future__ import annotations
-
 from typing import Any
-
 from ..base import BaseTool, ToolResult
 from .background import get_background_manager
 
@@ -17,16 +14,7 @@ class JobKillTool(BaseTool):
         return "low"
 
     def get_schema(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {
-                "job_id": {
-                    "type": "string",
-                    "description": "Background job ID",
-                },
-            },
-            "required": ["job_id"],
-        }
+        return {"type": "object", "properties": {"job_id": {"type": "string", "description": "Background job ID"}}, "required": ["job_id"]}
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         job_id = params.get("job_id", "")

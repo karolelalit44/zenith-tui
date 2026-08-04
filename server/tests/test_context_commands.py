@@ -1,9 +1,6 @@
-"""Tests for P3.11 — manual /compact and /clear-tools context editing."""
 
 import json
-
 import pytest
-
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
@@ -17,18 +14,12 @@ class StubProvider(BaseProvider):
     def __init__(self, total_tokens: int = 0, context_window: int = 128000):
         super().__init__("test", "test-model")
         self._context_window = context_window
-        self._cumulative_usage = {
-            "total_tokens": total_tokens,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-        }
+        self._cumulative_usage = {"total_tokens": total_tokens, "prompt_tokens": 0, "completion_tokens": 0}
 
     async def complete(self, messages: list[dict], tools=None) -> str:
         return "summarized"
 
-    async def stream(
-        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
-    ):
+    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
         for char in "summarized":
             yield (char, None)
 
@@ -48,12 +39,7 @@ def _fake_ws(captured: dict):
 
 @pytest.fixture
 def test_config(temp_dir):
-    return AppSettings(
-        providers={"test": ProviderConfig(model="test-model", is_active=True)},
-        active_provider="test",
-        db_path=str(temp_dir / "test.db"),
-        workspace_root=str(temp_dir),
-    )
+    return AppSettings(providers={"test": ProviderConfig(model="test-model", is_active=True)}, active_provider="test", db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
 
 
 @pytest.fixture
@@ -84,7 +70,7 @@ def handler(test_config, test_db, registry):
         events.append(event)
 
     h.handlers.manager = type("M", (), {"send_event": mock_send_event})()
-    return h, events  # handlers + captured events
+    return h, events
 
 
 class TestContextCommands:
@@ -94,12 +80,8 @@ class TestContextCommands:
         session = await h.session_repo.create(Session(title="Compact Test"))
 
         for i in range(5):
-            await h.message_repo.create(
-                Message(session_id=session.id, role="user", content=f"User prompt {i}")
-            )
-            await h.message_repo.create(
-                Message(session_id=session.id, role="assistant", content=f"Assistant response {i}")
-            )
+            await h.message_repo.create(Message(session_id=session.id, role="user", content=f"User prompt {i}"))
+            await h.message_repo.create(Message(session_id=session.id, role="assistant", content=f"Assistant response {i}"))
 
         ws = _fake_ws({})
         await h.handlers._context_compact(ws, 1, session.id)
@@ -124,24 +106,7 @@ class TestContextCommands:
         h, _ = handler
         session = await h.session_repo.create(Session(title="Clear Tools Test"))
 
-        msg = Message(
-            session_id=session.id,
-            role="assistant",
-            content="done",
-            events=[
-                Event(
-                    kind=EventKind.TOOL_CALL,
-                    data={"tool": "bash", "params": {"command": "ls"}},
-                    session_id=session.id,
-                ),
-                Event(
-                    kind=EventKind.TOOL_RESULT,
-                    data={"tool": "bash", "output": "file1\nfile2"},
-                    session_id=session.id,
-                ),
-                Event(kind=EventKind.MESSAGE, data={"text": "listed files"}, session_id=session.id),
-            ],
-        )
+        msg = Message(session_id=session.id, role="assistant", content="done", events=[Event(kind=EventKind.TOOL_CALL, data={"tool": "bash", "params": {"command": "ls"}}, session_id=session.id), Event(kind=EventKind.TOOL_RESULT, data={"tool": "bash", "output": "file1\nfile2"}, session_id=session.id), Event(kind=EventKind.MESSAGE, data={"text": "listed files"}, session_id=session.id)])
         await h.message_repo.create(msg)
 
         captured = {}

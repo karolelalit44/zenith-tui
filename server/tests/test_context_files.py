@@ -1,17 +1,14 @@
-"""Tests for project context file loading — zenith.md, zenith.local.md, and the AGENTS.md/CLAUDE.md family."""
 
 from server.agents.prompts import build_system_prompt
 from server.workspace.context import load_context_files
 
 
 def _write(root, name: str, content: str) -> None:
-    """Write a context file under the workspace root, creating parents as needed."""
     p = root / name
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
 
 
-# ── zenith.local.md / zenith.md ──────────────────────────────────────────
 
 
 class TestZenithContextFiles:
@@ -34,8 +31,6 @@ class TestZenithContextFiles:
         _write(tmp_path, "CLAUDE.md", "claude-content")
         files = load_context_files(str(tmp_path))
         names = [f.path for f in files]
-        # Root files load in list order, so zenith.md precedes zenith.local.md,
-        # and both precede any CLAUDE.md present in the workspace.
         assert names[0].endswith("zenith.md")
         assert names[1].endswith("zenith.local.md")
         claude_idx = next((i for i, n in enumerate(names) if n.endswith("CLAUDE.md")), None)
@@ -48,12 +43,11 @@ class TestZenithContextFiles:
         assert any("zenith.local.md" in f.path for f in files)
 
 
-# ── Size guards (existing _read_file behavior) ───────────────────────────
 
 
 class TestContextFileSizeGuards:
     def test_oversized_file_is_skipped(self, tmp_path):
-        _write(tmp_path, "zenith.local.md", "x" * 100_000)  # > 64 KB cap
+        _write(tmp_path, "zenith.local.md", "x" * 100_000)
         files = load_context_files(str(tmp_path))
         assert not any("zenith.local.md" in f.path for f in files)
 

@@ -1,4 +1,3 @@
-"""Agent module — loop, context, prompts, recovery, runtime, coordinator."""
 
 from .context import ContextManager
 from .coordinator import CoordinatorService, DefaultCoordinator
@@ -9,16 +8,4 @@ from .recovery import RecoverableAgentLoop
 from .runtime import AgentRuntime, DefaultAgentRuntime
 from .templates import PromptBuilder, PromptTemplate
 
-__all__ = [
-    "AgentLoop",
-    "AgentRuntime",
-    "ContextManager",
-    "CoordinatorService",
-    "DefaultAgentRuntime",
-    "DefaultCoordinator",
-    "LoopDetector",
-    "PromptBuilder",
-    "PromptTemplate",
-    "RecoverableAgentLoop",
-    "build_system_prompt",
-]
+__all__ = ["AgentLoop", "AgentRuntime", "ContextManager", "CoordinatorService", "DefaultAgentRuntime", "DefaultCoordinator", "LoopDetector", "PromptBuilder", "PromptTemplate", "RecoverableAgentLoop", "build_system_prompt"]

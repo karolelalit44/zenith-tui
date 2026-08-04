@@ -1,9 +1,6 @@
-"""File read tool — read file contents with line numbers."""
 
 from __future__ import annotations
-
 from typing import Any
-
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
@@ -11,40 +8,17 @@ from ..path_validator import validate_path
 class FileReadTool(BaseTool):
     name = "file_read"
     description = "Read file contents"
-    requires_mode = None  # Available in both plan and build
+    requires_mode = None
 
     def get_schema(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "File path",
-                },
-                "offset": {
-                    "type": "integer",
-                    "description": "Start line (0-indexed)",
-                    "default": 0,
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max lines",
-                    "default": 2000,
-                },
-            },
-            "required": ["path"],
-        }
+        return {"type": "object", "properties": {"path": {"type": "string", "description": "File path"}, "offset": {"type": "integer", "description": "Start line (0-indexed)", "default": 0}, "limit": {"type": "integer", "description": "Max lines", "default": 2000}}, "required": ["path"]}
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        # Note: params are pre-normalized by the agent loop
         rel_path = params.get("path") or ""
 
         resolved = validate_path(rel_path, workspace_root)
         if resolved is None:
-            return ToolResult(
-                success=False,
-                error=f"Path escapes workspace boundary: {rel_path}",
-            )
+            return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
 
         offset = params.get("offset", 0)
         limit = params.get("limit", 2000)
@@ -60,14 +34,6 @@ class FileReadTool(BaseTool):
             lines = content.split("\n")
             selected = lines[offset : offset + limit]
             numbered = "\n".join(f"{i + offset + 1}: {line}" for i, line in enumerate(selected))
-            return ToolResult(
-                success=True,
-                output=numbered,
-                metadata={
-                    "total_lines": len(lines),
-                    "showing": len(selected),
-                    "path": str(resolved),
-                },
-            )
+            return ToolResult(success=True, output=numbered, metadata={"total_lines": len(lines), "showing": len(selected), "path": str(resolved)})
         except Exception as e:
             return ToolResult(success=False, error=str(e))

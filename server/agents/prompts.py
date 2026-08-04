@@ -1,11 +1,8 @@
-"""System prompt builder — constructs smart, high-density system prompts for BUILD and PLAN modes."""
 
 from __future__ import annotations
-
 import platform
 from datetime import UTC, datetime
 from typing import Any
-
 from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
 from server.workspace.context import format_context_files, load_context_files
 
@@ -27,20 +24,8 @@ Objective: Analyze the codebase using read-only tools and output a clear, struct
 """
 
 
-def build_system_prompt(
-    workspace_root: str,
-    mode: str = "build",
-    tool_schemas: list[dict[str, Any]] | None = None,
-    skills_section: str = "",
-    max_context_tokens: int = 128000,
-    provider_name: str = "",
-    model_name: str = "",
-) -> str:
-    """Build a smart, high-density system prompt for BUILD or PLAN mode."""
-    sections: list[str] = [
-        "You are Zenith, an TUI AI coding assistant.",
-        f"<env>\n{_build_env_section(workspace_root, mode)}\n</env>",
-    ]
+def build_system_prompt(workspace_root: str, mode: str = "build", tool_schemas: list[dict[str, Any]] | None = None, skills_section: str = "", max_context_tokens: int = 128000, provider_name: str = "", model_name: str = "") -> str:
+    sections: list[str] = ["You are Zenith, an TUI AI coding assistant.", f"<env>\n{_build_env_section(workspace_root, mode)}\n</env>"]
 
     tier_enhancements = get_tier_prompt_enhancements(detect_model_tier(model_name, provider_name))
     if tier_enhancements:
@@ -54,26 +39,16 @@ def build_system_prompt(
 
     context_files = load_context_files(workspace_root)
     if context_files:
-        sections.append(
-            f"<project_context>\n{format_context_files(context_files)}\n</project_context>"
-        )
+        sections.append(f"<project_context>\n{format_context_files(context_files)}\n</project_context>")
 
     return "\n\n".join(sections)
 
 
-def build_plan_system_prompt(
-    workspace_root: str,
-    provider_name: str = "",
-    model_name: str = "",
-) -> str:
-    """Build a focused system prompt for plan mode."""
-    return build_system_prompt(
-        workspace_root, mode="plan", provider_name=provider_name, model_name=model_name
-    )
+def build_plan_system_prompt(workspace_root: str, provider_name: str = "", model_name: str = "") -> str:
+    return build_system_prompt(workspace_root, mode="plan", provider_name=provider_name, model_name=model_name)
 
 
 def _build_env_section(workspace_root: str, mode: str) -> str:
-    """Build the <env> metadata block efficiently."""
     os_name = platform.system()
     shell_name = "powershell" if os_name == "Windows" else "bash"
     today = datetime.now(UTC).strftime("%Y-%m-%d")

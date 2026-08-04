@@ -1,20 +1,9 @@
-"""Tests for provider architecture — base, registry, retry, typed interface."""
 
 import pytest
-
-from server.providers.base import (
-    BaseProvider,
-    ModelInfo,
-    ProviderChunk,
-    ProviderResponse,
-    TokenUsage,
-    ToolCall,
-    ToolCallDelta,
-)
+from server.providers.base import (BaseProvider, ModelInfo, ProviderChunk, ProviderResponse, TokenUsage, ToolCall, ToolCallDelta)
 from server.providers.registry import ProviderRegistry
 from server.providers.retry import RetryPolicy
 
-# ── ProviderResponse ─────────────────────────────────────────────────────
 
 
 class TestProviderResponse:
@@ -35,7 +24,6 @@ class TestProviderResponse:
         assert resp.usage.total_tokens == 30
 
 
-# ── ProviderChunk ────────────────────────────────────────────────────────
 
 
 class TestProviderChunk:
@@ -50,7 +38,6 @@ class TestProviderChunk:
         assert chunk.tool_call_delta.name == "bash"
 
 
-# ── ModelInfo ────────────────────────────────────────────────────────────
 
 
 class TestModelInfo:
@@ -60,7 +47,6 @@ class TestModelInfo:
         assert info.context_window == 8192
 
 
-# ── ProviderRegistry ─────────────────────────────────────────────────────
 
 
 class TestProviderRegistry:
@@ -72,7 +58,6 @@ class TestProviderRegistry:
     def test_register_provider(self):
         reg = ProviderRegistry()
 
-        # Register a mock provider
         class MockProvider(BaseProvider):
             def __init__(self):
                 super().__init__(name="mock", model="mock-model")
@@ -99,7 +84,6 @@ class TestProviderRegistry:
             reg.require("nonexistent")
 
 
-# ── RetryPolicy ──────────────────────────────────────────────────────────
 
 
 class TestRetryPolicy:
@@ -122,7 +106,7 @@ class TestRetryPolicy:
         d0 = p.calculate_delay(err, 0)
         d1 = p.calculate_delay(err, 1)
         d2 = p.calculate_delay(err, 2)
-        assert d0 <= d1 <= d2 + 0.5  # jitter
+        assert d0 <= d1 <= d2 + 0.5
         assert d2 <= 10.0
 
     def test_calculate_delay_rate_limit(self):
@@ -131,4 +115,4 @@ class TestRetryPolicy:
         p = RetryPolicy(base_delay=1.0, max_delay=10.0)
         err = RateLimitError("rate limited", retry_after=3.0)
         d = p.calculate_delay(err, 0)
-        assert d == 3.0  # uses retry_after
+        assert d == 3.0

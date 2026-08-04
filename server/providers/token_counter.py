@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,11 +8,6 @@ _REPLY_PRIMING = 2
 
 
 def _encoding_name_for_model(model: str) -> str | None:
-    """Resolve the tiktoken encoding name from the SQL catalog model row.
-
-    Returns ``None`` when the model is unknown, so callers fall back to a
-    neutral default encoding. No model names are hardcoded here.
-    """
     try:
         from server.persistence.repositories import load_catalog
 
@@ -33,7 +27,9 @@ class TokenCounter:
         self._encodings: dict[str, object] = {}
         self._available: bool = True
         try:
-            import tiktoken  # noqa: F401
+            from importlib.util import find_spec
+            if not find_spec("tiktoken"):
+                self._available = False
         except ImportError:
             self._available = False
             logger.warning("tiktoken not installed; using heuristic fallback for token counting")
@@ -89,7 +85,6 @@ class TokenCounter:
         return total
 
     def fallback_usage(self, prompt: str, completion: str, model: str) -> tuple[int, int]:
-        """Fallback token count when provider returns zero/invalid usage."""
         inp = self.count(prompt, model) if prompt else 0
         out = self.count(completion, model) if completion else 0
         return inp, out

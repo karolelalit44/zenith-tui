@@ -1,19 +1,10 @@
-"""Tests for tool middleware — base, registry, middleware chain, individual middleware."""
 
 from typing import Any
-
 import pytest
-
 from server.toolkit.base import BaseTool, ToolContext, ToolMiddleware, ToolResult
-from server.toolkit.middleware import (
-    LoggingMiddleware,
-    PermissionMiddleware,
-    SafetyCheckMiddleware,
-    ValidationMiddleware,
-)
+from server.toolkit.middleware import (LoggingMiddleware, PermissionMiddleware, SafetyCheckMiddleware, ValidationMiddleware)
 from server.toolkit.registry import ToolRegistry
 
-# ── Test tool for middleware tests ────────────────────────────────────────
 
 
 class EchoTool(BaseTool):
@@ -28,11 +19,7 @@ class EchoTool(BaseTool):
         return ToolResult(success=True, output=params.get("text", ""))
 
     def get_schema(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {"text": {"type": "string"}},
-            "required": ["text"],
-        }
+        return {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
 
 
 class FailingTool(BaseTool):
@@ -46,7 +33,6 @@ class FailingTool(BaseTool):
         return {"type": "object", "properties": {}}
 
 
-# ── Tool base ────────────────────────────────────────────────────────────
 
 
 class TestToolBase:
@@ -69,7 +55,6 @@ class TestToolBase:
         assert EchoTool().risk_level == "safe"
 
 
-# ── Tool registry ────────────────────────────────────────────────────────
 
 
 class TestToolRegistry:
@@ -115,7 +100,6 @@ class TestToolRegistry:
         assert "intentional failure" in result.error
 
 
-# ── Middleware chain ──────────────────────────────────────────────────────
 
 
 class TestMiddlewareChain:
@@ -194,7 +178,6 @@ class TestMiddlewareChain:
         assert order == ["mw1_before", "mw2_before", "mw1_after", "mw2_after"]
 
 
-# ── Individual middleware ─────────────────────────────────────────────────
 
 
 class TestSafetyCheckMiddleware:

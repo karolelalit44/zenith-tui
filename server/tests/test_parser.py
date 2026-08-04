@@ -48,7 +48,6 @@ def count_vowels(text):
 def test_unified_response_formatter():
     raw_text = 'I will write the file.\n\n```tool\n{"tool": "file_write", "params": {"filepath": "a.txt", "content": "hello"}}\n```\nCommand: cd backend && python a.py\nOutput: ok'
     clean, calls = UnifiedResponseFormatter.process_response(raw_text)
-    # Text-based tool calls should now be parsed via parse_tool_calls fallback
     assert len(calls) == 1
     assert calls[0]["tool"] == "file_write"
     assert calls[0]["params"]["path"] == "a.txt"

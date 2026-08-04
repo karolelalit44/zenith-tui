@@ -1,21 +1,14 @@
-"""Shared domain enums and types used across the Zenith architecture.
-
-These types are the foundation for all service interfaces and must not
-depend on any other backend module (only stdlib and third-party libs).
-"""
 
 from enum import Enum, StrEnum
 
 
 class ScenarioMode(StrEnum):
-    """Operating mode for the agent."""
 
     BUILD = "build"
     PLAN = "plan"
 
 
 class RiskLevel(StrEnum):
-    """Risk level for tool execution and permission requests."""
 
     LOW = "low"
     MEDIUM = "medium"
@@ -24,7 +17,6 @@ class RiskLevel(StrEnum):
 
 
 class AgentRole(StrEnum):
-    """Role assigned to an agent instance."""
 
     CODER = "coder"
     TASK = "task"
@@ -32,7 +24,6 @@ class AgentRole(StrEnum):
 
 
 class AgentState(StrEnum):
-    """Lifecycle state of an agent."""
 
     IDLE = "idle"
     PROCESSING = "processing"
@@ -44,22 +35,6 @@ class AgentState(StrEnum):
 
 
 class SessionState(StrEnum):
-    """Lifecycle state of a session.
-
-    States and transitions:
-    CREATED → INITIALIZING → ACTIVE
-    ACTIVE → COMPLETED | SUMMARIZED | PAUSED | ERROR | EXPORTED | ARCHIVED | CHECKPOINTING | DRAFT
-    INITIALIZING → ACTIVE | ERROR
-    COMPLETED → ACTIVE (resume) | SUMMARIZED | EXPORTED | ARCHIVED
-    RESUMED → ACTIVE | SUMMARIZED | EXPORTED | ARCHIVED
-    SUMMARIZED → RESUMED | ACTIVE | ARCHIVED
-    PAUSED → ACTIVE (resume) | ARCHIVED
-    ERROR → ACTIVE (retry) | ARCHIVED
-    DRAFT → ACTIVE | ARCHIVED
-    EXPORTED → ACTIVE | ARCHIVED
-    ARCHIVED → _terminal_
-    CHECKPOINTING → ACTIVE (transient)
-    """
 
     CREATED = "created"
     INITIALIZING = "initializing"
@@ -76,7 +51,6 @@ class SessionState(StrEnum):
 
 
 class PermissionDecision(StrEnum):
-    """Decision returned by the permission service."""
 
     ALLOW = "allow"
     DENY = "deny"
@@ -85,15 +59,13 @@ class PermissionDecision(StrEnum):
 
 
 class DeliveryMode(Enum):
-    """Event delivery mode for the event bus."""
 
-    LOSSY = "lossy"  # Drop if buffer full (default)
-    BLOCKING = "blocking"  # Block until delivered
-    PERSISTENT = "persistent"  # Store and deliver later
+    LOSSY = "lossy"
+    BLOCKING = "blocking"
+    PERSISTENT = "persistent"
 
 
 class FinishReason(StrEnum):
-    """Why the provider stopped generating."""
 
     STOP = "stop"
     LENGTH = "length"

@@ -1,9 +1,6 @@
-"""Tests for HP-7: durable memory store (memory/*.md loaded into context)."""
 
 from __future__ import annotations
-
 import pytest
-
 from server.agents.context import ContextManager
 from server.config.settings import AppSettings
 from server.domain.message import Message
@@ -48,10 +45,10 @@ class TestMemoryStore:
         store.append("s-1", "SECOND fact " + "b" * 80)
         store.append("s-1", "THIRD fact " + "c" * 80)
         text = (store.dir / "s-1.md").read_text(encoding="utf-8")
-        assert len(text) <= 340  # max_chars + header slack
+        assert len(text) <= 340
         assert "THIRD" in text
         assert "SECOND" in text
-        assert "FIRST" not in text  # oldest whole block dropped first
+        assert "FIRST" not in text
 
     def test_empty_facts_does_not_write(self, temp_dir):
         store = MemoryStore(temp_dir)
@@ -81,20 +78,12 @@ class TestSummarizeMemoryDedup:
 
     @pytest.mark.asyncio
     async def test_summarize_does_not_duplicate_into_memory(self, temp_dir):
-        config = AppSettings(
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        )
-        msgs = [
-            Message(session_id="s1", role="user", content="build auth"),
-            Message(session_id="s1", role="assistant", content="done"),
-        ]
+        config = AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
+        msgs = [Message(session_id="s1", role="user", content="build auth"), Message(session_id="s1", role="assistant", content="done")]
         hm = HistoryManager(config, self.SummaryProvider())
         summary = await hm.summarize(msgs, "test-model", session_id="s1")
 
         assert "auth token" in summary
-        # P0.4 dedup: the summary is used in-context and persisted per-session;
-        # it must NOT also be dumped wholesale into durable memory.
         assert not (temp_dir / "memory" / "s1.md").exists()
 
     @pytest.mark.asyncio
@@ -116,10 +105,7 @@ class TestSummarizeMemoryDedup:
             async def list_models(self) -> list[str]:
                 return ["test-model"]
 
-        config = AppSettings(
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        )
+        config = AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
         hm = HistoryManager(config, EmptyProvider())
         await hm.summarize([], "test-model", session_id="s1")
         assert not (temp_dir / "memory" / "s1.md").exists()
@@ -128,12 +114,7 @@ class TestSummarizeMemoryDedup:
 class TestMemoryInContext:
     def test_build_messages_injects_memory(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "The stack is FastAPI + Ink.")
-        config = AppSettings(
-            max_context_tokens=128000,
-            repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        )
+        config = AppSettings(max_context_tokens=128000, repo_map_enabled=False, db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
         cm = ContextManager(config)
         messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
         assert any(m["role"] == "system" and "<memory>" in m["content"] for m in messages)
@@ -142,13 +123,7 @@ class TestMemoryInContext:
 
     def test_memory_disabled(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "should not load")
-        config = AppSettings(
-            max_context_tokens=128000,
-            repo_map_enabled=False,
-            memory_enabled=False,
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        )
+        config = AppSettings(max_context_tokens=128000, repo_map_enabled=False, memory_enabled=False, db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
         cm = ContextManager(config)
         messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
         assert all("<memory>" not in m["content"] for m in messages)
@@ -156,12 +131,7 @@ class TestMemoryInContext:
 
     def test_memory_skipped_when_budget_tight(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "x " * 8000)
-        config = AppSettings(
-            max_context_tokens=8000,
-            repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        )
+        config = AppSettings(max_context_tokens=8000, repo_map_enabled=False, db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
         cm = ContextManager(config)
         messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
         assert all("<memory>" not in m["content"] for m in messages)
@@ -169,40 +139,20 @@ class TestMemoryInContext:
 
     def test_memory_merged_when_no_system_role(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "remember this fact")
-        config = AppSettings(
-            max_context_tokens=128000,
-            repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-        )
+        config = AppSettings(max_context_tokens=128000, repo_map_enabled=False, db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
         cm = ContextManager(config)
-        messages = cm.build_messages(
-            [],
-            "SYS",
-            "hi",
-            "test-model",
-            use_system_prompt=False,
-            repo_map="",
-        )
+        messages = cm.build_messages([], "SYS", "hi", "test-model", use_system_prompt=False, repo_map="")
         assert all(m["role"] != "system" for m in messages)
         assert "<memory>" in messages[0]["content"]
 
     def test_new_session_same_workspace_loads_memory(self, temp_dir):
         MemoryStore(temp_dir).append("session-A", "DRY principle enforced")
-        cm = ContextManager(
-            AppSettings(
-                max_context_tokens=128000,
-                repo_map_enabled=False,
-                db_path=str(temp_dir / "test.db"),
-                workspace_root=str(temp_dir),
-            )
-        )
+        cm = ContextManager(AppSettings(max_context_tokens=128000, repo_map_enabled=False, db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir)))
         memory_text = cm.get_memory()
         assert "DRY principle enforced" in memory_text
 
 
 class TestProjectMemory:
-    """P3.12 — project-wide cross-session memory (memory/PROJECT.md)."""
 
     def test_append_project_creates_file(self, temp_dir):
         store = MemoryStore(temp_dir)
@@ -224,7 +174,6 @@ class TestProjectMemory:
         store.append_project("Project uses FastAPI")
         store.append("sess-1", "Session fact")
         loaded = MemoryStore(temp_dir).load()
-        # Project memory appears first
         assert loaded.index("FastAPI") < loaded.index("Session fact")
         assert "PROJECT.md" in loaded
 
