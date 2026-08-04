@@ -6,7 +6,6 @@ interface RunningSpinnerProps {
   color?: string;
 }
 
-/** Isolated tick so idle composer frames never re-render just to spin. */
 export const RunningSpinner: React.FC<RunningSpinnerProps> = React.memo(({ color }) => {
   const [tick, setTick] = useState(0);
 

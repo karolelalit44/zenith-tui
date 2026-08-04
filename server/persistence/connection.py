@@ -1,14 +1,20 @@
-
 from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
+
 from sqlalchemy import event, text
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import (AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine)
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 logger = logging.getLogger(__name__)
-
 for _noisy in ("sqlalchemy", "sqlalchemy.engine", "sqlalchemy.engine.Engine", "aiosqlite"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
@@ -40,14 +46,16 @@ class Database:
     async def __aexit__(self, *exc):
         await self.close()
 
-
     async def connect(self) -> None:
         from .startup import DatabaseStartupService
 
         service = DatabaseStartupService(self.db_path)
         self.startup_result = service.run()
-
-        self._engine = create_async_engine(f"sqlite+aiosqlite:///{Path(self.db_path).resolve()}", echo=os.getenv("ZENITH_LOG_LEVEL", "").lower() == "debug", pool_pre_ping=True)
+        self._engine = create_async_engine(
+            f"sqlite+aiosqlite:///{Path(self.db_path).resolve()}",
+            echo=os.getenv("ZENITH_LOG_LEVEL", "").lower() == "debug",
+            pool_pre_ping=True,
+        )
         event.listen(self._engine.sync_engine, "connect", _set_pragmas)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
         logger.info("Database connected: %s", self.db_path)
@@ -72,7 +80,6 @@ class Database:
     def connected(self) -> bool:
         return self._engine is not None
 
-
     def session(self) -> AsyncSession:
         if self._session_factory is None:
             raise RuntimeError("Database not connected. Call connect() first.")
@@ -92,7 +99,6 @@ class Database:
         from .startup import get_current_version
 
         return get_current_version(self.db_path)
-
 
     async def _ensure_connection(self) -> AsyncConnection:
         if self._engine is None:

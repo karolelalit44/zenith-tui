@@ -38,14 +38,14 @@ export function useConversation(): UseConversationReturn {
   const totalTokens = useMemo(() => {
     return turns.reduce((sum, t) => {
       if (!t.isComplete) return sum;
-      // Prefer real token data from backend success event if available
+
       const successEvent = t.events.find(
         (e): e is SuccessEvent => e.kind === 'success' && 'tokenInfo' in e && Boolean((e as SuccessEvent).tokenInfo),
       );
       if (successEvent?.tokenInfo) {
         return sum + successEvent.tokenInfo.used;
       }
-      // Fall back to char÷4 estimation
+
       return sum + estimateTokensForEvents(t.events);
     }, 0);
   }, [turns]);
@@ -77,7 +77,7 @@ export function useConversation(): UseConversationReturn {
       const lastIdx = prev.length - 1;
       const last = prev[lastIdx];
       const elapsedMs = last ? Date.now() - last.startedAt : undefined;
-      // Stamp elapsedMs onto the success event so SuccessCard can display it
+
       const stampedEvents =
         elapsedMs !== undefined ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e)) : events;
       return prev.map((t, i) => (i === lastIdx ? { ...t, events: [...stampedEvents], isComplete: true } : t));

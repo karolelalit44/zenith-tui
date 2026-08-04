@@ -1,10 +1,3 @@
-/**
- * Typed pub/sub event bus for the frontend.
- *
- * Provides type-safe subscribe/unsubscribe for scenario events,
- * connection status changes, and custom app events.
- */
-
 type Unsubscribe = () => void;
 type Listener<T> = (data: T) => void;
 

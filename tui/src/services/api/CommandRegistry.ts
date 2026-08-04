@@ -19,9 +19,9 @@ export interface CommandRunContext {
 
 export interface CommandDef {
   id: string;
-  /** Slash command text, e.g. '/help'. Omitted for palette-only items. */
+
   slash?: string;
-  /** Display title in the palette / autocomplete. */
+
   title: string;
   description: string;
   category: CommandCategory;

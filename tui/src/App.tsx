@@ -79,8 +79,6 @@ export const App: React.FC = () => {
   const { selectedMode, overlay, isOverlayOpen, openOverlay, closeOverlay, closeAllOverlays, handleModeSelect } =
     useOverlayManager();
 
-  // First-run empty state: when startup is ready but no provider has an API key,
-  // auto-open the provider picker so the user can connect one.
   useEffect(() => {
     if (startupState.phase !== 'ready') return;
     let cancelled = false;
@@ -214,8 +212,8 @@ export const App: React.FC = () => {
 
   const handleCancel = useCallback(() => {
     abort();
-    abortActiveTurn(eventsRef.current);
-  }, [abort, abortActiveTurn, eventsRef]);
+    abortActiveTurn();
+  }, [abort, abortActiveTurn]);
 
   const commandCtx = useMemo<CommandRunContext>(
     () => ({
@@ -342,7 +340,6 @@ export const App: React.FC = () => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });
   }, [startupState]);
 
-  // Calculate visible turns based on scroll offset (must be before conditional returns)
   const visibleTurns = useMemo(() => {
     if (!scrollState.isUserScrolled || isRunning) {
       return completedTurns;
@@ -358,7 +355,6 @@ export const App: React.FC = () => {
   const hiddenAbove = completedTurns.length - visibleTurns.length - (completedTurns.indexOf(visibleTurns[0]) || 0);
   const showScrollIndicator = scrollState.isUserScrolled && (isRunning || completedTurns.length > 0);
 
-  // Loading screen
   if (startupState.phase === 'loading') {
     return (
       <Box
@@ -377,7 +373,6 @@ export const App: React.FC = () => {
     );
   }
 
-  // Setup wizard
   if (startupState.phase === 'setup' || startupState.phase === 'error') {
     return (
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
@@ -386,7 +381,6 @@ export const App: React.FC = () => {
     );
   }
 
-  // Exit screen — replaces entire UI
   if (exitPhase === 'exiting') {
     return <ExitScreen />;
   }

@@ -1,10 +1,15 @@
-
 from typing import Any
-import pytest
-from server.toolkit.base import BaseTool, ToolContext, ToolMiddleware, ToolResult
-from server.toolkit.middleware import (LoggingMiddleware, PermissionMiddleware, SafetyCheckMiddleware, ValidationMiddleware)
-from server.toolkit.registry import ToolRegistry
 
+import pytest
+
+from server.toolkit.base import BaseTool, ToolContext, ToolMiddleware, ToolResult
+from server.toolkit.middleware import (
+    LoggingMiddleware,
+    PermissionMiddleware,
+    SafetyCheckMiddleware,
+    ValidationMiddleware,
+)
+from server.toolkit.registry import ToolRegistry
 
 
 class EchoTool(BaseTool):
@@ -33,8 +38,6 @@ class FailingTool(BaseTool):
         return {"type": "object", "properties": {}}
 
 
-
-
 class TestToolBase:
     def test_tool_result_success(self):
         r = ToolResult(success=True, output="ok")
@@ -53,8 +56,6 @@ class TestToolBase:
 
     def test_echo_tool_risk_level(self):
         assert EchoTool().risk_level == "safe"
-
-
 
 
 class TestToolRegistry:
@@ -98,8 +99,6 @@ class TestToolRegistry:
         result = await reg.execute("failing", {}, "/tmp")
         assert not result.success
         assert "intentional failure" in result.error
-
-
 
 
 class TestMiddlewareChain:
@@ -176,8 +175,6 @@ class TestMiddlewareChain:
         reg.register_middleware(MW2())
         await reg.execute("echo", {"text": "x"}, "/tmp")
         assert order == ["mw1_before", "mw2_before", "mw1_after", "mw2_after"]
-
-
 
 
 class TestSafetyCheckMiddleware:

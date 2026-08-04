@@ -28,7 +28,5 @@ export const getRecentSessions = async (limit: number = 10): Promise<SessionItem
 export const addSession = async (title: string): Promise<void> => {
   try {
     await wsClient.createSession(title);
-  } catch {
-    // Silently handle — session is tracked server-side
-  }
+  } catch {}
 };

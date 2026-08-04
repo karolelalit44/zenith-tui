@@ -13,12 +13,6 @@ const COMMAND_LIST: CommandEntry[] = commandRegistry
   .filter((c) => c.slash)
   .map((c) => ({ command: c.slash as string, description: c.description }));
 
-/**
- * Inline slash-command menu anchored beneath the composer. It is fully driven
- * by the `input` prop (the composer stays mounted and focused; typing edits
- * the input which re-filters this list on every keystroke). This component
- * only reacts to menu navigation keys — everything else is left to the input.
- */
 export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
   input,
   onSelect,
@@ -34,7 +28,6 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
     (c) => c.command.slice(1).toLowerCase().includes(queryLower) || c.description.toLowerCase().includes(queryLower),
   );
 
-  // Real-time filtering: reset the highlight whenever the query changes.
   const [lastQuery, setLastQuery] = useState(query);
   if (lastQuery !== query) {
     setLastQuery(query);
@@ -64,8 +57,6 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
       if (entry && onQueryChange) onQueryChange(entry.command);
       return;
     }
-    // Regular characters, backspace, arrows etc. are handled by the still
-    // focused input field, which updates `input` and re-filters this list.
   });
 
   if (filtered.length === 0) {

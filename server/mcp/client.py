@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -9,8 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 class McpClient:
-
-    def __init__(self, name: str, command: str, args: list[str] | None = None, env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None:
         self.name = name
         self.command = command
         self.args = args or []
@@ -34,21 +39,33 @@ class McpClient:
         import os
 
         full_env = {**os.environ, **(self._env or {})}
-        self._process = await asyncio.create_subprocess_exec(self.command, *self.args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=full_env)
+        self._process = await asyncio.create_subprocess_exec(
+            self.command,
+            *self.args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=full_env,
+        )
         self._reader_task = asyncio.create_task(self._read_loop())
-
-        result = await self._send_request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "clientInfo": {"name": "zenith", "version": "1.0.0"}})
+        result = await self._send_request(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "clientInfo": {"name": "zenith", "version": "1.0.0"},
+            },
+        )
         if result:
             await self._send_notification("notifications/initialized", {})
             self._initialized = True
-
             tools_result = await self._send_request("tools/list", {})
             if tools_result and "tools" in tools_result:
                 self._tools = tools_result["tools"]
                 logger.info("MCP server '%s' discovered %d tools", self.name, len(self._tools))
 
     async def stop(self) -> None:
-        if self._reader_task and not self._reader_task.done():
+        if self._reader_task and (not self._reader_task.done()):
             self._reader_task.cancel()
             try:
                 await self._reader_task
@@ -73,25 +90,20 @@ class McpClient:
     async def call_tool(self, tool_name: str, arguments: dict) -> dict:
         if not self._initialized:
             return {"error": "MCP server not initialized"}
-
         result = await self._send_request("tools/call", {"name": tool_name, "arguments": arguments})
         return result or {}
 
     async def _send_request(self, method: str, params: Any, timeout: float = 30.0) -> Any:
         if not self._process or not self._process.stdin:
             raise RuntimeError(f"MCP server '{self.name}' not running")
-
         self._request_id += 1
         req_id = self._request_id
         message = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
-
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[req_id] = future
-
         payload = _encode_message(message)
         self._process.stdin.write(payload)
         await self._process.stdin.drain()
-
         try:
             return await asyncio.wait_for(future, timeout=timeout)
         except TimeoutError:

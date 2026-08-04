@@ -55,7 +55,6 @@ export function useScenario(): UseScenarioReturn {
       const existingIds = new Set(prev.map((e) => e.id));
 
       for (const { event, index } of queue) {
-        // Deduplication: skip if event with same ID already exists
         if (event.id && existingIds.has(event.id)) {
           continue;
         }
@@ -76,13 +75,11 @@ export function useScenario(): UseScenarioReturn {
 
   const handleEvent = useCallback(
     (event: ScenarioEvent, index: number) => {
-      // Immediate handling for interactive events
       if (event.kind === 'confirmation_request') {
         const conf = event as ConfirmationRequestEvent;
         setActiveConfirmation(conf.answered ? null : conf);
       }
 
-      // Batch rapid streaming events (message and thinking chunks) into 16ms frame windows (60Hz)
       if (event.kind === 'message' || event.kind === 'thinking') {
         batchQueueRef.current.push({ event, index });
         if (!batchTimerRef.current) {
@@ -92,10 +89,8 @@ export function useScenario(): UseScenarioReturn {
           }, 16);
         }
       } else {
-        // Immediate flush for tool calls, errors, tool results
         flushBatch();
         setEvents((prev) => {
-          // Deduplication: skip if event with same ID already exists
           const existingIds = new Set(prev.map((e) => e.id));
           if (event.id && existingIds.has(event.id)) {
             return prev;

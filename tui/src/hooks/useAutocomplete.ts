@@ -8,11 +8,6 @@ const MAX_HISTORY = 50;
 const HISTORY_DIR = path.join(os.homedir(), '.zenith');
 const HISTORY_PATH = path.join(HISTORY_DIR, 'history.json');
 
-/**
- * A slash command menu only opens when the ENTIRE input is a slash command
- * query: leading `/`, no text before it, and no whitespace. `Hello /` or
- * `Create a /file` are plain text, never command input.
- */
 const SLASH_PATTERN = /^\/[^\s]*$/;
 
 const MIME_TYPES: Record<string, string> = {
@@ -52,9 +47,7 @@ function loadHistoryFromDisk(): string[] {
         return parsed.slice(-MAX_HISTORY);
       }
     }
-  } catch {
-    // Ignore read errors
-  }
+  } catch {}
   return [];
 }
 
@@ -64,9 +57,7 @@ function saveHistoryToDisk(history: string[]): void {
       fs.mkdirSync(HISTORY_DIR, { recursive: true });
     }
     fs.writeFileSync(HISTORY_PATH, JSON.stringify(history.slice(-MAX_HISTORY), null, 2), 'utf-8');
-  } catch {
-    // Ignore write errors
-  }
+  } catch {}
 }
 
 export interface UseAutocompleteReturn {
@@ -173,9 +164,7 @@ export function useAutocomplete(): UseAutocompleteReturn {
       let size = 0;
       try {
         size = fs.statSync(path.resolve(relPath)).size;
-      } catch {
-        // Ignore stat errors for files that vanished between list and select.
-      }
+      } catch {}
       addAttachment({
         path: relPath,
         name: path.basename(relPath),

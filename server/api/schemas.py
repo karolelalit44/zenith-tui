@@ -1,11 +1,15 @@
 from __future__ import annotations
+
 from enum import Enum
 from typing import Any
+
 from pydantic import BaseModel, Field
+
 
 class StartupStatus(str, Enum):
     READY = "ready"
     CONFIGURATION_REQUIRED = "configuration_required"
+
 
 class MissingItem(str, Enum):
     PROVIDER = "provider"
@@ -15,6 +19,7 @@ class MissingItem(str, Enum):
     WORKSPACE = "workspace"
     DB_PATH = "dbPath"
 
+
 class StartupResult(BaseModel):
     status: StartupStatus
     missing: list[MissingItem] = Field(default_factory=list)
@@ -22,6 +27,7 @@ class StartupResult(BaseModel):
     active_model: str = ""
     provider_count: int = 0
     message: str = ""
+
 
 class ProviderModelInfo(BaseModel):
     id: str
@@ -39,6 +45,7 @@ class ProviderModelInfo(BaseModel):
     speed_tier: Any = None
     best_for: list[str] = Field(default_factory=list)
     pricing: dict[str, Any] = Field(default_factory=dict)
+
 
 class ProviderInfo(BaseModel):
     id: str
@@ -65,27 +72,33 @@ class ProviderInfo(BaseModel):
     custom_flow: bool = False
     env_keys: list[str] = Field(default_factory=list)
 
+
 class ProviderListResponse(BaseModel):
     all: list[ProviderInfo] = Field(default_factory=list)
     active: str = ""
     connected: list[str] = Field(default_factory=list)
 
+
 class ProviderModelRequest(BaseModel):
     model: str
+
 
 class ModelSelection(BaseModel):
     providerID: str
     modelID: str
+
 
 class ModelStoreRequest(BaseModel):
     current: ModelSelection | None = None
     recent: list[ModelSelection] = Field(default_factory=list)
     favorite: list[ModelSelection] = Field(default_factory=list)
 
+
 class ProviderValidationRequest(BaseModel):
     api_key: str = ""
     base_url: str = ""
     model: str = ""
+
 
 class ValidationStepStatus(str, Enum):
     PENDING = "pending"
@@ -93,15 +106,18 @@ class ValidationStepStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
 
+
 class ValidationStep(BaseModel):
     key: str
     label: str
     status: ValidationStepStatus = ValidationStepStatus.PENDING
     message: str = ""
 
+
 class ValidationError(BaseModel):
     code: str = ""
     message: str = ""
+
 
 class ValidationResult(BaseModel):
     valid: bool

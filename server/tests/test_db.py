@@ -1,4 +1,5 @@
 import pytest
+
 from server.domain.message import Message
 from server.domain.session import Session
 from server.persistence.repositories import MessageRepository, SessionRepository
@@ -65,7 +66,9 @@ async def test_message_count_tokens(db):
     session = Session(title="Test")
     await s_repo.create(session)
     await m_repo.create(Message(session_id=session.id, role="user", content="Hi", token_count=10))
-    await m_repo.create(Message(session_id=session.id, role="assistant", content="Hello", token_count=15))
+    await m_repo.create(
+        Message(session_id=session.id, role="assistant", content="Hello", token_count=15)
+    )
     total = await m_repo.count_tokens(session.id)
     assert total == 25
 

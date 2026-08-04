@@ -1,10 +1,12 @@
-
 from __future__ import annotations
+
 import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING
+
 from fastapi import WebSocket
+
 import server.providers.responder as r
 from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
@@ -14,14 +16,15 @@ from server.persistence.repositories import MessageRepository, SessionRepository
 from server.sessions.export import SessionExporter
 from server.sessions.service import DefaultSessionService, SessionService
 from server.skills.loader import SkillLoader
+
 from .protocol import make_error_response, make_response
 
 if TYPE_CHECKING:
     from server.config.settings import AppSettings
     from server.providers.registry import ProviderRegistry
     from server.toolkit.registry import ToolRegistry
-    from ..agents.prompt_executor import PromptExecutor
 
+    from ..agents.prompt_executor import PromptExecutor
 logger = logging.getLogger(__name__)
 
 
@@ -51,8 +54,14 @@ def _normalize_attachments(raw) -> list[dict]:
 
 
 class MethodHandlers:
-
-    def __init__(self, config: AppSettings, db: Database, registry: ProviderRegistry, tool_registry: ToolRegistry, session_service: SessionService | None = None) -> None:
+    def __init__(
+        self,
+        config: AppSettings,
+        db: Database,
+        registry: ProviderRegistry,
+        tool_registry: ToolRegistry,
+        session_service: SessionService | None = None,
+    ) -> None:
         self.config = config
         self.registry = registry
         self.tool_registry = tool_registry
@@ -71,11 +80,49 @@ class MethodHandlers:
         from server.providers.registry import ProviderRegistry
 
         self.config = load_config()
-        self.registry = ProviderRegistry.from_config(self.config.providers, self.config.active_provider)
+        self.registry = ProviderRegistry.from_config(
+            self.config.providers, self.config.active_provider
+        )
         self.skill_loader = SkillLoader(self.config.workspace_root)
 
-    async def dispatch(self, ws: WebSocket, method: str, rid, params: dict, session_id: str | None) -> str | None:
-        handlers = {"session.create": lambda: self._session_create(ws, rid, params), "session.list": lambda: self._session_list(ws, rid), "session.list_all": lambda: self._session_list_all(ws, rid, params), "session.summaries": lambda: self._session_summaries(ws, rid, params), "session.resume": lambda: self._session_resume(ws, rid, params), "session.update": lambda: self._session_update(ws, rid, params, session_id), "session.pause": lambda: self._session_pause(ws, rid, session_id), "session.archive": lambda: self._session_archive(ws, rid, session_id), "session.delete": lambda: self._session_delete(ws, rid, params), "session.checkpoint": lambda: self._session_checkpoint(ws, rid, session_id), "session.duplicate": lambda: self._session_duplicate(ws, rid, params), "session.restore": lambda: self._session_restore(ws, rid, params), "session.export": lambda: self._session_export(ws, rid, params, session_id), "session.sync": lambda: self._session_sync(ws, rid, params, session_id), "session.search": lambda: self._session_search(ws, rid, params, session_id), "prompt.send": lambda: self._prompt(ws, rid, params, session_id), "prompt.cancel": lambda: self._cancel_prompt(ws, rid, session_id), "context.compact": lambda: self._context_compact(ws, rid, session_id), "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id), "provider.validate": lambda: self._provider_validate(ws, rid, params), "provider.models": lambda: self._provider_models(ws, rid, params), "tools.list": lambda: self._tools_list(ws, rid, params), "workspace.status": lambda: self._workspace_status(ws, rid), "workspace.diff": lambda: self._workspace_diff(ws, rid, params), "workspace.log": lambda: self._workspace_log(ws, rid, params), "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params), "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})), "confirmation.response": lambda: self._confirmation_response(params), "permission.grant": lambda: self._permission_grant(ws, rid, params, session_id), "permission.revoke": lambda: self._permission_revoke(ws, rid, params, session_id), "permission.list": lambda: self._permission_list(ws, rid, params, session_id), "plan.approve": lambda: self._plan_approve(ws, rid, session_id), "plan.reject": lambda: self._plan_reject(ws, rid, session_id)}
+    async def dispatch(
+        self, ws: WebSocket, method: str, rid, params: dict, session_id: str | None
+    ) -> str | None:
+        handlers = {
+            "session.create": lambda: self._session_create(ws, rid, params),
+            "session.list": lambda: self._session_list(ws, rid),
+            "session.list_all": lambda: self._session_list_all(ws, rid, params),
+            "session.summaries": lambda: self._session_summaries(ws, rid, params),
+            "session.resume": lambda: self._session_resume(ws, rid, params),
+            "session.update": lambda: self._session_update(ws, rid, params, session_id),
+            "session.pause": lambda: self._session_pause(ws, rid, session_id),
+            "session.archive": lambda: self._session_archive(ws, rid, session_id),
+            "session.delete": lambda: self._session_delete(ws, rid, params),
+            "session.checkpoint": lambda: self._session_checkpoint(ws, rid, session_id),
+            "session.duplicate": lambda: self._session_duplicate(ws, rid, params),
+            "session.restore": lambda: self._session_restore(ws, rid, params),
+            "session.export": lambda: self._session_export(ws, rid, params, session_id),
+            "session.sync": lambda: self._session_sync(ws, rid, params, session_id),
+            "session.search": lambda: self._session_search(ws, rid, params, session_id),
+            "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
+            "prompt.cancel": lambda: self._cancel_prompt(ws, rid, session_id),
+            "context.compact": lambda: self._context_compact(ws, rid, session_id),
+            "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id),
+            "provider.validate": lambda: self._provider_validate(ws, rid, params),
+            "provider.models": lambda: self._provider_models(ws, rid, params),
+            "tools.list": lambda: self._tools_list(ws, rid, params),
+            "workspace.status": lambda: self._workspace_status(ws, rid),
+            "workspace.diff": lambda: self._workspace_diff(ws, rid, params),
+            "workspace.log": lambda: self._workspace_log(ws, rid, params),
+            "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
+            "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
+            "confirmation.response": lambda: self._confirmation_response(params),
+            "permission.grant": lambda: self._permission_grant(ws, rid, params, session_id),
+            "permission.revoke": lambda: self._permission_revoke(ws, rid, params, session_id),
+            "permission.list": lambda: self._permission_list(ws, rid, params, session_id),
+            "plan.approve": lambda: self._plan_approve(ws, rid, session_id),
+            "plan.reject": lambda: self._plan_reject(ws, rid, session_id),
+        }
         handler = handlers.get(method)
         if handler:
             try:
@@ -84,7 +131,11 @@ class MethodHandlers:
             except Exception as e:
                 logger.exception("Handler error for method '%s'", method)
                 if rid is not None:
-                    await ws.send_text(make_error_response(rid, -32603, f"Internal error executing {method}: {e!s}"))
+                    await ws.send_text(
+                        make_error_response(
+                            rid, -32603, f"Internal error executing {method}: {e!s}"
+                        )
+                    )
                 return session_id
         await ws.send_text(make_error_response(rid, -32601, f"Method not found: {method}"))
         return session_id
@@ -93,9 +144,17 @@ class MethodHandlers:
         svc = self._resolve_service()
         from server.domain.domain import ScenarioMode
 
-        session = await svc.create(title=params.get("title", "New Session"), mode=params.get("mode", ScenarioMode.BUILD), provider=params.get("provider"), model=params.get("model"), workspace_root=params.get("workspace_root"))
+        session = await svc.create(
+            title=params.get("title", "New Session"),
+            mode=params.get("mode", ScenarioMode.BUILD),
+            provider=params.get("provider"),
+            model=params.get("model"),
+            workspace_root=params.get("workspace_root"),
+        )
         if self.manager:
-            await self.manager.schedule_session_event(session.id, "session.created", {"session_id": session.id, "title": session.title})
+            await self.manager.schedule_session_event(
+                session.id, "session.created", {"session_id": session.id, "title": session.title}
+            )
         await ws.send_text(make_response(rid, session.model_dump(mode="json")))
         return session.id
 
@@ -106,12 +165,20 @@ class MethodHandlers:
 
     async def _session_list_all(self, ws, rid, params) -> None:
         svc = self._resolve_service()
-        sessions = await svc.list_sessions(limit=params.get("limit", 50), offset=params.get("offset", 0), include_archived=params.get("include_archived", False), search=params.get("search"), state_filter=params.get("state_filter"))
+        sessions = await svc.list_sessions(
+            limit=params.get("limit", 50),
+            offset=params.get("offset", 0),
+            include_archived=params.get("include_archived", False),
+            search=params.get("search"),
+            state_filter=params.get("state_filter"),
+        )
         await ws.send_text(make_response(rid, [s.to_summary_dict() for s in sessions]))
 
     async def _session_summaries(self, ws, rid, params) -> None:
         svc = self._resolve_service()
-        summaries = await svc.list_summaries(limit=params.get("limit", 10), include_archived=params.get("include_archived", False))
+        summaries = await svc.list_summaries(
+            limit=params.get("limit", 10), include_archived=params.get("include_archived", False)
+        )
         await ws.send_text(make_response(rid, summaries))
 
     async def _session_resume(self, ws, rid, params) -> str | None:
@@ -132,7 +199,18 @@ class MethodHandlers:
             replayed = await self.manager.replay_events(sid, ws)
         since = params.get("since_sequence", 0)
         sync_events = await svc.get_sync_events(sid, since_sequence=since)
-        await ws.send_text(make_response(rid, {"session": session.model_dump(mode="json"), "messages": [m.model_dump(mode="json") for m in messages], "events_replayed": replayed, "sync_events": sync_events, "latest_sequence": await svc.get_latest_sync_sequence(sid)}))
+        await ws.send_text(
+            make_response(
+                rid,
+                {
+                    "session": session.model_dump(mode="json"),
+                    "messages": [m.model_dump(mode="json") for m in messages],
+                    "events_replayed": replayed,
+                    "sync_events": sync_events,
+                    "latest_sequence": await svc.get_latest_sync_sequence(sid),
+                },
+            )
+        )
         return sid
 
     async def _session_update(self, ws, rid, params, session_id) -> None:
@@ -161,7 +239,9 @@ class MethodHandlers:
         svc = self._resolve_service()
         session = await svc.pause(session_id)
         if self.manager:
-            await self.manager.schedule_session_event(session_id, "session.paused", {"session_id": session_id})
+            await self.manager.schedule_session_event(
+                session_id, "session.paused", {"session_id": session_id}
+            )
         await ws.send_text(make_response(rid, session.model_dump(mode="json")))
 
     async def _session_archive(self, ws, rid, session_id) -> None:
@@ -203,7 +283,11 @@ class MethodHandlers:
         try:
             new_session = await svc.duplicate(sid, new_title=params.get("title"))
             if self.manager:
-                await self.manager.schedule_session_event(new_session.id, "session.duplicated", {"session_id": new_session.id, "original_id": sid})
+                await self.manager.schedule_session_event(
+                    new_session.id,
+                    "session.duplicated",
+                    {"session_id": new_session.id, "original_id": sid},
+                )
             await ws.send_text(make_response(rid, new_session.model_dump(mode="json")))
         except Exception as e:
             await ws.send_text(make_error_response(rid, -32603, f"Duplicate failed: {e}"))
@@ -260,7 +344,11 @@ class MethodHandlers:
             logger.warning("Search failed: %s", e)
             await ws.send_text(make_error_response(rid, -32603, f"Search failed: {e}"))
             return
-        await ws.send_text(make_response(rid, {"query": query, "hits": hits, "count": len(hits), "index_parity": parity}))
+        await ws.send_text(
+            make_response(
+                rid, {"query": query, "hits": hits, "count": len(hits), "index_parity": parity}
+            )
+        )
 
     async def _prompt(self, ws, rid, params, session_id) -> str | None:
         from ..agents.prompt_executor import PromptExecutor
@@ -275,7 +363,9 @@ class MethodHandlers:
             try:
                 temperature = float(temperature_raw)
             except (TypeError, ValueError):
-                await ws.send_text(make_error_response(rid, -32602, "temperature must be a number in 0..2"))
+                await ws.send_text(
+                    make_error_response(rid, -32602, "temperature must be a number in 0..2")
+                )
                 return session_id
             if not 0 <= temperature <= 2:
                 await ws.send_text(make_error_response(rid, -32602, "temperature must be in 0..2"))
@@ -285,13 +375,28 @@ class MethodHandlers:
             try:
                 max_tokens = int(max_tokens_raw)
             except (TypeError, ValueError):
-                await ws.send_text(make_error_response(rid, -32602, "max_tokens must be an integer >= 1"))
+                await ws.send_text(
+                    make_error_response(rid, -32602, "max_tokens must be an integer >= 1")
+                )
                 return session_id
             if max_tokens < 1:
-                await ws.send_text(make_error_response(rid, -32602, "max_tokens must be an integer >= 1"))
+                await ws.send_text(
+                    make_error_response(rid, -32602, "max_tokens must be an integer >= 1")
+                )
                 return session_id
         attachments = _normalize_attachments(params.get("attachments"))
-        logger.info("PROMPT.RECEIVED provider=%s mode=%s session=%s content_len=%d model=%s temperature=%s max_tokens=%s attachments=%d content_preview=%r", provider_name, params.get("mode", "build"), session_id, len(content), model_override, temperature, max_tokens, len(attachments), content[:200])
+        logger.info(
+            "PROMPT.RECEIVED provider=%s mode=%s session=%s content_len=%d model=%s temperature=%s max_tokens=%s attachments=%d content_preview=%r",
+            provider_name,
+            params.get("mode", "build"),
+            session_id,
+            len(content),
+            model_override,
+            temperature,
+            max_tokens,
+            len(attachments),
+            content[:200],
+        )
         if not content.strip():
             await ws.send_text(make_error_response(rid, -32602, "Empty prompt"))
             return session_id
@@ -300,7 +405,11 @@ class MethodHandlers:
                 plan_session = await self.session_repo.find_latest_with_plan()
                 if plan_session:
                     session_id = plan_session.id
-                    logger.info("Reusing plan session %s for build (plan_output=%d chars)", session_id, len(plan_session.plan_output))
+                    logger.info(
+                        "Reusing plan session %s for build (plan_output=%d chars)",
+                        session_id,
+                        len(plan_session.plan_output),
+                    )
             if not session_id:
                 svc = self._resolve_service()
                 session = await svc.create(title=content[:50])
@@ -311,23 +420,29 @@ class MethodHandlers:
         if attachments:
             user_msg.metadata["attachment_paths"] = [a["path"] for a in attachments]
         await self.message_repo.create(user_msg)
-
         provider = self.registry.get(provider_name)
         if not provider:
-            logger.warning("Provider '%s' not in registry (available=%s), attempting hot-reload", provider_name, self.registry.list_providers())
+            logger.warning(
+                "Provider '%s' not in registry (available=%s), attempting hot-reload",
+                provider_name,
+                self.registry.list_providers(),
+            )
             self.reload_config()
             provider = self.registry.get(provider_name)
-
         if not provider:
             available = list((self.config.providers or {}).keys())
-            await ws.send_text(make_error_response(rid, -32602, f"Provider '{provider_name}' not available. Configured: {available}"))
+            await ws.send_text(
+                make_error_response(
+                    rid,
+                    -32602,
+                    f"Provider '{provider_name}' not available. Configured: {available}",
+                )
+            )
             return session_id
-
         model = getattr(provider, "model", "?")
         if model_override:
             model = model_override
         logger.info("PROMPT.RESOLVED provider=%s model=%s", provider_name, model)
-
         if model_override:
             try:
                 session = await self.session_repo.get(session_id)
@@ -338,16 +453,31 @@ class MethodHandlers:
                     await self.session_repo.update(session)
             except Exception:
                 logger.warning("Failed to persist model override for session %s", session_id)
-
         await ws.send_text(make_response(rid, {"session_id": session_id, "status": "processing"}))
-
         try:
             executor = self._session_executors.get(session_id)
             if executor:
                 executor.cancel_active()
-            executor = PromptExecutor(self.config, provider, self.tool_registry, self.session_repo, self.message_repo, self.skill_loader)
+            executor = PromptExecutor(
+                self.config,
+                provider,
+                self.tool_registry,
+                self.session_repo,
+                self.message_repo,
+                self.skill_loader,
+            )
             self._session_executors[session_id] = executor
-            executor.run(session_id, content, mode=params.get("mode", "build"), handlers=self, manager=self.manager, model_override=model_override, temperature=temperature, max_tokens=max_tokens, attachments=attachments)
+            executor.run(
+                session_id,
+                content,
+                mode=params.get("mode", "build"),
+                handlers=self,
+                manager=self.manager,
+                model_override=model_override,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                attachments=attachments,
+            )
         except Exception:
             logger.exception("Prompt execution failed for session %s", session_id)
         return session_id
@@ -377,17 +507,26 @@ class MethodHandlers:
         history = await svc.get_history(session_id)
         model = getattr(provider, "model", "?")
         if self.manager:
-            await self.manager.send_event(session_id, r.context_compaction_started(session_id, "manual"))
+            await self.manager.send_event(
+                session_id, r.context_compaction_started(session_id, "manual")
+            )
         try:
             from server.agents.summarizer import ConversationSummarizer
 
             previous = (session.metadata or {}).get("summary") or ""
-            summary = await ConversationSummarizer(self.config, provider).summarize(history, model, session_id=session_id, previous_summary=previous)
+            summary = await ConversationSummarizer(self.config, provider).summarize(
+                history, model, session_id=session_id, previous_summary=previous
+            )
             session.metadata["summary"] = summary
             await svc.update(session)
             await self.message_repo.delete_by_session(session_id)
             if self.manager:
-                await self.manager.send_event(session_id, r.context_compaction_ended(session_id, "manual", tokens_saved=0, summary_chars=len(summary)))
+                await self.manager.send_event(
+                    session_id,
+                    r.context_compaction_ended(
+                        session_id, "manual", tokens_saved=0, summary_chars=len(summary)
+                    ),
+                )
             await ws.send_text(make_response(rid, {"summary": summary, "cleared": len(history)}))
         except Exception as e:
             logger.exception("Manual compact failed for session %s", session_id)
@@ -403,8 +542,13 @@ class MethodHandlers:
             stripped = await self.message_repo.strip_tool_events(session_id)
             total = removed_rows + stripped
             if self.manager and total > 0:
-                await self.manager.send_event(session_id, r.warning(f"Cleared tool output from {total} message(s)", session_id))
-            await ws.send_text(make_response(rid, {"removed": total, "rows": removed_rows, "stripped": stripped}))
+                await self.manager.send_event(
+                    session_id,
+                    r.warning(f"Cleared tool output from {total} message(s)", session_id),
+                )
+            await ws.send_text(
+                make_response(rid, {"removed": total, "rows": removed_rows, "stripped": stripped})
+            )
         except Exception as e:
             logger.exception("clear_tools failed for session %s", session_id)
             await ws.send_text(make_error_response(rid, -32603, f"clear_tools failed: {e}"))
@@ -445,12 +589,21 @@ class MethodHandlers:
         from server.workspace.repo_map import RepoMap
 
         repo = RepoMap(self.config.workspace_root)
-        await ws.send_text(make_response(rid, {"structure": repo.get_structure(params.get("depth", 3)), "summary": repo.get_summary(), "keyFiles": repo.get_key_files()}))
+        await ws.send_text(
+            make_response(
+                rid,
+                {
+                    "structure": repo.get_structure(params.get("depth", 3)),
+                    "summary": repo.get_summary(),
+                    "keyFiles": repo.get_key_files(),
+                },
+            )
+        )
 
     async def _confirmation_response(self, params) -> None:
         confirmation_id = params.get("confirmation_id", "")
         future = self._pending_confirmations.pop(confirmation_id, None)
-        if future and not future.done():
+        if future and (not future.done()):
             future.set_result(params.get("approved", False))
 
     async def _permission_grant(self, ws, rid, params, session_id: str | None) -> None:
@@ -460,7 +613,9 @@ class MethodHandlers:
         decision = params.get("decision", "allow")
         persistent = bool(params.get("persistent", True))
         if not tool_name or decision not in ("allow", "deny"):
-            await ws.send_text(make_error_response(rid, -32602, "tool and decision (allow|deny) are required"))
+            await ws.send_text(
+                make_error_response(rid, -32602, "tool and decision (allow|deny) are required")
+            )
             return
         svc = self._resolve_permission_service()
         if svc is None:
@@ -468,7 +623,9 @@ class MethodHandlers:
             return
         target_session = session_id if not persistent else None
         await svc.grant_persistent(tool_name, PermissionDecision(decision), target_session)
-        await ws.send_text(make_response(rid, {"status": "granted", "tool": tool_name, "decision": decision}))
+        await ws.send_text(
+            make_response(rid, {"status": "granted", "tool": tool_name, "decision": decision})
+        )
 
     async def _permission_revoke(self, ws, rid, params, session_id: str | None) -> None:
         tool_name = params.get("tool", "")
@@ -489,7 +646,24 @@ class MethodHandlers:
             return
         await svc.refresh()
         grants = svc.get_grants(session_id or "")
-        await ws.send_text(make_response(rid, {"grants": [{"tool": g.tool_name, "decision": g.decision.value if hasattr(g.decision, "value") else str(g.decision), "session_id": g.session_id, "created_at": g.created_at.isoformat()} for g in grants]}))
+        await ws.send_text(
+            make_response(
+                rid,
+                {
+                    "grants": [
+                        {
+                            "tool": g.tool_name,
+                            "decision": g.decision.value
+                            if hasattr(g.decision, "value")
+                            else str(g.decision),
+                            "session_id": g.session_id,
+                            "created_at": g.created_at.isoformat(),
+                        }
+                        for g in grants
+                    ]
+                },
+            )
+        )
 
     def _resolve_permission_service(self):
         service = getattr(self, "_permission_service", None)
@@ -515,8 +689,14 @@ class MethodHandlers:
         await self.session_repo.update(session)
         svc = self._resolve_service()
         if svc._status_history_repo:
-            state_name = (SessionState.ACTIVE.value if hasattr(SessionState.ACTIVE, "value") else str(SessionState.ACTIVE))
-            await svc._status_history_repo.record(session_id, session.state, state_name, "Plan approved")
+            state_name = (
+                SessionState.ACTIVE.value
+                if hasattr(SessionState.ACTIVE, "value")
+                else str(SessionState.ACTIVE)
+            )
+            await svc._status_history_repo.record(
+                session_id, session.state, state_name, "Plan approved"
+            )
         logger.info("Plan approved for session %s", session_id)
         await ws.send_text(make_response(rid, {"status": "approved"}))
 
@@ -537,16 +717,32 @@ class MethodHandlers:
         await self.session_repo.update(session)
         svc = self._resolve_service()
         if svc._status_history_repo:
-            state_name = (SessionState.ACTIVE.value if hasattr(SessionState.ACTIVE, "value") else str(SessionState.ACTIVE))
+            state_name = (
+                SessionState.ACTIVE.value
+                if hasattr(SessionState.ACTIVE, "value")
+                else str(SessionState.ACTIVE)
+            )
             await svc._status_history_repo.record(session_id, "", state_name, "Plan rejected")
         logger.info("Plan rejected for session %s", session_id)
         await ws.send_text(make_response(rid, {"status": "rejected"}))
 
-    async def request_confirmation(self, session_id: str, tool_name: str, reason: str, risk_level: str, manager) -> bool:
+    async def request_confirmation(
+        self, session_id: str, tool_name: str, reason: str, risk_level: str, manager
+    ) -> bool:
         confirmation_id = f"confirm_{uuid.uuid4().hex[:8]}"
         future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
         self._pending_confirmations[confirmation_id] = future
-        event = Event(kind=EventKind.CONFIRMATION_REQUEST, data={"confirmation_id": confirmation_id, "tool": tool_name, "reason": reason, "risk_level": risk_level, "message": f"Tool '{tool_name}' wants to execute a {risk_level}-risk operation: {reason}"}, session_id=session_id)
+        event = Event(
+            kind=EventKind.CONFIRMATION_REQUEST,
+            data={
+                "confirmation_id": confirmation_id,
+                "tool": tool_name,
+                "reason": reason,
+                "risk_level": risk_level,
+                "message": f"Tool '{tool_name}' wants to execute a {risk_level}-risk operation: {reason}",
+            },
+            session_id=session_id,
+        )
         await manager.send_event(session_id, event)
         try:
             return await asyncio.wait_for(future, timeout=120)

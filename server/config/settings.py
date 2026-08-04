@@ -1,9 +1,24 @@
 from dataclasses import dataclass
+
 from pydantic import BaseModel, Field, field_validator
+
 from .env import optional_env, optional_float, optional_int
 from .providers import ProviderConfig
 
-PLAN_READ_ONLY_TOOLS = ["file_read", "glob", "grep", "lsp_definition", "lsp_diagnostics", "lsp_symbols", "lsp_call_hierarchy", "lsp_references", "sourcegraph", "webfetch", "question"]
+PLAN_READ_ONLY_TOOLS = [
+    "file_read",
+    "glob",
+    "grep",
+    "lsp_definition",
+    "lsp_diagnostics",
+    "lsp_symbols",
+    "lsp_call_hierarchy",
+    "lsp_references",
+    "sourcegraph",
+    "webfetch",
+    "question",
+]
+
 
 @dataclass(frozen=True)
 class AgentModeConfig:
@@ -15,15 +30,26 @@ class AgentModeConfig:
     sub_agent: bool = False
     tool_choice: str = "auto"
 
+
 CORE_PLAN_TOOLS = ["file_read", "glob", "grep", "bash"]
-
-PLAN_MODE_CONFIG = AgentModeConfig(name="plan", allowed_tools=CORE_PLAN_TOOLS, allowed_mcp={}, description="Read-only analysis and planning with core tools and dynamic escalation.", sub_agent=False)
-
+PLAN_MODE_CONFIG = AgentModeConfig(
+    name="plan",
+    allowed_tools=CORE_PLAN_TOOLS,
+    allowed_mcp={},
+    description="Read-only analysis and planning with core tools and dynamic escalation.",
+    sub_agent=False,
+)
 CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep"]
-
-BUILD_MODE_CONFIG = AgentModeConfig(name="build", allowed_tools=CORE_BUILD_TOOLS, allowed_mcp=None, description="Full execution with core tools and dynamic schema escalation.", sub_agent=True, tool_choice="auto")
-
+BUILD_MODE_CONFIG = AgentModeConfig(
+    name="build",
+    allowed_tools=CORE_BUILD_TOOLS,
+    allowed_mcp=None,
+    description="Full execution with core tools and dynamic schema escalation.",
+    sub_agent=True,
+    tool_choice="auto",
+)
 AGENT_MODES: dict[str, AgentModeConfig] = {"plan": PLAN_MODE_CONFIG, "build": BUILD_MODE_CONFIG}
+
 
 class ToolConfig(BaseModel):
     bash_enabled: bool = True
@@ -33,17 +59,27 @@ class ToolConfig(BaseModel):
     max_bash_timeout: int = Field(default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300)
     max_tool_output: int = Field(default=optional_int("ZENITH_MAX_TOOL_OUTPUT", 10000), ge=1000)
     max_retries: int = Field(default=optional_int("ZENITH_MAX_RETRIES", 3), ge=0, le=10)
-    stream_max_retries: int = Field(default=optional_int("ZENITH_STREAM_MAX_RETRIES", 3), ge=0, le=10)
-    retry_base_delay: float = Field(default=optional_float("ZENITH_RETRY_BASE_DELAY", 0.125), ge=0.1, le=30.0)
-    retry_max_delay: float = Field(default=optional_float("ZENITH_RETRY_MAX_DELAY", 60.0), ge=1.0, le=300.0)
+    stream_max_retries: int = Field(
+        default=optional_int("ZENITH_STREAM_MAX_RETRIES", 3), ge=0, le=10
+    )
+    retry_base_delay: float = Field(
+        default=optional_float("ZENITH_RETRY_BASE_DELAY", 0.125), ge=0.1, le=30.0
+    )
+    retry_max_delay: float = Field(
+        default=optional_float("ZENITH_RETRY_MAX_DELAY", 60.0), ge=1.0, le=300.0
+    )
     webfetch_timeout: int = Field(default=optional_int("ZENITH_WEBFETCH_TIMEOUT", 30), ge=5, le=120)
-    webfetch_max_bytes: int = Field(default=optional_int("ZENITH_WEBFETCH_MAX_BYTES", 100000), ge=1000, le=1000000)
+    webfetch_max_bytes: int = Field(
+        default=optional_int("ZENITH_WEBFETCH_MAX_BYTES", 100000), ge=1000, le=1000000
+    )
     git_timeout: int = Field(default=optional_int("ZENITH_GIT_TIMEOUT", 30), ge=5, le=120)
+
 
 class McpServerConfig(BaseModel):
     command: str
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
+
 
 class HooksConfig(BaseModel):
     pre_tool_use: list[str] = Field(default_factory=list)
@@ -51,15 +87,22 @@ class HooksConfig(BaseModel):
     session_start: list[str] = Field(default_factory=list)
     timeout: int = Field(default=30, ge=1, le=300)
 
+
 class BootstrapDefaults(BaseModel):
     active_provider: str = ""
     db_path: str = optional_env("ZENITH_DB_PATH", "data/zenith.db")
     log_level: str = optional_env("ZENITH_LOG_LEVEL", "INFO")
-    max_context_tokens: int = Field(default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", 128000), ge=1000)
-    summary_threshold: float = Field(default=optional_float("ZENITH_SUMMARY_THRESHOLD", 0.8), ge=0.1, le=1.0)
+    max_context_tokens: int = Field(
+        default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", 128000), ge=1000
+    )
+    summary_threshold: float = Field(
+        default=optional_float("ZENITH_SUMMARY_THRESHOLD", 0.8), ge=0.1, le=1.0
+    )
     tools: ToolConfig = Field(default_factory=ToolConfig)
 
+
 DEFAULTS = BootstrapDefaults()
+
 
 class AppSettings(BaseModel):
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -70,14 +113,32 @@ class AppSettings(BaseModel):
     tools: ToolConfig = Field(default_factory=ToolConfig)
     max_context_tokens: int = DEFAULTS.max_context_tokens
     summary_threshold: float = DEFAULTS.summary_threshold
-    auto_approve_plan: bool = Field(default=False, description="Skip user confirmation when running a plan in build mode")
-    plan_model: str | None = Field(default=None, description="Optional separate model for plan mode (e.g. 'gpt-4o-mini')")
-    weak_model: str | None = Field(default=None, description="Optional cheap model for summaries, commit messages (two-tier strategy)")
+    auto_approve_plan: bool = Field(
+        default=False, description="Skip user confirmation when running a plan in build mode"
+    )
+    plan_model: str | None = Field(
+        default=None, description="Optional separate model for plan mode (e.g. 'gpt-4o-mini')"
+    )
+    weak_model: str | None = Field(
+        default=None,
+        description="Optional cheap model for summaries, commit messages (two-tier strategy)",
+    )
     repo_map_enabled: bool = True
-    repo_map_tokens: int | None = Field(default=optional_int("ZENITH_REPO_MAP_TOKENS", None), ge=256, le=32000, description="Token budget for the repo map. None = auto (context/8, clamped to 1024-4096)")
+    repo_map_tokens: int | None = Field(
+        default=optional_int("ZENITH_REPO_MAP_TOKENS", None),
+        ge=256,
+        le=32000,
+        description="Token budget for the repo map. None = auto (context/8, clamped to 1024-4096)",
+    )
     memory_enabled: bool = True
-    mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict, description="MCP servers: {name: McpServerConfig}. Loaded from ZENITH_MCP_SERVERS (JSON).")
-    hooks: HooksConfig = Field(default_factory=HooksConfig, description="Lifecycle hooks (PreToolUse/PostToolUse/SessionStart). Loaded from ZENITH_HOOKS (JSON).")
+    mcp_servers: dict[str, McpServerConfig] = Field(
+        default_factory=dict,
+        description="MCP servers: {name: McpServerConfig}. Loaded from ZENITH_MCP_SERVERS (JSON).",
+    )
+    hooks: HooksConfig = Field(
+        default_factory=HooksConfig,
+        description="Lifecycle hooks (PreToolUse/PostToolUse/SessionStart). Loaded from ZENITH_HOOKS (JSON).",
+    )
 
     @field_validator("active_provider")
     @classmethod
@@ -97,5 +158,7 @@ class AppSettings(BaseModel):
     def require_active_provider_config(self) -> ProviderConfig:
         config = self.get_active_provider_config()
         if config is None:
-            raise ValueError(f"Provider '{self.active_provider}' is not configured. " f"Available: {list(self.providers.keys()) or 'none'}. " f"Configure and activate a provider via the setup wizard.")
+            raise ValueError(
+                f"Provider '{self.active_provider}' is not configured. Available: {list(self.providers.keys()) or 'none'}. Configure and activate a provider via the setup wizard."
+            )
         return config

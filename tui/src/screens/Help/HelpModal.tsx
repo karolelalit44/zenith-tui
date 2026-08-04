@@ -40,7 +40,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
   return (
     <RoundedBox title="ZENITH HELP & KEYBOARD SHORTCUTS" borderColor={theme.colors.border.active} hasShadow={true}>
       <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
-        {/* Header banner */}
+        {}
         <Box marginBottom={1} flexDirection="row" justifyContent="space-between" alignItems="center">
           <Text color={theme.colors.text.emerald} bold>
             [HELP & CLI WORKFLOW GUIDE]
@@ -48,7 +48,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
           <Text color={theme.colors.text.muted}>Press Esc or Enter to close</Text>
         </Box>
 
-        {/* Keyboard Shortcuts (declarative keybind map) */}
+        {}
         <Text color={theme.colors.text.warning} bold underline>
           KEYBOARD SHORTCUTS
         </Text>
@@ -69,7 +69,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
         />
 
         <Box flexDirection="row" width="100%" justifyContent="space-between">
-          {/* Column 2: Slash Commands */}
+          {}
           <Box flexDirection="column" width="50%">
             <Text color={theme.colors.text.warning} bold underline>
               SLASH COMMANDS
@@ -106,7 +106,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
             <Text color={theme.colors.border.muted}>│</Text>
           </Box>
 
-          {/* Column 3: Workflow Tips */}
+          {}
           <Box flexDirection="column" width="48%">
             <Text color={theme.colors.text.warning} bold underline>
               OPERATING MODES

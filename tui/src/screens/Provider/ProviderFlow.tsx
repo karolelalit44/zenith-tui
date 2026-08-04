@@ -20,7 +20,7 @@ type ProviderFlowPhase = 'pick' | 'key' | 'custom' | 'validating' | 'models';
 export interface ProviderFlowProps {
   onClose: () => void;
   onComplete?: (sel: ModelSelection) => void;
-  /** Jump straight to the key prompt for a specific (unconfigured) provider. */
+
   initialProviderID?: ProviderId;
 }
 
@@ -96,9 +96,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
     async (result: ValidationResult) => {
       await providerService.refreshFromBackend();
       setProviders(providerService.getAllProviders());
-      // The backend's save step already made this provider active, so point the
-      // frontend at it now. This prevents a cancelled model picker from leaving
-      // modelStore.current on the *old* provider while the backend has switched.
+
       const resolvedModel = validateOptions.model || provider.meta.defaultModel;
       if (resolvedModel) {
         modelStore.set({ providerID, modelID: resolvedModel });

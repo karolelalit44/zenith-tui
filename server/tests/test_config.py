@@ -1,4 +1,5 @@
 import os
+
 from server.config.loader import load_config
 from server.config.settings import AppSettings
 
@@ -24,7 +25,9 @@ def test_load_config(temp_dir):
 def test_get_active_provider_config():
     from server.config.providers import ProviderConfig
 
-    config = AppSettings(providers={"openai": ProviderConfig(model="gpt-4o")}, active_provider="openai")
+    config = AppSettings(
+        providers={"openai": ProviderConfig(model="gpt-4o")}, active_provider="openai"
+    )
     pc = config.get_active_provider_config()
     assert pc is not None
     assert pc.model == "gpt-4o"

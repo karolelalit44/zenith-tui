@@ -11,16 +11,14 @@ export const ExitScreen: React.FC = () => {
   const [phase, setPhase] = useState<ExitPhase>('saving');
   const [dots, setDots] = useState('');
 
-  // Animated dots during saving phase
   useEffect(() => {
     if (phase !== 'saving') return;
     const id = setInterval(() => {
-      setDots((d) => (d.length >= 3 ? '' : d + '.'));
+      setDots((d) => (d.length >= 3 ? '' : `${d}.`));
     }, 150);
     return () => clearInterval(id);
   }, [phase]);
 
-  // Advance through phases
   useEffect(() => {
     const t1 = setTimeout(() => setPhase('saved'), PHASE_DURATION_MS);
     const t2 = setTimeout(() => setPhase('bye'), PHASE_DURATION_MS * 2);
@@ -41,7 +39,7 @@ export const ExitScreen: React.FC = () => {
       alignItems="flex-start"
       justifyContent="flex-start"
     >
-      {/* Step 1 – saving */}
+      {}
       <Box flexDirection="row" alignItems="center">
         <Text color={phase === 'saving' ? theme.colors.status.warning : theme.colors.status.success}>
           {phase === 'saving' ? '○' : '■'}
@@ -52,7 +50,7 @@ export const ExitScreen: React.FC = () => {
         </Text>
       </Box>
 
-      {/* Step 2 – saved (only shown after saving) */}
+      {}
       {(phase === 'saved' || phase === 'bye') && (
         <Box flexDirection="row" alignItems="center">
           <Text color={phase === 'bye' ? theme.colors.status.success : theme.colors.status.warning}>
@@ -63,7 +61,7 @@ export const ExitScreen: React.FC = () => {
         </Box>
       )}
 
-      {/* Step 3 – goodbye */}
+      {}
       {phase === 'bye' && (
         <Box flexDirection="row" alignItems="center" marginTop={1}>
           <Text color={theme.colors.status.success} bold>

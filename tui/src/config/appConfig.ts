@@ -1,19 +1,5 @@
-/**
- * Centralized environment configuration for the Zenith TUI frontend.
- *
- * Single source of truth for every environment setting the app cares about:
- * backend URL (REST + WebSocket), environment / development status, fetch &
- * RPC timeouts, WebSocket reconnect policy, startup retry policy, and provider
- * defaults. Services read their settings from here instead of scattering
- * `process.env` lookups (and copying backendUrl helpers) across the codebase.
- *
- * Low-level, fallback-free getters live in `./env.ts`; this module composes
- * them into one typed, immutable object with safe defaults for optional values.
- */
-
 import { envInt } from './env';
 
-/** Resolved REST backend base URL. */
 const BACKEND_BASE = process.env.ZENITH_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8765';
 
 function resolveEnvironment(): 'development' | 'production' {
@@ -31,23 +17,21 @@ function parseFloatOrDefault(raw: string | undefined, fallback: number): number 
 const environment = resolveEnvironment();
 
 export const appConfig = Object.freeze({
-  /** Environment name ('development' | 'production'). */
   environment,
-  /** True when running in a non-production environment. */
+
   isDevelopment: environment !== 'production',
-  /** REST backend base URL with any trailing slash removed. */
+
   backendUrl: BACKEND_BASE.replace(/\/+$/, ''),
   /** Backend server host / port (reference for diagnostics). */
   host: process.env.ZENITH_HOST || 'localhost',
   port: envInt('ZENITH_PORT', 8765),
 
   timeout: {
-    /** REST fetch timeout in milliseconds. */
     fetchMs: (() => {
       const raw = envInt('VITE_BACKEND_FETCH_TIMEOUT', 10000);
       return raw <= 0 ? 10000 : raw;
     })(),
-    /** WebSocket JSON-RPC timeout in milliseconds. */
+
     rpcMs: envInt('ZENITH_WS_RPC_TIMEOUT', 60000),
   },
 
@@ -68,18 +52,10 @@ export const appConfig = Object.freeze({
     fallbackMaxTokens: envInt('VITE_FALLBACK_MAX_TOKENS', 4096),
   },
 
-  /**
-   * Join the REST base URL with an API path, collapsing any trailing slash
-   * on the base and normalizing the leading slash on the path.
-   */
   buildUrl(path: string): string {
     return `${BACKEND_BASE.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
   },
 
-  /**
-   * Derive the WebSocket URL from the backend HTTP base — maps http(s) to
-   * ws(s) and appends `/ws` unless it is already present.
-   */
   buildWsUrl(): string {
     const base = BACKEND_BASE.replace(/\/+$/, '');
     const ws = base.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');

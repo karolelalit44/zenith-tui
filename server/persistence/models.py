@@ -1,6 +1,6 @@
-
 from __future__ import annotations
-from sqlalchemy import (Float, ForeignKey, Index, Integer, PrimaryKeyConstraint, Text, TypeDecorator)
+
+from sqlalchemy import Float, ForeignKey, Index, Integer, PrimaryKeyConstraint, Text, TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -9,7 +9,6 @@ class Base(DeclarativeBase):
 
 
 class BoolInt(TypeDecorator[int]):
-
     impl = Integer
     cache_ok = True
 
@@ -20,11 +19,8 @@ class BoolInt(TypeDecorator[int]):
         return bool(value) if value is not None else None
 
 
-
-
 class SessionRecord(Base):
     __tablename__ = "sessions"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     title: Mapped[str] = mapped_column(Text, nullable=False, server_default="New Session")
     mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="build")
@@ -34,7 +30,6 @@ class SessionRecord(Base):
     workspace_root: Mapped[str] = mapped_column(Text, nullable=False, server_default=".")
     is_active: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="1")
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
-
     parent_session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     plan_output: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     plan_approved_at: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -44,17 +39,13 @@ class SessionRecord(Base):
     model: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider: Mapped[str | None] = mapped_column(Text, nullable=True)
     agent_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="idle")
-
     context_used: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     context_window: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     context_percent: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
-
     error_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     export_format: Mapped[str | None] = mapped_column(Text, nullable=True)
     exported_at: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
@@ -68,9 +59,10 @@ Index("idx_sessions_parent", SessionRecord.parent_session_id)
 
 class MessageRecord(Base):
     __tablename__ = "messages"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     role: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     events_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
@@ -85,7 +77,6 @@ Index("idx_messages_created", MessageRecord.created_at)
 
 class ProviderRecord(Base):
     __tablename__ = "providers"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -100,7 +91,6 @@ class ProviderRecord(Base):
     capabilities_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
     api_key_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
-
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
@@ -112,9 +102,10 @@ Index("idx_providers_active", ProviderRecord.is_active)
 class ProviderModelRecord(Base):
     __tablename__ = "provider_models"
     __table_args__ = (PrimaryKeyConstraint("provider_id", "id"),)
-
     id: Mapped[str] = mapped_column(Text, nullable=False)
-    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.id", ondelete="CASCADE"), nullable=False)
+    provider_id: Mapped[str] = mapped_column(
+        ForeignKey("providers.id", ondelete="CASCADE"), nullable=False
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     context_window: Mapped[int] = mapped_column(Integer, nullable=False, server_default="128000")
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -126,15 +117,12 @@ Index("idx_provider_models_pid", ProviderModelRecord.provider_id)
 
 class AppSettingRecord(Base):
     __tablename__ = "app_settings"
-
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class CatalogProviderRecord(Base):
-
     __tablename__ = "catalog_providers"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -151,18 +139,22 @@ class CatalogProviderRecord(Base):
     env_keys_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
     is_popular: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
     base_url_style: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    supports_prompt_caching: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
-    supports_thinking_headers: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
+    supports_prompt_caching: Mapped[bool] = mapped_column(
+        BoolInt, nullable=False, server_default="0"
+    )
+    supports_thinking_headers: Mapped[bool] = mapped_column(
+        BoolInt, nullable=False, server_default="0"
+    )
     custom_flow: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
 
 class CatalogModelRecord(Base):
-
     __tablename__ = "catalog_models"
     __table_args__ = (PrimaryKeyConstraint("provider_id", "id"),)
-
-    provider_id: Mapped[str] = mapped_column(ForeignKey("catalog_providers.id", ondelete="CASCADE"), nullable=False)
+    provider_id: Mapped[str] = mapped_column(
+        ForeignKey("catalog_providers.id", ondelete="CASCADE"), nullable=False
+    )
     id: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -184,13 +176,12 @@ class CatalogModelRecord(Base):
 Index("idx_catalog_models_provider", CatalogModelRecord.provider_id)
 
 
-
-
 class TokenUsageRecord(Base):
     __tablename__ = "token_usage"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     provider: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     model: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -220,9 +211,10 @@ Index("idx_token_usage_model", TokenUsageRecord.provider, TokenUsageRecord.model
 
 class ContextDegradationRecord(Base):
     __tablename__ = "context_degradation"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     step_index: Mapped[int] = mapped_column(Integer, nullable=False)
     before_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     after_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -233,7 +225,6 @@ class ContextDegradationRecord(Base):
 class PricingRecord(Base):
     __tablename__ = "pricing"
     __table_args__ = (PrimaryKeyConstraint("provider", "model_id"),)
-
     model_id: Mapped[str] = mapped_column(Text, nullable=False)
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     input_1m: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
@@ -245,16 +236,16 @@ class PricingRecord(Base):
 
 class BudgetSettingsRecord(Base):
     __tablename__ = "budget_settings"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     max_session_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     max_daily_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     max_monthly_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     active: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="1")
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
-
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
@@ -262,9 +253,10 @@ class BudgetSettingsRecord(Base):
 
 class BudgetEventRecord(Base):
     __tablename__ = "budget_events"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     current_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     budget_limit: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
@@ -272,13 +264,12 @@ class BudgetEventRecord(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-
-
 class SessionCheckpointRecord(Base):
     __tablename__ = "session_checkpoints"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     checkpoint_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="automatic")
     step_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     snapshot_data: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
@@ -292,9 +283,10 @@ Index("idx_checkpoints_session", SessionCheckpointRecord.session_id)
 
 class SyncEventRecord(Base):
     __tablename__ = "sync_events"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     event_data: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -306,9 +298,10 @@ Index("idx_sync_events_session_seq", SyncEventRecord.session_id, SyncEventRecord
 
 class SessionStatusHistoryRecord(Base):
     __tablename__ = "session_status_history"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     from_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     to_state: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -320,9 +313,10 @@ Index("idx_status_history_session", SessionStatusHistoryRecord.session_id)
 
 class SessionDraftRecord(Base):
     __tablename__ = "session_drafts"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
     prompt: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     context: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
     expires_at: Mapped[str] = mapped_column(Text, nullable=False)
@@ -333,18 +327,14 @@ Index("idx_drafts_session", SessionDraftRecord.session_id)
 Index("idx_drafts_expires", SessionDraftRecord.expires_at)
 
 
-
-
 class PermissionRecord(Base):
     __tablename__ = "permissions"
-
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     tool_name: Mapped[str] = mapped_column(Text, nullable=False)
     decision: Mapped[str] = mapped_column(Text, nullable=False)
     session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
-
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")

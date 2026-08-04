@@ -1,5 +1,5 @@
-
 import pytest
+
 from server.agents.summarizer import SUMMARY_TEMPLATE, ConversationSummarizer
 from server.config.settings import AppSettings
 from server.domain.message import Message
@@ -7,7 +7,6 @@ from server.providers.base import BaseProvider
 
 
 class _EchoProvider(BaseProvider):
-
     def __init__(self, fail: bool = False):
         super().__init__("test", "test-model")
         self.fail = fail
@@ -34,10 +33,15 @@ class _EchoProvider(BaseProvider):
 
 class TestConversationSummarizer:
     def _config(self, temp_dir, weak_model=None):
-        return AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir), weak_model=weak_model)
+        return AppSettings(
+            db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir), weak_model=weak_model
+        )
 
     def _msgs(self):
-        return [Message(session_id="s", role="user", content="build the auth module"), Message(session_id="s", role="assistant", content="creating auth.py")]
+        return [
+            Message(session_id="s", role="user", content="build the auth module"),
+            Message(session_id="s", role="assistant", content="creating auth.py"),
+        ]
 
     @pytest.mark.asyncio
     async def test_fresh_summary_uses_template(self, temp_dir):
@@ -47,7 +51,13 @@ class TestConversationSummarizer:
         assert out.startswith("Objective")
         prompt = provider.last_prompt
         assert "Create a short summary" in prompt
-        for section in ("Objective", "Important Details", "Work State", "Next Move", "Relevant Files"):
+        for section in (
+            "Objective",
+            "Important Details",
+            "Work State",
+            "Next Move",
+            "Relevant Files",
+        ):
             assert section in prompt
         assert "first person" in prompt
         assert "<previous-summary>" not in prompt

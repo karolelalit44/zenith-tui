@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
+
 from server.agents.context import ContextManager
 from server.agents.coordinator import CoordinatorService, DefaultCoordinator
 from server.agents.runtime import AgentRuntime, DefaultAgentRuntime
@@ -15,6 +17,7 @@ from server.toolkit import create_default_registry
 from server.toolkit.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class AppContainer:
@@ -39,18 +42,29 @@ class AppContainer:
 
     def _wire(self) -> None:
         self.event_bus = AsyncEventBus()
-        self.provider_registry = ProviderRegistry.from_config(self.config.providers, self.config.active_provider)
+        self.provider_registry = ProviderRegistry.from_config(
+            self.config.providers, self.config.active_provider
+        )
         self.active_provider = self.provider_registry.get(self.config.active_provider)
-        logger.info("Provider registry wired: active=%s, available=%s", self.config.active_provider, self.provider_registry.list_providers())
-
-        self.tool_registry = create_default_registry(timeout=self.config.tools.max_bash_timeout, provider=self.active_provider, hooks=self.config.hooks)
+        logger.info(
+            "Provider registry wired: active=%s, available=%s",
+            self.config.active_provider,
+            self.provider_registry.list_providers(),
+        )
+        self.tool_registry = create_default_registry(
+            timeout=self.config.tools.max_bash_timeout,
+            provider=self.active_provider,
+            hooks=self.config.hooks,
+        )
         logger.info("Tool registry wired: %d tools", len(self.tool_registry.list_tools()))
-
         self.context_manager = ContextManager(self.config)
-        self.runtime = DefaultAgentRuntime(config=self.config, provider=self.active_provider, tool_registry=self.tool_registry)
-
+        self.runtime = DefaultAgentRuntime(
+            config=self.config, provider=self.active_provider, tool_registry=self.tool_registry
+        )
         self.session_service = _StubSessionService()
-        self.coordinator = DefaultCoordinator(session_service=self.session_service, runtime=self.runtime)
+        self.coordinator = DefaultCoordinator(
+            session_service=self.session_service, runtime=self.runtime
+        )
 
     async def start(self) -> None:
         from server.persistence.connection import resolve_db_path
@@ -58,19 +72,21 @@ class AppContainer:
         self.db = Database(resolve_db_path())
         await self.db.connect()
         logger.info("Database connected")
-
         self.session_repo = SessionRepository(self.db)
         self.message_repo = MessageRepository(self.db)
-
         from server.persistence.repositories import ProviderRepositoryDB
 
         provider_repo = ProviderRepositoryDB(self.db)
         await provider_repo.ensure_seeded()
-
-        self.session_service = DefaultSessionService(session_repo=self.session_repo, message_repo=self.message_repo, event_bus=self.event_bus, hooks=self.config.hooks)
-
-        self.coordinator = DefaultCoordinator(session_service=self.session_service, runtime=self.runtime)
-
+        self.session_service = DefaultSessionService(
+            session_repo=self.session_repo,
+            message_repo=self.message_repo,
+            event_bus=self.event_bus,
+            hooks=self.config.hooks,
+        )
+        self.coordinator = DefaultCoordinator(
+            session_service=self.session_service, runtime=self.runtime
+        )
         logger.info("Application container started")
 
     async def stop(self) -> None:
@@ -83,11 +99,16 @@ class AppContainer:
         from server.config.loader import load_config
 
         self.config = load_config()
-        self.provider_registry = ProviderRegistry.from_config(self.config.providers, self.config.active_provider)
+        self.provider_registry = ProviderRegistry.from_config(
+            self.config.providers, self.config.active_provider
+        )
         self.active_provider = self.provider_registry.get(self.config.active_provider)
         self.context_manager = ContextManager(self.config)
-        self.runtime = DefaultAgentRuntime(config=self.config, provider=self.active_provider, tool_registry=self.tool_registry)
+        self.runtime = DefaultAgentRuntime(
+            config=self.config, provider=self.active_provider, tool_registry=self.tool_registry
+        )
         logger.info("Config reloaded: provider=%s", self.config.active_provider)
+
 
 class _StubSessionService(SessionService):
     async def create(self, title=None, mode=None):

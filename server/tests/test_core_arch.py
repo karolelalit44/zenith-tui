@@ -1,11 +1,17 @@
-
 import pytest
-from server.domain.domain import (AgentRole, DeliveryMode, RiskLevel, ScenarioMode, SessionState)
-from server.domain.errors import (ConfigError, ProviderError, RateLimitError, SessionNotFound, SessionTransitionError, ZenithError)
+
+from server.domain.domain import AgentRole, DeliveryMode, RiskLevel, ScenarioMode, SessionState
+from server.domain.errors import (
+    ConfigError,
+    ProviderError,
+    RateLimitError,
+    SessionNotFound,
+    SessionTransitionError,
+    ZenithError,
+)
 from server.domain.events import AsyncEventBus, Event, EventKind
 from server.domain.message import Message, ToolCall
 from server.domain.session import Session
-
 
 
 class TestDomainEnums:
@@ -27,8 +33,6 @@ class TestDomainEnums:
     def test_delivery_mode_values(self):
         assert DeliveryMode.LOSSY.value == "lossy"
         assert DeliveryMode.BLOCKING.value == "blocking"
-
-
 
 
 class TestAsyncEventBus:
@@ -64,8 +68,6 @@ class TestAsyncEventBus:
         assert received is None
 
 
-
-
 class TestMessage:
     def test_create_message(self):
         msg = Message(role="user", content="hello", session_id="s1")
@@ -84,8 +86,6 @@ class TestMessage:
         assert msg.parent_message_id == "msg_parent"
 
 
-
-
 class TestSession:
     def test_create_session(self):
         session = Session(title="Test")
@@ -102,8 +102,6 @@ class TestSession:
         session.transition(SessionState.ACTIVE)
         with pytest.raises((SessionTransitionError, ValueError)):
             session.transition(SessionState.CREATED)
-
-
 
 
 class TestErrors:

@@ -1,24 +1,22 @@
-
 from __future__ import annotations
+
 import logging
 import re
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
 SKILL_ROOTS = ("skills", "agents/skills", ".zenith/skills", ".agent/skills")
-
 MAX_SKILLS_IN_PROMPT = 20
 
 
 def _extract_yaml_field(content: str, field: str) -> str | None:
-    match = re.search(rf"^{field}:\s*(.+)$", content, re.MULTILINE)
+    match = re.search(f"^{field}:\\s*(.+)$", content, re.MULTILINE)
     return match.group(1).strip().strip('"').strip("'") if match else None
 
 
 def _extract_first_heading(content: str) -> str | None:
-    match = re.search(r"^#{1,2}\s+(.+)$", content, re.MULTILINE)
+    match = re.search("^#{1,2}\\s+(.+)$", content, re.MULTILINE)
     return match.group(1).strip() if match else None
 
 
@@ -26,7 +24,6 @@ def _summarize_skill(content: str, max_chars: int = 250) -> str:
     desc = _extract_yaml_field(content, "description")
     if desc:
         return desc[:max_chars]
-
     heading = _extract_first_heading(content)
     lines = content.strip().split("\n")
     body_start = 0
@@ -39,15 +36,13 @@ def _summarize_skill(content: str, max_chars: int = 250) -> str:
                     body_start = j + 1
                     break
             break
-
     text_lines = []
     for line in lines[body_start:]:
         stripped = line.strip()
-        if stripped and not stripped.startswith("```"):
+        if stripped and (not stripped.startswith("```")):
             text_lines.append(stripped)
             if sum(len(t) for t in text_lines) >= max_chars:
                 break
-
     summary_parts = []
     if heading:
         summary_parts.append(heading)
@@ -58,13 +53,11 @@ def _summarize_skill(content: str, max_chars: int = 250) -> str:
 
 
 class SkillLoader:
-
     def __init__(self, workspace_root: str) -> None:
         self.root = Path(workspace_root).resolve()
 
     def find_skills(self) -> list[dict[str, Any]]:
         skills: list[dict[str, Any]] = []
-
         for root_name in SKILL_ROOTS:
             root_dir = self.root / root_name
             if not root_dir.is_dir():
@@ -74,21 +67,31 @@ class SkillLoader:
                     continue
                 if any(part.startswith(".") for part in skill_file.relative_to(self.root).parts):
                     continue
-
                 try:
                     content = skill_file.read_text(encoding="utf-8")
-                    skills.append({"path": skill_file.relative_to(self.root).as_posix(), "content": content, "directory": skill_file.parent.relative_to(self.root).as_posix(), "size": len(content), "summary": _summarize_skill(content)})
+                    skills.append(
+                        {
+                            "path": skill_file.relative_to(self.root).as_posix(),
+                            "content": content,
+                            "directory": skill_file.parent.relative_to(self.root).as_posix(),
+                            "size": len(content),
+                            "summary": _summarize_skill(content),
+                        }
+                    )
                 except Exception as e:
                     logger.warning("Failed to read skill file %s: %s", skill_file, e)
-
         return skills
 
     def get_skill_prompt(self, max_skills: int = MAX_SKILLS_IN_PROMPT) -> str:
         skills = self.find_skills()
         if not skills:
             return ""
-
-        parts = ["## Loaded Skills", "", "Each skill below is available — read its source file to use it.", ""]
+        parts = [
+            "## Loaded Skills",
+            "",
+            "Each skill below is available — read its source file to use it.",
+            "",
+        ]
         for skill in skills[:max_skills]:
             parts.append(f"### Skill: {skill['directory']}")
             parts.append(f"*Source: {skill['path']}*")
@@ -96,7 +99,6 @@ class SkillLoader:
             if summary:
                 parts.append(summary)
             parts.append("")
-
         return "\n".join(parts)
 
     def get_skill_names(self) -> list[str]:

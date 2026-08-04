@@ -1,14 +1,39 @@
-
 import pytest
-from server.api.protocol import (Connection, JsonRpcMethod, JsonRpcRequest, JsonRpcResponse, TransportService, make_error_response, make_event, make_response)
+
+from server.api.protocol import (
+    Connection,
+    JsonRpcMethod,
+    JsonRpcRequest,
+    JsonRpcResponse,
+    TransportService,
+    make_error_response,
+    make_event,
+    make_response,
+)
 from server.api.websocket import ConnectionManager
 from server.domain.events import Event, EventKind
 
 
-
 class TestJsonRpcMethod:
     def test_all_methods_exist(self):
-        methods = ["session.create", "session.list", "session.resume", "session.export", "prompt.send", "prompt.cancel", "provider.validate", "provider.models", "provider.list", "tools.list", "workspace.status", "workspace.diff", "workspace.log", "workspace.repo_map", "permission.response", "health"]
+        methods = [
+            "session.create",
+            "session.list",
+            "session.resume",
+            "session.export",
+            "prompt.send",
+            "prompt.cancel",
+            "provider.validate",
+            "provider.models",
+            "provider.list",
+            "tools.list",
+            "workspace.status",
+            "workspace.diff",
+            "workspace.log",
+            "workspace.repo_map",
+            "permission.response",
+            "health",
+        ]
         for m in methods:
             assert JsonRpcMethod(m) is not None
 
@@ -16,8 +41,6 @@ class TestJsonRpcMethod:
         for m in JsonRpcMethod:
             assert isinstance(m.value, str)
             assert len(m.value) > 0
-
-
 
 
 class TestJsonRpcRequest:
@@ -32,8 +55,6 @@ class TestJsonRpcRequest:
         assert req.params == {}
 
 
-
-
 class TestJsonRpcResponse:
     def test_success_response(self):
         resp = JsonRpcResponse(id="1", result={"ok": True})
@@ -43,8 +64,6 @@ class TestJsonRpcResponse:
     def test_error_response(self):
         resp = JsonRpcResponse(id="1", error={"code": -32601, "message": "not found"})
         assert resp.error["code"] == -32601
-
-
 
 
 class TestSerialization:
@@ -65,8 +84,6 @@ class TestSerialization:
         assert "message" in s
 
 
-
-
 class TestConnection:
     def test_connection(self):
         c = Connection(session_id="sess_1", client="127.0.0.1:1234")
@@ -74,14 +91,10 @@ class TestConnection:
         assert c.client == "127.0.0.1:1234"
 
 
-
-
 class TestTransportServiceABC:
     def test_abc_cannot_instantiate(self):
         with pytest.raises(TypeError):
             TransportService()
-
-
 
 
 class TestConnectionManager:

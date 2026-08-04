@@ -21,8 +21,6 @@ interface FieldFormProps {
   hint?: string;
 }
 
-/** Multi-field dialog form. Up/Down/Tab move focus; typing edits the focused
- * field; Enter submits; Esc cancels. */
 export const FieldForm: React.FC<FieldFormProps> = ({ title, fields, onSubmit, onCancel, hint }) => {
   const { theme } = useTheme();
   const [values, setValues] = useState<Record<string, string>>(() =>

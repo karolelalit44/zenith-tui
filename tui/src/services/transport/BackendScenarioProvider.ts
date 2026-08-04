@@ -98,7 +98,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
     const handleDisconnect = () => {
       if (completed) return;
-      if (disconnectEventIndex !== null) return; // already handling disconnect
+      if (disconnectEventIndex !== null) return;
       disconnectEventIndex = eventIndex++;
       onEvent(
         {
@@ -112,7 +112,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(async () => {
         if (completed) return;
-        // Reconnection timed out — give up
+
         onEvent(
           {
             kind: 'error',
@@ -129,7 +129,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
     const handleReconnect = async () => {
       if (completed) return;
-      if (disconnectEventIndex === null) return; // wasn't in disconnect state
+      if (disconnectEventIndex === null) return;
       const resumed = await tryResumeSession();
       if (resumed) {
         if (reconnectTimer) {
@@ -138,7 +138,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
         }
         resetStaleTimer();
       }
-      // If resume failed, disconnectEventIndex stays set and the timer will fire
     };
 
     resetStaleTimer();
@@ -173,12 +172,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
         return;
       }
 
-      // Non-message events: DON'T finalize partial here.
-      // The partial stays active and will be finalized when:
-      // (a) the final non-partial message arrives, or
-      // (b) a terminal event (success/error) arrives.
-      // This prevents duplicate messages when thinking events arrive mid-stream.
-
       if (kind === 'message' && !data?.partial) {
         const fullText = String(data.text || accumulatedText);
 
@@ -207,7 +200,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
         return;
       }
 
-      // Terminal events: finalize any pending partial before emitting
       const isTerminalEvent = (kind === 'success' && typeof data?.iterations === 'number') || kind === 'error';
 
       if (isTerminalEvent && partialMessageIndex !== null) {
@@ -226,15 +218,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       const mapped = mapRawEvent(kind, data, rpcId);
 
-      // Merge consecutive thinking events into a single block
       if (kind === 'thinking' && lastEventKind === 'thinking' && eventIndex > 0) {
-        // Accumulate thoughts from new event into the merged array
         const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
         for (const t of newThoughts) {
           const text = typeof t === 'string' ? t : t.text;
           if (text) mergedThinkingThoughts.push(text);
         }
-        // Replace previous thinking event with merged version
+
         onEvent(
           {
             kind: 'thinking',
@@ -242,14 +232,12 @@ export class BackendScenarioProvider implements ScenarioProvider {
             thoughts: [...mergedThinkingThoughts],
             duration: 500,
           },
-          eventIndex - 1, // Replace previous thinking event
+          eventIndex - 1,
         );
       } else {
-        // Reset merge tracking when a non-thinking event arrives
         if (kind !== 'thinking') {
           mergedThinkingThoughts = [];
         } else {
-          // First thinking event in a new sequence
           const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
           mergedThinkingThoughts = newThoughts
             .map((t) => (typeof t === 'string' ? t : t.text))
@@ -298,7 +286,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
         );
       }
     }, 2000);
-    // Ensure timerHandle is set before any synchronous event could fire
 
     return {
       abort: () => {

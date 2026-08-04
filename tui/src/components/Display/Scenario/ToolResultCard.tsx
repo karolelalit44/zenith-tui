@@ -133,7 +133,7 @@ function FileToolResult({ event, theme }: { event: ToolResultEvent; theme: Theme
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      {/* 1. Green filled dot bullet ● & bold Update(winPath) */}
+      {}
       <Box flexDirection="row" alignItems="center">
         <Text color={theme.colors.status.success} bold>
           ●{' '}
@@ -143,13 +143,13 @@ function FileToolResult({ event, theme }: { event: ToolResultEvent; theme: Theme
         </Text>
       </Box>
 
-      {/* 2. Tree connector └ with stats line */}
+      {}
       <Box flexDirection="row" alignItems="center" paddingLeft={1}>
         <Text color={theme.colors.text.dim}>└ </Text>
         <Text color={theme.colors.text.dim}>{statsStr || 'Updated file'}</Text>
       </Box>
 
-      {/* 3. Code diff section with line number gutter */}
+      {}
       {visibleLines.length > 0 && (
         <Box flexDirection="column" paddingLeft={3} marginTop={0}>
           {visibleLines.map((line, idx) => {

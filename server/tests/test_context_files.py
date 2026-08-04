@@ -1,4 +1,3 @@
-
 from server.agents.prompts import build_system_prompt
 from server.workspace.context import load_context_files
 
@@ -7,8 +6,6 @@ def _write(root, name: str, content: str) -> None:
     p = root / name
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
-
-
 
 
 class TestZenithContextFiles:
@@ -43,11 +40,9 @@ class TestZenithContextFiles:
         assert any("zenith.local.md" in f.path for f in files)
 
 
-
-
 class TestContextFileSizeGuards:
     def test_oversized_file_is_skipped(self, tmp_path):
-        _write(tmp_path, "zenith.local.md", "x" * 100_000)
+        _write(tmp_path, "zenith.local.md", "x" * 100000)
         files = load_context_files(str(tmp_path))
         assert not any("zenith.local.md" in f.path for f in files)
 

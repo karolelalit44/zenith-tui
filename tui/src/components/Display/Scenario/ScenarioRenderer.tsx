@@ -36,7 +36,7 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(() => {
 
   return (
     <Box flexDirection="row" alignItems="center" width="100%" paddingX={1} marginBottom={1}>
-      {/* Spinner + label */}
+      {}
       <Text color={theme.colors.status.accent} bold>
         {spinnerChar}{' '}
       </Text>
@@ -46,7 +46,7 @@ const LiveSpinner: React.FC<{ label: string }> = React.memo(() => {
       <Text color={theme.colors.text.dim}> · </Text>
       <Text color={theme.colors.text.muted}>{elapsedStr}</Text>
 
-      {/* Right-aligned hint — fills remaining space by pushing with a spacer */}
+      {}
       <Box flexGrow={1} />
       <Text color={theme.colors.text.dim}>esc to interrupt</Text>
     </Box>
@@ -91,8 +91,6 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       [thinkingCollapsed, isHistorical, isRunning, onRetry, onDismiss],
     );
 
-    // Use a limit for dynamic rendering to avoid Ink scrolling bugs.
-    // For historical (Static) renders, show all events.
     const dynamicLimit = 20;
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const visibleEvents = hasOverflow ? events.slice(-dynamicLimit) : events;

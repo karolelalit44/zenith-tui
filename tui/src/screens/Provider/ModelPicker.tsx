@@ -6,9 +6,8 @@ import { providerRepository } from '../../services/providers/ProviderRepository'
 import type { ModelSelection } from '../../services/providers/types';
 
 interface ModelPickerProps {
-  /** Restrict the list to a single provider (used right after validation). */
   providerID?: string;
-  /** When provided, adds a "View all providers" action that jumps to the provider flow. */
+
   onOpenProvider?: () => void;
   onSelect: (sel: ModelSelection) => void;
   onClose: () => void;

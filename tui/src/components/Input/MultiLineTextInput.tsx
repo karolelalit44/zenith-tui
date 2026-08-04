@@ -18,7 +18,7 @@ interface MultiLineTextInputProps {
   focus?: boolean;
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
-  /** Called first for every keypress; return true to swallow the key. */
+
   onSpecial?: (char: string, key: Key, value: string) => boolean;
 }
 
@@ -53,17 +53,15 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             .replace(/\r\n/g, '\n')
             .replace(/\r/g, '\n')
             .replace(/\t/g, '  ')
-            // Strip ANSI escape sequences
+
             .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-            // Strip control chars (keep \n only)
+
             .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-          // Unescape JSON-encoded strings (e.g. \"key\": \"value\")
+
           if (cleanPaste.includes('\\"') || cleanPaste.includes('\\n')) {
             try {
               cleanPaste = JSON.parse(`"${cleanPaste.replace(/"/g, '\\"')}"`);
-            } catch {
-              // Not valid JSON escape — use as-is
-            }
+            } catch {}
           }
           if (cleanPaste.length > 0) {
             const nextValue = value.slice(0, cursor) + cleanPaste + value.slice(cursor);

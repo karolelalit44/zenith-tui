@@ -1,75 +1,18 @@
-
 from __future__ import annotations
+
 import json
 import os
 import textwrap
+
 import pytest
+
 from server.config.loader import load_config
 from server.config.settings import McpServerConfig
 from server.mcp.client import McpClient
 from server.mcp.manager import McpManager
 from server.toolkit.registry import ToolRegistry
 
-STUB_SERVER = r"""
-import json
-import sys
-
-def read_message():
-    header = {}
-    while True:
-        line = sys.stdin.buffer.readline()
-        if not line:
-            return None
-        if line.strip() == b"":
-            break
-        k, _, v = line.decode().partition(":")
-        header[k.strip().lower()] = v.strip()
-    length = int(header.get("content-length", 0))
-    if length == 0:
-        return None
-    return json.loads(sys.stdin.buffer.read(length))
-
-def write_message(msg):
-    body = json.dumps(msg).encode()
-    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
-    sys.stdout.buffer.flush()
-
-while True:
-    msg = read_message()
-    if msg is None:
-        break
-    method = msg.get("method")
-    if method == "initialize":
-        write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {}},
-            "serverInfo": {"name": "stub", "version": "1.0.0"},
-        }})
-    elif method == "notifications/initialized":
-        continue
-    elif method == "tools/list":
-        write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": [
-            {"name": "echo", "description": "Echoes input",
-             "inputSchema": {"type": "object",
-                             "properties": {"text": {"type": "string"}},
-                             "required": ["text"]}},
-            {"name": "failing", "description": "Always errors",
-             "inputSchema": {"type": "object", "properties": {}}},
-        ]}})
-    elif method == "tools/call":
-        name = msg["params"]["name"]
-        args = msg["params"]["arguments"]
-        if name == "failing":
-            write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {
-                "content": [{"type": "text", "text": "boom"}], "isError": True,
-            }})
-        else:
-            write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {
-                "content": [{"type": "text", "text": args.get("text", "")}], "isError": False,
-            }})
-    else:
-        write_message({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "not found"}})
-"""
+STUB_SERVER = '\nimport json\nimport sys\n\ndef read_message():\n    header = {}\n    while True:\n        line = sys.stdin.buffer.readline()\n        if not line:\n            return None\n        if line.strip() == b"":\n            break\n        k, _, v = line.decode().partition(":")\n        header[k.strip().lower()] = v.strip()\n    length = int(header.get("content-length", 0))\n    if length == 0:\n        return None\n    return json.loads(sys.stdin.buffer.read(length))\n\ndef write_message(msg):\n    body = json.dumps(msg).encode()\n    sys.stdout.buffer.write(f"Content-Length: {len(body)}\\r\\n\\r\\n".encode() + body)\n    sys.stdout.buffer.flush()\n\nwhile True:\n    msg = read_message()\n    if msg is None:\n        break\n    method = msg.get("method")\n    if method == "initialize":\n        write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {\n            "protocolVersion": "2024-11-05",\n            "capabilities": {"tools": {}},\n            "serverInfo": {"name": "stub", "version": "1.0.0"},\n        }})\n    elif method == "notifications/initialized":\n        continue\n    elif method == "tools/list":\n        write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": [\n            {"name": "echo", "description": "Echoes input",\n             "inputSchema": {"type": "object",\n                             "properties": {"text": {"type": "string"}},\n                             "required": ["text"]}},\n            {"name": "failing", "description": "Always errors",\n             "inputSchema": {"type": "object", "properties": {}}},\n        ]}})\n    elif method == "tools/call":\n        name = msg["params"]["name"]\n        args = msg["params"]["arguments"]\n        if name == "failing":\n            write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {\n                "content": [{"type": "text", "text": "boom"}], "isError": True,\n            }})\n        else:\n            write_message({"jsonrpc": "2.0", "id": msg["id"], "result": {\n                "content": [{"type": "text", "text": args.get("text", "")}], "isError": False,\n            }})\n    else:\n        write_message({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "not found"}})\n'
 
 
 def write_stub_server(path):
@@ -78,7 +21,9 @@ def write_stub_server(path):
 
 
 def make_config(tmp_path) -> McpServerConfig:
-    return McpServerConfig(command=os.sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")])
+    return McpServerConfig(
+        command=os.sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")]
+    )
 
 
 @pytest.fixture
@@ -119,15 +64,18 @@ async def test_mcp_manager_registers_server_prefixed_tools(mcp_server):
         wrappers = manager.build_wrappers()
         names = {w.name for w in wrappers}
         assert names == {"mcp_stub_echo", "mcp_stub_failing"}
-
         registry = ToolRegistry()
         for w in wrappers:
             registry.register(w)
         assert "mcp_stub_echo" in registry.list_tools()
         assert "mcp_stub_echo" in registry.list_tools_for_mode("build")
         assert "mcp_stub_echo" not in registry.list_tools_for_mode("plan", allowed_mcp={})
-        assert "mcp_stub_echo" in registry.list_tools_for_mode("build", allowed_mcp={"stub": ["echo"]})
-        assert "mcp_stub_echo" not in registry.list_tools_for_mode("build", allowed_mcp={"stub": ["failing"]})
+        assert "mcp_stub_echo" in registry.list_tools_for_mode(
+            "build", allowed_mcp={"stub": ["echo"]}
+        )
+        assert "mcp_stub_echo" not in registry.list_tools_for_mode(
+            "build", allowed_mcp={"stub": ["failing"]}
+        )
     finally:
         await manager.stop()
 
@@ -142,7 +90,6 @@ async def test_mcp_wrapper_executes_via_manager(tmp_path):
         result = await wrappers["mcp_stub_echo"].execute({"text": "wrap-ok"}, ".")
         assert result.success
         assert result.output == "wrap-ok"
-
         failed = await wrappers["mcp_stub_failing"].execute({}, ".")
         assert not failed.success
         assert "boom" in failed.error
@@ -177,7 +124,9 @@ async def test_registry_execute_runs_mcp_tool(tmp_path):
         registry = ToolRegistry()
         for w in manager.build_wrappers():
             registry.register(w)
-        result = await registry.execute("mcp_stub_echo", {"text": "via-registry"}, workspace_root=".", allowed_mcp=None)
+        result = await registry.execute(
+            "mcp_stub_echo", {"text": "via-registry"}, workspace_root=".", allowed_mcp=None
+        )
         assert result.success
         assert result.output == "via-registry"
     finally:

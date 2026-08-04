@@ -1,7 +1,8 @@
-
 import asyncio
 import json
+
 import pytest
+
 from server.agents.prompt_executor import ATTACHMENT_MAX_FILE, PromptExecutor, read_attachment
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
@@ -22,7 +23,9 @@ class RecordingProvider(BaseProvider):
         return f"Echo: {user_msg}"
 
     async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-        self.calls.append({"model": self.model, "temperature": self.temperature, "max_tokens": self.max_tokens})
+        self.calls.append(
+            {"model": self.model, "temperature": self.temperature, "max_tokens": self.max_tokens}
+        )
         response = await self.complete(messages)
         if self.slow:
             for ch in response:
@@ -48,7 +51,12 @@ def _fake_ws(captured: dict):
 
 @pytest.fixture
 def test_config(temp_dir):
-    return AppSettings(providers={"test": ProviderConfig(model="base-model", is_active=True)}, active_provider="test", db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
+    return AppSettings(
+        providers={"test": ProviderConfig(model="base-model", is_active=True)},
+        active_provider="test",
+        db_path=str(temp_dir / "test.db"),
+        workspace_root=str(temp_dir),
+    )
 
 
 @pytest.fixture
@@ -79,7 +87,7 @@ def handler(test_config, test_db, registry):
         events.append(event)
 
     h.handlers.manager = type("M", (), {"send_event": mock_send_event})()
-    return h, events
+    return (h, events)
 
 
 def _make_executor(config, provider, db):
@@ -87,7 +95,14 @@ def _make_executor(config, provider, db):
     from server.skills.loader import SkillLoader
     from server.toolkit import create_default_registry
 
-    return PromptExecutor(config, provider, create_default_registry(), SessionRepository(db), MessageRepository(db), SkillLoader(str(config.workspace_root)))
+    return PromptExecutor(
+        config,
+        provider,
+        create_default_registry(),
+        SessionRepository(db),
+        MessageRepository(db),
+        SkillLoader(str(config.workspace_root)),
+    )
 
 
 class TestProviderOverrides:
@@ -96,9 +111,17 @@ class TestProviderOverrides:
         provider = RecordingProvider()
         executor = _make_executor(test_config, provider, test_db)
         session = await executor._session_repo.create(Session(title="Override Test"))
-
-        await executor._execute(session.id, "hello", "build", None, None, model_override="override-model", temperature=0.2, max_tokens=123, attachments=[])
-
+        await executor._execute(
+            session.id,
+            "hello",
+            "build",
+            None,
+            None,
+            model_override="override-model",
+            temperature=0.2,
+            max_tokens=123,
+            attachments=[],
+        )
         assert provider.calls, "provider.stream was never called"
         observed = provider.calls[0]
         assert observed["model"] == "override-model"
@@ -113,9 +136,7 @@ class TestProviderOverrides:
         provider = RecordingProvider()
         executor = _make_executor(test_config, provider, test_db)
         session = await executor._session_repo.create(Session(title="No Override"))
-
         await executor._execute(session.id, "hello", "build", None, None)
-
         assert provider.calls[0]["model"] == "base-model"
         assert provider.calls[0]["temperature"] == 0.7
         assert provider.calls[0]["max_tokens"] == 4096
@@ -130,18 +151,31 @@ class TestPromptPersistence:
         (temp_dir / "notes.txt").write_text("important notes")
         captured = {}
         ws = _fake_ws(captured)
-
-        sid = await h.handlers._prompt(ws, 1, {"content": "Use the file", "mode": "build", "provider": "test", "model": "override-model", "temperature": 0.1, "max_tokens": 777, "attachments": [{"path": "notes.txt"}, {"path": "notes.txt"}, {"path": "missing.txt"}]}, session.id)
+        sid = await h.handlers._prompt(
+            ws,
+            1,
+            {
+                "content": "Use the file",
+                "mode": "build",
+                "provider": "test",
+                "model": "override-model",
+                "temperature": 0.1,
+                "max_tokens": 777,
+                "attachments": [
+                    {"path": "notes.txt"},
+                    {"path": "notes.txt"},
+                    {"path": "missing.txt"},
+                ],
+            },
+            session.id,
+        )
         assert sid == session.id
-
         executor = h.handlers._session_executors[session.id]
         await executor._active_task
-
         messages = await h.message_repo.get_by_session(session.id)
         user_msg = next(m for m in messages if m.role == "user")
         assert user_msg.metadata.get("model") == "override-model"
         assert user_msg.metadata.get("attachment_paths") == ["notes.txt", "missing.txt"]
-
         updated = await h.session_repo.get(session.id)
         assert updated.model == "override-model"
         assert updated.metadata.get("last_model") == "override-model"
@@ -152,12 +186,11 @@ class TestPromptPersistence:
         session = await h.session_repo.create(Session(title="No Model", model="prev-model"))
         captured = {}
         ws = _fake_ws(captured)
-
-        await h.handlers._prompt(ws, 1, {"content": "hello", "mode": "build", "provider": "test"}, session.id)
-
+        await h.handlers._prompt(
+            ws, 1, {"content": "hello", "mode": "build", "provider": "test"}, session.id
+        )
         executor = h.handlers._session_executors[session.id]
         await executor._active_task
-
         updated = await h.session_repo.get(session.id)
         assert updated.model == "prev-model"
         assert "last_model" not in (updated.metadata or {})
@@ -188,18 +221,16 @@ class TestPromptCancel:
         session = await h.session_repo.create(Session(title="Cancel Test"))
         captured = {}
         ws = _fake_ws(captured)
-
-        sid = await h.handlers._prompt(ws, 1, {"content": "Slow prompt", "mode": "build", "provider": "test"}, session.id)
+        sid = await h.handlers._prompt(
+            ws, 1, {"content": "Slow prompt", "mode": "build", "provider": "test"}, session.id
+        )
         assert sid == session.id
-
         await asyncio.sleep(0.05)
         assert not h.handlers._session_executors[session.id]._active_task.done()
-
         captured2 = {}
         ws2 = _fake_ws(captured2)
         await h.handlers._cancel_prompt(ws2, 2, session.id)
         assert json.loads(captured2["text"])["result"]["cancelled"] is True
-
         await asyncio.sleep(0.05)
         task = h.handlers._session_executors[session.id]._active_task
         assert task.done()
@@ -225,27 +256,21 @@ class TestAttachmentGuards:
         big.write_bytes(b"x" * (ATTACHMENT_MAX_FILE + 1))
         binary = temp_dir / "bin.dat"
         binary.write_bytes(b"abc\x00def")
-
         content, error = await read_attachment("ok.txt", str(temp_dir))
         assert content == "hello world"
         assert error is None
-
         content, error = await read_attachment("../outside.txt", str(temp_dir))
         assert content is None
         assert error == "path escapes workspace"
-
         content, error = await read_attachment(str(outside), str(temp_dir))
         assert content is None
         assert error == "path escapes workspace"
-
         content, error = await read_attachment("big.txt", str(temp_dir))
         assert content is None
         assert "too large" in error
-
         content, error = await read_attachment("bin.dat", str(temp_dir))
         assert content is None
         assert error == "binary file"
-
         content, error = await read_attachment("nope.txt", str(temp_dir))
         assert content is None
         assert error == "file not found"
@@ -256,9 +281,9 @@ class TestAttachmentGuards:
         executor = _make_executor(test_config, provider, test_db)
         (temp_dir / "a.txt").write_text("AAA")
         events = []
-
-        injected = await executor._inject_attachments("user text", [{"path": "a.txt"}, {"path": "missing.txt"}], "s1", None, events)
-
+        injected = await executor._inject_attachments(
+            "user text", [{"path": "a.txt"}, {"path": "missing.txt"}], "s1", None, events
+        )
         assert '<attachment path="a.txt">\nAAA\n</attachment>' in injected
         assert injected.endswith("user text")
         assert any(e.kind == EventKind.WARNING for e in events)
@@ -269,9 +294,9 @@ class TestAttachmentGuards:
         provider = RecordingProvider()
         executor = _make_executor(test_config, provider, test_db)
         events = []
-
-        injected = await executor._inject_attachments("user text", [{"path": "virtual.py", "content": "print('x')"}], "s1", None, events)
-
+        injected = await executor._inject_attachments(
+            "user text", [{"path": "virtual.py", "content": "print('x')"}], "s1", None, events
+        )
         assert "<attachment path=\"virtual.py\">\nprint('x')\n</attachment>" in injected
         assert events == []
 
@@ -282,12 +307,19 @@ class TestAttachmentGuards:
         (temp_dir / "data.txt").write_text("payload content")
         captured = {}
         ws = _fake_ws(captured)
-
-        await h.handlers._prompt(ws, 1, {"content": "Read the file", "mode": "build", "provider": "test", "attachments": [{"path": "data.txt"}]}, session.id)
-
+        await h.handlers._prompt(
+            ws,
+            1,
+            {
+                "content": "Read the file",
+                "mode": "build",
+                "provider": "test",
+                "attachments": [{"path": "data.txt"}],
+            },
+            session.id,
+        )
         executor = h.handlers._session_executors[session.id]
         await executor._active_task
-
         messages = await h.message_repo.get_by_session(session.id)
         user_msg = next(m for m in messages if m.role == "user")
         assert user_msg.metadata.get("attachment_paths") == ["data.txt"]
@@ -301,9 +333,20 @@ class TestNormalizeAttachments:
     def test_dedupes_caps_and_filters(self):
         from server.api.handlers import _normalize_attachments
 
-        raw = [{"path": "a.txt"}, {"path": "a.txt"}, {"path": " b.txt "}, {"path": ""}, "not-a-dict", {"path": "c.txt", "name": "C", "content": "inline"}]
+        raw = [
+            {"path": "a.txt"},
+            {"path": "a.txt"},
+            {"path": " b.txt "},
+            {"path": ""},
+            "not-a-dict",
+            {"path": "c.txt", "name": "C", "content": "inline"},
+        ]
         result = _normalize_attachments(raw)
-        assert result == [{"path": "a.txt"}, {"path": "b.txt"}, {"path": "c.txt", "name": "C", "content": "inline"}]
+        assert result == [
+            {"path": "a.txt"},
+            {"path": "b.txt"},
+            {"path": "c.txt", "name": "C", "content": "inline"},
+        ]
 
     def test_caps_at_25(self):
         from server.api.handlers import _normalize_attachments

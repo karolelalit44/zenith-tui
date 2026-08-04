@@ -9,7 +9,6 @@ interface ComposerGaugeProps {
   maxTokens: number;
 }
 
-/** 10-block context-window gauge rendered in the composer footer. */
 export const ComposerGauge: React.FC<ComposerGaugeProps> = React.memo(({ usedTokens, maxTokens }) => {
   const { theme } = useTheme();
   const percent = maxTokens > 0 ? Math.min(100, Math.round((usedTokens / maxTokens) * 100)) : 0;

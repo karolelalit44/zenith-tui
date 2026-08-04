@@ -1,5 +1,3 @@
-/** Backend-aligned provider types for the Provider Configuration flow. */
-
 export type ProviderId = string;
 
 export type ProviderStatus = 'unconfigured' | 'configured' | 'validated' | 'failed';
@@ -61,7 +59,6 @@ export interface ProviderState {
   supportsThinkingHeaders: boolean;
 }
 
-/** Mirrors `server/api/schemas.py: ProviderModelInfo`. */
 export interface ProviderModelInfo {
   id: string;
   name: string;
@@ -71,7 +68,6 @@ export interface ProviderModelInfo {
   status?: string;
 }
 
-/** Mirrors `server/api/schemas.py: ProviderInfo`. */
 export interface ProviderInfo {
   id: string;
   name: string;
@@ -93,14 +89,12 @@ export interface ProviderInfo {
   env_keys: string[];
 }
 
-/** Mirrors `server/api/schemas.py: ProviderListResponse`. */
 export interface ProviderListResponse {
   all: ProviderInfo[];
   active: string;
   connected: string[];
 }
 
-/** Mirrors `server/api/schemas.py: ValidationStep`. */
 export interface ValidationStep {
   key: string;
   label: string;
@@ -108,13 +102,11 @@ export interface ValidationStep {
   message: string;
 }
 
-/** Mirrors `server/api/schemas.py: ValidationError`. */
 export interface ValidationError {
   code: string;
   message: string;
 }
 
-/** Mirrors `server/api/schemas.py: ValidationResult`. */
 export interface ValidationResult {
   valid: boolean;
   provider: string;
@@ -123,7 +115,6 @@ export interface ValidationResult {
   error: ValidationError | null;
 }
 
-/** NDJSON events emitted by `POST /startup/providers/{id}/validate?stream=1`. */
 export interface ValidationStreamEvent {
   type: 'step' | 'model' | 'result';
   key?: string;

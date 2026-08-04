@@ -1,10 +1,17 @@
-
 from __future__ import annotations
+
 import functools
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
+
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
-from server.domain.errors import (PersistenceError, PersistenceIntegrityError, PersistenceOperationError)
+
+from server.domain.errors import (
+    PersistenceError,
+    PersistenceIntegrityError,
+    PersistenceOperationError,
+)
+
 from .logging import db_log
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
@@ -21,7 +28,6 @@ def classify(exc: Exception) -> PersistenceError:
 
 
 def safe_db(operation: str, *, table: str = "") -> Callable[[F], F]:
-
     def decorator(func: F) -> F:
         @functools.wraps(func)
         async def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
@@ -35,7 +41,9 @@ def safe_db(operation: str, *, table: str = "") -> Callable[[F], F]:
                 return result
             except Exception as e:
                 duration_ms = (time.perf_counter() - start) * 1000.0
-                db_log(operation, table=table, status="error", duration_ms=duration_ms, error=str(e))
+                db_log(
+                    operation, table=table, status="error", duration_ms=duration_ms, error=str(e)
+                )
                 raise classify(e) from e
 
         return wrapper

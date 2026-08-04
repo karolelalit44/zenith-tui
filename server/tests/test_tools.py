@@ -1,5 +1,5 @@
-
 import pytest
+
 from server.toolkit import create_default_registry
 from server.toolkit.base import ToolResult
 from server.toolkit.registry import ToolRegistry
@@ -11,7 +11,6 @@ from server.toolkit.tools.file_write import FileWriteTool
 from server.toolkit.tools.glob import GlobTool
 from server.toolkit.tools.grep import GrepTool
 from server.toolkit.tools.webfetch import WebfetchTool
-
 
 
 class TestToolResult:
@@ -30,8 +29,6 @@ class TestToolResult:
     def test_result_with_metadata(self):
         result = ToolResult(success=True, output="ok", metadata={"count": 5})
         assert result.metadata["count"] == 5
-
-
 
 
 class TestToolRegistry:
@@ -89,8 +86,6 @@ class TestToolRegistry:
         assert "not available" in result.error
 
 
-
-
 class TestBashTool:
     @pytest.mark.asyncio
     async def test_echo(self, temp_dir):
@@ -118,8 +113,6 @@ class TestBashTool:
         schema = tool.get_schema()
         assert "command" in schema["properties"]
         assert "command" in schema["required"]
-
-
 
 
 class TestFileReadTool:
@@ -155,8 +148,6 @@ class TestFileReadTool:
         assert "directory" in result.error
 
 
-
-
 class TestFileWriteTool:
     @pytest.mark.asyncio
     async def test_write_file(self, temp_dir):
@@ -176,11 +167,11 @@ class TestFileWriteTool:
     @pytest.mark.asyncio
     async def test_write_creates_parent_dirs(self, temp_dir):
         tool = FileWriteTool()
-        result = await tool.execute({"path": "sub/dir/file.txt", "content": "nested"}, str(temp_dir))
+        result = await tool.execute(
+            {"path": "sub/dir/file.txt", "content": "nested"}, str(temp_dir)
+        )
         assert result.success
         assert (temp_dir / "sub/dir/file.txt").read_text() == "nested"
-
-
 
 
 class TestFileEditTool:
@@ -188,7 +179,9 @@ class TestFileEditTool:
     async def test_edit_file(self, temp_dir):
         (temp_dir / "edit.txt").write_text("hello world")
         tool = FileEditTool()
-        result = await tool.execute({"path": "edit.txt", "old_content": "world", "new_content": "there"}, str(temp_dir))
+        result = await tool.execute(
+            {"path": "edit.txt", "old_content": "world", "new_content": "there"}, str(temp_dir)
+        )
         assert result.success
         assert (temp_dir / "edit.txt").read_text() == "hello there"
 
@@ -196,7 +189,9 @@ class TestFileEditTool:
     async def test_edit_content_not_found(self, temp_dir):
         (temp_dir / "edit.txt").write_text("hello world")
         tool = FileEditTool()
-        result = await tool.execute({"path": "edit.txt", "old_content": "xyz", "new_content": "abc"}, str(temp_dir))
+        result = await tool.execute(
+            {"path": "edit.txt", "old_content": "xyz", "new_content": "abc"}, str(temp_dir)
+        )
         assert not result.success
         assert "not found" in result.error
 
@@ -204,18 +199,20 @@ class TestFileEditTool:
     async def test_edit_ambiguous_match(self, temp_dir):
         (temp_dir / "edit.txt").write_text("aaa bbb aaa")
         tool = FileEditTool()
-        result = await tool.execute({"path": "edit.txt", "old_content": "aaa", "new_content": "ccc"}, str(temp_dir))
+        result = await tool.execute(
+            {"path": "edit.txt", "old_content": "aaa", "new_content": "ccc"}, str(temp_dir)
+        )
         assert not result.success
         assert "Ambiguous" in result.error
 
     @pytest.mark.asyncio
     async def test_edit_nonexistent_file(self, temp_dir):
         tool = FileEditTool()
-        result = await tool.execute({"path": "nope.txt", "old_content": "a", "new_content": "b"}, str(temp_dir))
+        result = await tool.execute(
+            {"path": "nope.txt", "old_content": "a", "new_content": "b"}, str(temp_dir)
+        )
         assert not result.success
         assert "not found" in result.error
-
-
 
 
 class TestFileDeleteTool:
@@ -241,8 +238,6 @@ class TestFileDeleteTool:
         result = await tool.execute({"path": "subdir"}, str(temp_dir))
         assert not result.success
         assert "directory" in result.error
-
-
 
 
 class TestGlobTool:
@@ -272,8 +267,6 @@ class TestGlobTool:
         result = await tool.execute({"pattern": "**/*.py"}, str(temp_dir))
         assert result.success
         assert result.metadata["count"] == 2
-
-
 
 
 class TestGrepTool:
@@ -310,8 +303,6 @@ class TestGrepTool:
         assert "Invalid regex" in result.error
 
 
-
-
 class TestWebfetchTool:
     @pytest.mark.asyncio
     async def test_empty_url(self, temp_dir):
@@ -319,8 +310,6 @@ class TestWebfetchTool:
         result = await tool.execute({"url": ""}, str(temp_dir))
         assert not result.success
         assert "No URL" in result.error
-
-
 
 
 class TestDefaultRegistry:

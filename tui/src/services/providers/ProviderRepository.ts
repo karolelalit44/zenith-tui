@@ -27,7 +27,6 @@ export class ProviderRepository extends BaseApiService {
   private _listCache: ProviderListResponse | null = null;
   private _localActiveProviderId: ProviderId | null = null;
 
-  /** GET /startup/providers — masked list payload (catalog + DB + session state). */
   public async fetchProviderList(): Promise<ProviderListResponse | null> {
     try {
       const data = await this.get<ProviderListResponse>('/startup/providers', {
@@ -37,9 +36,7 @@ export class ProviderRepository extends BaseApiService {
         this._listCache = data;
         return data;
       }
-    } catch {
-      // Backend unreachable
-    }
+    } catch {}
     return null;
   }
 
@@ -69,16 +66,10 @@ export class ProviderRepository extends BaseApiService {
       this._localActiveProviderId = id;
       await this.mergeInfo(info);
       return info;
-    } catch {
-      // Backend unreachable
-    }
+    } catch {}
     return null;
   }
 
-  /**
-   * POST /startup/providers/{id}/validate?stream=1 — consume the NDJSON pipeline
-   * as an async iterator of events, ending with a `result` event.
-   */
   public async *validateProviderStream(
     id: ProviderId,
     cfg: ValidateProviderOptions,
@@ -133,8 +124,6 @@ export class ProviderRepository extends BaseApiService {
     this._listCache = { all, active, connected };
   }
 
-  /** Provider metadata derived solely from the backend SQL-backed payload.
-   * Returns undefined for providers the backend does not know about. */
   public getProviderMeta(id: ProviderId): ProviderMeta | undefined {
     const info = this.getProviderInfo(id);
     if (!info) return undefined;

@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 import asyncio
 import logging
 import time
@@ -7,7 +7,9 @@ import uuid
 from collections.abc import AsyncIterator
 from enum import StrEnum
 from typing import Any
+
 from pydantic import BaseModel, Field
+
 from .domain import DeliveryMode
 
 log = logging.getLogger(__name__)
@@ -23,11 +25,9 @@ class EventKind(StrEnum):
     SUCCESS = "success"
     PROGRESS = "progress"
     CONFIRMATION_REQUEST = "confirmation_request"
-
     AGENT_SPAWNED = "agent_spawned"
     AGENT_COMPLETE = "agent_complete"
     AGENT_FAILED = "agent_failed"
-
     SESSION_CREATED = "session_created"
     SESSION_INITIALIZED = "session_initialized"
     SESSION_RESUMED = "session_resumed"
@@ -43,31 +43,23 @@ class EventKind(StrEnum):
     SESSION_ERROR = "session_error"
     SESSION_STATE_CHANGED = "session_state_changed"
     SESSION_CHECKPOINT_CREATED = "session_checkpoint_created"
-
     CONTEXT_UPDATED = "context_updated"
     CONTEXT_COMPACTED = "context_compacted"
     CONTEXT_RESET = "context_reset"
     CONTEXT_COMPACTION_STARTED = "context_compaction_started"
     CONTEXT_COMPACTION_ENDED = "context_compaction_ended"
-
     TOKEN_USAGE_RECORDED = "token_usage_recorded"
     TOKEN_BUDGET_EXCEEDED = "token_budget_exceeded"
     TOKEN_STATS_UPDATED = "token_stats_updated"
-
     SYNC_STATUS = "sync_status"
     SYNC_EVENT = "sync_event"
-
     AGENT_STATUS = "agent_status"
-
     PLAN_READY = "plan_ready"
     PLAN_APPROVED = "plan_approved"
     PLAN_REJECTED = "plan_rejected"
-
     MODE_SWITCH = "mode_switch"
-
     PROVIDER_SWITCHED = "provider_switched"
     PROVIDER_ERROR = "provider_error"
-
     SYSTEM_READY = "system_ready"
     SYSTEM_SHUTDOWN = "system_shutdown"
 
@@ -86,10 +78,7 @@ def make_event(kind: EventKind, data: dict[str, Any], session_id: str | None = N
     return Event(kind=kind, data=data, session_id=session_id)
 
 
-
-
 class Subscription:
-
     def __init__(self, sub_id: str, queue: asyncio.Queue[Event | None], bus: EventBus):
         self.id = sub_id
         self._queue = queue
@@ -115,33 +104,30 @@ class Subscription:
             yield event
 
 
-
-
 class EventBus:
-
     def publish(self, event: Event, mode: DeliveryMode = DeliveryMode.LOSSY) -> None: ...
 
-    def subscribe(self, event_type: EventKind | None = None, session_id: str | None = None) -> Subscription: ...
+    def subscribe(
+        self, event_type: EventKind | None = None, session_id: str | None = None
+    ) -> Subscription: ...
 
     def unsubscribe(self, subscription_id: str) -> None: ...
 
-    async def get_persistent_events(self, session_id: str, since: float | None = None) -> list[Event]: ...
+    async def get_persistent_events(
+        self, session_id: str, since: float | None = None
+    ) -> list[Event]: ...
 
     @property
     def dropped_count(self) -> int:
         return 0
 
 
-
-
 class AsyncEventBus(EventBus):
-
     def __init__(self, buffer_size: int = 4096) -> None:
         self._buffer_size = buffer_size
         self._subscriptions: dict[str, _SubscriptionEntry] = {}
         self._dropped: int = 0
         self._counter: int = 0
-
 
     def publish(self, event: Event, mode: DeliveryMode = DeliveryMode.LOSSY) -> None:
         for entry in list(self._subscriptions.values()):
@@ -155,8 +141,9 @@ class AsyncEventBus(EventBus):
                     continue
                 entry.queue.put_nowait(event)
 
-
-    def subscribe(self, event_type: EventKind | None = None, session_id: str | None = None) -> Subscription:
+    def subscribe(
+        self, event_type: EventKind | None = None, session_id: str | None = None
+    ) -> Subscription:
         self._counter += 1
         sub_id = f"sub_{self._counter}"
         queue: asyncio.Queue[Event | None] = asyncio.Queue(maxsize=self._buffer_size)
@@ -172,15 +159,14 @@ class AsyncEventBus(EventBus):
             except asyncio.QueueFull:
                 pass
 
-
-    async def get_persistent_events(self, session_id: str, since: float | None = None) -> list[Event]:
+    async def get_persistent_events(
+        self, session_id: str, since: float | None = None
+    ) -> list[Event]:
         return []
-
 
     @property
     def dropped_count(self) -> int:
         return self._dropped
-
 
     def _matches(self, entry: _SubscriptionEntry, event: Event) -> bool:
         if entry.event_type is not None and event.kind != entry.event_type:
@@ -189,7 +175,6 @@ class AsyncEventBus(EventBus):
 
 
 class _SubscriptionEntry(BaseModel):
-
     queue: Any
     event_type: EventKind | None = None
     session_id: str | None = None

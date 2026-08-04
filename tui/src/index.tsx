@@ -14,9 +14,6 @@ const app = render(
   </ThemeProvider>,
 );
 
-// Graceful shutdown — close the WebSocket (and stop it reconnecting) and tear
-// down the Ink renderer before the process exits on SIGINT/SIGTERM. Guarded so
-// repeated signals only trigger it once.
 let shuttingDown = false;
 const shutdown = (): void => {
   if (shuttingDown) return;

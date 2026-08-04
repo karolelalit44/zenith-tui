@@ -1,12 +1,11 @@
-
 from __future__ import annotations
+
 import logging
 import re
 from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
 MEMORY_DIR = "memory"
 PROJECT_MEMORY_FILE = "PROJECT.md"
 MAX_FILE_CHARS = 8000
@@ -16,11 +15,10 @@ _PROJECT_HEADER = "# Zenith project memory (cross-session)"
 
 
 def _sanitize(name: str) -> str:
-    return re.sub(r"[^\w-]", "_", name)
+    return re.sub("[^\\w-]", "_", name)
 
 
 class MemoryStore:
-
     def __init__(self, workspace_root: str, max_chars: int = MAX_FILE_CHARS) -> None:
         self.root = Path(workspace_root)
         self.dir = self.root / MEMORY_DIR
@@ -40,7 +38,9 @@ class MemoryStore:
         if not facts or not facts.strip():
             return self.path_for(session_id)
         path = self.path_for(session_id)
-        block = (f"## Durable facts — {datetime.now().isoformat(timespec='seconds')}\n{facts.strip()}\n")
+        block = (
+            f"## Durable facts — {datetime.now().isoformat(timespec='seconds')}\n{facts.strip()}\n"
+        )
         existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
         combined = (existing + "\n" + block).strip() + "\n"
         if len(combined) > self.max_chars:
@@ -53,7 +53,9 @@ class MemoryStore:
         if not facts or not facts.strip():
             return self.project_path()
         path = self.project_path()
-        block = (f"## Project facts — {datetime.now().isoformat(timespec='seconds')}\n{facts.strip()}\n")
+        block = (
+            f"## Project facts — {datetime.now().isoformat(timespec='seconds')}\n{facts.strip()}\n"
+        )
         existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
         combined = (existing + "\n" + block).strip() + "\n"
         if len(combined) > self.max_chars:
@@ -66,14 +68,14 @@ class MemoryStore:
         cleaned = text.replace(_ROLLOVER_HEADER, "").strip()
         if not cleaned:
             return []
-        parts = re.split(r"(?=^## )", cleaned, flags=re.MULTILINE)
+        parts = re.split("(?=^## )", cleaned, flags=re.MULTILINE)
         return [p.strip() for p in parts if p.strip()]
 
     def _split_project_blocks(self, text: str) -> list[str]:
         cleaned = text.replace(_PROJECT_HEADER, "").strip()
         if not cleaned:
             return []
-        parts = re.split(r"(?=^## )", cleaned, flags=re.MULTILINE)
+        parts = re.split("(?=^## )", cleaned, flags=re.MULTILINE)
         return [p.strip() for p in parts if p.strip()]
 
     def _trim_to_fit(self, text: str) -> str:
@@ -119,7 +121,9 @@ class MemoryStore:
             try:
                 text = project_path.read_text(encoding="utf-8", errors="replace").strip()
                 if text:
-                    blocks.append(f'<memory_file src="{PROJECT_MEMORY_FILE}">\n{text}\n</memory_file>')
+                    blocks.append(
+                        f'<memory_file src="{PROJECT_MEMORY_FILE}">\n{text}\n</memory_file>'
+                    )
             except Exception as e:
                 logger.warning("Failed to read project memory file %s: %s", project_path, e)
         for path in sorted(self.dir.glob("*.md")):

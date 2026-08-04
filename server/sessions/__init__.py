@@ -1,4 +1,3 @@
-
 from .export import SessionExporter
 from .history import HistoryManager
 

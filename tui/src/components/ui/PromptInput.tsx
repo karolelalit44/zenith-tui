@@ -17,11 +17,6 @@ interface PromptInputProps {
   onCancel: () => void;
 }
 
-/**
- * Single-field dialog prompt with optional masking (mirrors opencode's
- * DialogPrompt / ApiMethod). Uses a manual text buffer so masked values are
- * rendered as dots while the raw value is kept for submission.
- */
 export const PromptInput: React.FC<PromptInputProps> = ({
   title,
   description,

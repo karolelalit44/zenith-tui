@@ -29,7 +29,7 @@ interface UseTerminalKeyboardOptions {
   setShowPalette?: (show: boolean) => void;
   openModelPicker?: () => void;
   composerRunning?: boolean;
-  /** True while the inline slash-command menu is open (it owns the keys). */
+
   slashMenuOpen?: boolean;
 }
 
@@ -131,14 +131,10 @@ export function useTerminalKeyboard({
       const pressed = matchKeypress(input, key);
       const paletteOpen = opts.showPalette ?? false;
 
-      // The inline slash menu owns the input while it is open: up/down/enter/
-      // tab/esc are handled by the dropdown and the composer, so global keys
-      // (including esc which would otherwise cancel a running turn) are idle.
       if (opts.slashMenuOpen) {
         return;
       }
 
-      // Command palette owns the input while open — only close/toggle here.
       if (paletteOpen) {
         if (pressed.includes('palette') || key.escape) {
           if (opts.setShowPalette) opts.setShowPalette(false);
@@ -146,8 +142,6 @@ export function useTerminalKeyboard({
         return;
       }
 
-      // interrupt: escape closes overlays / cancels the running turn. The
-      // models overlay is exempt — ModelPickerFlow owns esc for stage back/close.
       if (key.escape) {
         if (opts.overlay === 'models') {
           return;
@@ -164,7 +158,6 @@ export function useTerminalKeyboard({
         return;
       }
 
-      // Overlays own their own input while open.
       if (opts.overlay !== 'none') return;
 
       if (pressed.includes('palette')) {
@@ -200,8 +193,6 @@ export function useTerminalKeyboard({
         return;
       }
 
-      // ctrl+c while running cancels the turn; when idle the composer's
-      // onSpecial clears the input (single handler, no double-fire).
       if (pressed.includes('clear_input')) {
         if (opts.isRunning || opts.composerRunning) {
           opts.abort();

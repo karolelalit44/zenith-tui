@@ -17,8 +17,6 @@ data/*
 *.db-wal
 *.log
 
-# User-specific runtime config
-user_profile.json
 
 # Reference repositories (large, not part of source)
 reference_repo/
@@ -28,5 +26,5 @@ ref_repo/
 .mypy_cache
 data
 
-# Local-only agent instruction file (zenith.md would be the committed variant)
-zenith.local.md
+
+.claude

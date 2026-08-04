@@ -1,9 +1,16 @@
-
 import pytest
-from server.providers.base import (BaseProvider, ModelInfo, ProviderChunk, ProviderResponse, TokenUsage, ToolCall, ToolCallDelta)
+
+from server.providers.base import (
+    BaseProvider,
+    ModelInfo,
+    ProviderChunk,
+    ProviderResponse,
+    TokenUsage,
+    ToolCall,
+    ToolCallDelta,
+)
 from server.providers.registry import ProviderRegistry
 from server.providers.retry import RetryPolicy
-
 
 
 class TestProviderResponse:
@@ -24,8 +31,6 @@ class TestProviderResponse:
         assert resp.usage.total_tokens == 30
 
 
-
-
 class TestProviderChunk:
     def test_text_chunk(self):
         chunk = ProviderChunk(delta="Hello")
@@ -38,15 +43,11 @@ class TestProviderChunk:
         assert chunk.tool_call_delta.name == "bash"
 
 
-
-
 class TestModelInfo:
     def test_model_info(self):
         info = ModelInfo(id="gpt-4", name="GPT-4", provider="openai", context_window=8192)
         assert info.id == "gpt-4"
         assert info.context_window == 8192
-
-
 
 
 class TestProviderRegistry:
@@ -82,8 +83,6 @@ class TestProviderRegistry:
         reg = ProviderRegistry()
         with pytest.raises((KeyError, Exception)):
             reg.require("nonexistent")
-
-
 
 
 class TestRetryPolicy:

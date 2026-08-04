@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 import re
 from pathlib import Path
 
@@ -7,20 +7,36 @@ REFLECTION_ERROR_LIMIT = 6
 
 
 def reflection_error_limit(context_window: int = 128000) -> int:
-    if context_window <= 32_000:
+    if context_window <= 32000:
         return 3
-    extra = (context_window - 32_000) // 64_000
+    extra = (context_window - 32000) // 64000
     return min(3 + extra, 20)
 
 
-_PLACEHOLDER_PATTERNS_RAW = [(r"\[[\w\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\w\s]*\]", "placeholder pattern"), (r"\bYOUR_[\w_]+_HERE\b", "YOUR_..._HERE placeholder"), (r"\b(?:PLACEHOLDER|TODO|FIXME|XXX|TBD)\b", "TODO/placeholder marker"), (r"\[HTML\]", "HTML placeholder"), (r"\[ACTUAL_", "ACTUAL_ placeholder"), (r"\[Current ", "Current... placeholder"), (r"\[UPDATED_", "UPDATED_ placeholder")]
-_PLACEHOLDER_RE = re.compile("|".join(p for p, _ in _PLACEHOLDER_PATTERNS_RAW), re.IGNORECASE)
-
-_COMPLETION_SIGNALS = re.compile(r"(?:task\s+(?:is\s+)?(?:complete|done|finished)|" r"everything\s+is\s+(?:set|ready|done|complete)|" r"all\s+(?:steps?\s+)?(?:are\s+)?(?:complete|done|finished)|" r"summary\s*:|here(?:'s|\s+is)\s+(?:a\s+)?(?:summary|what\s+i\s+did)|" r"in\s+summary|to\s+sum(?:marize|mary)|" r"the\s+(?:code|file|script)\s+has\s+been|" r"(?:created|written|generated|implemented)\s+(?:successfully|complete))", re.IGNORECASE)
-
-_INTERACTIVE_CMD_PATTERNS = re.compile(r"\binput\s*\(|" r"python\s+-i\b|" r"python\s+-im\b|" r"python\s+-mi\b|" r"\bpdb\b|" r"\bgetpass\b|" r"\bread\s+-[srp]\b", re.IGNORECASE)
-
-_CD_PREFIX_RE = re.compile(r"^(?:cd\s+[\"']?[^\"';|&]+[\"']?\s*(?:&&\s*|;\s*|)\s*)", re.IGNORECASE)
+_PLACEHOLDER_PATTERNS_RAW = [
+    (
+        "\\[[\\w\\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\\w\\s]*\\]",
+        "placeholder pattern",
+    ),
+    ("\\bYOUR_[\\w_]+_HERE\\b", "YOUR_..._HERE placeholder"),
+    ("\\b(?:PLACEHOLDER|TODO|FIXME|XXX|TBD)\\b", "TODO/placeholder marker"),
+    ("\\[HTML\\]", "HTML placeholder"),
+    ("\\[ACTUAL_", "ACTUAL_ placeholder"),
+    ("\\[Current ", "Current... placeholder"),
+    ("\\[UPDATED_", "UPDATED_ placeholder"),
+]
+_PLACEHOLDER_RE = re.compile("|".join((p for p, _ in _PLACEHOLDER_PATTERNS_RAW)), re.IGNORECASE)
+_COMPLETION_SIGNALS = re.compile(
+    "(?:task\\s+(?:is\\s+)?(?:complete|done|finished)|everything\\s+is\\s+(?:set|ready|done|complete)|all\\s+(?:steps?\\s+)?(?:are\\s+)?(?:complete|done|finished)|summary\\s*:|here(?:'s|\\s+is)\\s+(?:a\\s+)?(?:summary|what\\s+i\\s+did)|in\\s+summary|to\\s+sum(?:marize|mary)|the\\s+(?:code|file|script)\\s+has\\s+been|(?:created|written|generated|implemented)\\s+(?:successfully|complete))",
+    re.IGNORECASE,
+)
+_INTERACTIVE_CMD_PATTERNS = re.compile(
+    "\\binput\\s*\\(|python\\s+-i\\b|python\\s+-im\\b|python\\s+-mi\\b|\\bpdb\\b|\\bgetpass\\b|\\bread\\s+-[srp]\\b",
+    re.IGNORECASE,
+)
+_CD_PREFIX_RE = re.compile(
+    "^(?:cd\\s+[\\\"']?[^\\\"';|&]+[\\\"']?\\s*(?:&&\\s*|;\\s*|)\\s*)", re.IGNORECASE
+)
 
 
 def detect_placeholders(params: dict) -> str | None:
@@ -34,7 +50,7 @@ def detect_placeholders(params: dict) -> str | None:
 
 
 def check_python_syntax(command: str, workspace_root: str) -> str | None:
-    m = re.match(r"^(?:python3?|py)\s+([\w./\\-]+\.py)\s*(.*)", command.strip(), re.IGNORECASE)
+    m = re.match("^(?:python3?|py)\\s+([\\w./\\\\-]+\\.py)\\s*(.*)", command.strip(), re.IGNORECASE)
     if not m:
         return None
     filepath = m.group(1)
@@ -46,13 +62,13 @@ def check_python_syntax(command: str, workspace_root: str) -> str | None:
 
         py_compile.compile(str(full), doraise=True)
     except py_compile.PyCompileError as e:
-        return (f"Python syntax error in {filepath}: {e}. " f"Fix the syntax before running. Use file_read to check the file, then file_edit to fix it.")
+        return f"Python syntax error in {filepath}: {e}. Fix the syntax before running. Use file_read to check the file, then file_edit to fix it."
     return None
 
 
 def detect_interactive_command(command: str) -> str | None:
     if _INTERACTIVE_CMD_PATTERNS.search(command):
-        return ("This command uses interactive input (input(), pdb, etc.) which will fail " "in non-interactive bash. Use echo 'value' | python script.py or rewrite " "the script to accept command-line arguments instead.")
+        return "This command uses interactive input (input(), pdb, etc.) which will fail in non-interactive bash. Use echo 'value' | python script.py or rewrite the script to accept command-line arguments instead."
     return None
 
 
@@ -69,5 +85,14 @@ def schemas_to_openai_tools(schemas: list[dict]) -> list[dict]:
     tools = []
     for s in schemas:
         schema = s.get("schema", {})
-        tools.append({"type": "function", "function": {"name": s["name"], "description": s.get("description", ""), "parameters": schema}})
+        tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": s["name"],
+                    "description": s.get("description", ""),
+                    "parameters": schema,
+                },
+            }
+        )
     return tools

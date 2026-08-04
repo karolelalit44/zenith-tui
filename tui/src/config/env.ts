@@ -1,10 +1,3 @@
-/**
- * Environment variable helpers — read and validate required config values.
- *
- * Every required env var MUST be set. No fallbacks, no defaults.
- * If anything is missing, the app fails immediately with the exact variable name.
- */
-
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

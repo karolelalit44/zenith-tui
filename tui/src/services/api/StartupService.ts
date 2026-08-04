@@ -36,9 +36,7 @@ export class StartupService extends BaseApiService {
     for (const fn of this._listeners) {
       try {
         fn(this._state);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
   }
 

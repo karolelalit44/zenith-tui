@@ -159,7 +159,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
   while (idx < rawLines.length) {
     const line = rawLines[idx];
 
-    // Intercept raw tool call dumps like [file_write path="..." content="..."]
     const fileWriteMatch = line.trim().match(/^\[file_write\s+path=["']([^"']+)["']\s+content=["']([\s\S]*)["']\]?$/);
     if (fileWriteMatch) {
       const rawPath = fileWriteMatch[1];
@@ -174,7 +173,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
       blocks.push(
         <Box key={`filewrite_${idx}`} flexDirection="column" marginY={1} width="100%">
-          {/* 1. Green filled bullet ● & Update(winPath) */}
+          {}
           <Box flexDirection="row" alignItems="center" marginBottom={0}>
             <Text color={theme.colors.status.success} bold>
               ●{' '}
@@ -183,14 +182,14 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
               Update({winPath})
             </Text>
           </Box>
-          {/* 2. └ connector stats row */}
+          {}
           <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
             <Text color={theme.colors.text.dim}>└ </Text>
             <Text color={theme.colors.text.dim}>
               {fileCodeLines.length} {fileCodeLines.length === 1 ? 'line' : 'lines'}
             </Text>
           </Box>
-          {/* 3. Code block with line number gutter */}
+          {}
           <Box flexDirection="column" paddingLeft={3} marginTop={0}>
             {visibleLines.map((cL, cIdx) => {
               const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
@@ -213,7 +212,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // Code Block
     if (line.trim().startsWith('```')) {
       const lang = line.trim().replace(/^```/, '').toUpperCase() || 'CODE';
       const codeLines: string[] = [];
@@ -222,7 +220,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
         codeLines.push(rawLines[idx]);
         idx++;
       }
-      idx++; // skip closing ```
+      idx++;
 
       const MAX_CODE_LINES = 25;
       const isTruncated = codeLines.length > MAX_CODE_LINES;
@@ -250,7 +248,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
       blocks.push(
         <Box key={`code_${idx}`} flexDirection="column" marginY={1} width="100%">
-          {/* Header */}
+          {}
           <Box flexDirection="row" alignItems="center" marginBottom={0}>
             {lang === 'DIFF' ? (
               <>
@@ -267,7 +265,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
               </Text>
             )}
           </Box>
-          {/* └ Stats row */}
+          {}
           <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
             <Text color={theme.colors.text.dim}>└ </Text>
             <Text color={theme.colors.text.dim}>
@@ -275,7 +273,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
               {isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
             </Text>
           </Box>
-          {/* Code content with right-aligned line number gutter */}
+          {}
           <Box flexDirection="column" paddingLeft={3} marginTop={0}>
             {visibleLines.map((cL, cIdx) => {
               if (lang === 'DIFF') {
@@ -342,7 +340,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // Markdown Table
     if (line.trim().startsWith('|') && idx + 1 < rawLines.length && rawLines[idx + 1].includes('---')) {
       const tableLines: string[] = [];
       while (idx < rawLines.length && rawLines[idx].trim().startsWith('|')) {
@@ -356,7 +353,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       }
     }
 
-    // H1 Header
     if (line.startsWith('# ')) {
       const title = line.slice(2).trim();
       blocks.push(
@@ -371,7 +367,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // H2 Header
     if (line.startsWith('## ')) {
       const title = line.slice(3).trim();
       blocks.push(
@@ -385,7 +380,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // H3 Header
     if (line.startsWith('### ')) {
       const title = line.slice(4).trim();
       blocks.push(
@@ -399,7 +393,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // Task List Item (- [x], - [ ], - [/])
     if (/^\s*[-*+]\s+\[([ xX/~])\]\s+/.test(line)) {
       const match = line.match(/^\s*[-*+]\s+\[([ xX/~])\]\s+(.*)/);
       if (match) {
@@ -412,7 +405,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
         if (mark === 'x') {
           symbol = '■';
-          symbolColor = theme.colors.status.warning; // Warm orange/coral fill
+          symbolColor = theme.colors.status.warning;
           isDone = true;
         } else if (mark === '/' || mark === '~') {
           symbol = '▶';
@@ -437,7 +430,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       }
     }
 
-    // Tree Connector Lines (└, ├, │)
     if (/^\s*[└├│]/.test(line)) {
       blocks.push(
         <Box key={`tree_${idx}`} flexDirection="row" paddingLeft={1}>
@@ -448,7 +440,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // Bullet List
     if (/^\s*[-*+]\s+/.test(line)) {
       const itemText = line.replace(/^\s*[-*+]\s+/, '');
       blocks.push(
@@ -461,7 +452,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // Numbered List
     if (/^\s*\d+\.\s+/.test(line)) {
       const match = line.match(/^\s*(\d+\.)\s+(.*)/);
       const numStr = match ? match[1] : '1.';
@@ -478,14 +468,12 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    // Blank line
     if (!line.trim()) {
       blocks.push(<Box key={`blank_${idx}`} height={0} />);
       idx++;
       continue;
     }
 
-    // Regular Text Paragraph
     blocks.push(
       <Box key={`p_${idx}`} flexDirection="row" paddingX={0}>
         <FormattedInlineText text={line} />

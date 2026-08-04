@@ -88,7 +88,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   return (
     <RoundedBox title="DEVELOPER SETTINGS & CACHE CONTROL" borderColor={theme.colors.border.active} hasShadow={true}>
       <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
-        {/* Navigation Tabs */}
+        {}
         <Box
           flexDirection="row"
           marginBottom={1}

@@ -9,12 +9,10 @@ export interface FileNode {
 }
 
 export const WORKSPACE_FILES: FileNode[] = [
-  // Root Level Folders
   { name: 'src', relativePath: 'src', isDir: true, fileType: 'Folder', parentPath: '' },
   { name: 'public', relativePath: 'public', isDir: true, fileType: 'Folder', parentPath: '' },
   { name: 'tests', relativePath: 'tests', isDir: true, fileType: 'Folder', parentPath: '' },
 
-  // Root Level Files
   {
     name: 'package.json',
     relativePath: 'package.json',
@@ -52,7 +50,6 @@ export const WORKSPACE_FILES: FileNode[] = [
     parentPath: '',
   },
 
-  // src Subfolders
   { name: 'components', relativePath: 'src/components', isDir: true, fileType: 'Folder', parentPath: 'src' },
   { name: 'screens', relativePath: 'src/screens', isDir: true, fileType: 'Folder', parentPath: 'src' },
   { name: 'services', relativePath: 'src/services', isDir: true, fileType: 'Folder', parentPath: 'src' },
@@ -77,7 +74,6 @@ export const WORKSPACE_FILES: FileNode[] = [
     parentPath: 'src',
   },
 
-  // src/components Subfolders & Files
   {
     name: 'Display',
     relativePath: 'src/components/Display',
@@ -94,7 +90,6 @@ export const WORKSPACE_FILES: FileNode[] = [
   },
   { name: 'ui', relativePath: 'src/components/ui', isDir: true, fileType: 'Folder', parentPath: 'src/components' },
 
-  // src/components/Input Files
   {
     name: 'InputBox.tsx',
     relativePath: 'src/components/Input/InputBox.tsx',
@@ -114,7 +109,6 @@ export const WORKSPACE_FILES: FileNode[] = [
     parentPath: 'src/components/Input',
   },
 
-  // src/utils Files
   {
     name: 'syntaxHighlight.ts',
     relativePath: 'src/utils/syntaxHighlight.ts',
@@ -125,7 +119,6 @@ export const WORKSPACE_FILES: FileNode[] = [
     parentPath: 'src/utils',
   },
 
-  // src/screens/Welcome Files
   {
     name: 'WelcomeScreen.tsx',
     relativePath: 'src/screens/Welcome/WelcomeScreen.tsx',
@@ -136,7 +129,6 @@ export const WORKSPACE_FILES: FileNode[] = [
     parentPath: 'src/screens/Welcome',
   },
 
-  // tests Files
   {
     name: 'App.test.tsx',
     relativePath: 'tests/App.test.tsx',

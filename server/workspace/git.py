@@ -1,17 +1,16 @@
-
 from __future__ import annotations
+
 import logging
 import subprocess
 from pathlib import Path
+
 from server.config.env import require_int
 
 logger = logging.getLogger(__name__)
-
 _GIT_TIMEOUT = require_int("ZENITH_GIT_TIMEOUT")
 
 
 class GitOps:
-
     def __init__(self, workspace_root: str) -> None:
         self.root = Path(workspace_root).resolve()
         self._git_root: Path | None = None
@@ -19,7 +18,6 @@ class GitOps:
     def find_git_root(self) -> Path | None:
         if self._git_root is not None:
             return self._git_root
-
         current = self.root
         while current != current.parent:
             if (current / ".git").exists():
@@ -34,44 +32,54 @@ class GitOps:
     def _run(self, *args: str, timeout: int = _GIT_TIMEOUT) -> tuple[int, str, str]:
         root = self.find_git_root()
         if not root:
-            return -1, "", "Not a git repository"
-
+            return (-1, "", "Not a git repository")
         try:
-            result = subprocess.run(["git"] + list(args), cwd=str(root), capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace", check=False)
-            return result.returncode, result.stdout, result.stderr
+            result = subprocess.run(
+                ["git"] + list(args),
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            return (result.returncode, result.stdout, result.stderr)
         except FileNotFoundError:
-            return -1, "", "git executable not found"
+            return (-1, "", "git executable not found")
         except subprocess.TimeoutExpired:
-            return -1, "", f"git command timed out after {timeout}s"
+            return (-1, "", f"git command timed out after {timeout}s")
         except Exception as e:
-            return -1, "", str(e)
+            return (-1, "", str(e))
 
     def status(self) -> dict:
         code, stdout, stderr = self._run("status", "--porcelain")
         if code != 0:
             return {"error": stderr, "is_git_repo": False}
-
         branch_code, branch_out, _ = self._run("branch", "--show-current")
         branch = branch_out.strip() if branch_code == 0 else "unknown"
-
         modified: list[str] = []
         staged: list[str] = []
         untracked: list[str] = []
-
         for line in stdout.strip().split("\n"):
             if not line:
                 continue
             status_code = line[:2]
             file_path = line[3:]
-
             if status_code[0] in "MADRC":
                 staged.append(file_path)
             elif status_code[1] in "MADRC":
                 modified.append(file_path)
             elif status_code == "??":
                 untracked.append(file_path)
-
-        return {"branch": branch, "modified": modified, "staged": staged, "untracked": untracked, "clean": len(modified) == 0 and len(staged) == 0 and len(untracked) == 0, "is_git_repo": True}
+        return {
+            "branch": branch,
+            "modified": modified,
+            "staged": staged,
+            "untracked": untracked,
+            "clean": len(modified) == 0 and len(staged) == 0 and (len(untracked) == 0),
+            "is_git_repo": True,
+        }
 
     def commit(self, message: str, files: list[str] | None = None) -> dict:
         if files:
@@ -83,15 +91,17 @@ class GitOps:
             add_code, _, add_err = self._run("add", "-A")
             if add_code != 0:
                 return {"success": False, "error": f"Failed to stage: {add_err}"}
-
         code, stdout, stderr = self._run("commit", "-m", message)
         if code != 0:
             if "nothing to commit" in stderr or "nothing to commit" in stdout:
                 return {"success": False, "error": "Nothing to commit"}
             return {"success": False, "error": stderr}
-
         hash_code, hash_out, _ = self._run("rev-parse", "HEAD")
-        return {"success": True, "hash": hash_out.strip() if hash_code == 0 else "unknown", "message": message}
+        return {
+            "success": True,
+            "hash": hash_out.strip() if hash_code == 0 else "unknown",
+            "message": message,
+        }
 
     def diff(self, file_path: str | None = None) -> str:
         args = ["diff"]
@@ -109,28 +119,34 @@ class GitOps:
         return stdout if code == 0 else stderr
 
     def log(self, count: int = 10) -> list[dict]:
-        code, stdout, _stderr = self._run("log", f"--max-count={count}", "--pretty=format:%H|%s|%an|%ai")
+        code, stdout, _stderr = self._run(
+            "log", f"--max-count={count}", "--pretty=format:%H|%s|%an|%ai"
+        )
         if code != 0:
             return []
-
         commits = []
         for line in stdout.strip().split("\n"):
             if not line:
                 continue
             parts = line.split("|", 3)
             if len(parts) >= 4:
-                commits.append({"hash": parts[0][:8], "message": parts[1], "author": parts[2], "date": parts[3]})
+                commits.append(
+                    {
+                        "hash": parts[0][:8],
+                        "message": parts[1],
+                        "author": parts[2],
+                        "date": parts[3],
+                    }
+                )
         return commits
 
     def undo(self) -> dict:
         status = self.status()
         if status.get("error"):
             return {"success": False, "error": status["error"]}
-
         code, _stdout, stderr = self._run("revert", "HEAD", "--no-edit")
         if code != 0:
             return {"success": False, "error": stderr}
-
         return {"success": True, "message": "Reverted last commit"}
 
     def is_gitignored(self, file_path: str) -> bool:
@@ -141,21 +157,22 @@ class GitOps:
         root = self.find_git_root()
         if not root:
             return {"is_git_repo": False}
-
         remote_code, remote_out, _ = self._run("remote", "get-url", "origin")
-        return {"is_git_repo": True, "root": str(root), "remote": remote_out.strip() if remote_code == 0 else None, "status": self.status()}
+        return {
+            "is_git_repo": True,
+            "root": str(root),
+            "remote": remote_out.strip() if remote_code == 0 else None,
+            "status": self.status(),
+        }
 
     def get_prompt_context(self) -> str:
         if not self.is_git_repo():
             return ""
-
         parts: list[str] = []
-
         branch_code, branch_out, _ = self._run("branch", "--show-current")
         branch = branch_out.strip() if branch_code == 0 else ""
         if branch:
             parts.append(f"Current branch: {branch}")
-
         status_code, status_out, _ = self._run("status", "--short")
         if status_code == 0:
             lines = [line for line in status_out.strip().split("\n") if line]
@@ -167,12 +184,10 @@ class GitOps:
                     parts.append(f"  {line}")
                 if len(lines) > 20:
                     parts.append(f"  ... and {len(lines) - 20} more")
-
         log_code, log_out, _ = self._run("log", "--max-count=3", "--pretty=format:%h %s (%ar)")
         if log_code == 0 and log_out.strip():
             parts.append("Recent commits:")
             for line in log_out.strip().split("\n"):
                 if line:
                     parts.append(f"  {line}")
-
         return "\n".join(parts)

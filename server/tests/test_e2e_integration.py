@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import os
@@ -9,9 +8,9 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
 import pytest
 import websockets
-
 
 
 def _get_free_port() -> int:
@@ -64,36 +63,15 @@ async def _collect_all(ws, timeout: float = 5) -> list[dict]:
     return messages
 
 
-async def _send_prompt_and_collect(ws, content: str, mode: str = "build", timeout: float = 15) -> tuple[dict, list[dict]]:
+async def _send_prompt_and_collect(
+    ws, content: str, mode: str = "build", timeout: float = 15
+) -> tuple[dict, list[dict]]:
     prompt_resp = await _ws_rpc(ws, "prompt.send", {"content": content, "mode": mode})
     events = await _collect_events(ws, timeout=timeout)
-    return prompt_resp, events
+    return (prompt_resp, events)
 
 
-
-_ECHO_PROVIDER_CODE = """
-import asyncio
-import logging
-logging.disable(logging.CRITICAL)
-from server.providers.base import BaseProvider
-
-class EchoProvider(BaseProvider):
-    def __init__(self):
-        super().__init__("echo", "echo-v1")
-    async def complete(self, messages, tools=None):
-        user_msg = messages[-1]["content"] if messages else ""
-        return f"Echo: {user_msg}"
-    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-        response = await self.complete(messages)
-        for word in response.split():
-            yield (word + " ", None)
-            await asyncio.sleep(0.01)
-    async def validate(self):
-        return True
-    async def list_models(self):
-        return ["echo-v1"]
-"""
-
+_ECHO_PROVIDER_CODE = '\nimport asyncio\nimport logging\nlogging.disable(logging.CRITICAL)\nfrom server.providers.base import BaseProvider\n\nclass EchoProvider(BaseProvider):\n    def __init__(self):\n        super().__init__("echo", "echo-v1")\n    async def complete(self, messages, tools=None):\n        user_msg = messages[-1]["content"] if messages else ""\n        return f"Echo: {user_msg}"\n    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):\n        response = await self.complete(messages)\n        for word in response.split():\n            yield (word + " ", None)\n            await asyncio.sleep(0.01)\n    async def validate(self):\n        return True\n    async def list_models(self):\n        return ["echo-v1"]\n'
 _SERVER_READY_TIMEOUT = 20
 
 
@@ -102,10 +80,8 @@ def echo_server(tmp_path_factory):
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
     str(tmp_path_factory.mktemp("workspace"))
-
     prov_file = Path(tempfile.mktemp(suffix=".py"))
     prov_file.write_text(_ECHO_PROVIDER_CODE)
-
     env = os.environ.copy()
     env.setdefault("ZENITH_DB_PATH", db_path)
     env.setdefault("ZENITH_LOG_LEVEL", "CRITICAL")
@@ -125,48 +101,12 @@ def echo_server(tmp_path_factory):
     env.setdefault("ZENITH_MAX_TOKENS", "4096")
     env.setdefault("ZENITH_TEMPERATURE", "0.7")
     env["ZENITH_ECHO_PROVIDER"] = str(prov_file)
-
-    server_script = f"""
-import os, sys
-os.environ["ZENITH_DB_PATH"] = {db_path!r}
-os.environ["ZENITH_LOG_LEVEL"] = "CRITICAL"
-
-import importlib.util
-spec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-import server.providers.registry as reg
-_orig_from_config = reg.ProviderRegistry.from_config
-
-def _patched_from_config(providers, active, **kw):
-    r = _orig_from_config(providers, active, **kw)
-    r.register("echo", mod.EchoProvider())
-    return r
-
-reg.ProviderRegistry.from_config = _patched_from_config
-
-import server.config.loader as loader
-_orig_load = loader.load_config
-
-def _patched_load(*a, **kw):
-    cfg = _orig_load(*a, **kw)
-    from server.config.providers import ProviderConfig
-    if cfg.providers is None:
-        cfg.providers = {{}}
-    cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")
-    cfg.active_provider = "echo"
-    return cfg
-
-loader.load_config = _patched_load
-
-import uvicorn
-uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")
-"""
+    server_script = f'\nimport os, sys\nos.environ["ZENITH_DB_PATH"] = {db_path!r}\nos.environ["ZENITH_LOG_LEVEL"] = "CRITICAL"\n\nimport importlib.util\nspec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})\nmod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\nimport server.providers.registry as reg\n_orig_from_config = reg.ProviderRegistry.from_config\n\ndef _patched_from_config(providers, active, **kw):\n    r = _orig_from_config(providers, active, **kw)\n    r.register("echo", mod.EchoProvider())\n    return r\n\nreg.ProviderRegistry.from_config = _patched_from_config\n\nimport server.config.loader as loader\n_orig_load = loader.load_config\n\ndef _patched_load(*a, **kw):\n    cfg = _orig_load(*a, **kw)\n    from server.config.providers import ProviderConfig\n    if cfg.providers is None:\n        cfg.providers = {{}}\n    cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")\n    cfg.active_provider = "echo"\n    return cfg\n\nloader.load_config = _patched_load\n\nimport uvicorn\nuvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")\n'
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
-
-    proc = subprocess.Popen([sys.executable, str(server_file)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+    proc = subprocess.Popen(
+        [sys.executable, str(server_file)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     deadline = time.time() + _SERVER_READY_TIMEOUT
     ready = False
     while time.time() < deadline:
@@ -176,14 +116,13 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
                 break
         except OSError:
             time.sleep(0.1)
-
     if not ready:
         proc.kill()
         stdout, stderr = proc.communicate(timeout=5)
-        pytest.fail(f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}")
-
+        pytest.fail(
+            f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+        )
     yield port
-
     proc.terminate()
     try:
         proc.wait(timeout=5)
@@ -192,10 +131,7 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
         proc.wait(timeout=5)
 
 
-
-
 class TestHTTPEndpoints:
-
     def test_health_returns_ok_with_version(self, echo_server):
         import urllib.request
 
@@ -225,10 +161,7 @@ class TestHTTPEndpoints:
         assert "missing" in data
 
 
-
-
 class TestWSProtocol:
-
     @pytest.mark.asyncio
     async def test_ws_health(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -272,10 +205,7 @@ class TestWSProtocol:
             assert r3["result"]["status"] == "ok"
 
 
-
-
 class TestSessionManagement:
-
     @pytest.mark.asyncio
     async def test_session_create(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -337,10 +267,7 @@ class TestSessionManagement:
             assert resp["result"]["title"] == "New Session"
 
 
-
-
 class TestPromptProcessing:
-
     @pytest.mark.asyncio
     async def test_prompt_returns_processing_status(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -374,7 +301,9 @@ class TestPromptProcessing:
             await _ws_rpc(ws, "prompt.send", {"content": "Say hello", "mode": "build"})
             events = await _collect_events(ws, timeout=10)
             message_events = [e for e in events if e["params"]["kind"] == "message"]
-            assert len(message_events) > 0, (f"No message events. Got: {[e['params']['kind'] for e in events]}")
+            assert len(message_events) > 0, (
+                f"No message events. Got: {[e['params']['kind'] for e in events]}"
+            )
 
     @pytest.mark.asyncio
     async def test_prompt_generates_success_event(self, echo_server):
@@ -396,7 +325,9 @@ class TestPromptProcessing:
             await _ws_rpc(ws, "prompt.send", {"content": "Verify session", "mode": "build"})
             events = await _collect_events(ws, timeout=10)
             for evt in events:
-                assert evt["params"]["session_id"] == sid, (f"Event {evt['params']['kind']} session_id={evt['params']['session_id']} != {sid}")
+                assert evt["params"]["session_id"] == sid, (
+                    f"Event {evt['params']['kind']} session_id={evt['params']['session_id']} != {sid}"
+                )
 
     @pytest.mark.asyncio
     async def test_prompt_event_jsonrpc_structure(self, echo_server):
@@ -427,30 +358,25 @@ class TestPromptProcessing:
             assert "unique_marker_xyz" in text
 
 
-
-
 class TestMultiTurnConversation:
-
     @pytest.mark.asyncio
     async def test_two_prompts_same_session_history_accumulates(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             create_resp = await _ws_rpc(ws, "session.create", {"title": "Multi-Turn"})
             sid = create_resp["result"]["id"]
-
             await _ws_rpc(ws, "prompt.send", {"content": "First message", "mode": "build"})
             events1 = await _collect_events(ws, timeout=10)
-
             await _ws_rpc(ws, "prompt.send", {"content": "Second message", "mode": "build"})
             events2 = await _collect_events(ws, timeout=10)
-
             success1 = [e for e in events1 if e["params"]["kind"] == "success"]
             success2 = [e for e in events2 if e["params"]["kind"] == "success"]
             assert len(success1) > 0, "First prompt had no success event"
             assert len(success2) > 0, "Second prompt had no success event"
-
             resume_resp = await _ws_rpc(ws, "session.resume", {"session_id": sid})
             messages = resume_resp["result"]["messages"]
-            assert len(messages) >= 4, (f"Expected at least 4 messages (2 user + 2 assistant), got {len(messages)}")
+            assert len(messages) >= 4, (
+                f"Expected at least 4 messages (2 user + 2 assistant), got {len(messages)}"
+            )
             roles = [m["role"] for m in messages]
             assert roles.count("user") >= 2
             assert roles.count("assistant") >= 2
@@ -466,21 +392,19 @@ class TestMultiTurnConversation:
             assert "Independent B" in titles
 
 
-
-
 class TestAutoSession:
-
     @pytest.mark.asyncio
     async def test_prompt_without_session_creates_one(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(ws, "prompt.send", {"content": "Auto session test", "mode": "build"})
+            resp = await _ws_rpc(
+                ws, "prompt.send", {"content": "Auto session test", "mode": "build"}
+            )
             assert "result" in resp
             assert resp["result"]["status"] == "processing"
             sid = resp["result"]["session_id"]
             assert isinstance(sid, str)
             assert len(sid) > 0
             await _collect_events(ws, timeout=10)
-
             list_resp = await _ws_rpc(ws, "session.list")
             ids = [s["id"] for s in list_resp["result"]]
             assert sid in ids
@@ -488,7 +412,9 @@ class TestAutoSession:
     @pytest.mark.asyncio
     async def test_auto_session_title_from_prompt(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(ws, "prompt.send", {"content": "This is my custom title prompt", "mode": "build"})
+            resp = await _ws_rpc(
+                ws, "prompt.send", {"content": "This is my custom title prompt", "mode": "build"}
+            )
             sid = resp["result"]["session_id"]
             await _collect_events(ws, timeout=10)
             resume = await _ws_rpc(ws, "session.resume", {"session_id": sid})
@@ -496,10 +422,7 @@ class TestAutoSession:
             assert title == "This is my custom title prompt"
 
 
-
-
 class TestProviderOperations:
-
     @pytest.mark.asyncio
     async def test_provider_validate_echo(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -529,10 +452,7 @@ class TestProviderOperations:
             assert resp["result"]["models"] == []
 
 
-
-
 class TestToolOperations:
-
     @pytest.mark.asyncio
     async def test_tools_list_build_mode(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -566,10 +486,7 @@ class TestToolOperations:
             assert len(resp["result"]["tools"]) > 0
 
 
-
-
 class TestSessionExport:
-
     @pytest.mark.asyncio
     async def test_session_export_after_prompt(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -577,7 +494,6 @@ class TestSessionExport:
             create_resp["result"]["id"]
             await _ws_rpc(ws, "prompt.send", {"content": "Export me", "mode": "build"})
             await _collect_events(ws, timeout=10)
-
             resp = await _ws_rpc(ws, "session.export", {"output_dir": "zenith_exports_e2e"})
             assert "result" in resp
             result = resp["result"]
@@ -593,10 +509,7 @@ class TestSessionExport:
             assert "no active session" in resp["error"]["message"].lower()
 
 
-
-
 class TestWorkspaceOperations:
-
     @pytest.mark.asyncio
     async def test_workspace_status(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -636,10 +549,7 @@ class TestWorkspaceOperations:
             assert "keyFiles" in data
 
 
-
-
 class TestConcurrentSessions:
-
     @pytest.mark.asyncio
     async def test_interleaved_prompts_different_sessions(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
@@ -648,79 +558,67 @@ class TestConcurrentSessions:
             sid1 = s1["result"]["id"]
             sid2 = s2["result"]["id"]
             assert sid1 != sid2
-
             await _ws_rpc(ws, "prompt.send", {"content": "From A", "mode": "build"})
             events_a = await _collect_events(ws, timeout=10)
             success_a = [e for e in events_a if e["params"]["kind"] == "success"]
             assert len(success_a) > 0
-
             await _ws_rpc(ws, "prompt.send", {"content": "From B", "mode": "build"})
             events_b = await _collect_events(ws, timeout=10)
             success_b = [e for e in events_b if e["params"]["kind"] == "success"]
             assert len(success_b) > 0
-
             list_resp = await _ws_rpc(ws, "session.list")
             ids = [s["id"] for s in list_resp["result"]]
             assert sid1 in ids
             assert sid2 in ids
 
 
-
-
 class TestFullLifecycle:
-
     @pytest.mark.asyncio
     async def test_complete_lifecycle(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             health = await _ws_rpc(ws, "health")
             assert health["result"]["status"] == "ok"
-
             tools_resp = await _ws_rpc(ws, "tools.list", {"mode": "build"})
             assert len(tools_resp["result"]["tools"]) > 0
-
             prov_resp = await _ws_rpc(ws, "provider.validate", {"provider": "echo"})
             assert prov_resp["result"]["valid"] is True
-
             models_resp = await _ws_rpc(ws, "provider.models", {"provider": "echo"})
             assert "echo-v1" in models_resp["result"]["models"]
-
             create_resp = await _ws_rpc(ws, "session.create", {"title": "Lifecycle Test"})
             sid = create_resp["result"]["id"]
-
-            prompt_resp = await _ws_rpc(ws, "prompt.send", {"content": "Do something amazing", "mode": "build"})
+            prompt_resp = await _ws_rpc(
+                ws, "prompt.send", {"content": "Do something amazing", "mode": "build"}
+            )
             assert prompt_resp["result"]["status"] == "processing"
             events = await _collect_events(ws, timeout=15)
             kinds = [e["params"]["kind"] for e in events]
             assert "thinking" in kinds
             assert "success" in kinds
-
             resume_resp = await _ws_rpc(ws, "session.resume", {"session_id": sid})
             messages = resume_resp["result"]["messages"]
             assert len(messages) >= 2
             roles = [m["role"] for m in messages]
             assert "user" in roles
             assert "assistant" in roles
-
             list_resp = await _ws_rpc(ws, "session.list")
             ids = [s["id"] for s in list_resp["result"]]
             assert sid in ids
-
-            export_resp = await _ws_rpc(ws, "session.export", {"output_dir": "zenith_exports_lifecycle"})
+            export_resp = await _ws_rpc(
+                ws, "session.export", {"output_dir": "zenith_exports_lifecycle"}
+            )
             assert "markdown" in export_resp["result"]
             assert "Lifecycle Test" in export_resp["result"]["markdown"]
-
             ws_resp = await _ws_rpc(ws, "workspace.status")
             assert "result" in ws_resp
 
 
-
-
 class TestErrorHandling:
-
     @pytest.mark.asyncio
     async def test_prompt_to_unavailable_provider(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(ws, "prompt.send", {"content": "Hello", "provider": "nonexistent_provider"})
+            resp = await _ws_rpc(
+                ws, "prompt.send", {"content": "Hello", "provider": "nonexistent_provider"}
+            )
             assert "error" in resp
             assert "not available" in resp["error"]["message"].lower()
 
@@ -729,7 +627,6 @@ class TestErrorHandling:
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws1:
             create_resp = await _ws_rpc(ws1, "session.create", {"title": "Persistent Session"})
             sid = create_resp["result"]["id"]
-
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             resume_resp = await _ws_rpc(ws2, "session.resume", {"session_id": sid})
             assert "result" in resume_resp
@@ -791,7 +688,6 @@ class TestErrorHandling:
             for i in range(5):
                 request = {"jsonrpc": "2.0", "id": f"rapid_{i}", "method": "health"}
                 await ws.send(json.dumps(request))
-
             responses = []
             deadline = time.time() + 10
             while len(responses) < 5 and time.time() < deadline:
@@ -799,25 +695,19 @@ class TestErrorHandling:
                 data = json.loads(raw)
                 if "id" in data:
                     responses.append(data)
-
             assert len(responses) == 5
             for resp in responses:
                 assert resp["result"]["status"] == "ok"
 
 
-
-
 class TestDataPersistence:
-
     @pytest.mark.asyncio
     async def test_session_messages_persist(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             create_resp = await _ws_rpc(ws, "session.create", {"title": "Persist Test"})
             sid = create_resp["result"]["id"]
-
             await _ws_rpc(ws, "prompt.send", {"content": "Persistent data", "mode": "build"})
             await _collect_events(ws, timeout=10)
-
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             resume = await _ws_rpc(ws2, "session.resume", {"session_id": sid})
             messages = resume["result"]["messages"]
@@ -830,16 +720,13 @@ class TestDataPersistence:
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             s1 = await _ws_rpc(ws, "session.create", {"title": "Persist A"})
             s2 = await _ws_rpc(ws, "session.create", {"title": "Persist B"})
-            sid1, sid2 = s1["result"]["id"], s2["result"]["id"]
-
+            sid1, sid2 = (s1["result"]["id"], s2["result"]["id"])
             await _ws_rpc(ws, "session.resume", {"session_id": sid1})
             await _ws_rpc(ws, "prompt.send", {"content": "Message for A", "mode": "build"})
             await _collect_events(ws, timeout=10)
-
             await _ws_rpc(ws, "session.resume", {"session_id": sid2})
             await _ws_rpc(ws, "prompt.send", {"content": "Message for B", "mode": "build"})
             await _collect_events(ws, timeout=10)
-
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             r1 = await _ws_rpc(ws2, "session.resume", {"session_id": sid1})
             r2 = await _ws_rpc(ws2, "session.resume", {"session_id": sid2})
@@ -847,16 +734,12 @@ class TestDataPersistence:
             assert any("Message for B" in m["content"] for m in r2["result"]["messages"])
 
 
-
-
 class TestConnectionLifecycle:
-
     @pytest.mark.asyncio
     async def test_clean_disconnect_reconnect(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             resp = await _ws_rpc(ws, "health")
             assert resp["result"]["status"] == "ok"
-
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
             resp = await _ws_rpc(ws, "health")
             assert resp["result"]["status"] == "ok"
@@ -866,16 +749,12 @@ class TestConnectionLifecycle:
         ws = await websockets.connect(f"ws://127.0.0.1:{echo_server}/ws")
         await _ws_rpc(ws, "health")
         await ws.close()
-
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws2:
             resp = await _ws_rpc(ws2, "health")
             assert resp["result"]["status"] == "ok"
 
 
-
-
 class TestModeHandling:
-
     @pytest.mark.asyncio
     async def test_build_mode_prompt(self, echo_server):
         async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:

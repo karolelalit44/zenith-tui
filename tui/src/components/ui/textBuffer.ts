@@ -8,10 +8,6 @@ export interface TextBuffer {
   reset: (next?: string) => void;
 }
 
-/**
- * Minimal in-memory text editor driven by useInput keys. Keeps the value and
- * cursor in local state so the component can render masks / cursor glyphs.
- */
 export function useTextBuffer(initial = ''): TextBuffer {
   const [value, setValue] = useState(initial);
   const [cursor, setCursor] = useState(initial.length);
@@ -67,7 +63,6 @@ export function useTextBuffer(initial = ''): TextBuffer {
   return { value, cursor, handleKey, reset };
 }
 
-/** Lightweight fuzzy matcher (title-weight biased). Returns score or null. */
 export function fuzzyScore(query: string, title: string, category = ''): number | null {
   const needle = query.trim().toLowerCase();
   if (!needle) return 0;

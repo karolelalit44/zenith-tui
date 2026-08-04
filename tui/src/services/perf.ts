@@ -1,14 +1,3 @@
-/**
- * Simple performance benchmarking utilities.
- *
- * Usage:
- *   import { PerfTimer, measureRender } from '../services/perf';
- *   const timer = new PerfTimer('my-operation');
- *   timer.start();
- *   // ... do work
- *   timer.stop(); // prints to console
- */
-
 export class PerfTimer {
   private label: string;
   private t0 = 0;

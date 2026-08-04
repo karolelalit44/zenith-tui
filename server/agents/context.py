@@ -1,14 +1,14 @@
-
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
+
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.persistence.repositories import load_catalog
 from server.providers.token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
-
 SUMMARY_FRAMING_TOKENS = 4
 
 
@@ -39,7 +39,7 @@ def _adaptive_summary_threshold(model: str, context_window: int) -> float:
     if context_window >= 200000:
         return 0.85
     if context_window >= 32000:
-        return 0.80
+        return 0.8
     return 0.75
 
 
@@ -66,7 +66,6 @@ def _get_repo_map_instance(workspace_root: str, refresh: str = "files"):
 
 
 class ContextManager:
-
     def __init__(self, config: AppSettings) -> None:
         self.config = config
         self.token_counter = TokenCounter()
@@ -90,7 +89,9 @@ class ContextManager:
             return self._repo_map_cache
         try:
             repo = _get_repo_map_instance(self.config.workspace_root, refresh="files")
-            self._repo_map_cache = repo.get_repo_map(chat_files=chat_files, max_tokens=self._resolve_repo_map_tokens(model))
+            self._repo_map_cache = repo.get_repo_map(
+                chat_files=chat_files, max_tokens=self._resolve_repo_map_tokens(model)
+            )
         except Exception as e:
             logger.warning("Failed to build repo map: %s", e)
             self._repo_map_cache = ""
@@ -113,95 +114,172 @@ class ContextManager:
     def _compute_code_relevance(self, prompt: str, history: list[Message] | None = None) -> float:
         if not prompt:
             return 0.0
-
         p_lower = prompt.lower()
         score = 0.0
-
-        if any(ext in p_lower for ext in (".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".css", ".html", ".go", ".rs", ".c", ".cpp", ".h", ".toml", ".sql", ".sh")):
+        if any(
+            ext in p_lower
+            for ext in (
+                ".py",
+                ".ts",
+                ".tsx",
+                ".js",
+                ".jsx",
+                ".json",
+                ".css",
+                ".html",
+                ".go",
+                ".rs",
+                ".c",
+                ".cpp",
+                ".h",
+                ".toml",
+                ".sql",
+                ".sh",
+            )
+        ):
             score += 0.5
-
         if "/" in prompt or "\\" in prompt:
             score += 0.3
-
-        code_keywords = ("code", "file", "function", "class", "def ", "const ", "let ", "var ", "interface", "type ", "bug", "fix", "refactor", "test", "pytest", "error", "exception", "traceback", "import", "export", "return", "git", "commit", "build", "compile", "script", "server", "api", "tui", "repo")
+        code_keywords = (
+            "code",
+            "file",
+            "function",
+            "class",
+            "def ",
+            "const ",
+            "let ",
+            "var ",
+            "interface",
+            "type ",
+            "bug",
+            "fix",
+            "refactor",
+            "test",
+            "pytest",
+            "error",
+            "exception",
+            "traceback",
+            "import",
+            "export",
+            "return",
+            "git",
+            "commit",
+            "build",
+            "compile",
+            "script",
+            "server",
+            "api",
+            "tui",
+            "repo",
+        )
         if any(kw in p_lower for kw in code_keywords):
             score += 0.3
-
-        if "`" in prompt or "```" in prompt or "{" in prompt or "==" in prompt:
+        if "`" in prompt or "```" in prompt or "{" in prompt or ("==" in prompt):
             score += 0.4
-
         if history:
-            recent_text = " ".join(m.content.lower() for m in history[-3:] if hasattr(m, "content") and m.content)
-            if any(ext in recent_text for ext in (".py", ".ts", ".tsx", ".js", "error", "traceback")):
+            recent_text = " ".join(
+                m.content.lower() for m in history[-3:] if hasattr(m, "content") and m.content
+            )
+            if any(
+                ext in recent_text for ext in (".py", ".ts", ".tsx", ".js", "error", "traceback")
+            ):
                 score += 0.2
-
         return min(1.0, score)
 
-    def build_messages(self, history: list[Message], system_prompt: str, new_prompt: str, model: str, summary: str | None = None, plan_block: str | None = None, use_system_prompt: bool = True, repo_map: str | None = None, memory: str | None = None) -> list[dict]:
+    def build_messages(
+        self,
+        history: list[Message],
+        system_prompt: str,
+        new_prompt: str,
+        model: str,
+        summary: str | None = None,
+        plan_block: str | None = None,
+        use_system_prompt: bool = True,
+        repo_map: str | None = None,
+        memory: str | None = None,
+    ) -> list[dict]:
         max_tokens = self._resolve_context_window(model)
         reserve = _adaptive_reserve(model, max_tokens)
         budget = max_tokens - reserve
-
         messages: list[dict] = []
         pbuf = _prompt_buffer(system_prompt)
-
         repo_map_text = repo_map if repo_map is not None else ""
-
-        repo_map_block = (f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else "")
+        repo_map_block = (
+            f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else ""
+        )
         repo_map_tokens = self.token_counter.count(repo_map_block, model) if repo_map_block else 0
-
         memory_text = memory if memory is not None else self.get_memory()
         memory_block = f"<memory>\n{memory_text}\n</memory>" if memory_text.strip() else ""
         memory_tokens = self.token_counter.count(memory_block, model) if memory_block else 0
-
         if use_system_prompt:
             system_tokens = self.token_counter.count(system_prompt, model)
             messages.append({"role": "system", "content": system_prompt})
             used = system_tokens
         else:
             used = 0
-
         memory_injected = False
         if use_system_prompt:
             if repo_map_block:
                 messages.append({"role": "system", "content": repo_map_block})
                 used += repo_map_tokens
-                logger.info("Repo map injected into context: %d chars, %d tokens", len(repo_map_text), repo_map_tokens)
+                logger.info(
+                    "Repo map injected into context: %d chars, %d tokens",
+                    len(repo_map_text),
+                    repo_map_tokens,
+                )
             if memory_block and used + memory_tokens + pbuf <= budget:
                 messages.append({"role": "system", "content": memory_block})
                 used += memory_tokens
                 memory_injected = True
-                logger.info("Memory injected into context: %d chars, %d tokens", len(memory_text), memory_tokens)
+                logger.info(
+                    "Memory injected into context: %d chars, %d tokens",
+                    len(memory_text),
+                    memory_tokens,
+                )
             elif memory_block:
-                logger.warning("Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget)
+                logger.warning(
+                    "Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget
+                )
         else:
             used += repo_map_tokens
             if memory_block and used + memory_tokens + pbuf <= budget:
                 used += memory_tokens
                 memory_injected = True
             elif memory_block:
-                logger.warning("Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget)
-
+                logger.warning(
+                    "Memory block too large to inject (%d tokens, budget %d)", memory_tokens, budget
+                )
         if plan_block:
             plan_tokens = self.token_counter.count(plan_block, model)
             if used + plan_tokens + pbuf <= budget:
-                messages.append({"role": "system", "content": f"<plan_to_execute>\n{plan_block}\n</plan_to_execute>\n\nYou MUST execute the plan above exactly. Create every file listed, implement every component, and follow the architecture decisions described."})
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": f"<plan_to_execute>\n{plan_block}\n</plan_to_execute>\n\nYou MUST execute the plan above exactly. Create every file listed, implement every component, and follow the architecture decisions described.",
+                    }
+                )
                 used += plan_tokens
-                logger.info("Plan block injected into context: %d chars, %d tokens", len(plan_block), plan_tokens)
+                logger.info(
+                    "Plan block injected into context: %d chars, %d tokens",
+                    len(plan_block),
+                    plan_tokens,
+                )
             else:
-                logger.warning("Plan block too large to inject (%d tokens, budget %d)", plan_tokens, budget)
-
+                logger.warning(
+                    "Plan block too large to inject (%d tokens, budget %d)", plan_tokens, budget
+                )
         if summary:
             summary_tokens = self.token_counter.count(summary, model)
             if used + summary_tokens <= budget:
-                messages.append({"role": "user", "content": f"[Previous conversation summary]\n{summary}"})
+                messages.append(
+                    {"role": "user", "content": f"[Previous conversation summary]\n{summary}"}
+                )
                 messages.append({"role": "assistant", "content": "Understood."})
                 used += summary_tokens + SUMMARY_FRAMING_TOKENS
-
         history_msgs: list[tuple[dict, int]] = []
         last_key: tuple[str, str] | None = None
         for msg in history:
-            if msg.role == "assistant" and not msg.content and not msg.has_tool_calls:
+            if msg.role == "assistant" and (not msg.content) and (not msg.has_tool_calls):
                 continue
             key = (msg.role, msg.content)
             if key == last_key:
@@ -210,20 +288,16 @@ class ContextManager:
             entry = {"role": msg.role, "content": msg.content}
             entry_tokens = self.token_counter.count(msg.content, model)
             history_msgs.append((entry, entry_tokens))
-
         included: list[tuple[dict, int]] = []
         for entry, tokens in reversed(history_msgs):
             if used + tokens + pbuf > budget:
                 break
             included.append((entry, tokens))
             used += tokens
-
         while included and included[-1][0]["role"] == "tool":
             _, tokens = included.pop()
             used -= tokens
-
-        messages.extend(entry for entry, _ in reversed(included))
-
+        messages.extend((entry for entry, _ in reversed(included)))
         if not use_system_prompt:
             parts = [system_prompt]
             if repo_map_block:
@@ -234,10 +308,8 @@ class ContextManager:
             new_entry = {"role": "user", "content": "\n\n".join(parts)}
         else:
             new_entry = {"role": "user", "content": new_prompt}
-
         if not messages or messages[-1].get("content") != new_entry.get("content"):
             messages.append(new_entry)
-
         return messages
 
     def should_summarize(self, messages: list[dict], model: str, provider=None) -> bool:

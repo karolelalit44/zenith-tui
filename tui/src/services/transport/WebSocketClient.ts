@@ -120,9 +120,7 @@ export class WebSocketClient {
           try {
             const data = JSON.parse(event.data as string);
             this.handleMessage(data);
-          } catch {
-            // Ignore malformed messages
-          }
+          } catch {}
         };
         this.ws.onclose = () => {
           this.setStatus('disconnected');
@@ -179,8 +177,6 @@ export class WebSocketClient {
       this.ws!.send(JSON.stringify(request));
     });
   }
-
-  // ── Session RPC methods ──────────────────────────────────────────
 
   createSession(title?: string): Promise<{ id: string; title: string }> {
     return this.send('session.create', { title });
@@ -262,8 +258,6 @@ export class WebSocketClient {
     return this.send('session.sync', { session_id: sessionId, since_sequence: sinceSequence ?? 0 });
   }
 
-  // ── Prompt RPC methods ──────────────────────────────────────────
-
   sendPrompt(
     content: string,
     mode: string = 'build',
@@ -299,8 +293,6 @@ export class WebSocketClient {
     return this.send('context.clear_tools', { session_id: sessionId });
   }
 
-  // ── Internal ────────────────────────────────────────────────────
-
   private handleMessage(data: JsonRpcResponse | JsonRpcEvent): void {
     if ('method' in data && data.method === 'event') {
       this.emitter.emit('event', data as JsonRpcEvent);
@@ -325,19 +317,12 @@ export class WebSocketClient {
     this.emitter.emit('status', status);
   }
 
-  /**
-   * Gracefully close the socket and stop reconnecting. Idempotent — safe to
-   * call again (e.g. during shutdown). Any in-flight RPCs are rejected so
-   * nothing hangs waiting on a response the process will never see.
-   */
   close(): Promise<void> {
     this._disposed = true;
     if (this.ws) {
       try {
         this.ws.close();
-      } catch {
-        // Already closing / closed — ignore
-      }
+      } catch {}
       this.ws = null;
     }
     for (const { reject } of this.pendingRequests.values()) {

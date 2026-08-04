@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
+
 from .env import optional_float, optional_int
+
 
 class ProviderConfig(BaseModel):
     api_key: str | None = None

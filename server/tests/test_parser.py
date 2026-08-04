@@ -19,11 +19,7 @@ def test_parse_tool_calls_camelcase_filepath():
 
 
 def test_parse_tool_calls_no_duplicate_span():
-    text = """Here is the tool call:
-
-```json
-{"tool": "file_write", "params": {"filePath": "D:/vdo/code/backend/stringCounter.ts", "content": "test"}}
-```"""
+    text = 'Here is the tool call:\n\n```json\n{"tool": "file_write", "params": {"filePath": "D:/vdo/code/backend/stringCounter.ts", "content": "test"}}\n```'
     calls = parse_tool_calls(text)
     assert len(calls) == 1
     assert calls[0]["tool"] == "file_write"
@@ -31,13 +27,7 @@ def test_parse_tool_calls_no_duplicate_span():
 
 
 def test_parse_tool_calls_dirty_multiline_json():
-    text = '''```tool
-{"tool": "file_write", "params": {"filepath": "D:/vdo/code/backend/string_analyzer.py", "content": """
-String Analyzer - Analyzes a hardcoded string
-def count_vowels(text):
-    return sum(1 for c in text if c in 'aeiou')
-"""}}
-```'''
+    text = '```tool\n{"tool": "file_write", "params": {"filepath": "D:/vdo/code/backend/string_analyzer.py", "content": """\nString Analyzer - Analyzes a hardcoded string\ndef count_vowels(text):\n    return sum(1 for c in text if c in \'aeiou\')\n"""}}\n```'
     calls = parse_tool_calls(text)
     assert len(calls) == 1
     assert calls[0]["tool"] == "file_write"

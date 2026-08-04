@@ -1,8 +1,8 @@
 from __future__ import annotations
+
 import logging
 
 logger = logging.getLogger(__name__)
-
 _FRAMING_PER_MESSAGE = 4
 _REPLY_PRIMING = 2
 
@@ -28,6 +28,7 @@ class TokenCounter:
         self._available: bool = True
         try:
             from importlib.util import find_spec
+
             if not find_spec("tiktoken"):
                 self._available = False
         except ImportError:
@@ -40,7 +41,6 @@ class TokenCounter:
     def _get_encoding(self, model: str) -> object:
         if not self._available:
             return None
-
         if model not in self._encodings:
             enc_name = self._resolve_encoding_name(model)
             try:
@@ -87,7 +87,7 @@ class TokenCounter:
     def fallback_usage(self, prompt: str, completion: str, model: str) -> tuple[int, int]:
         inp = self.count(prompt, model) if prompt else 0
         out = self.count(completion, model) if completion else 0
-        return inp, out
+        return (inp, out)
 
     @staticmethod
     def _count_heuristic(text: str) -> int:

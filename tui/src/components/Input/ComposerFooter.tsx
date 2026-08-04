@@ -11,7 +11,6 @@ interface ModelChipProps {
   fallback: string;
 }
 
-/** Subscribes to modelStore so model changes re-render only this chip. */
 const ModelChip: React.FC<ModelChipProps> = React.memo(({ fallback }) => {
   const { theme } = useTheme();
   const [, forceUpdate] = useState(0);

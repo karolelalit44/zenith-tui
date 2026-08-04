@@ -1,5 +1,5 @@
-
 import pytest
+
 from server.config.providers import ProviderConfig
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
@@ -20,7 +20,10 @@ class TestTokenCounter:
 
     def test_count_messages(self):
         counter = TokenCounter()
-        messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": "Hello!"}]
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello!"},
+        ]
         tokens = counter.count_messages(messages)
         assert tokens > 0
 
@@ -85,15 +88,20 @@ class TestProviderRegistry:
             registry.require("nonexistent")
 
     def test_from_config(self):
-        providers_config = {"openai": ProviderConfig(api_key="test-key", model="gpt-4o", is_active=True), "anthropic": ProviderConfig(api_key="test-key", model="claude-sonnet-4-20250514", is_active=False), "groq": ProviderConfig(api_key="test-key", model="", is_active=False)}
+        providers_config = {
+            "openai": ProviderConfig(api_key="test-key", model="gpt-4o", is_active=True),
+            "anthropic": ProviderConfig(
+                api_key="test-key", model="claude-sonnet-4-20250514", is_active=False
+            ),
+            "groq": ProviderConfig(api_key="test-key", model="", is_active=False),
+        }
         registry = ProviderRegistry.from_config(providers_config, "openai")
         assert registry.get("openai") is not None
-        assert (registry.get("anthropic") is not None)
+        assert registry.get("anthropic") is not None
         assert registry.get("groq") is None
 
 
 class _MockProvider(BaseProvider):
-
     def __init__(self, name: str = "mock"):
         super().__init__(name, model="mock-model", max_tokens=100, temperature=0.7)
 

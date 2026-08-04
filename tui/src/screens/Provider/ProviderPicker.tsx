@@ -18,8 +18,6 @@ interface ProviderPickerProps {
 
 export const ProviderPicker: React.FC<ProviderPickerProps> = ({ providers, connected, onSelect, onClose }) => {
   const options = useMemo<SearchListOption<ProviderPickerSelection>[]>(() => {
-    // Custom-flow providers (SQL catalog custom_flow flag) are surfaced as a
-    // single aggregated "bring your own endpoint" entry.
     const customProvider = providers.find((provider) => provider.isCustomFlow);
     const list: SearchListOption<ProviderPickerSelection>[] = [];
     for (const provider of providers) {

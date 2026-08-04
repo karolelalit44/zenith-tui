@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 import logging
 import time
 
@@ -17,7 +17,17 @@ def _fmt(value: object) -> str:
     return f'"{text}"'
 
 
-def db_log(operation: str, *, table: str = "", status: str = "ok", duration_ms: float | None = None, error: str = "", version: str = "", level: int = logging.INFO, **fields: object) -> None:
+def db_log(
+    operation: str,
+    *,
+    table: str = "",
+    status: str = "ok",
+    duration_ms: float | None = None,
+    error: str = "",
+    version: str = "",
+    level: int = logging.INFO,
+    **fields: object,
+) -> None:
     parts = [f"db.{operation}", f"status={status}"]
     if table:
         parts.append(f"table={_fmt(table)}")
@@ -41,7 +51,9 @@ class _Timer:
         return (time.perf_counter() - self._start) * 1000.0
 
 
-def timed_db_log(operation: str, *, table: str = "", error: str = "", level: int = logging.INFO, **fields: object) -> _Timer:
+def timed_db_log(
+    operation: str, *, table: str = "", error: str = "", level: int = logging.INFO, **fields: object
+) -> _Timer:
     timer = _Timer()
     if error:
         db_log(operation, table=table, status="error", error=error, level=level, **fields)

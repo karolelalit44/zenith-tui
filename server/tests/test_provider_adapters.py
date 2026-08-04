@@ -1,12 +1,38 @@
+from server.agents.provider_adapters import (
+    ModelTier,
+    detect_model_tier,
+    get_tier_prompt_enhancements,
+)
 
-from server.agents.provider_adapters import (ModelTier, detect_model_tier, get_tier_prompt_enhancements)
-
-_CATALOG = {"version": 2, "providers": {"anthropic": {"models": [{"id": "claude-sonnet-4-20250514", "prompt_tier": "flagship"}, {"id": "claude-3-5-haiku-20241022", "prompt_tier": "compact"}]}, "openai": {"models": [{"id": "gpt-4o", "prompt_tier": "flagship"}, {"id": "o3-mini", "prompt_tier": "reasoning"}]}, "nvidia": {"models": [{"id": "nvidia/nemotron-3-super-120b-a12b", "prompt_tier": "reasoning"}]}, "groq": {"models": [{"id": "llama-3.1-8b-instant", "prompt_tier": "compact"}]}}}
+_CATALOG = {
+    "version": 2,
+    "providers": {
+        "anthropic": {
+            "models": [
+                {"id": "claude-sonnet-4-20250514", "prompt_tier": "flagship"},
+                {"id": "claude-3-5-haiku-20241022", "prompt_tier": "compact"},
+            ]
+        },
+        "openai": {
+            "models": [
+                {"id": "gpt-4o", "prompt_tier": "flagship"},
+                {"id": "o3-mini", "prompt_tier": "reasoning"},
+            ]
+        },
+        "nvidia": {
+            "models": [{"id": "nvidia/nemotron-3-super-120b-a12b", "prompt_tier": "reasoning"}]
+        },
+        "groq": {"models": [{"id": "llama-3.1-8b-instant", "prompt_tier": "compact"}]},
+    },
+}
 
 
 def test_detect_model_tier_reasoning():
     assert detect_model_tier("o3-mini", catalog=_CATALOG) == ModelTier.REASONING
-    assert (detect_model_tier("nvidia/nemotron-3-super-120b-a12b", catalog=_CATALOG) == ModelTier.REASONING)
+    assert (
+        detect_model_tier("nvidia/nemotron-3-super-120b-a12b", catalog=_CATALOG)
+        == ModelTier.REASONING
+    )
 
 
 def test_detect_model_tier_compact():
@@ -29,9 +55,7 @@ def test_get_tier_prompt_enhancements():
     compact_rules = get_tier_prompt_enhancements(ModelTier.COMPACT)
     assert "<compact_model_rules>" in compact_rules
     assert "NEVER output chat preambles" in compact_rules
-
     reasoning_rules = get_tier_prompt_enhancements(ModelTier.REASONING)
     assert "<reasoning_model_rules>" in reasoning_rules
-
     flagship_rules = get_tier_prompt_enhancements(ModelTier.FLAGSHIP)
     assert flagship_rules == ""

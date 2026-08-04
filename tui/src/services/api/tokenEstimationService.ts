@@ -71,9 +71,7 @@ function estimateEventTokens(event: ScenarioEvent): number {
   if ('metadata' in event && typeof event.metadata === 'object' && event.metadata !== null) {
     try {
       chars += JSON.stringify(event.metadata).length;
-    } catch {
-      /* skip */
-    }
+    } catch {}
   }
 
   return Math.round(chars / 4);

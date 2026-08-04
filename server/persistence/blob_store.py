@@ -1,11 +1,10 @@
-
 from __future__ import annotations
+
 import logging
 import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
 BLOB_PREFIX = "@@zenith-blob:"
 LINES_PREFIX = "@@zenith-lines:"
 STRING_THRESHOLD = 5000
@@ -14,7 +13,6 @@ LINES_CHAR_BUDGET = STRING_THRESHOLD * 4
 
 
 class BlobStore:
-
     def __init__(self, root_dir: str | Path) -> None:
         self.root = Path(root_dir)
         self.root.mkdir(parents=True, exist_ok=True)

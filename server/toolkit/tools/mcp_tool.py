@@ -1,14 +1,14 @@
-
 from __future__ import annotations
+
 import logging
 from typing import Any
+
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
 
 class McpToolWrapper(BaseTool):
-
     @property
     def risk_level(self) -> str:
         return "low"
@@ -30,7 +30,6 @@ class McpToolWrapper(BaseTool):
             result = await self._mcp_client.call_tool(self._mcp_tool["name"], params)
         except Exception as e:
             return ToolResult(success=False, error=f"MCP tool call failed: {e}")
-
         if isinstance(result, dict):
             is_error = result.get("isError", False)
             contents = result.get("content", [])

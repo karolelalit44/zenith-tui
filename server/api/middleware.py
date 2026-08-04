@@ -1,32 +1,39 @@
 from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from functools import wraps
+
 from server.config.settings import AppSettings
 from server.domain.errors import ConfigError
 
 logger = logging.getLogger(__name__)
-
 PROVIDER_METHODS = {"prompt.send", "provider.validate", "provider.models"}
+
 
 def validate_provider_config(config: AppSettings, provider: str | None = None) -> None:
     active = (provider or config.active_provider or "").strip()
     if not active:
         raise ConfigError("No active provider configured.")
-
     providers = config.providers or {}
     provider_config = providers.get(active)
     if not provider_config:
-        raise ConfigError(f"Provider '{active}' is not configured. " f"Available: {list(providers.keys()) or 'none'}. " "Use the /provider command to configure a provider.")
-
+        raise ConfigError(
+            f"Provider '{active}' is not configured. Available: {list(providers.keys()) or 'none'}. Use the /provider command to configure a provider."
+        )
     if not provider_config.api_key or not provider_config.api_key.strip():
-        raise ConfigError(f"API key for '{active}' is missing. Configure it via the /provider command.")
-
+        raise ConfigError(
+            f"API key for '{active}' is missing. Configure it via the /provider command."
+        )
     if not provider_config.model or not provider_config.model.strip():
-        raise ConfigError(f"Model for '{active}' is not set. Select a model via the /provider command.")
+        raise ConfigError(
+            f"Model for '{active}' is not set. Select a model via the /provider command."
+        )
+
 
 def require_provider(method_name: str) -> bool:
     return method_name in PROVIDER_METHODS or method_name.startswith("prompt.")
+
 
 def wrap_handler(dispatch_fn: Callable) -> Callable:
     @wraps(dispatch_fn)

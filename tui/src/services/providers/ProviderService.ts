@@ -3,7 +3,6 @@ import type { ProviderConfig, ProviderId, ProviderMeta, ProviderState } from './
 
 type ProviderListener = (activeProvider: ProviderState) => void;
 
-/** Empty-state placeholder used only before the backend provider list is hydrated. */
 function emptyMeta(id: ProviderId): ProviderMeta {
   return { id, name: '', description: '', defaultModel: '', fields: [], availableModels: [] };
 }
@@ -56,7 +55,6 @@ export class ProviderService {
     };
   }
 
-  /** Derive the provider list from the backend `ProviderListResponse` only. */
   public getAllProviders(): ProviderState[] {
     const list = this.repo.getProviderInfoList();
     return list.map((item) => this.getProviderState(item.id));
@@ -66,7 +64,6 @@ export class ProviderService {
     return this.repo.getConnectedIds();
   }
 
-  /** Re-publish the active provider state after an async provider mutation. */
   public notifyChange(): ProviderState {
     const active = this.getActiveProvider();
     this.notifyListeners(active);
@@ -80,7 +77,6 @@ export class ProviderService {
     const config = configOverride || this.repo.getProviderConfig(id);
     const details = this.repo.getProviderStateDetails(id);
 
-    // Custom-flow providers (SQL catalog custom_flow flag) require a base endpoint.
     if (details.isCustomFlow) {
       if (!config.baseUrl || typeof config.baseUrl !== 'string' || !config.baseUrl.trim()) {
         return { valid: false, error: 'Base endpoint URL is required' };
@@ -88,7 +84,6 @@ export class ProviderService {
       return { valid: true };
     }
 
-    // Standard API key providers
     if (!config.apiKey || typeof config.apiKey !== 'string' || !config.apiKey.trim()) {
       return { valid: false, error: 'API Key is required' };
     }
@@ -107,9 +102,7 @@ export class ProviderService {
     this.listeners.forEach((listener) => {
       try {
         listener(state);
-      } catch (_err) {
-        // Ignore listener exceptions
-      }
+      } catch (_err) {}
     });
   }
 }

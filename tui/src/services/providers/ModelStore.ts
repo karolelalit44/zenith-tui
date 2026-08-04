@@ -32,9 +32,7 @@ export class ModelStore {
     for (const listener of this.listeners) {
       try {
         listener(this);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
   }
 
@@ -50,7 +48,6 @@ export class ModelStore {
     return this.favoriteModels;
   }
 
-  /** Hydrate current/recent/favorite from the backend SQL model store. */
   public async hydrate(): Promise<void> {
     try {
       const res = await fetch(appConfig.buildUrl('/startup/model-selection'), {
@@ -69,9 +66,7 @@ export class ModelStore {
         this.currentModel = data.current;
       }
       this.notify();
-    } catch {
-      // Backend unreachable — keep in-memory state
-    }
+    } catch {}
   }
 
   public set(sel: ModelSelection): ModelSelection {
@@ -103,11 +98,6 @@ export class ModelStore {
     this.recentModels = [sel, ...rest].slice(0, RECENT_LIMIT);
   }
 
-  /**
-   * First-valid-model resolution: persisted current → first recent still present
-   * in the provider list. Never invents a default provider/model — returns null
-   * when nothing explicitly selected remains valid.
-   */
   public getFirstValidModel(providers: ProviderInfo[]): ModelSelection | null {
     const candidates: ModelSelection[] = [];
     if (this.currentModel) candidates.push(this.currentModel);
@@ -130,7 +120,6 @@ export class ModelStore {
     return `${sel.providerID}/${sel.modelID}`;
   }
 
-  /** Persist the store to the backend SQL model store (fire-and-forget). */
   private persist(): void {
     fetch(appConfig.buildUrl('/startup/model-selection'), {
       method: 'PUT',
@@ -141,9 +130,7 @@ export class ModelStore {
         favorite: this.favoriteModels,
       }),
       signal: AbortSignal.timeout(appConfig.timeout.fetchMs),
-    }).catch(() => {
-      // Backend unreachable — keep in-memory state
-    });
+    }).catch(() => {});
   }
 }
 

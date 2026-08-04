@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 import platform
 import re
 import sys
@@ -9,8 +9,7 @@ from typing import Any
 
 
 class PromptTemplate:
-
-    _VAR_RE = re.compile(r"\{\{(\w+)\}\}")
+    _VAR_RE = re.compile("\\{\\{(\\w+)\\}\\}")
 
     def __init__(self, text: str) -> None:
         self._template = text
@@ -31,7 +30,6 @@ class PromptTemplate:
 
 
 class PromptBuilder:
-
     def __init__(self, config: Any = None) -> None:
         self._config = config
         self._templates: dict[str, PromptTemplate] = {}
@@ -47,17 +45,17 @@ class PromptBuilder:
     def get(self, name: str) -> PromptTemplate | None:
         return self._templates.get(name)
 
-    async def build_system_prompt(self, role: str, workspace_root: str, context_files: list[str] | None = None) -> str:
+    async def build_system_prompt(
+        self, role: str, workspace_root: str, context_files: list[str] | None = None
+    ) -> str:
         template = self._templates.get(f"system_{role}") or self._templates.get("system")
         if template is None:
             return ""
-
         template.set("workspace_root", workspace_root)
         template.set("date", datetime.now(UTC).strftime("%Y-%m-%d"))
         template.set("platform", sys.platform)
         template.set("os", f"{platform.system()} {platform.release()}")
         template.set("python_version", platform.python_version())
-
         if context_files:
             parts: list[str] = []
             for fp in context_files:
@@ -67,15 +65,14 @@ class PromptBuilder:
             template.set("context_files", "\n\n".join(parts))
         else:
             template.set("context_files", "")
-
         return template.render()
 
-    async def build_user_prompt(self, prompt: str, repo_map: str | None = None, file_context: list[str] | None = None) -> str:
+    async def build_user_prompt(
+        self, prompt: str, repo_map: str | None = None, file_context: list[str] | None = None
+    ) -> str:
         parts = [prompt]
-
         if repo_map:
             parts.append(f"\n\n## Repository Map\n\n{repo_map}")
-
         if file_context:
             file_parts: list[str] = []
             for fp in file_context:
@@ -85,5 +82,4 @@ class PromptBuilder:
                     file_parts.append(f"### {p.name}\n\n```\n{content}\n```")
             if file_parts:
                 parts.append("\n\n## File Context\n\n" + "\n\n".join(file_parts))
-
         return "".join(parts)

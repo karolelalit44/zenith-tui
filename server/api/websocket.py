@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import asyncio
 import json
 import logging
+
 from fastapi import WebSocket, WebSocketDisconnect
+
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
 from server.persistence.connection import Database
@@ -10,11 +13,13 @@ from server.providers.registry import ProviderRegistry
 from server.toolkit import create_default_registry
 from server.toolkit.middleware import PermissionMiddleware
 from server.toolkit.registry import ToolRegistry
+
 from ..agents.prompt_executor import PromptExecutor
 from .handlers import MethodHandlers
-from .protocol import (Connection, JsonRpcRequest, TransportService, make_error_response, make_event)
+from .protocol import Connection, JsonRpcRequest, TransportService, make_error_response, make_event
 
 logger = logging.getLogger(__name__)
+
 
 class ConnectionManager(TransportService):
     def __init__(self) -> None:
@@ -63,7 +68,10 @@ class ConnectionManager(TransportService):
         logger.info("Buffer dropped for session %s", session_id)
 
     def get_connections(self) -> list[Connection]:
-        return [Connection(session_id=sid, client=str(ws.client)) for sid, ws in self.connections.items()]
+        return [
+            Connection(session_id=sid, client=str(ws.client))
+            for sid, ws in self.connections.items()
+        ]
 
     async def start(self, host: str, port: int) -> None:
         pass
@@ -98,10 +106,15 @@ class ConnectionManager(TransportService):
             except Exception as exc:
                 logger.warning("WS SEND FAIL session=%s kind=%s: %s", session_id, event.kind, exc)
         else:
-            logger.debug("WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf))
+            logger.debug(
+                "WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf)
+            )
 
     def _should_persist(self, event: Event) -> bool:
-        return not (event.kind == EventKind.THINKING or (event.kind == EventKind.MESSAGE and event.data.get("partial")))
+        return not (
+            event.kind == EventKind.THINKING
+            or (event.kind == EventKind.MESSAGE and event.data.get("partial"))
+        )
 
     async def _persist_event(self, session_id: str, event: Event, seq: int) -> None:
         if not session_id or self._session_service is None:
@@ -109,13 +122,23 @@ class ConnectionManager(TransportService):
         if not self._should_persist(event):
             return
         try:
-            await self._session_service.record_sync_event(session_id, str(event.kind), event.data, sequence=seq)
+            await self._session_service.record_sync_event(
+                session_id, str(event.kind), event.data, sequence=seq
+            )
         except Exception as exc:
-            logger.warning("Failed to persist sync event %s (session=%s): %s", event.kind, session_id, exc)
+            logger.warning(
+                "Failed to persist sync event %s (session=%s): %s", event.kind, session_id, exc
+            )
 
-    async def schedule_session_event(self, session_id: str, kind: str | EventKind, event_data: dict) -> None:
+    async def schedule_session_event(
+        self, session_id: str, kind: str | EventKind, event_data: dict
+    ) -> None:
         if isinstance(kind, str):
-            kind_map = {"session.created": EventKind.SESSION_CREATED, "session.paused": EventKind.SESSION_PAUSED, "session.duplicated": EventKind.SESSION_DUPLICATED}
+            kind_map = {
+                "session.created": EventKind.SESSION_CREATED,
+                "session.paused": EventKind.SESSION_PAUSED,
+                "session.duplicated": EventKind.SESSION_DUPLICATED,
+            }
             event_kind = kind_map.get(kind)
             if event_kind is None:
                 logger.warning("Unknown sync event kind: %s", kind)
@@ -138,37 +161,82 @@ class ConnectionManager(TransportService):
                 await websocket.send_text(payload)
             except Exception:
                 break
-        logger.info("Replayed %d/%d buffered events for session %s", len(new_events), len(buf), session_id)
+        logger.info(
+            "Replayed %d/%d buffered events for session %s", len(new_events), len(buf), session_id
+        )
         return len(new_events)
 
     def get_sequence(self, session_id: str) -> int:
         return self._sequences.get(session_id, 0)
 
+
 class ZenithHandler:
-    def __init__(self, config: AppSettings, db: Database, registry: ProviderRegistry, tool_registry: ToolRegistry | None = None) -> None:
+    def __init__(
+        self,
+        config: AppSettings,
+        db: Database,
+        registry: ProviderRegistry,
+        tool_registry: ToolRegistry | None = None,
+    ) -> None:
         self.config = config
-        self.tool_registry = tool_registry or create_default_registry(timeout=config.tools.max_bash_timeout, provider=registry.get(config.active_provider), hooks=config.hooks)
+        self.tool_registry = tool_registry or create_default_registry(
+            timeout=config.tools.max_bash_timeout,
+            provider=registry.get(config.active_provider),
+            hooks=config.hooks,
+        )
         from server.permissions import DefaultPermissionService
         from server.persistence.permission_repo import PermissionRepository
 
         self.permission_service = DefaultPermissionService(repo=PermissionRepository(db))
-        self.tool_registry.register_middleware(PermissionMiddleware(service=self.permission_service))
-        from server.persistence.repositories import (CheckpointRepository, DraftRepository, MessageRepository, SessionRepository, SessionStatusHistoryRepository, SyncEventRepository, TokenUsageRepository)
+        self.tool_registry.register_middleware(
+            PermissionMiddleware(service=self.permission_service)
+        )
+        from server.persistence.repositories import (
+            CheckpointRepository,
+            DraftRepository,
+            MessageRepository,
+            SessionRepository,
+            SessionStatusHistoryRepository,
+            SyncEventRepository,
+            TokenUsageRepository,
+        )
         from server.sessions.service import DefaultSessionService
 
         self.manager = ConnectionManager()
         self.handlers = MethodHandlers(config, db, registry, self.tool_registry)
         self.handlers._permission_service = self.permission_service
-        self._executor = PromptExecutor(config, registry.get(config.active_provider), self.tool_registry, self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader)
+        self._executor = PromptExecutor(
+            config,
+            registry.get(config.active_provider),
+            self.tool_registry,
+            self.handlers.session_repo,
+            self.handlers.message_repo,
+            self.handlers.skill_loader,
+        )
         self.handlers.manager = self.manager
-
-        self._session_service = DefaultSessionService(session_repo=SessionRepository(db), message_repo=MessageRepository(db), token_usage_repo=TokenUsageRepository(db), checkpoint_repo=CheckpointRepository(db), sync_event_repo=SyncEventRepository(db), status_history_repo=SessionStatusHistoryRepository(db), draft_repo=DraftRepository(db), hooks=config.hooks)
+        self._session_service = DefaultSessionService(
+            session_repo=SessionRepository(db),
+            message_repo=MessageRepository(db),
+            token_usage_repo=TokenUsageRepository(db),
+            checkpoint_repo=CheckpointRepository(db),
+            sync_event_repo=SyncEventRepository(db),
+            status_history_repo=SessionStatusHistoryRepository(db),
+            draft_repo=DraftRepository(db),
+            hooks=config.hooks,
+        )
         self.handlers._session_service = self._session_service
         self.manager.set_session_service(self._session_service)
 
     def _reload_config(self) -> None:
         self.handlers.reload_config()
-        self._executor = PromptExecutor(self.handlers.config, self.handlers.registry.get(self.handlers.config.active_provider), self.tool_registry, self.handlers.session_repo, self.handlers.message_repo, self.handlers.skill_loader)
+        self._executor = PromptExecutor(
+            self.handlers.config,
+            self.handlers.registry.get(self.handlers.config.active_provider),
+            self.tool_registry,
+            self.handlers.session_repo,
+            self.handlers.message_repo,
+            self.handlers.skill_loader,
+        )
         self.handlers._shared_executor = self._executor
 
     @property
@@ -198,7 +266,9 @@ class ZenithHandler:
                 try:
                     data = json.loads(raw)
                     request = JsonRpcRequest(**data)
-                    session_id = await self.handlers.dispatch(websocket, request.method, request.id, request.params, session_id)
+                    session_id = await self.handlers.dispatch(
+                        websocket, request.method, request.id, request.params, session_id
+                    )
                     if session_id:
                         await self.manager.register(session_id, websocket)
                 except json.JSONDecodeError as e:

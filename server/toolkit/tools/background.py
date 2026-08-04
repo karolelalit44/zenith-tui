@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 import asyncio
 import logging
 import uuid
@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BackgroundJob:
-
     id: str
     command: str
     description: str
@@ -28,22 +27,27 @@ class BackgroundJob:
 
 
 class BackgroundJobManager:
-
     def __init__(self) -> None:
         self._jobs: dict[str, BackgroundJob] = {}
 
     def start(self, command: str, workspace_root: str, description: str = "") -> BackgroundJob:
         job_id = uuid.uuid4().hex[:8]
-
         logger.info("Starting background job %s: %s", job_id, command)
-
-        process = asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=workspace_root)
-
-        job = BackgroundJob(id=job_id, command=command, description=description, process=process, working_dir=workspace_root)
+        process = asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=workspace_root,
+        )
+        job = BackgroundJob(
+            id=job_id,
+            command=command,
+            description=description,
+            process=process,
+            working_dir=workspace_root,
+        )
         self._jobs[job_id] = job
-
         asyncio.create_task(self._collect_output(job))
-
         return job
 
     async def _collect_output(self, job: BackgroundJob) -> None:
@@ -53,7 +57,13 @@ class BackgroundJobManager:
             job.stderr = stderr.decode("utf-8", errors="replace") if stderr else ""
             job.exit_code = job.process.returncode
             job.done = True
-            logger.info("Background job %s completed: exit_code=%d, stdout_len=%d, stderr_len=%d", job.id, job.exit_code or 0, len(job.stdout), len(job.stderr))
+            logger.info(
+                "Background job %s completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+                job.id,
+                job.exit_code or 0,
+                len(job.stdout),
+                len(job.stderr),
+            )
         except Exception as e:
             job.error = e
             job.done = True
@@ -63,28 +73,23 @@ class BackgroundJobManager:
         job = self._jobs.get(job_id)
         if job is None:
             return None
-
         parts: list[str] = []
         if job.done:
             parts.append(f"[Job {job_id}] Completed (exit code: {job.exit_code})")
         else:
             parts.append(f"[Job {job_id}] Still running...")
-
         if job.stdout.strip():
             parts.append(job.stdout.strip())
         if job.stderr.strip():
             parts.append(f"stderr: {job.stderr.strip()}")
-
         return "\n".join(parts)
 
     def kill(self, job_id: str) -> str:
         job = self._jobs.get(job_id)
         if job is None:
             return f"Job {job_id} not found"
-
         if job.done:
             return f"Job {job_id} already completed (exit code: {job.exit_code})"
-
         if job.process.returncode is None:
             job.process.kill()
             try:
@@ -92,7 +97,6 @@ class BackgroundJobManager:
             except Exception:
                 pass
             return f"Job {job_id} killed"
-
         return f"Job {job_id} already terminated"
 
     def remove(self, job_id: str) -> bool:
@@ -101,7 +105,15 @@ class BackgroundJobManager:
     def list_jobs(self) -> list[dict[str, Any]]:
         result = []
         for job_id, job in self._jobs.items():
-            result.append({"id": job_id, "command": job.command, "description": job.description, "done": job.done, "exit_code": job.exit_code})
+            result.append(
+                {
+                    "id": job_id,
+                    "command": job.command,
+                    "description": job.description,
+                    "done": job.done,
+                    "exit_code": job.exit_code,
+                }
+            )
         return result
 
     def cleanup_completed(self) -> int:

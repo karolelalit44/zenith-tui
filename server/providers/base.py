@@ -1,11 +1,12 @@
-
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
-from pydantic import BaseModel, Field
-from server.domain.domain import FinishReason
 
+from pydantic import BaseModel, Field
+
+from server.domain.domain import FinishReason
 
 
 class BaseProvider(ABC):
@@ -19,7 +20,13 @@ class BaseProvider(ABC):
     async def complete(self, messages: list[dict], tools: list[dict] | None = None) -> str: ...
 
     @abstractmethod
-    async def stream(self, messages: list[dict], tools: list[dict] | None = None, tool_choice: str | None = None, response_format: dict | None = None) -> AsyncIterator[tuple[str, str | None]]: ...
+    async def stream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        response_format: dict | None = None,
+    ) -> AsyncIterator[tuple[str, str | None]]: ...
 
     @abstractmethod
     async def validate(self) -> bool: ...
@@ -28,10 +35,7 @@ class BaseProvider(ABC):
     async def list_models(self) -> list[str]: ...
 
 
-
-
 class TokenUsage(BaseModel):
-
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -39,7 +43,6 @@ class TokenUsage(BaseModel):
 
 
 class ToolCall(BaseModel):
-
     id: str = ""
     name: str = ""
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -47,7 +50,6 @@ class ToolCall(BaseModel):
 
 
 class ToolCallDelta(BaseModel):
-
     index: int = 0
     id: str | None = None
     name: str | None = None
@@ -55,7 +57,6 @@ class ToolCallDelta(BaseModel):
 
 
 class ProviderResponse(BaseModel):
-
     content: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
     usage: TokenUsage = Field(default_factory=TokenUsage)
@@ -66,7 +67,6 @@ class ProviderResponse(BaseModel):
 
 
 class ProviderChunk(BaseModel):
-
     delta: str = ""
     tool_call_delta: ToolCallDelta | None = None
     usage: TokenUsage | None = None
@@ -75,7 +75,6 @@ class ProviderChunk(BaseModel):
 
 
 class ModelInfo(BaseModel):
-
     id: str
     name: str
     provider: str
@@ -90,7 +89,6 @@ class ModelInfo(BaseModel):
 
 
 class ProviderService(ABC):
-
     @property
     @abstractmethod
     def name(self) -> str: ...
@@ -100,10 +98,18 @@ class ProviderService(ABC):
     def model(self) -> str: ...
 
     @abstractmethod
-    async def complete(self, messages: list[dict], tools: list[dict] | None = None, temperature: float | None = None, max_tokens: int | None = None) -> ProviderResponse: ...
+    async def complete(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> ProviderResponse: ...
 
     @abstractmethod
-    async def stream(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[ProviderChunk]: ...
+    async def stream(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AsyncIterator[ProviderChunk]: ...
 
     @abstractmethod
     async def validate(self) -> bool: ...

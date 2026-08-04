@@ -1,10 +1,5 @@
 import type { Key } from 'ink';
 
-/**
- * Declarative keyboard map (single source of truth for key handling, the
- * command palette gutters and the Help modal).
- */
-
 export type KeybindId =
   | 'submit'
   | 'newline'
@@ -126,8 +121,7 @@ function specMatches(input: string, key: InkKeyLike, spec: string): boolean {
   if (primary in NAMED_KEYS) {
     const field = NAMED_KEYS[primary];
     if (!key[field]) return false;
-    // Named keys are modifier-sensitive: unspecified modifiers must be up
-    // (so plain Enter never matches shift+enter, ctrl+m stays a newline, etc).
+
     if (!mods.ctrl && key.ctrl) return false;
     if (!mods.shift && key.shift) return false;
     if (!mods.meta && key.meta) return false;
@@ -140,8 +134,6 @@ function specMatches(input: string, key: InkKeyLike, spec: string): boolean {
     return true;
   }
 
-  // Ctrl+letter control characters (ctrl+p → \x10); Ink also emits '' for
-  // some ctrl combos.
   if (mods.ctrl && /^[a-z]$/.test(primary)) {
     const control = String.fromCharCode(primary.charCodeAt(0) - 96);
     if (input === control || input === '') return true;
@@ -150,10 +142,6 @@ function specMatches(input: string, key: InkKeyLike, spec: string): boolean {
   return false;
 }
 
-/**
- * Pure matcher — returns every keybind whose spec matches the current
- * keypress. Callers prioritize the ids they handle.
- */
 export function matchKeypress(input: string, key: InkKeyLike, bindings: KeybindingMap = KEYBINDINGS): KeybindId[] {
   const matched: KeybindId[] = [];
   for (const id of Object.keys(bindings) as KeybindId[]) {
@@ -177,7 +165,6 @@ export function formatKeySpec(spec: string): string {
   return parts.join('+');
 }
 
-/** Display the primary binding for a keybind id (e.g. 'ctrl+shift+n' → 'Ctrl+Shift+N'). */
 export function formatKeyBind(id: KeybindId, bindings: KeybindingMap = KEYBINDINGS): string {
   const spec = bindings[id]?.keys[0];
   return spec ? formatKeySpec(spec) : '';

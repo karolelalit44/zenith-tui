@@ -1,18 +1,18 @@
-
 from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
+
 from server.toolkit.tools.mcp_tool import McpToolWrapper
+
 from .client import McpClient
 
 if TYPE_CHECKING:
     from server.config.settings import McpServerConfig
-
 logger = logging.getLogger(__name__)
 
 
 class McpManager:
-
     def __init__(self, servers: dict[str, McpServerConfig]) -> None:
         self._servers = dict(servers)
         self._clients: dict[str, McpClient] = {}
@@ -63,4 +63,12 @@ class McpManager:
         return wrappers
 
     def list_servers(self) -> list[dict]:
-        return [{"name": name, "status": self._status.get(name, "unknown"), "tools": len(client.tools), "error": self._errors.get(name, "")} for name, client in self._clients.items()]
+        return [
+            {
+                "name": name,
+                "status": self._status.get(name, "unknown"),
+                "tools": len(client.tools),
+                "error": self._errors.get(name, ""),
+            }
+            for name, client in self._clients.items()
+        ]

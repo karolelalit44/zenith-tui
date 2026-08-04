@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import threading
 from dataclasses import dataclass, field
 
@@ -6,9 +7,9 @@ UNCONFIGURED = "unconfigured"
 CONFIGURED = "configured"
 VALIDATED = "validated"
 FAILED = "failed"
-
 _statuses: dict[str, dict[str, object]] = {}
 _lock = threading.Lock()
+
 
 @dataclass
 class _Entry:
@@ -17,9 +18,11 @@ class _Entry:
     last_validated_at: str = ""
     extra: dict[str, object] = field(default_factory=dict)
 
+
 def reset(provider_id: str) -> None:
     with _lock:
         _statuses.pop(provider_id, None)
+
 
 def mark_validated(provider_id: str) -> None:
     from datetime import datetime
@@ -30,6 +33,7 @@ def mark_validated(provider_id: str) -> None:
         entry.last_error = ""
         entry.last_validated_at = datetime.now().isoformat()
 
+
 def mark_failed(provider_id: str, message: str) -> None:
     from datetime import datetime
 
@@ -39,12 +43,14 @@ def mark_failed(provider_id: str, message: str) -> None:
         entry.last_error = message or ""
         entry.last_validated_at = datetime.now().isoformat()
 
+
 def mark_configured(provider_id: str) -> None:
     with _lock:
         entry = _get(provider_id)
         if entry.status not in (VALIDATED,):
             entry.status = CONFIGURED
             entry.last_error = ""
+
 
 def get_status(provider_id: str, has_api_key: bool) -> str:
     if not has_api_key:
@@ -57,14 +63,20 @@ def get_status(provider_id: str, has_api_key: bool) -> str:
             return VALIDATED
         return CONFIGURED
 
+
 def get_last_error(provider_id: str) -> str:
     with _lock:
         entry = _get(provider_id)
         return entry.last_error or ""
 
+
 def snapshot() -> dict[str, dict[str, object]]:
     with _lock:
-        return {pid: dict(entry.extra, status=entry.status, last_error=entry.last_error) for pid, entry in _statuses.items()}
+        return {
+            pid: dict(entry.extra, status=entry.status, last_error=entry.last_error)
+            for pid, entry in _statuses.items()
+        }
+
 
 def _get(provider_id: str) -> _Entry:
     entry = _statuses.get(provider_id)

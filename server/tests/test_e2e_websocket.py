@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import os
@@ -9,6 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
 import pytest
 import websockets
 
@@ -19,30 +19,8 @@ def _get_free_port() -> int:
         return s.getsockname()[1]
 
 
-
 _SERVER_READY_TIMEOUT = 20
-_ECHO_PROVIDER_CODE = """
-import asyncio
-import logging
-logging.disable(logging.CRITICAL)
-from server.providers.base import BaseProvider
-
-class EchoProvider(BaseProvider):
-    def __init__(self):
-        super().__init__("echo", "echo-v1")
-    async def complete(self, messages, tools=None):
-        user_msg = messages[-1]["content"] if messages else ""
-        return f"Echo: {user_msg}"
-    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-        response = await self.complete(messages)
-        for word in response.split():
-            yield (word + " ", None)
-            await asyncio.sleep(0.01)
-    async def validate(self):
-        return True
-    async def list_models(self):
-        return ["echo-v1"]
-"""
+_ECHO_PROVIDER_CODE = '\nimport asyncio\nimport logging\nlogging.disable(logging.CRITICAL)\nfrom server.providers.base import BaseProvider\n\nclass EchoProvider(BaseProvider):\n    def __init__(self):\n        super().__init__("echo", "echo-v1")\n    async def complete(self, messages, tools=None):\n        user_msg = messages[-1]["content"] if messages else ""\n        return f"Echo: {user_msg}"\n    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):\n        response = await self.complete(messages)\n        for word in response.split():\n            yield (word + " ", None)\n            await asyncio.sleep(0.01)\n    async def validate(self):\n        return True\n    async def list_models(self):\n        return ["echo-v1"]\n'
 
 
 @pytest.fixture(scope="module")
@@ -50,10 +28,8 @@ def echo_server(tmp_path_factory):
     port = _get_free_port()
     db_path = str(tmp_path_factory.mktemp("e2e") / "test.db")
     str(tmp_path_factory.mktemp("workspace"))
-
     prov_file = Path(tempfile.mktemp(suffix=".py"))
     prov_file.write_text(_ECHO_PROVIDER_CODE)
-
     env = os.environ.copy()
     env.setdefault("ZENITH_DB_PATH", db_path)
     env.setdefault("ZENITH_LOG_LEVEL", "CRITICAL")
@@ -73,50 +49,12 @@ def echo_server(tmp_path_factory):
     env.setdefault("ZENITH_MAX_TOKENS", "4096")
     env.setdefault("ZENITH_TEMPERATURE", "0.7")
     env["ZENITH_ECHO_PROVIDER"] = str(prov_file)
-
-    server_script = f"""
-import os, sys
-os.environ["ZENITH_DB_PATH"] = {db_path!r}
-os.environ["ZENITH_LOG_LEVEL"] = "CRITICAL"
-
-# Monkey-patch the provider system before server starts
-import importlib.util
-spec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-import server.providers.registry as reg
-_orig_from_config = reg.ProviderRegistry.from_config
-
-def _patched_from_config(providers, active, **kw):
-    r = _orig_from_config(providers, active, **kw)
-    r.register("echo", mod.EchoProvider())
-    return r
-
-reg.ProviderRegistry.from_config = _patched_from_config
-
-# Also patch load_config result to add echo provider
-import server.config.loader as loader
-_orig_load = loader.load_config
-
-def _patched_load(*a, **kw):
-    cfg = _orig_load(*a, **kw)
-    from server.config.providers import ProviderConfig
-    if cfg.providers is None:
-        cfg.providers = {{}}
-    cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")
-    cfg.active_provider = "echo"
-    return cfg
-
-loader.load_config = _patched_load
-
-import uvicorn
-uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")
-"""
+    server_script = f'\nimport os, sys\nos.environ["ZENITH_DB_PATH"] = {db_path!r}\nos.environ["ZENITH_LOG_LEVEL"] = "CRITICAL"\n\n# Monkey-patch the provider system before server starts\nimport importlib.util\nspec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})\nmod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\nimport server.providers.registry as reg\n_orig_from_config = reg.ProviderRegistry.from_config\n\ndef _patched_from_config(providers, active, **kw):\n    r = _orig_from_config(providers, active, **kw)\n    r.register("echo", mod.EchoProvider())\n    return r\n\nreg.ProviderRegistry.from_config = _patched_from_config\n\n# Also patch load_config result to add echo provider\nimport server.config.loader as loader\n_orig_load = loader.load_config\n\ndef _patched_load(*a, **kw):\n    cfg = _orig_load(*a, **kw)\n    from server.config.providers import ProviderConfig\n    if cfg.providers is None:\n        cfg.providers = {{}}\n    cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")\n    cfg.active_provider = "echo"\n    return cfg\n\nloader.load_config = _patched_load\n\nimport uvicorn\nuvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="error")\n'
     server_file = Path(tempfile.mktemp(suffix=".py"))
     server_file.write_text(server_script)
-
-    proc = subprocess.Popen([sys.executable, str(server_file)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+    proc = subprocess.Popen(
+        [sys.executable, str(server_file)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     deadline = time.time() + _SERVER_READY_TIMEOUT
     ready = False
     while time.time() < deadline:
@@ -126,14 +64,13 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
                 break
         except OSError:
             time.sleep(0.1)
-
     if not ready:
         proc.kill()
         stdout, stderr = proc.communicate(timeout=5)
-        pytest.fail(f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}")
-
+        pytest.fail(
+            f"Server failed to start on port {port}.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}"
+        )
     yield port
-
     proc.terminate()
     try:
         proc.wait(timeout=5)
@@ -142,11 +79,10 @@ uvicorn.run("transport.server:app", host="127.0.0.1", port={port}, log_level="er
         proc.wait(timeout=5)
 
 
-
-
 @pytest.mark.asyncio
 async def test_http_health():
     from httpx import ASGITransport, AsyncClient
+
     import server.api.server as srv
     from server.api.server import create_app
     from server.api.websocket import ZenithHandler
@@ -173,13 +109,17 @@ async def test_http_health():
             return ["echo-v1"]
 
     tmp = Path(tempfile.mkdtemp())
-    cfg = AppSettings(providers={"echo": ProviderConfig(model="echo-v1", is_active=True)}, active_provider="echo", db_path=str(tmp / "db.sqlite"), workspace_root=str(tmp))
+    cfg = AppSettings(
+        providers={"echo": ProviderConfig(model="echo-v1", is_active=True)},
+        active_provider="echo",
+        db_path=str(tmp / "db.sqlite"),
+        workspace_root=str(tmp),
+    )
     db = Database(cfg.db_path)
     await db.connect()
     reg = ProviderRegistry()
     reg.register("echo", _HP())
     handler = ZenithHandler(config=cfg, db=db, registry=reg)
-
     app = create_app()
     original = srv._handler
     srv._handler = handler
@@ -198,6 +138,7 @@ async def test_http_health():
 @pytest.mark.asyncio
 async def test_http_status():
     from httpx import ASGITransport, AsyncClient
+
     import server.api.server as srv
     from server.api.server import create_app
     from server.api.websocket import ZenithHandler
@@ -224,13 +165,17 @@ async def test_http_status():
             return ["echo-v1"]
 
     tmp = Path(tempfile.mkdtemp())
-    cfg = AppSettings(providers={"echo": ProviderConfig(model="echo-v1", is_active=True)}, active_provider="echo", db_path=str(tmp / "db.sqlite"), workspace_root=str(tmp))
+    cfg = AppSettings(
+        providers={"echo": ProviderConfig(model="echo-v1", is_active=True)},
+        active_provider="echo",
+        db_path=str(tmp / "db.sqlite"),
+        workspace_root=str(tmp),
+    )
     db = Database(cfg.db_path)
     await db.connect()
     reg = ProviderRegistry()
     reg.register("echo", _SP())
     handler = ZenithHandler(config=cfg, db=db, registry=reg)
-
     app = create_app()
     original = srv._handler
     srv._handler = handler
@@ -246,15 +191,12 @@ async def test_http_status():
         await db.close()
 
 
-
-
 async def _ws_rpc(ws, method: str, params: dict[str, Any] | None = None) -> dict:
     rid = f"test_{method}_{int(time.time() * 1000)}"
     request: dict[str, Any] = {"jsonrpc": "2.0", "id": rid, "method": method}
     if params:
         request["params"] = params
     await ws.send(json.dumps(request))
-
     while True:
         raw = await asyncio.wait_for(ws.recv(), timeout=30)
         data = json.loads(raw)
@@ -308,7 +250,6 @@ async def test_ws_session_resume(echo_server):
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         create_resp = await _ws_rpc(ws, "session.create", {"title": "Resume Test"})
         sid = create_resp["result"]["id"]
-
         resp = await _ws_rpc(ws, "session.resume", {"session_id": sid})
         assert "result" in resp
         data = resp["result"]
@@ -324,20 +265,19 @@ async def test_ws_prompt_full_event_pipeline(echo_server):
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         create_resp = await _ws_rpc(ws, "session.create", {"title": "Pipeline Test"})
         sid = create_resp["result"]["id"]
-
-        prompt_resp = await _ws_rpc(ws, "prompt.send", {"content": "Hello from E2E test", "mode": "build"})
+        prompt_resp = await _ws_rpc(
+            ws, "prompt.send", {"content": "Hello from E2E test", "mode": "build"}
+        )
         assert "result" in prompt_resp
         assert prompt_resp["result"]["status"] == "processing"
         assert prompt_resp["result"]["session_id"] == sid
-
         events = await _collect_events(ws, timeout=15)
-
-        assert len(events) >= 3, (f"Expected at least 3 events, got {len(events)}: " f"{[e['params']['kind'] for e in events]}")
-
+        assert len(events) >= 3, (
+            f"Expected at least 3 events, got {len(events)}: {[e['params']['kind'] for e in events]}"
+        )
         kinds = [e["params"]["kind"] for e in events]
         assert "thinking" in kinds, f"Missing thinking event. Got: {kinds}"
         assert "success" in kinds, f"Missing success event. Got: {kinds}"
-
         for evt in events:
             assert evt["jsonrpc"] == "2.0", "Event must have jsonrpc 2.0"
             assert evt["method"] == "event", "Event method must be 'event'"
@@ -346,11 +286,11 @@ async def test_ws_prompt_full_event_pipeline(echo_server):
             assert "id" in params, "Event params must have 'id'"
             assert "data" in params, "Event params must have 'data'"
             assert "session_id" in params, f"Event {params['kind']} must have session_id"
-            assert params["session_id"] == sid, (f"Event session_id mismatch: {params['session_id']} != {sid}")
-
+            assert params["session_id"] == sid, (
+                f"Event session_id mismatch: {params['session_id']} != {sid}"
+            )
         thinking_evt = next(e for e in events if e["params"]["kind"] == "thinking")
         assert "text" in thinking_evt["params"]["data"]
-
         success_evt = next(e for e in events if e["params"]["kind"] == "success")
         success_data = success_evt["params"]["data"]
         assert "message" in success_data

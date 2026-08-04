@@ -57,9 +57,7 @@ function ensureDir(): void {
     if (!fs.existsSync(PROFILE_DIR)) {
       fs.mkdirSync(PROFILE_DIR, { recursive: true });
     }
-  } catch {
-    // Ignore mkdir errors (permissions, etc.)
-  }
+  } catch {}
 }
 
 function readFromDisk(): UserProfile | null {
@@ -72,9 +70,7 @@ function readFromDisk(): UserProfile | null {
         return parsed as UserProfile;
       }
     }
-  } catch {
-    // Ignore read errors
-  }
+  } catch {}
   return null;
 }
 
@@ -82,9 +78,7 @@ function writeToDisk(profile: UserProfile): void {
   try {
     ensureDir();
     fs.writeFileSync(PROFILE_PATH, JSON.stringify(profile, null, 2), 'utf-8');
-  } catch {
-    // Ignore write errors
-  }
+  } catch {}
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

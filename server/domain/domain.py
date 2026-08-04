@@ -1,15 +1,12 @@
-
 from enum import Enum, StrEnum
 
 
 class ScenarioMode(StrEnum):
-
     BUILD = "build"
     PLAN = "plan"
 
 
 class RiskLevel(StrEnum):
-
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -17,14 +14,12 @@ class RiskLevel(StrEnum):
 
 
 class AgentRole(StrEnum):
-
     CODER = "coder"
     TASK = "task"
     REVIEWER = "reviewer"
 
 
 class AgentState(StrEnum):
-
     IDLE = "idle"
     PROCESSING = "processing"
     STREAMING = "streaming"
@@ -35,7 +30,6 @@ class AgentState(StrEnum):
 
 
 class SessionState(StrEnum):
-
     CREATED = "created"
     INITIALIZING = "initializing"
     ACTIVE = "active"
@@ -51,7 +45,6 @@ class SessionState(StrEnum):
 
 
 class PermissionDecision(StrEnum):
-
     ALLOW = "allow"
     DENY = "deny"
     PERSISTENT_ALLOW = "persistent_allow"
@@ -59,14 +52,12 @@ class PermissionDecision(StrEnum):
 
 
 class DeliveryMode(Enum):
-
     LOSSY = "lossy"
     BLOCKING = "blocking"
     PERSISTENT = "persistent"
 
 
 class FinishReason(StrEnum):
-
     STOP = "stop"
     LENGTH = "length"
     TOOL_CALLS = "tool_calls"

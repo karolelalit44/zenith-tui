@@ -1,25 +1,25 @@
-
 from __future__ import annotations
+
 import re
 from datetime import datetime
 from pathlib import Path
+
 from server.domain.events import Event
 from server.domain.message import Message
 from server.domain.session import Session
 
 
 class SessionExporter:
-
-    def export(self, session: Session, messages: list[Message], output_dir: str = "zenith_exports") -> str:
+    def export(
+        self, session: Session, messages: list[Message], output_dir: str = "zenith_exports"
+    ) -> str:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-
-        safe_title = re.sub(r"[^\w\s-]", "", session.title)[:50].strip()
-        safe_title = re.sub(r"\s+", "_", safe_title)
+        safe_title = re.sub("[^\\w\\s-]", "", session.title)[:50].strip()
+        safe_title = re.sub("\\s+", "_", safe_title)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{safe_title}_{timestamp}.md"
         filepath = output_path / filename
-
         lines = self._build_markdown(session, messages)
         filepath.write_text("\n".join(lines), encoding="utf-8")
         return str(filepath)
@@ -28,15 +28,22 @@ class SessionExporter:
         return "\n".join(self._build_markdown(session, messages))
 
     def _build_markdown(self, session: Session, messages: list[Message]) -> list[str]:
-        lines = [f"# {session.title}", "", f"**Mode:** {session.mode}", f"**Created:** {session.created_at.isoformat() if isinstance(session.created_at, datetime) else session.created_at}", f"**Exported:** {datetime.now().isoformat()}", "", "---", ""]
-
+        lines = [
+            f"# {session.title}",
+            "",
+            f"**Mode:** {session.mode}",
+            f"**Created:** {(session.created_at.isoformat() if isinstance(session.created_at, datetime) else session.created_at)}",
+            f"**Exported:** {datetime.now().isoformat()}",
+            "",
+            "---",
+            "",
+        ]
         for msg in messages:
             role_label = msg.role.title()
             lines.append(f"## {role_label}")
             lines.append("")
             lines.append(msg.content)
             lines.append("")
-
             if msg.events:
                 event_summary = self._summarize_events(msg.events)
                 if event_summary:
@@ -48,7 +55,6 @@ class SessionExporter:
                     lines.append("")
                     lines.append("</details>")
                     lines.append("")
-
         return lines
 
     def _summarize_events(self, events: list[Event]) -> list[str]:
@@ -56,7 +62,6 @@ class SessionExporter:
         for event in events:
             kind = event.kind.value
             data = event.data
-
             if kind == "thinking":
                 summaries.append(f"**Thinking:** {data.get('text', '')}")
             elif kind == "message":
@@ -76,10 +81,13 @@ class SessionExporter:
                 success = data.get("success", False)
                 path = data.get("metadata", {}).get("path", "")
                 if path:
-                    summaries.append(f"**Tool result:** `{tool}` → `{path}` ({'ok' if success else 'failed'})")
+                    summaries.append(
+                        f"**Tool result:** `{tool}` → `{path}` ({('ok' if success else 'failed')})"
+                    )
                 else:
-                    summaries.append(f"**Tool result:** `{tool}` ({'ok' if success else 'failed'})")
+                    summaries.append(
+                        f"**Tool result:** `{tool}` ({('ok' if success else 'failed')})"
+                    )
             elif kind == "warning":
                 summaries.append(f"**Warning:** {data.get('message', '')}")
-
         return summaries

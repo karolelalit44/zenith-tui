@@ -1,5 +1,5 @@
-
 from __future__ import annotations
+
 import logging
 from enum import Enum
 
@@ -12,8 +12,9 @@ class ModelTier(str, Enum):
     COMPACT = "compact"
 
 
-def detect_model_tier(model_name: str, provider_name: str = "", catalog: dict | None = None) -> ModelTier:
-    
+def detect_model_tier(
+    model_name: str, provider_name: str = "", catalog: dict | None = None
+) -> ModelTier:
     if catalog is None:
         try:
             from server.persistence.repositories import load_catalog
@@ -36,22 +37,8 @@ def detect_model_tier(model_name: str, provider_name: str = "", catalog: dict | 
 
 def get_tier_prompt_enhancements(tier: ModelTier) -> str:
     if tier == ModelTier.COMPACT:
-        return """\
-<compact_model_rules>
-CRITICAL INSTRUCTIONS FOR COMPACT MODELS:
-1. NEVER output chat preambles like "Sure, I can help with that", "Here is the code", or "Based on your request".
-2. Immediately emit tool calls or concise answers under 4 lines of text.
-3. Match file search patterns and edit content EXACTLY as shown in examples.
-</compact_model_rules>
-"""
+        return '<compact_model_rules>\nCRITICAL INSTRUCTIONS FOR COMPACT MODELS:\n1. NEVER output chat preambles like "Sure, I can help with that", "Here is the code", or "Based on your request".\n2. Immediately emit tool calls or concise answers under 4 lines of text.\n3. Match file search patterns and edit content EXACTLY as shown in examples.\n</compact_model_rules>\n'
     elif tier == ModelTier.REASONING:
-        return """\
-<reasoning_model_rules>
-CRITICAL INSTRUCTIONS FOR REASONING MODELS:
-1. Output your thought process inside reasoning blocks if supported by your API.
-2. ALWAYS output your complete final answer, plan, or user response in the message content body payload outside thinking blocks.
-3. Do NOT leave content payload blank or tiny (<30 chars) after finishing reasoning.
-</reasoning_model_rules>
-"""
+        return "<reasoning_model_rules>\nCRITICAL INSTRUCTIONS FOR REASONING MODELS:\n1. Output your thought process inside reasoning blocks if supported by your API.\n2. ALWAYS output your complete final answer, plan, or user response in the message content body payload outside thinking blocks.\n3. Do NOT leave content payload blank or tiny (<30 chars) after finishing reasoning.\n</reasoning_model_rules>\n"
     else:
         return ""

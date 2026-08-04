@@ -32,7 +32,7 @@ interface CommandInputProps {
   onOpenHelp?: () => void;
   onOpenMode?: () => void;
   onClearInput?: () => void;
-  /** True while the inline slash-command menu is open (input is a / query). */
+
   slashMenuOpen?: boolean;
 }
 
@@ -92,9 +92,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
       (char: string, key: Key, value: string): boolean => {
         if (slashMenuOpen) {
           const isEnter = key.return || char === '\n' || char === '\r';
-          // While the slash menu is open it owns navigation keys; swallow
-          // them here so the input never submits, jumps history, or inserts
-          // tabs. Regular typing still edits the input (and re-filters).
+
           if (key.upArrow || key.downArrow || isEnter || key.tab || key.escape) return true;
           return false;
         }
