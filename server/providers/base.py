@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Any
-
 from pydantic import BaseModel, Field
 
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.domain.domain import FinishReason
+from server.domain.message import ToolCall
 
 
 class BaseProvider(ABC):
@@ -42,13 +42,6 @@ class TokenUsage(BaseModel):
     cached_tokens: int = 0
 
 
-class ToolCall(BaseModel):
-    id: str = ""
-    name: str = ""
-    arguments: dict[str, Any] = Field(default_factory=dict)
-    raw_arguments: str = ""
-
-
 class ToolCallDelta(BaseModel):
     index: int = 0
     id: str | None = None
@@ -79,7 +72,7 @@ class ModelInfo(BaseModel):
     name: str
     provider: str
     max_tokens: int = 16384
-    context_window: int = 128000
+    context_window: int = DEFAULT_CONTEXT_WINDOW
     supports_tools: bool = True
     supports_thinking: bool = False
     supports_vision: bool = False

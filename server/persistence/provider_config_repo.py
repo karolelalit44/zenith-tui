@@ -6,11 +6,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, event, inspect, select, text, update
+from sqlalchemy import create_engine, delete, event, inspect, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as SASession
 from sqlalchemy.orm import sessionmaker
 
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.persistence.connection import resolve_db_path
 from server.persistence.models import (
     AppSettingRecord,
@@ -244,8 +246,12 @@ def save_provider_config(
                     .values(is_active=True)
                 )
                 s.execute(
-                    text("INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"),
-                    {"key": "active_provider", "value": provider},
+                    sqlite_insert(AppSettingRecord)
+                    .values(key="active_provider", value=provider)
+                    .on_conflict_do_update(
+                        index_elements=["key"],
+                        set_={"value": sqlite_insert(AppSettingRecord).excluded.value},
+                    )
                 )
             s.commit()
     except Exception as e:
@@ -265,27 +271,45 @@ def upsert_provider_models(
     try:
         with _session(engine)() as s:
             s.execute(
-                text(
-                    " INSERT OR IGNORE INTO providers (id, name, description, api_key, model, base_url, is_active, swatch_json, capabilities_json, api_key_prefix, updated_at) VALUES (:id, :name, '', '', '', '', 0, '[]', '{}', NULL, :now) "
-                ),
-                {"id": provider, "name": provider.title(), "now": datetime.now().isoformat()},
+                sqlite_insert(ProviderRecord)
+                .values(
+                    id=provider,
+                    name=provider.title(),
+                    description="",
+                    api_key="",
+                    model="",
+                    base_url="",
+                    is_active=False,
+                    swatch_json="[]",
+                    capabilities_json="{}",
+                    api_key_prefix=None,
+                    updated_at=datetime.now().isoformat(),
+                )
+                .on_conflict_do_nothing(index_elements=["id"])
             )
             for m in models:
                 mid = m.get("id")
                 if not mid:
                     continue
                 s.execute(
-                    text(
-                        " INSERT INTO provider_models (id, provider_id, name, context_window, description, is_default) VALUES (:id, :provider_id, :name, :context_window, :description, :is_default) ON CONFLICT(provider_id, id) DO UPDATE SET name = excluded.name, context_window = excluded.context_window, description = excluded.description, is_default = excluded.is_default "
-                    ),
-                    {
-                        "id": mid,
-                        "provider_id": provider,
-                        "name": m.get("name") or mid,
-                        "context_window": int(m.get("context_window") or 128000),
-                        "description": m.get("description") or "",
-                        "is_default": 1 if m.get("is_default") else 0,
-                    },
+                    sqlite_insert(ProviderModelRecord)
+                    .values(
+                        id=mid,
+                        provider_id=provider,
+                        name=m.get("name") or mid,
+                        context_window=int(m.get("context_window") or DEFAULT_CONTEXT_WINDOW),
+                        description=m.get("description") or "",
+                        is_default=bool(m.get("is_default")),
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["provider_id", "id"],
+                        set_={
+                            "name": sqlite_insert(ProviderModelRecord).excluded.name,
+                            "context_window": sqlite_insert(ProviderModelRecord).excluded.context_window,
+                            "description": sqlite_insert(ProviderModelRecord).excluded.description,
+                            "is_default": sqlite_insert(ProviderModelRecord).excluded.is_default,
+                        },
+                    )
                 )
             s.commit()
     except Exception as e:
@@ -411,13 +435,15 @@ def write_model_store(db_path: str | None, data: dict[str, Any]) -> None:
     try:
         with _session(engine)() as s:
             if not payload["current"] and (not payload["recent"]) and (not payload["favorite"]):
-                s.execute(
-                    text("DELETE FROM app_settings WHERE key = :key"), {"key": MODEL_STORE_KEY}
-                )
+                s.execute(delete(AppSettingRecord).where(AppSettingRecord.key == MODEL_STORE_KEY))
             else:
                 s.execute(
-                    text("INSERT OR REPLACE INTO app_settings (key, value) VALUES (:key, :value)"),
-                    {"key": MODEL_STORE_KEY, "value": json.dumps(payload)},
+                    sqlite_insert(AppSettingRecord)
+                    .values(key=MODEL_STORE_KEY, value=json.dumps(payload))
+                    .on_conflict_do_update(
+                        index_elements=["key"],
+                        set_={"value": sqlite_insert(AppSettingRecord).excluded.value},
+                    )
                 )
             s.commit()
     except Exception as e:

@@ -3,7 +3,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
-from server.config.constants import CONTEXT_SUMMARY_THRESHOLD
+from server.config.constants import (
+    BUILD_MODE,
+    CONTEXT_SUMMARY_THRESHOLD,
+    PLAN_MODE,
+)
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.domain import FinishReason
 from server.domain.errors import ZenithError
@@ -117,7 +121,7 @@ class AgentLoop:
         prompt: str,
         session_id: str,
         history: list[Message],
-        mode: str = "build",
+        mode: str = BUILD_MODE,
         skills_section: str = "",
         confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
         plan_context: str = "",
@@ -151,7 +155,7 @@ class AgentLoop:
         prompt: str,
         session_id: str,
         history: list[Message],
-        mode: str = "build",
+        mode: str = BUILD_MODE,
         skills_section: str = "",
         confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
         plan_context: str = "",
@@ -162,18 +166,18 @@ class AgentLoop:
         model = self.provider.model
         ws = self.config.workspace_root
         mode_config = AGENT_MODES.get(mode)
-        if mode == "plan":
+        if mode == PLAN_MODE:
             logger.info("PLAN MODE: using focused plan prompt, read-only tools")
             system_prompt = build_plan_system_prompt(
                 self.config.workspace_root, provider_name=provider_name, model_name=model
             )
             if self.tool_registry and mode_config and mode_config.allowed_tools:
                 plan_tool_names = self.tool_registry.list_tools_for_mode(
-                    "plan", allowed_mcp=mode_config.allowed_mcp
+                    PLAN_MODE, allowed_mcp=mode_config.allowed_mcp
                 )
                 registered_tools = set(plan_tool_names)
                 plan_schemas = self.tool_registry.get_schemas_for_mode(
-                    "plan",
+                    PLAN_MODE,
                     allowed_mcp=mode_config.allowed_mcp,
                     allowed_tools=mode_config.allowed_tools,
                 )
@@ -187,7 +191,7 @@ class AgentLoop:
             allowed_tools = mode_config.allowed_tools if mode_config else None
             all_tool_schemas = (
                 self.tool_registry.get_schemas_for_mode(
-                    "build", allowed_mcp=allowed_mcp, allowed_tools=allowed_tools
+                    BUILD_MODE, allowed_mcp=allowed_mcp, allowed_tools=allowed_tools
                 )
                 if self.tool_registry
                 else []
@@ -226,19 +230,22 @@ class AgentLoop:
         )
         yield r.thinking(f"Processing your request in {mode} mode...", session_id)
         if self.context_manager.should_summarize(messages, model, self.provider):
-            async for ev in self._maybe_summarize(history, session_id, messages):
-                yield ev
-            messages = self._rebuild_messages(
-                messages,
-                base_len,
+            _rebuild_holder: list = []
+            async for _ev in self._summarize_and_rebuild(
                 history,
-                system_prompt,
-                prompt,
-                model,
-                plan_context,
-                model_use_system_prompt,
-                repo_map,
-            )
+                session_id,
+                messages,
+                result=_rebuild_holder,
+                base_len=base_len,
+                system_prompt=system_prompt,
+                prompt=prompt,
+                model=model,
+                plan_context=plan_context,
+                use_system_prompt=model_use_system_prompt,
+                repo_map=repo_map,
+            ):
+                yield _ev
+            messages = _rebuild_holder[0]
         if self.is_cancelled(sequence):
             yield r.warning("Request was cancelled before starting", session_id)
             return
@@ -288,19 +295,22 @@ class AgentLoop:
                             }
                         },
                     )
-                    async for ev in self._maybe_summarize(history, session_id, messages):
-                        yield ev
-                    messages = self._rebuild_messages(
-                        messages,
-                        base_len,
+                    _rebuild_holder: list = []
+                    async for ev in self._summarize_and_rebuild(
                         history,
-                        system_prompt,
-                        prompt,
-                        model,
-                        plan_context,
-                        model_use_system_prompt,
-                        repo_map,
-                    )
+                        session_id,
+                        messages,
+                        result=_rebuild_holder,
+                        base_len=base_len,
+                        system_prompt=system_prompt,
+                        prompt=prompt,
+                        model=model,
+                        plan_context=plan_context,
+                        use_system_prompt=model_use_system_prompt,
+                        repo_map=repo_map,
+                    ):
+                        yield ev
+                    messages = _rebuild_holder[0]
                     token_info = self.context_manager.get_token_info(messages, model, self.provider)
                     if token_info.percent > 0.95:
                         yield r.error(
@@ -344,19 +354,22 @@ class AgentLoop:
                     yield r.warning(
                         "Context window exceeded, summarizing and retrying...", session_id
                     )
-                    async for ev in self._maybe_summarize(history, session_id, messages):
-                        yield ev
-                    messages = self._rebuild_messages(
-                        messages,
-                        base_len,
+                    _rebuild_holder: list = []
+                    async for ev in self._summarize_and_rebuild(
                         history,
-                        system_prompt,
-                        prompt,
-                        model,
-                        plan_context,
-                        model_use_system_prompt,
-                        repo_map,
-                    )
+                        session_id,
+                        messages,
+                        result=_rebuild_holder,
+                        base_len=base_len,
+                        system_prompt=system_prompt,
+                        prompt=prompt,
+                        model=model,
+                        plan_context=plan_context,
+                        use_system_prompt=model_use_system_prompt,
+                        repo_map=repo_map,
+                    ):
+                        yield ev
+                    messages = _rebuild_holder[0]
                     token_info = self.context_manager.get_token_info(messages, model, self.provider)
                     if token_info.percent > 0.95:
                         yield r.error(
@@ -519,19 +532,22 @@ class AgentLoop:
                             session_id,
                             extra={"tokenInfo": vars(_ti)},
                         )
-                        async for _ev in self._maybe_summarize(history, session_id, messages):
-                            yield _ev
-                        messages = self._rebuild_messages(
-                            messages,
-                            base_len,
+                        _rebuild_holder: list = []
+                        async for ev in self._summarize_and_rebuild(
                             history,
-                            system_prompt,
-                            prompt,
-                            model,
-                            plan_context,
-                            model_use_system_prompt,
-                            repo_map,
-                        )
+                            session_id,
+                            messages,
+                            result=_rebuild_holder,
+                            base_len=base_len,
+                            system_prompt=system_prompt,
+                            prompt=prompt,
+                            model=model,
+                            plan_context=plan_context,
+                            use_system_prompt=model_use_system_prompt,
+                            repo_map=repo_map,
+                        ):
+                            yield ev
+                        messages = _rebuild_holder[0]
                         _ti2 = self.context_manager.get_token_info(messages, model, self.provider)
                         if _ti2.percent > 0.95:
                             yield r.error(
@@ -610,7 +626,7 @@ class AgentLoop:
         estimated_completion = max(1, _total_completion_chars // 4)
         cum_usage: dict = getattr(self.provider, "_cumulative_usage", {})
         is_estimated = cum_usage.get("total_tokens", 0) == 0
-        if mode == "build" and (not created_files):
+        if mode == BUILD_MODE and (not created_files):
             yield r.warning(
                 "Build completed but no files were created. The model output text instead of using file_write.",
                 session_id,
@@ -757,6 +773,42 @@ class AgentLoop:
             )
             logger.info("Replayed live turn after compaction: %d messages", len(live_tail))
         return rebuilt
+
+    async def _summarize_and_rebuild(
+        self,
+        history,
+        session_id,
+        messages,
+        *,
+        result,
+        base_len,
+        system_prompt,
+        prompt,
+        model,
+        plan_context,
+        use_system_prompt,
+        repo_map,
+    ) -> AsyncIterator[Event]:
+        """Summarize the conversation then rebuild the active message list.
+
+        Yields the summarization events produced by ``_maybe_summarize`` and
+        stores the freshly rebuilt message list into ``result`` (a one-element
+        list) so the caller can continue the loop against the compacted
+        context.
+        """
+        async for ev in self._maybe_summarize(history, session_id, messages):
+            yield ev
+        result[:] = self._rebuild_messages(
+            messages,
+            base_len,
+            history,
+            system_prompt,
+            prompt,
+            model,
+            plan_context,
+            use_system_prompt,
+            repo_map,
+        )
 
     def _get_tool_schemas(self) -> list[dict]:
         return self.tool_registry.get_schemas() if self.tool_registry else []

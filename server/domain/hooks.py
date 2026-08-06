@@ -5,6 +5,8 @@ import json
 import logging
 from typing import Any
 
+from server.config.constants import BUILD_MODE
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +96,7 @@ class HookRunner:
         params: dict[str, Any],
         workspace_root: str = ".",
         session_id: str | None = None,
-        mode: str = "build",
+        mode: str = BUILD_MODE,
     ) -> list[dict[str, Any]]:
         payload = {
             "name": name,
@@ -113,7 +115,7 @@ class HookRunner:
         result: Any,
         workspace_root: str = ".",
         session_id: str | None = None,
-        mode: str = "build",
+        mode: str = BUILD_MODE,
     ) -> list[dict[str, Any]]:
         payload = {
             "name": name,
@@ -132,7 +134,7 @@ class HookRunner:
         self,
         session_id: str,
         title: str = "",
-        mode: str = "build",
+        mode: str = BUILD_MODE,
         provider: str = "",
         workspace_root: str = ".",
     ) -> list[dict[str, Any]]:

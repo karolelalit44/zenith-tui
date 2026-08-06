@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from server.config.constants import BUILD_MODE
+
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
@@ -15,7 +17,7 @@ _PLACEHOLDER_RE = re.compile(
 class FileWriteTool(BaseTool):
     name = "file_write"
     description = "Create new file"
-    requires_mode = "build"
+    requires_mode = BUILD_MODE
 
     def get_schema(self) -> dict:
         return {

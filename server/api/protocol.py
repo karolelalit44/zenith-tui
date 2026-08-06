@@ -57,7 +57,7 @@ def make_error_response(request_id: str | int, code: int, message: str, data: An
     ).model_dump_json()
 
 
-def make_event(event: Event) -> str:
+def serialize_event(event: Event) -> str:
     return JsonRpcNotification(
         params=event.model_dump(exclude={"metadata", "parent_event_id"})
     ).model_dump_json()

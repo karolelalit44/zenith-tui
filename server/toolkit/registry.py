@@ -4,6 +4,8 @@ import logging
 import uuid
 from typing import Any
 
+from server.config.constants import BUILD_MODE
+
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -88,7 +90,7 @@ class ToolRegistry:
         tool_name: str,
         params: dict[str, Any],
         workspace_root: str,
-        mode: str = "build",
+        mode: str = BUILD_MODE,
         request_id: str | None = None,
         session_id: str | None = None,
         allowed_mcp: dict[str, list[str]] | None = None,

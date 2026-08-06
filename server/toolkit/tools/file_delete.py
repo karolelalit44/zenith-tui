@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.config.constants import BUILD_MODE
+
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
@@ -9,7 +11,7 @@ from ..path_validator import validate_path
 class FileDeleteTool(BaseTool):
     name = "file_delete"
     description = "Delete file"
-    requires_mode = "build"
+    requires_mode = BUILD_MODE
 
     @property
     def risk_level(self) -> str:

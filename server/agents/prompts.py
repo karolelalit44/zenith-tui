@@ -4,6 +4,8 @@ import platform
 from datetime import UTC, datetime
 from typing import Any
 
+from server.config.constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
+
 from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
 from server.workspace.context import format_context_files, load_context_files
 
@@ -14,10 +16,10 @@ PLAN_MODE_INSTRUCTIONS = "## MODE: PLAN\nObjective: Analyze the codebase using r
 
 def build_system_prompt(
     workspace_root: str,
-    mode: str = "build",
+    mode: str = BUILD_MODE,
     tool_schemas: list[dict[str, Any]] | None = None,
     skills_section: str = "",
-    max_context_tokens: int = 128000,
+    max_context_tokens: int = DEFAULT_CONTEXT_WINDOW,
     provider_name: str = "",
     model_name: str = "",
 ) -> str:
@@ -28,7 +30,7 @@ def build_system_prompt(
     tier_enhancements = get_tier_prompt_enhancements(detect_model_tier(model_name, provider_name))
     if tier_enhancements:
         sections.append(tier_enhancements)
-    sections.append(PLAN_MODE_INSTRUCTIONS if mode == "plan" else BUILD_MODE_INSTRUCTIONS)
+    sections.append(PLAN_MODE_INSTRUCTIONS if mode == PLAN_MODE else BUILD_MODE_INSTRUCTIONS)
     sections.append(SYSTEM_GUIDELINES)
     if skills_section:
         sections.append(skills_section)
@@ -44,7 +46,7 @@ def build_plan_system_prompt(
     workspace_root: str, provider_name: str = "", model_name: str = ""
 ) -> str:
     return build_system_prompt(
-        workspace_root, mode="plan", provider_name=provider_name, model_name=model_name
+        workspace_root, mode=PLAN_MODE, provider_name=provider_name, model_name=model_name
     )
 
 

@@ -7,6 +7,7 @@ import re
 import time
 from collections.abc import AsyncIterator
 
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.domain.domain import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
 from server.persistence.repositories import load_catalog
@@ -216,7 +217,7 @@ def _get_model_config(name: str, model_id: str) -> dict:
         for m in provider_entry.get("models", []):
             if m["id"] == model_id:
                 caps = m.get("model_capabilities", {})
-                ctx = m.get("context_window", 128000)
+                ctx = m.get("context_window", DEFAULT_CONTEXT_WINDOW)
                 return {
                     "context_window": ctx,
                     "max_output_tokens": m.get("max_output_tokens", min(ctx // 4, 32768)),
@@ -235,7 +236,7 @@ def _get_model_config(name: str, model_id: str) -> dict:
     except Exception:
         pass
     return {
-        "context_window": 128000,
+        "context_window": DEFAULT_CONTEXT_WINDOW,
         "max_output_tokens": 4096,
         "default_temperature": 0.7,
         "enable_thinking": False,

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.config.constants import BUILD_MODE
+
 from ..base import BaseTool, ToolResult
 
 
 class LspRenameTool(BaseTool):
     name = "lsp_rename"
     description = "Semantic rename of symbol via LSP"
-    requires_mode = "build"
+    requires_mode = BUILD_MODE
 
     @property
     def risk_level(self) -> str:

@@ -24,15 +24,7 @@ EXPECTED_LEGACY = {
 }
 
 
-def _sqlite_tables(db_path: str) -> set[str]:
-    if not Path(db_path).exists() or Path(db_path).stat().st_size == 0:
-        return set()
-    conn = sqlite3.connect(db_path)
-    try:
-        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        return {r[0] for r in rows}
-    finally:
-        conn.close()
+_sqlite_tables = runner._sqlite_tables
 
 
 def get_current_version(db_path: str) -> str | None:

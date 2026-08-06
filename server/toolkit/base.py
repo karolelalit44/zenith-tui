@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from server.config.constants import BUILD_MODE
+
 
 class ToolResult(BaseModel):
     success: bool
@@ -18,7 +20,7 @@ class ToolContext(BaseModel):
     request_id: str
     session_id: str | None = None
     workspace_root: str = ""
-    mode: str = "build"
+    mode: str = BUILD_MODE
     tool_name: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 

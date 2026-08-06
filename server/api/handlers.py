@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING
 from fastapi import WebSocket
 
 import server.providers.responder as r
-from server.config.constants import DEFAULT_BASH_TIMEOUT
-from server.domain.domain import SessionState
+from server.config.constants import BUILD_MODE, DEFAULT_BASH_TIMEOUT
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.persistence.connection import Database
@@ -117,11 +116,6 @@ class MethodHandlers:
             "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
             "confirmation.response": lambda: self._confirmation_response(params),
-            "permission.grant": lambda: self._permission_grant(ws, rid, params, session_id),
-            "permission.revoke": lambda: self._permission_revoke(ws, rid, params, session_id),
-            "permission.list": lambda: self._permission_list(ws, rid, params, session_id),
-            "plan.approve": lambda: self._plan_approve(ws, rid, session_id),
-            "plan.reject": lambda: self._plan_reject(ws, rid, session_id),
         }
         handler = handlers.get(method)
         if handler:
@@ -350,58 +344,46 @@ class MethodHandlers:
             )
         )
 
-    async def _prompt(self, ws, rid, params, session_id) -> str | None:
-        from ..agents.prompt_executor import PromptExecutor
+    @staticmethod
+    async def _validate_override_number(
+        ws,
+        rid,
+        raw,
+        *,
+        convert,
+        min_value,
+        max_value,
+        parse_error_msg,
+        range_error_msg,
+    ):
+        """Validate a numeric prompt override (temperature / max_tokens).
 
-        content = params.get("content", "") or params.get("prompt", "")
-        provider_name = params.get("provider", "") or self.config.active_provider
-        model_override = (params.get("model") or "").strip() or None
-        temperature = None
-        max_tokens = None
-        temperature_raw = params.get("temperature")
-        if temperature_raw is not None:
-            try:
-                temperature = float(temperature_raw)
-            except (TypeError, ValueError):
-                await ws.send_text(
-                    make_error_response(rid, -32602, "temperature must be a number in 0..2")
-                )
-                return session_id
-            if not 0 <= temperature <= 2:
-                await ws.send_text(make_error_response(rid, -32602, "temperature must be in 0..2"))
-                return session_id
-        max_tokens_raw = params.get("max_tokens")
-        if max_tokens_raw is not None:
-            try:
-                max_tokens = int(max_tokens_raw)
-            except (TypeError, ValueError):
-                await ws.send_text(
-                    make_error_response(rid, -32602, "max_tokens must be an integer >= 1")
-                )
-                return session_id
-            if max_tokens < 1:
-                await ws.send_text(
-                    make_error_response(rid, -32602, "max_tokens must be an integer >= 1")
-                )
-                return session_id
-        attachments = _normalize_attachments(params.get("attachments"))
-        logger.info(
-            "PROMPT.RECEIVED provider=%s mode=%s session=%s content_len=%d model=%s temperature=%s max_tokens=%s attachments=%d content_preview=%r",
-            provider_name,
-            params.get("mode", "build"),
-            session_id,
-            len(content),
-            model_override,
-            temperature,
-            max_tokens,
-            len(attachments),
-            content[:200],
-        )
+        Returns ``(value, ok)``; when ``raw`` is None returns ``(None, True)``.
+        On validation failure sends a JSON-RPC error and returns ``(None, False)``.
+        """
+        if raw is None:
+            return None, True
+        try:
+            value = convert(raw)
+        except (TypeError, ValueError):
+            await ws.send_text(make_error_response(rid, -32602, parse_error_msg))
+            return None, False
+        if not min_value <= value <= max_value:
+            await ws.send_text(make_error_response(rid, -32602, range_error_msg))
+            return None, False
+        return value, True
+
+    async def _ensure_prompt_session(self, ws, rid, params, session_id, content) -> str | None:
+        """Validate a prompt and resolve the session it should run against.
+
+        Returns the session id to use, or None when the prompt was rejected
+        (an error response has already been sent to the client).
+        """
         if not content.strip():
             await ws.send_text(make_error_response(rid, -32602, "Empty prompt"))
-            return session_id
+            return None
         if not session_id:
-            if params.get("mode") == "build":
+            if params.get("mode") == BUILD_MODE:
                 plan_session = await self.session_repo.find_latest_with_plan()
                 if plan_session:
                     session_id = plan_session.id
@@ -414,12 +396,10 @@ class MethodHandlers:
                 svc = self._resolve_service()
                 session = await svc.create(title=content[:50])
                 session_id = session.id
-        user_msg = Message(session_id=session_id, role="user", content=content)
-        if model_override:
-            user_msg.metadata["model"] = model_override
-        if attachments:
-            user_msg.metadata["attachment_paths"] = [a["path"] for a in attachments]
-        await self.message_repo.create(user_msg)
+        return session_id
+
+    async def _resolve_provider_for_prompt(self, ws, rid, provider_name):
+        """Resolve a provider, hot-reloading the config once if it is missing."""
         provider = self.registry.get(provider_name)
         if not provider:
             logger.warning(
@@ -438,21 +418,80 @@ class MethodHandlers:
                     f"Provider '{provider_name}' not available. Configured: {available}",
                 )
             )
+            return None
+        return provider
+
+    async def _persist_model_override(self, session_id, model_override) -> None:
+        try:
+            session = await self.session_repo.get(session_id)
+            if session:
+                session.model = model_override
+                session.metadata = dict(session.metadata or {})
+                session.metadata["last_model"] = model_override
+                await self.session_repo.update(session)
+        except Exception:
+            logger.warning("Failed to persist model override for session %s", session_id)
+
+    async def _prompt(self, ws, rid, params, session_id) -> str | None:
+        from ..agents.prompt_executor import PromptExecutor
+
+        content = params.get("content", "") or params.get("prompt", "")
+        provider_name = params.get("provider", "") or self.config.active_provider
+        model_override = (params.get("model") or "").strip() or None
+        temperature, ok = await self._validate_override_number(
+            ws,
+            rid,
+            params.get("temperature"),
+            convert=float,
+            min_value=0,
+            max_value=2,
+            parse_error_msg="temperature must be a number in 0..2",
+            range_error_msg="temperature must be in 0..2",
+        )
+        if not ok:
             return session_id
-        model = getattr(provider, "model", "?")
+        max_tokens, ok = await self._validate_override_number(
+            ws,
+            rid,
+            params.get("max_tokens"),
+            convert=int,
+            min_value=1,
+            max_value=1_000_000_000,
+            parse_error_msg="max_tokens must be an integer >= 1",
+            range_error_msg="max_tokens must be an integer >= 1",
+        )
+        if not ok:
+            return session_id
+        attachments = _normalize_attachments(params.get("attachments"))
+        logger.info(
+            "PROMPT.RECEIVED provider=%s mode=%s session=%s content_len=%d model=%s temperature=%s max_tokens=%s attachments=%d content_preview=%r",
+            provider_name,
+            params.get("mode", BUILD_MODE),
+            session_id,
+            len(content),
+            model_override,
+            temperature,
+            max_tokens,
+            len(attachments),
+            content[:200],
+        )
+        resolved_session = await self._ensure_prompt_session(ws, rid, params, session_id, content)
+        if resolved_session is None:
+            return session_id
+        session_id = resolved_session
+        user_msg = Message(session_id=session_id, role="user", content=content)
         if model_override:
-            model = model_override
+            user_msg.metadata["model"] = model_override
+        if attachments:
+            user_msg.metadata["attachment_paths"] = [a["path"] for a in attachments]
+        await self.message_repo.create(user_msg)
+        provider = await self._resolve_provider_for_prompt(ws, rid, provider_name)
+        if provider is None:
+            return session_id
+        model = model_override or getattr(provider, "model", "?")
         logger.info("PROMPT.RESOLVED provider=%s model=%s", provider_name, model)
         if model_override:
-            try:
-                session = await self.session_repo.get(session_id)
-                if session:
-                    session.model = model_override
-                    session.metadata = dict(session.metadata or {})
-                    session.metadata["last_model"] = model_override
-                    await self.session_repo.update(session)
-            except Exception:
-                logger.warning("Failed to persist model override for session %s", session_id)
+            await self._persist_model_override(session_id, model_override)
         await ws.send_text(make_response(rid, {"session_id": session_id, "status": "processing"}))
         try:
             executor = self._session_executors.get(session_id)
@@ -470,7 +509,7 @@ class MethodHandlers:
             executor.run(
                 session_id,
                 content,
-                mode=params.get("mode", "build"),
+                mode=params.get("mode", BUILD_MODE),
                 handlers=self,
                 manager=self.manager,
                 model_override=model_override,
@@ -564,7 +603,7 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"models": models}))
 
     async def _tools_list(self, ws, rid, params) -> None:
-        schemas = self.tool_registry.get_schemas_for_mode(params.get("mode", "build"))
+        schemas = self.tool_registry.get_schemas_for_mode(params.get("mode", BUILD_MODE))
         await ws.send_text(make_response(rid, {"tools": schemas}))
 
     async def _workspace_status(self, ws, rid) -> None:
@@ -605,126 +644,6 @@ class MethodHandlers:
         future = self._pending_confirmations.pop(confirmation_id, None)
         if future and (not future.done()):
             future.set_result(params.get("approved", False))
-
-    async def _permission_grant(self, ws, rid, params, session_id: str | None) -> None:
-        from server.domain.domain import PermissionDecision
-
-        tool_name = params.get("tool", "")
-        decision = params.get("decision", "allow")
-        persistent = bool(params.get("persistent", True))
-        if not tool_name or decision not in ("allow", "deny"):
-            await ws.send_text(
-                make_error_response(rid, -32602, "tool and decision (allow|deny) are required")
-            )
-            return
-        svc = self._resolve_permission_service()
-        if svc is None:
-            await ws.send_text(make_error_response(rid, -32603, "Permission service not wired"))
-            return
-        target_session = session_id if not persistent else None
-        await svc.grant_persistent(tool_name, PermissionDecision(decision), target_session)
-        await ws.send_text(
-            make_response(rid, {"status": "granted", "tool": tool_name, "decision": decision})
-        )
-
-    async def _permission_revoke(self, ws, rid, params, session_id: str | None) -> None:
-        tool_name = params.get("tool", "")
-        if not tool_name:
-            await ws.send_text(make_error_response(rid, -32602, "tool is required"))
-            return
-        svc = self._resolve_permission_service()
-        if svc is None:
-            await ws.send_text(make_error_response(rid, -32603, "Permission service not wired"))
-            return
-        await svc.revoke_persistent(tool_name, None)
-        await ws.send_text(make_response(rid, {"status": "revoked", "tool": tool_name}))
-
-    async def _permission_list(self, ws, rid, params, session_id: str | None) -> None:
-        svc = self._resolve_permission_service()
-        if svc is None:
-            await ws.send_text(make_error_response(rid, -32603, "Permission service not wired"))
-            return
-        await svc.refresh()
-        grants = svc.get_grants(session_id or "")
-        await ws.send_text(
-            make_response(
-                rid,
-                {
-                    "grants": [
-                        {
-                            "tool": g.tool_name,
-                            "decision": g.decision.value
-                            if hasattr(g.decision, "value")
-                            else str(g.decision),
-                            "session_id": g.session_id,
-                            "created_at": g.created_at.isoformat(),
-                        }
-                        for g in grants
-                    ]
-                },
-            )
-        )
-
-    def _resolve_permission_service(self):
-        service = getattr(self, "_permission_service", None)
-        if service is not None:
-            return service
-        return None
-
-    async def _plan_approve(self, ws, rid, session_id: str | None) -> None:
-        if not session_id:
-            await ws.send_text(make_error_response(rid, -32602, "No active session"))
-            return
-        session = await self.session_repo.get(session_id)
-        if not session:
-            await ws.send_text(make_error_response(rid, -32602, "Session not found"))
-            return
-        if not session.plan_output:
-            await ws.send_text(make_error_response(rid, -32602, "No plan to approve"))
-            return
-        from datetime import datetime
-
-        session.plan_approved_at = datetime.now()
-        session.state = SessionState.ACTIVE
-        await self.session_repo.update(session)
-        svc = self._resolve_service()
-        if svc._status_history_repo:
-            state_name = (
-                SessionState.ACTIVE.value
-                if hasattr(SessionState.ACTIVE, "value")
-                else str(SessionState.ACTIVE)
-            )
-            await svc._status_history_repo.record(
-                session_id, session.state, state_name, "Plan approved"
-            )
-        logger.info("Plan approved for session %s", session_id)
-        await ws.send_text(make_response(rid, {"status": "approved"}))
-
-    async def _plan_reject(self, ws, rid, session_id: str | None) -> None:
-        if not session_id:
-            await ws.send_text(make_error_response(rid, -32602, "No active session"))
-            return
-        session = await self.session_repo.get(session_id)
-        if not session:
-            await ws.send_text(make_error_response(rid, -32602, "Session not found"))
-            return
-        if not session.plan_output:
-            await ws.send_text(make_error_response(rid, -32602, "No plan to reject"))
-            return
-        session.plan_output = ""
-        session.plan_approved_at = None
-        session.state = SessionState.ACTIVE
-        await self.session_repo.update(session)
-        svc = self._resolve_service()
-        if svc._status_history_repo:
-            state_name = (
-                SessionState.ACTIVE.value
-                if hasattr(SessionState.ACTIVE, "value")
-                else str(SessionState.ACTIVE)
-            )
-            await svc._status_history_repo.record(session_id, "", state_name, "Plan rejected")
-        logger.info("Plan rejected for session %s", session_id)
-        await ws.send_text(make_response(rid, {"status": "rejected"}))
 
     async def request_confirmation(
         self, session_id: str, tool_name: str, reason: str, risk_level: str, manager

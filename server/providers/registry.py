@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.config.providers import ProviderConfig
 from server.domain.errors import ConfigError
 from server.persistence.repositories import load_catalog
@@ -32,7 +33,7 @@ def _model_supports_thinking(provider_name: str, model_id: str) -> bool:
 
 def _resolve_model_defaults(provider_name: str, model_id: str) -> dict[str, float | int]:
     info = _get_model_info(provider_name, model_id)
-    ctx = info.get("context_window", 128000)
+    ctx = info.get("context_window", DEFAULT_CONTEXT_WINDOW)
     max_tokens = info.get("max_output_tokens")
     if max_tokens is None:
         max_tokens = max(4096, min(ctx // 2, 32768))

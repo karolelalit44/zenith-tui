@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from server.config.constants import BUILD_MODE
+
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -12,7 +14,7 @@ logger = logging.getLogger(__name__)
 class MultiEditTool(BaseTool):
     name = "multi_edit"
     description = "Apply multiple edits to a single file"
-    requires_mode = "build"
+    requires_mode = BUILD_MODE
 
     def get_schema(self) -> dict:
         return {

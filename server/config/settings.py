@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator
 
+from .constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
 from .env import optional_env, optional_float, optional_int
 from .providers import ProviderConfig
 
@@ -33,7 +34,7 @@ class AgentModeConfig:
 
 CORE_PLAN_TOOLS = ["file_read", "glob", "grep", "bash"]
 PLAN_MODE_CONFIG = AgentModeConfig(
-    name="plan",
+    name=PLAN_MODE,
     allowed_tools=CORE_PLAN_TOOLS,
     allowed_mcp={},
     description="Read-only analysis and planning with core tools and dynamic escalation.",
@@ -41,14 +42,14 @@ PLAN_MODE_CONFIG = AgentModeConfig(
 )
 CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep"]
 BUILD_MODE_CONFIG = AgentModeConfig(
-    name="build",
+    name=BUILD_MODE,
     allowed_tools=CORE_BUILD_TOOLS,
     allowed_mcp=None,
     description="Full execution with core tools and dynamic schema escalation.",
     sub_agent=True,
     tool_choice="auto",
 )
-AGENT_MODES: dict[str, AgentModeConfig] = {"plan": PLAN_MODE_CONFIG, "build": BUILD_MODE_CONFIG}
+AGENT_MODES: dict[str, AgentModeConfig] = {PLAN_MODE: PLAN_MODE_CONFIG, BUILD_MODE: BUILD_MODE_CONFIG}
 
 
 class ToolConfig(BaseModel):
@@ -88,7 +89,7 @@ class BootstrapDefaults(BaseModel):
     db_path: str = optional_env("ZENITH_DB_PATH", "data/zenith.db")
     log_level: str = optional_env("ZENITH_LOG_LEVEL", "INFO")
     max_context_tokens: int = Field(
-        default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", 128000), ge=1000
+        default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", DEFAULT_CONTEXT_WINDOW), ge=1000
     )
     summary_threshold: float = Field(
         default=optional_float("ZENITH_SUMMARY_THRESHOLD", 0.8), ge=0.1, le=1.0

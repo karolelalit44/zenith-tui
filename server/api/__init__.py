@@ -8,8 +8,8 @@ from .protocol import (
     JsonRpcResponse,
     TransportService,
     make_error_response,
-    make_event,
     make_response,
+    serialize_event,
 )
 from .server import create_app
 from .websocket import ConnectionManager, ZenithHandler
@@ -33,6 +33,6 @@ __all__ = [
     "ZenithHandler",
     "create_app",
     "make_error_response",
-    "make_event",
     "make_response",
+    "serialize_event",
 ]

@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from server.api import validation_state
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.api.schemas import (
     ProviderModelInfo,
     ValidationError,
@@ -93,7 +94,7 @@ def _map_models(raw: Any) -> list[ProviderModelInfo]:
                 id=mid,
                 name=str(item.get("name") or mid),
                 context_window=int(
-                    item.get("context_window") or item.get("context_length") or 128000
+                    item.get("context_window") or item.get("context_length") or DEFAULT_CONTEXT_WINDOW
                 ),
                 description=str(item.get("description") or ""),
                 is_default=bool(item.get("is_default", False)),
@@ -127,7 +128,7 @@ def _resolve_config(
         models = entry.get("models", [])
         for m in models:
             if m.get("id") == resolved_model:
-                ctx = m.get("context_window", 128000)
+                ctx = m.get("context_window", DEFAULT_CONTEXT_WINDOW)
                 if max_tokens is None:
                     max_tokens = m.get("max_output_tokens", max(4096, min(ctx // 2, 32768)))
                 if temperature is None:

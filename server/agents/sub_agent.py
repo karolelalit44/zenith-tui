@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable
 
+from server.config.constants import BUILD_MODE
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
@@ -42,7 +43,7 @@ class SubAgentLoop:
             sub_prompt = f"Implement this plan:\n\n{plan_output}\n\nUser request: {user_prompt}"
         else:
             sub_prompt = f"Implement this plan:\n\n{plan_output}"
-        mode_config = AGENT_MODES.get("build")
+        mode_config = AGENT_MODES.get(BUILD_MODE)
         model_override = (
             mode_config.model_override if mode_config and mode_config.model_override else None
         )
@@ -52,7 +53,7 @@ class SubAgentLoop:
             prompt=sub_prompt,
             session_id=child_session_id,
             history=[],
-            mode="build",
+            mode=BUILD_MODE,
             confirm_callback=confirm_callback,
             plan_context="",
             model_override=model_override,

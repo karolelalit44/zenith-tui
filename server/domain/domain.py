@@ -1,9 +1,11 @@
 from enum import Enum, StrEnum
 
+from server.config.constants import BUILD_MODE, PLAN_MODE
+
 
 class ScenarioMode(StrEnum):
-    BUILD = "build"
-    PLAN = "plan"
+    BUILD = BUILD_MODE
+    PLAN = PLAN_MODE
 
 
 class RiskLevel(StrEnum):

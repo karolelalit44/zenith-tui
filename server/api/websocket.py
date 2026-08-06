@@ -15,7 +15,7 @@ from server.toolkit.middleware import PermissionMiddleware
 from server.toolkit.registry import ToolRegistry
 
 from .handlers import MethodHandlers
-from .protocol import Connection, JsonRpcRequest, TransportService, make_error_response, make_event
+from .protocol import Connection, JsonRpcRequest, TransportService, make_error_response, serialize_event
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class ConnectionManager(TransportService):
     async def send_event(self, session_id: str, event: Event) -> None:
         seq = self.next_sequence(session_id)
         event.metadata["sequence"] = seq
-        payload = make_event(event)
+        payload = serialize_event(event)
         buf = self.event_buffers.setdefault(session_id, [])
         buf.append(payload)
         if len(buf) > self.max_buffered_events:

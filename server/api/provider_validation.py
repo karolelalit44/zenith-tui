@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from server.api import validation_state
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.persistence.connection import resolve_db_path
 from server.persistence.provider_config_repo import (
     read_provider_config_full,
@@ -67,7 +68,7 @@ def build_provider_info(
                 models[m["id"]] = ProviderModelInfo(
                     id=m["id"],
                     name=m.get("name") or m["id"],
-                    context_window=m.get("context_window") or 128000,
+                    context_window=m.get("context_window") or DEFAULT_CONTEXT_WINDOW,
                     description=m.get("description") or "",
                     is_default=bool(m.get("is_default")),
                     parameters=m.get("parameters"),
@@ -89,7 +90,7 @@ def build_provider_info(
         models[mid] = ProviderModelInfo(
             id=mid,
             name=m.get("name") or mid,
-            context_window=m.get("context_window") or 128000,
+            context_window=m.get("context_window") or DEFAULT_CONTEXT_WINDOW,
             description=m.get("description") or "",
             is_default=bool(m.get("is_default")),
             parameters=m.get("parameters"),
@@ -182,7 +183,7 @@ def set_provider_model(
             {
                 "id": model,
                 "name": model,
-                "context_window": 128000,
+                "context_window": DEFAULT_CONTEXT_WINDOW,
                 "description": "",
                 "is_default": False,
             }

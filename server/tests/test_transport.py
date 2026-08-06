@@ -1,4 +1,4 @@
-from server.api.protocol import JsonRpcRequest, make_error_response, make_event, make_response
+from server.api.protocol import JsonRpcRequest, make_error_response, make_response, serialize_event
 from server.domain.events import Event, EventKind
 
 
@@ -20,15 +20,15 @@ def test_make_error_response():
     assert "Method not found" in resp
 
 
-def test_make_event():
+def test_serialize_event():
     event = Event(kind=EventKind.MESSAGE, data={"text": "hi"})
-    msg = make_event(event)
+    msg = serialize_event(event)
     assert '"event"' in msg
     assert "thinking" not in msg
 
 
-def test_make_event_with_all_kinds():
+def test_serialize_event_with_all_kinds():
     for ek in EventKind:
         event = Event(kind=ek)
-        msg = make_event(event)
+        msg = serialize_event(event)
         assert ek.value in msg

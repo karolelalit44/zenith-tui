@@ -6,8 +6,8 @@ from server.api.protocol import (
     JsonRpcResponse,
     TransportService,
     make_error_response,
-    make_event,
     make_response,
+    serialize_event,
 )
 from server.api.websocket import ConnectionManager
 from server.domain.events import Event, EventKind
@@ -47,9 +47,9 @@ class TestSerialization:
         assert '"error"' in s
         assert "Method not found" in s
 
-    def test_make_event(self):
+    def test_serialize_event(self):
         event = Event(kind=EventKind.MESSAGE, data={"text": "hi"})
-        s = make_event(event)
+        s = serialize_event(event)
         assert '"event"' in s
         assert "message" in s
 

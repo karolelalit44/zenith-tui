@@ -3,6 +3,8 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Any
 
+from server.config.constants import BUILD_MODE
+
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
@@ -42,7 +44,7 @@ def _fuzzy_find(content: str, old: str) -> tuple[str, float] | None:
 class FileEditTool(BaseTool):
     name = "file_edit"
     description = "Edit file via search-replace"
-    requires_mode = "build"
+    requires_mode = BUILD_MODE
 
     def get_schema(self) -> dict:
         return {

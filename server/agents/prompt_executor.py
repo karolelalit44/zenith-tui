@@ -10,6 +10,7 @@ import server.providers.responder as r
 from server.agents.context import ContextManager
 from server.agents.recovery import RecoverableAgentLoop
 from server.agents.sub_agent import SubAgentLoop
+from server.config.constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
 from server.config.settings import AGENT_MODES
 from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
@@ -88,7 +89,7 @@ class PromptExecutor:
         self,
         session_id: str,
         content: str,
-        mode: str = "build",
+        mode: str = BUILD_MODE,
         handlers: MethodHandlers | None = None,
         manager=None,
         model_override: str | None = None,
@@ -170,6 +171,120 @@ class PromptExecutor:
         )
         return injected
 
+    async def _load_plan_context(self, session_id: str, mode: str) -> tuple[str, bool, str | None]:
+        """Load plan output, approval state and plan model override for a session.
+
+        Returns ``(plan_context, plan_approved, plan_model_override)``.
+        """
+        plan_context = ""
+        plan_approved = False
+        if mode == BUILD_MODE:
+            try:
+                session = await self._session_repo.get(session_id)
+                if session and session.plan_output:
+                    plan_context = session.plan_output
+                    plan_approved = session.plan_approved_at is not None
+                    logger.info(
+                        "Plan context loaded: %d chars for build session %s (approved=%s)",
+                        len(plan_context),
+                        session_id,
+                        plan_approved,
+                    )
+            except Exception:
+                logger.warning("Failed to load plan context for session %s", session_id)
+        plan_model_override: str | None = None
+        if mode == PLAN_MODE and self._config.plan_model:
+            plan_model_override = self._config.plan_model
+            logger.info("Plan mode model override: %s", plan_model_override)
+        return plan_context, plan_approved, plan_model_override
+
+    async def _maybe_emit_plan_ready(
+        self,
+        session_id: str,
+        mode: str,
+        content: str,
+        plan_context: str,
+        plan_approved: bool,
+        manager,
+        collected_events: list[Event],
+    ) -> int:
+        """Emit PLAN_READY / pending-approval warnings when a build is gated.
+
+        Returns the number of step events recorded (0 or 1) so the caller can
+        keep its step counter in sync.
+        """
+        if (
+            mode == BUILD_MODE
+            and plan_context
+            and (not plan_approved)
+            and (not self._config.auto_approve_plan)
+            and (not (content and content.strip()))
+        ):
+            logger.info("Plan not yet approved — emitting PLAN_READY for session %s", session_id)
+            plan_ready_event = Event(
+                kind=EventKind.PLAN_READY,
+                data={"plan": plan_context, "session_id": session_id},
+                session_id=session_id,
+            )
+            if manager:
+                await manager.send_event(session_id, plan_ready_event)
+            collected_events.append(plan_ready_event)
+            logger.info("Plan not approved — waiting for approval before build")
+            warning_event = r.warning(
+                "Plan is pending approval. Approve in the UI or use plan.approve to continue.",
+                session_id,
+            )
+            if manager:
+                await manager.send_event(session_id, warning_event)
+            collected_events.append(warning_event)
+            return 1
+        return 0
+
+    async def _persist_plan_output(self, session_id: str, response_text: str) -> None:
+        """Persist the generated plan output back onto the session."""
+        try:
+            session = await self._session_repo.get(session_id)
+            if session:
+                session.plan_output = response_text
+                if self._config.auto_approve_plan:
+                    session.plan_approved_at = datetime.now()
+                else:
+                    session.plan_approved_at = None
+                session.state = SessionState.SUMMARIZED
+                await self._session_repo.update(session)
+                logger.info(
+                    "Plan output saved to session %s: %d chars (auto_approve=%s)",
+                    session_id,
+                    len(response_text),
+                    self._config.auto_approve_plan,
+                )
+        except Exception:
+            logger.warning("Failed to save plan output for session %s", session_id)
+
+    async def _persist_assistant_message(
+        self, session_id: str, response_text: str, collected_events: list[Event]
+    ) -> None:
+        """Persist the assistant message produced by an execution."""
+        try:
+            if collected_events or response_text:
+                text_content = response_text or "[Cancelled by user]"
+                assistant_msg = Message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=text_content,
+                    events=collected_events,
+                )
+                await self._message_repo.create(assistant_msg)
+                logger.info(
+                    "Assistant message persisted: %d events, %d chars",
+                    len(collected_events),
+                    len(text_content),
+                )
+            else:
+                logger.info("Skipping empty assistant message (no events or text)")
+        except Exception:
+            logger.exception("Failed to persist assistant message for session %s", session_id)
+
     async def _execute(
         self,
         session_id: str,
@@ -195,53 +310,19 @@ class PromptExecutor:
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
-            plan_context = ""
-            plan_approved = False
-            if mode == "build":
-                try:
-                    session = await self._session_repo.get(session_id)
-                    if session and session.plan_output:
-                        plan_context = session.plan_output
-                        plan_approved = session.plan_approved_at is not None
-                        logger.info(
-                            "Plan context loaded: %d chars for build session %s (approved=%s)",
-                            len(plan_context),
-                            session_id,
-                            plan_approved,
-                        )
-                except Exception:
-                    logger.warning("Failed to load plan context for session %s", session_id)
-            plan_model_override: str | None = None
-            if mode == "plan" and self._config.plan_model:
-                plan_model_override = self._config.plan_model
-                logger.info("Plan mode model override: %s", plan_model_override)
-            if (
-                mode == "build"
-                and plan_context
-                and (not plan_approved)
-                and (not self._config.auto_approve_plan)
-                and (not (content and content.strip()))
+            plan_context, plan_approved, plan_model_override = await self._load_plan_context(
+                session_id, mode
+            )
+            if await self._maybe_emit_plan_ready(
+                session_id,
+                mode,
+                content,
+                plan_context,
+                plan_approved,
+                manager,
+                collected_events,
             ):
-                logger.info(
-                    "Plan not yet approved — emitting PLAN_READY for session %s", session_id
-                )
-                plan_ready_event = Event(
-                    kind=EventKind.PLAN_READY,
-                    data={"plan": plan_context, "session_id": session_id},
-                    session_id=session_id,
-                )
-                if manager:
-                    await manager.send_event(session_id, plan_ready_event)
-                collected_events.append(plan_ready_event)
-                logger.info("Plan not approved — waiting for approval before build")
                 _step_count += 1
-                warning_event = r.warning(
-                    "Plan is pending approval. Approve in the UI or use plan.approve to continue.",
-                    session_id,
-                )
-                if manager:
-                    await manager.send_event(session_id, warning_event)
-                collected_events.append(warning_event)
                 return
             _original_model = getattr(self._provider, "model", None)
             _original_temperature = getattr(self._provider, "temperature", None)
@@ -276,7 +357,7 @@ class PromptExecutor:
 
             mode_config = AGENT_MODES.get(mode)
             if (
-                mode == "build"
+                mode == BUILD_MODE
                 and plan_context
                 and plan_approved
                 and mode_config
@@ -339,7 +420,7 @@ class PromptExecutor:
                 confirm_callback=_confirm,
                 plan_context=plan_context,
                 model_override=None,
-                repo_map="" if mode == "plan" else None,
+                repo_map="" if mode == PLAN_MODE else None,
             ):
                 event_count += 1
                 collected_events.append(event)
@@ -401,7 +482,7 @@ class PromptExecutor:
                             completion_t = ti.get("completion_tokens", 0)
                             cache_read_t = ti.get("cached_tokens", 0)
                             cache_creation_t = ti.get("cache_creation_tokens", 0)
-                            ctx_window = ti.get("total", 128000)
+                            ctx_window = ti.get("total", DEFAULT_CONTEXT_WINDOW)
                             estimated = bool(ti.get("estimated", False))
                             if _step_count > 0:
                                 for s in range(1, _step_count + 1):
@@ -474,25 +555,8 @@ class PromptExecutor:
                     await manager.send_event(session_id, event)
                 if event.kind == EventKind.MESSAGE and (not event.data.get("partial")):
                     response_text += event.data.get("text", "")
-            if mode == "plan" and response_text:
-                try:
-                    session = await self._session_repo.get(session_id)
-                    if session:
-                        session.plan_output = response_text
-                        if self._config.auto_approve_plan:
-                            session.plan_approved_at = datetime.now()
-                        else:
-                            session.plan_approved_at = None
-                        session.state = SessionState.SUMMARIZED
-                        await self._session_repo.update(session)
-                        logger.info(
-                            "Plan output saved to session %s: %d chars (auto_approve=%s)",
-                            session_id,
-                            len(response_text),
-                            self._config.auto_approve_plan,
-                        )
-                except Exception:
-                    logger.warning("Failed to save plan output for session %s", session_id)
+            if mode == PLAN_MODE and response_text:
+                await self._persist_plan_output(session_id, response_text)
             logger.info("=" * 60)
             logger.info(
                 "_execute COMPLETE: events=%d response_text_len=%d", event_count, len(response_text)
@@ -516,22 +580,4 @@ class PromptExecutor:
                 self._provider.temperature = _original_temperature
             if _original_max_tokens is not None:
                 self._provider.max_tokens = _original_max_tokens
-        try:
-            if collected_events or response_text:
-                text_content = response_text or "[Cancelled by user]"
-                assistant_msg = Message(
-                    session_id=session_id,
-                    role="assistant",
-                    content=text_content,
-                    events=collected_events,
-                )
-                await self._message_repo.create(assistant_msg)
-                logger.info(
-                    "Assistant message persisted: %d events, %d chars",
-                    len(collected_events),
-                    len(text_content),
-                )
-            else:
-                logger.info("Skipping empty assistant message (no events or text)")
-        except Exception:
-            logger.exception("Failed to persist assistant message for session %s", session_id)
+        await self._persist_assistant_message(session_id, response_text, collected_events)

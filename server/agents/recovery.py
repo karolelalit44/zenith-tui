@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable
 
+from server.config.constants import BUILD_MODE
 from server.config.settings import AppSettings
 from server.domain.errors import ProviderError, ZenithError
 from server.domain.events import Event, EventKind
@@ -45,7 +46,7 @@ class RecoverableAgentLoop:
         prompt: str,
         session_id: str,
         history: list[Message],
-        mode: str = "build",
+        mode: str = BUILD_MODE,
         skills_section: str = "",
         confirm_callback: Callable | None = None,
         plan_context: str = "",

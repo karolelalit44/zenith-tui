@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from server.config.constants import CONTEXT_SUMMARY_THRESHOLD
+from server.config.constants import CONTEXT_SUMMARY_THRESHOLD, DEFAULT_CONTEXT_WINDOW
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.persistence.repositories import load_catalog
@@ -18,7 +18,7 @@ def _prompt_buffer(system_prompt: str) -> int:
     return min(estimated, 2000)
 
 
-def _get_model_context_window(model: str, fallback: int = 128000) -> int:
+def _get_model_context_window(model: str, fallback: int = DEFAULT_CONTEXT_WINDOW) -> int:
     try:
         cat = load_catalog()
         for prov in cat.get("providers", {}).values():

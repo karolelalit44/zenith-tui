@@ -4,6 +4,7 @@ import json
 import logging
 import time as _time
 
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.agents.validation import (
     check_python_syntax,
     detect_interactive_command,
@@ -36,7 +37,7 @@ def _dynamic_max_output(context_window: int | None = None) -> int:
         return 50000
     if context_window >= 200000:
         return 25000
-    if context_window >= 128000:
+    if context_window >= DEFAULT_CONTEXT_WINDOW:
         return 15000
     return 10000
 

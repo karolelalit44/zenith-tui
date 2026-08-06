@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
+
 
 class StartupStatus(str, Enum):
     READY = "ready"
@@ -32,7 +34,7 @@ class StartupResult(BaseModel):
 class ProviderModelInfo(BaseModel):
     id: str
     name: str
-    context_window: int = 128000
+    context_window: int = DEFAULT_CONTEXT_WINDOW
     description: str = ""
     is_default: bool = False
     status: str = "active"
