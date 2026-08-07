@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from server.config.constants import DEFAULT_CONTEXT_WINDOW
+
 from ..connection import resolve_db_path
 
 _logger = logging.getLogger(__name__)

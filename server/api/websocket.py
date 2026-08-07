@@ -15,7 +15,13 @@ from server.toolkit.middleware import PermissionMiddleware
 from server.toolkit.registry import ToolRegistry
 
 from .handlers import MethodHandlers
-from .protocol import Connection, JsonRpcRequest, TransportService, make_error_response, serialize_event
+from .protocol import (
+    Connection,
+    JsonRpcRequest,
+    TransportService,
+    make_error_response,
+    serialize_event,
+)
 
 logger = logging.getLogger(__name__)
 

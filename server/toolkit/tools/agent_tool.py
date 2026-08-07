@@ -3,6 +3,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_SUBAGENT,
+    COST_CLASS_HIGH,
+    LATENCY_CLASS_HIGH,
+    PERMISSION_SUBAGENT,
+    RISK_MEDIUM,
+    TOOL_DOMAIN_SUBAGENT,
+)
+
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -11,10 +20,21 @@ logger = logging.getLogger(__name__)
 class SubAgentTool(BaseTool):
     name = "agent"
     description = "Delegate sub-task to separate agent"
-
-    @property
-    def risk_level(self) -> str:
-        return "low"
+    capability_id = "sub_agent"
+    read_only = False
+    concurrency_group = CONCURRENCY_GROUP_SUBAGENT
+    permission_scope = PERMISSION_SUBAGENT
+    domains = (TOOL_DOMAIN_SUBAGENT,)
+    search_terms = (
+        "delegate",
+        "subagent",
+        "sub-agent",
+        "separate agent",
+        "parallel agent",
+    )
+    risk_level = RISK_MEDIUM
+    cost_class = COST_CLASS_HIGH
+    latency_class = LATENCY_CLASS_HIGH
 
     def __init__(self, provider: Any | None = None) -> None:
         self._provider = provider

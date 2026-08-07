@@ -16,7 +16,6 @@ from pathlib import Path
 
 from server.agents.context import ContextManager, _get_repo_map_instance
 from server.config.settings import AppSettings
-from server.providers.token_counter import TokenCounter
 
 # The optimization target: repeat turns must be far below this.
 FIRST_SLOW_MS = 5000
@@ -37,7 +36,6 @@ def _config(root: str) -> AppSettings:
 
 def main() -> int:
     root = r"D:\vdo\code\zenith-frontend-tui"
-    tc = TokenCounter()
     model = "gpt-4o"
 
     cm = ContextManager(_config(root))
@@ -61,7 +59,9 @@ def main() -> int:
     print(f"  files enumerated:        {file_count}")
     print(f"  summary:                 {summary}")
     print(f"  first-build map tokens:  {map_tokens}   (baseline was {BASELINE_TOKENS})")
-    print(f"  first build:             {first_s * 1000:8.1f} ms  (baseline was {BASELINE_SECONDS * 1000:.0f} ms)")
+    print(
+        f"  first build:             {first_s * 1000:8.1f} ms  (baseline was {BASELINE_SECONDS * 1000:.0f} ms)"
+    )
     print(f"  repeat turn (cached):    {repeat_s * 1000:8.2f} ms")
     print(f"  total prompt tokens:     {cm.token_counter.count_messages(messages, model)}")
 

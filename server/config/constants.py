@@ -9,3 +9,65 @@ CONTEXT_SUMMARY_THRESHOLD = 0.85
 DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
 PLAN_MODE = "plan"
+
+# Tool metadata bounds
+MAX_TOOL_NAME_LENGTH = 64
+MAX_TOOL_DESCRIPTION_LENGTH = 400
+MAX_CAPABILITY_DESCRIPTION_LENGTH = 120
+MAX_CAPABILITY_SEARCH_TERMS = 12
+
+# Default tool timeouts (milliseconds)
+DEFAULT_TOOL_TIMEOUT_MS = 30_000
+DEFAULT_BASH_TIMEOUT_MS = 60_000
+
+# Tool risk levels
+RISK_SAFE = "safe"
+RISK_LOW = "low"
+RISK_MEDIUM = "medium"
+RISK_HIGH = "high"
+
+# Tool permission scopes
+PERMISSION_READ = "read"
+PERMISSION_WRITE = "write"
+PERMISSION_DELETE = "delete"
+PERMISSION_COMMAND = "command"
+PERMISSION_NETWORK = "network"
+PERMISSION_MCP = "mcp"
+PERMISSION_SUBAGENT = "sub_agent"
+PERMISSION_INTERACTION = "interaction"
+
+# Tool concurrency groups
+CONCURRENCY_GROUP_READONLY = "read_only"
+CONCURRENCY_GROUP_WORKSPACE_MUTATION = "workspace_mutation"
+CONCURRENCY_GROUP_SHELL = "shell"
+CONCURRENCY_GROUP_LSP = "lsp"
+CONCURRENCY_GROUP_MCP = "mcp"
+CONCURRENCY_GROUP_SUBAGENT = "sub_agent"
+
+# Tool cost/latency classes
+COST_CLASS_LOW = "low"
+COST_CLASS_MEDIUM = "medium"
+COST_CLASS_HIGH = "high"
+LATENCY_CLASS_LOW = "low"
+LATENCY_CLASS_MEDIUM = "medium"
+LATENCY_CLASS_HIGH = "high"
+
+# Tool capability domains
+TOOL_DOMAIN_WORKSPACE_DISCOVERY = "workspace_discovery"
+TOOL_DOMAIN_READ = "read"
+TOOL_DOMAIN_EDIT = "edit"
+TOOL_DOMAIN_EXECUTION = "execution"
+TOOL_DOMAIN_VCS = "vcs"
+TOOL_DOMAIN_WEB_MCP = "web_mcp"
+TOOL_DOMAIN_TASK = "task"
+TOOL_DOMAIN_SUBAGENT = "sub_agent"
+TOOL_DOMAIN_DISCOVERY = "discovery"
+
+# Tool discovery (on-demand / lazy schema loading)
+CAPABILITY_TOOL_DISCOVERY = "tool_discovery"
+DISCOVER_CAPABILITIES_TOOL = "discover_capabilities"
+GET_TOOL_DEFINITION_TOOL = "get_tool_definition"
+MAX_ACTIVE_TOOLS_PER_TURN = 8
+
+# Schema-token benchmark
+DEFAULT_TOKENIZER_MODEL = "cl100k_base"

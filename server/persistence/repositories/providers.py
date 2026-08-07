@@ -8,10 +8,10 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from server.config.constants import DEFAULT_CONTEXT_WINDOW
 
-from .base import _seed_providers_from_catalog, load_catalog
 from ..connection import Database
 from ..models import ProviderModelRecord, ProviderRecord
 from ..safe import safe_db
+from .base import _seed_providers_from_catalog, load_catalog
 
 
 class ProviderRepositoryDB:

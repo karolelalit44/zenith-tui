@@ -49,7 +49,10 @@ BUILD_MODE_CONFIG = AgentModeConfig(
     sub_agent=True,
     tool_choice="auto",
 )
-AGENT_MODES: dict[str, AgentModeConfig] = {PLAN_MODE: PLAN_MODE_CONFIG, BUILD_MODE: BUILD_MODE_CONFIG}
+AGENT_MODES: dict[str, AgentModeConfig] = {
+    PLAN_MODE: PLAN_MODE_CONFIG,
+    BUILD_MODE: BUILD_MODE_CONFIG,
+}
 
 
 class ToolConfig(BaseModel):

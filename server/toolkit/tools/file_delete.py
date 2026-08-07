@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from server.config.constants import BUILD_MODE
+from server.config.constants import (
+    BUILD_MODE,
+    CONCURRENCY_GROUP_WORKSPACE_MUTATION,
+    PERMISSION_DELETE,
+    RISK_MEDIUM,
+    TOOL_DOMAIN_EDIT,
+)
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -12,10 +18,18 @@ class FileDeleteTool(BaseTool):
     name = "file_delete"
     description = "Delete file"
     requires_mode = BUILD_MODE
-
-    @property
-    def risk_level(self) -> str:
-        return "medium"
+    capability_id = "file_delete"
+    read_only = False
+    concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
+    permission_scope = PERMISSION_DELETE
+    domains = (TOOL_DOMAIN_EDIT,)
+    search_terms = (
+        "delete",
+        "remove",
+        "unlink",
+        "clean up",
+    )
+    risk_level = RISK_MEDIUM
 
     def get_schema(self) -> dict:
         return {

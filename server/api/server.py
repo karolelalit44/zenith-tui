@@ -98,6 +98,13 @@ async def _do_startup() -> None:
             )
             if _mcp_manager.errors:
                 logger.warning("MCP servers with errors: %s", _mcp_manager.errors)
+        from server.toolkit.registry_validation import validate_registry
+
+        validation_errors = validate_registry(tool_registry)
+        if validation_errors:
+            logger.error("Tool registry validation failed at startup:")
+            for error in validation_errors:
+                logger.error("  %s", error)
         try:
             from server.lsp.manager import LspManager, set_lsp_manager
 

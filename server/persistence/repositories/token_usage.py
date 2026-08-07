@@ -6,7 +6,6 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from .base import load_catalog
 from ..connection import Database
 from ..models import (
     BudgetSettingsRecord,
@@ -15,6 +14,7 @@ from ..models import (
     TokenUsageRecord,
 )
 from ..safe import safe_db
+from .base import load_catalog
 
 
 class TokenUsageRepository:

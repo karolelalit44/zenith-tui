@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_READONLY,
+    PERMISSION_READ,
+    TOOL_DOMAIN_EXECUTION,
+)
+
 from ..base import BaseTool, ToolResult
 from .background import get_background_manager
 
@@ -9,6 +15,18 @@ from .background import get_background_manager
 class JobOutputTool(BaseTool):
     name = "job_output"
     description = "View background job output"
+    capability_id = "background_jobs"
+    read_only = True
+    concurrency_group = CONCURRENCY_GROUP_READONLY
+    permission_scope = PERMISSION_READ
+    domains = (TOOL_DOMAIN_EXECUTION,)
+    search_terms = (
+        "background",
+        "job",
+        "output",
+        "log",
+        "process",
+    )
 
     def get_schema(self) -> dict:
         return {

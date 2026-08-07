@@ -3,15 +3,31 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_MCP,
+    PERMISSION_MCP,
+    RISK_LOW,
+    TOOL_DOMAIN_WEB_MCP,
+)
+
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
 
 class McpToolWrapper(BaseTool):
-    @property
-    def risk_level(self) -> str:
-        return "low"
+    capability_id = "mcp_tool"
+    read_only = False
+    concurrency_group = CONCURRENCY_GROUP_MCP
+    permission_scope = PERMISSION_MCP
+    domains = (TOOL_DOMAIN_WEB_MCP,)
+    search_terms = (
+        "mcp",
+        "external",
+        "integration",
+        "server tool",
+    )
+    risk_level = RISK_LOW
 
     def __init__(self, mcp_tool: dict, mcp_client: Any, server_name: str = "") -> None:
         self._mcp_tool = mcp_tool

@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_READONLY,
+    PERMISSION_READ,
+    TOOL_DOMAIN_WORKSPACE_DISCOVERY,
+)
+
 from ..base import BaseTool, ToolResult
 
 
@@ -10,6 +16,19 @@ class GlobTool(BaseTool):
     name = "glob"
     description = "Search files by glob pattern"
     requires_mode = None
+    capability_id = "workspace_discovery"
+    read_only = True
+    concurrency_group = CONCURRENCY_GROUP_READONLY
+    permission_scope = PERMISSION_READ
+    domains = (TOOL_DOMAIN_WORKSPACE_DISCOVERY,)
+    search_terms = (
+        "list files",
+        "glob",
+        "find",
+        "discover",
+        "workspace",
+        "file search",
+    )
 
     def get_schema(self) -> dict:
         return {

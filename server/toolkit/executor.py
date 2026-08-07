@@ -4,13 +4,13 @@ import json
 import logging
 import time as _time
 
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.agents.validation import (
     check_python_syntax,
     detect_interactive_command,
     detect_placeholders,
     strip_cd_prefix,
 )
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.domain.events import Event
 from server.providers import responder as r
 from server.toolkit.base import ToolResult

@@ -2,12 +2,30 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_LSP,
+    PERMISSION_READ,
+    TOOL_DOMAIN_READ,
+)
+
 from ..base import BaseTool, ToolResult
 
 
 class LspDiagnosticsTool(BaseTool):
     name = "lsp_diagnostics"
     description = "Get LSP diagnostics for file"
+    capability_id = "lsp_analysis"
+    read_only = True
+    concurrency_group = CONCURRENCY_GROUP_LSP
+    permission_scope = PERMISSION_READ
+    domains = (TOOL_DOMAIN_READ,)
+    search_terms = (
+        "diagnostics",
+        "errors",
+        "lint",
+        "check",
+        "lsp",
+    )
 
     def get_schema(self) -> dict:
         return {

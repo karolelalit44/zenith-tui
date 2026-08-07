@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
@@ -37,7 +38,13 @@ def safe_db(operation: str, *, table: str = "") -> Callable[[F], F]:
             try:
                 result = await func(self, *args, **kwargs)
                 duration_ms = (time.perf_counter() - start) * 1000.0
-                db_log(operation, table=table, status="ok", duration_ms=duration_ms)
+                db_log(
+                    operation,
+                    table=table,
+                    status="ok",
+                    duration_ms=duration_ms,
+                    level=logging.DEBUG,
+                )
                 return result
             except Exception as e:
                 duration_ms = (time.perf_counter() - start) * 1000.0

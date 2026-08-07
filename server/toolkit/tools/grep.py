@@ -4,6 +4,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_READONLY,
+    PERMISSION_READ,
+    TOOL_DOMAIN_READ,
+)
+
 from ..base import BaseTool, ToolResult
 
 
@@ -11,6 +17,19 @@ class GrepTool(BaseTool):
     name = "grep"
     description = "Search file contents by regex"
     requires_mode = None
+    capability_id = "content_search"
+    read_only = True
+    concurrency_group = CONCURRENCY_GROUP_READONLY
+    permission_scope = PERMISSION_READ
+    domains = (TOOL_DOMAIN_READ,)
+    search_terms = (
+        "grep",
+        "search",
+        "regex",
+        "pattern",
+        "find in files",
+        "occurrences",
+    )
 
     def get_schema(self) -> dict:
         return {

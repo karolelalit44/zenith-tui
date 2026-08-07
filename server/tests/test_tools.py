@@ -333,4 +333,6 @@ class TestDefaultRegistry:
         assert "lsp_definition" in tools
         assert "lsp_rename" in tools
         assert "agent" in tools
-        assert len(tools) == 17
+        assert "discover_capabilities" in tools
+        assert "get_tool_definition" in tools
+        assert len(tools) == 19

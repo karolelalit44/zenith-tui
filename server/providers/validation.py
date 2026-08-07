@@ -9,7 +9,6 @@ from typing import Any
 import httpx
 
 from server.api import validation_state
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.api.schemas import (
     ProviderModelInfo,
     ValidationError,
@@ -17,6 +16,7 @@ from server.api.schemas import (
     ValidationStep,
     ValidationStepStatus,
 )
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.persistence import provider_config_repo
 from server.persistence.repositories import load_catalog
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
@@ -94,7 +94,9 @@ def _map_models(raw: Any) -> list[ProviderModelInfo]:
                 id=mid,
                 name=str(item.get("name") or mid),
                 context_window=int(
-                    item.get("context_window") or item.get("context_length") or DEFAULT_CONTEXT_WINDOW
+                    item.get("context_window")
+                    or item.get("context_length")
+                    or DEFAULT_CONTEXT_WINDOW
                 ),
                 description=str(item.get("description") or ""),
                 is_default=bool(item.get("is_default", False)),

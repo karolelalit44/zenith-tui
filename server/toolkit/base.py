@@ -5,7 +5,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from server.config.constants import BUILD_MODE
+from server.config.constants import (
+    BUILD_MODE,
+    CONCURRENCY_GROUP_READONLY,
+    COST_CLASS_LOW,
+    DEFAULT_TOOL_TIMEOUT_MS,
+    LATENCY_CLASS_LOW,
+    PERMISSION_READ,
+    RISK_SAFE,
+)
 
 
 class ToolResult(BaseModel):
@@ -47,9 +55,17 @@ class BaseTool(ABC):
     description: str = ""
     requires_mode: str | None = None
 
-    @property
-    def risk_level(self) -> str:
-        return "safe"
+    # Canonical metadata contract (Stage 1: tool orchestration)
+    capability_id: str = "core"
+    read_only: bool = False
+    timeout_ms: int | None = DEFAULT_TOOL_TIMEOUT_MS
+    concurrency_group: str = CONCURRENCY_GROUP_READONLY
+    permission_scope: str = PERMISSION_READ
+    domains: tuple[str, ...] = ()
+    search_terms: tuple[str, ...] = ()
+    risk_level: str = RISK_SAFE
+    cost_class: str = COST_CLASS_LOW
+    latency_class: str = LATENCY_CLASS_LOW
 
     @property
     def modes(self) -> list[str] | None:

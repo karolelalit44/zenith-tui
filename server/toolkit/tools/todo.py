@@ -4,6 +4,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_READONLY,
+    PERMISSION_WRITE,
+    TOOL_DOMAIN_TASK,
+)
+
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -84,6 +90,18 @@ def get_task_tracker() -> TaskTracker:
 class TodoTool(BaseTool):
     name = "todo"
     description = "Track task list"
+    capability_id = "task_tracking"
+    read_only = False
+    concurrency_group = CONCURRENCY_GROUP_READONLY
+    permission_scope = PERMISSION_WRITE
+    domains = (TOOL_DOMAIN_TASK,)
+    search_terms = (
+        "todo",
+        "task",
+        "track",
+        "plan list",
+        "progress",
+    )
 
     def get_schema(self) -> dict:
         return {

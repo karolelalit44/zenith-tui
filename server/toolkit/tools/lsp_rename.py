@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from server.config.constants import BUILD_MODE
+from server.config.constants import (
+    BUILD_MODE,
+    CONCURRENCY_GROUP_LSP,
+    PERMISSION_WRITE,
+    RISK_LOW,
+    TOOL_DOMAIN_EDIT,
+)
 
 from ..base import BaseTool, ToolResult
 
@@ -11,10 +17,18 @@ class LspRenameTool(BaseTool):
     name = "lsp_rename"
     description = "Semantic rename of symbol via LSP"
     requires_mode = BUILD_MODE
-
-    @property
-    def risk_level(self) -> str:
-        return "low"
+    capability_id = "lsp_refactoring"
+    read_only = False
+    concurrency_group = CONCURRENCY_GROUP_LSP
+    permission_scope = PERMISSION_WRITE
+    domains = (TOOL_DOMAIN_EDIT,)
+    search_terms = (
+        "rename",
+        "refactor",
+        "symbol",
+        "lsp",
+    )
+    risk_level = RISK_LOW
 
     def get_schema(self) -> dict:
         return {

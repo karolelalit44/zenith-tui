@@ -72,6 +72,11 @@ class ContextManager:
         self.token_counter = TokenCounter()
         self._repo_map_cache: str | None = None
         self._memory_cache: str | None = None
+        self._aux_tokens = 0
+
+    def set_aux_tokens(self, tokens: int) -> None:
+        """Account for out-of-message overhead such as offered tool schemas."""
+        self._aux_tokens = max(0, int(tokens))
 
     def _resolve_context_window(self, model: str) -> int:
         from_catalog = _get_model_context_window(model)
@@ -333,7 +338,7 @@ class ContextManager:
             reported = int(cum.get("total_tokens") or 0)
             if reported > 0:
                 return reported
-        return self.token_counter.count_messages(messages, model)
+        return self.token_counter.count_messages(messages, model) + self._aux_tokens
 
     def count_tokens(self, text: str, model: str) -> int:
         return self.token_counter.count(text, model)

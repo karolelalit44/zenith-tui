@@ -1,5 +1,18 @@
+import logging
+
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
+from .catalog import (
+    CapabilityCatalog,
+    CapabilityDescriptor,
+    ToolInventoryEntry,
+    build_catalog,
+    build_inventory,
+)
+from .discovery import DiscoverCapabilitiesTool, GetToolDefinitionTool
 from .registry import ToolRegistry
+from .registry_validation import validate_registry
+from .resolver import DISCOVERY_TOOLS, SchemaResolver, build_mode_tool_seed
+from .schema_metrics import estimate_tool_schema_tokens, measure_registry_schema_tokens
 from .tools.agent_tool import SubAgentTool
 from .tools.bash import BashTool
 from .tools.file_delete import FileDeleteTool
@@ -19,13 +32,20 @@ from .tools.question import QuestionTool
 from .tools.todo import TodoTool
 from .tools.webfetch import WebfetchTool
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
+    "DISCOVERY_TOOLS",
     "BaseTool",
     "BashTool",
+    "CapabilityCatalog",
+    "CapabilityDescriptor",
+    "DiscoverCapabilitiesTool",
     "FileDeleteTool",
     "FileEditTool",
     "FileReadTool",
     "FileWriteTool",
+    "GetToolDefinitionTool",
     "GlobTool",
     "GrepTool",
     "JobKillTool",
@@ -36,13 +56,21 @@ __all__ = [
     "McpToolWrapper",
     "MultiEditTool",
     "QuestionTool",
+    "SchemaResolver",
     "SubAgentTool",
     "TodoTool",
     "ToolContext",
+    "ToolInventoryEntry",
     "ToolMiddleware",
     "ToolRegistry",
     "ToolResult",
     "WebfetchTool",
+    "build_catalog",
+    "build_inventory",
+    "build_mode_tool_seed",
+    "estimate_tool_schema_tokens",
+    "measure_registry_schema_tokens",
+    "validate_registry",
 ]
 
 
@@ -53,6 +81,7 @@ def create_default_registry(
     hooks: object | None = None,
 ) -> ToolRegistry:
     from .middleware import HookMiddleware, PermissionMiddleware, SafetyCheckMiddleware
+    from .registry_validation import validate_registry
 
     registry = ToolRegistry()
     registry.register(BashTool(timeout=timeout))
@@ -73,6 +102,8 @@ def create_default_registry(
     registry.register(LspRenameTool())
     agent_tool = SubAgentTool(provider=provider)
     registry.register(agent_tool)
+    registry.register(DiscoverCapabilitiesTool(registry=registry))
+    registry.register(GetToolDefinitionTool(registry=registry))
     if hooks is not None:
         from server.domain.hooks import HookRunner
 
@@ -80,4 +111,9 @@ def create_default_registry(
     registry.register_middleware(SafetyCheckMiddleware())
     if permission_service is not None:
         registry.register_middleware(PermissionMiddleware(service=permission_service))
+    validation_errors = validate_registry(registry)
+    if validation_errors:
+        logger.warning("Tool registry validation failed at startup:")
+        for error in validation_errors:
+            logger.warning("  %s", error)
     return registry

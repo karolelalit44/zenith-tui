@@ -39,5 +39,3 @@ def db_log(
     if error:
         parts.append(f"error={_fmt(error)}")
     logger.log(level, " ".join(parts))
-
-

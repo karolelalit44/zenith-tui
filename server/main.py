@@ -117,17 +117,24 @@ def status():
 
 @cli.command()
 def tools():
-    from server.toolkit import create_default_registry
+    from server.toolkit import (
+        build_inventory,
+        create_default_registry,
+        measure_registry_schema_tokens,
+    )
 
     registry = create_default_registry()
-    schemas = registry.get_schemas()
-    for s in schemas:
-        risk = "safe"
-        tool = registry.get(s["name"])
-        if tool and hasattr(tool, "risk_level"):
-            risk = tool.risk_level
-        click.echo(f"  {s['name']:20s}  risk={risk:6s}  {s['description'][:60]}")
-    click.echo(f"\nTotal: {len(schemas)} tools")
+    baseline = measure_registry_schema_tokens(registry)
+    inventory = build_inventory(registry, baseline["model"])
+    for entry in inventory:
+        click.echo(
+            f"  {entry.name:20s}  risk={entry.risk_level:6s}  read_only={entry.read_only!s:5s}"
+            f"  cap={entry.capability_id:24s}  tokens={entry.schema_tokens:6d}  {entry.description[:60]}"
+        )
+    click.echo(
+        f"\nTotal: {len(inventory)} tools | schema-token baseline: {baseline['total_tokens']}"
+        f" ({baseline['model']})"
+    )
 
 
 if __name__ == "__main__":

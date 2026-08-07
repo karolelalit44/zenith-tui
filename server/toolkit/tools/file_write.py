@@ -3,7 +3,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from server.config.constants import BUILD_MODE
+from server.config.constants import (
+    BUILD_MODE,
+    CONCURRENCY_GROUP_WORKSPACE_MUTATION,
+    PERMISSION_WRITE,
+    TOOL_DOMAIN_EDIT,
+)
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -18,6 +23,17 @@ class FileWriteTool(BaseTool):
     name = "file_write"
     description = "Create new file"
     requires_mode = BUILD_MODE
+    capability_id = "file_write"
+    read_only = False
+    concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
+    permission_scope = PERMISSION_WRITE
+    domains = (TOOL_DOMAIN_EDIT,)
+    search_terms = (
+        "create",
+        "write",
+        "new file",
+        "generate file",
+    )
 
     def get_schema(self) -> dict:
         return {

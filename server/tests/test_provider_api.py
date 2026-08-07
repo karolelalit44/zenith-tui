@@ -128,12 +128,16 @@ async def test_ensure_seeded_reconcile(tmp_path):
                 result = {}
                 for rec in providers:
                     models = (
-                        await s.execute(
-                            select(ProviderModelRecord).where(
-                                ProviderModelRecord.provider_id == rec.id
+                        (
+                            await s.execute(
+                                select(ProviderModelRecord).where(
+                                    ProviderModelRecord.provider_id == rec.id
+                                )
                             )
                         )
-                    ).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     result[rec.id] = {"id": rec.id, "models": [m.id for m in models]}
                 return result
 

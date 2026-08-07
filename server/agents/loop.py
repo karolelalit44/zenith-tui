@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from server.config.constants import (
     BUILD_MODE,
     CONTEXT_SUMMARY_THRESHOLD,
+    GET_TOOL_DEFINITION_TOOL,
     PLAN_MODE,
 )
 from server.config.settings import AGENT_MODES, AppSettings
@@ -18,6 +19,7 @@ from server.providers.base import BaseProvider
 from server.providers.parser import UnifiedResponseFormatter
 from server.toolkit.param_normalizer import normalize_file_params
 from server.toolkit.registry import ToolRegistry
+from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
 from ..toolkit.executor import (
     _dynamic_max_output,
@@ -166,48 +168,31 @@ class AgentLoop:
         model = self.provider.model
         ws = self.config.workspace_root
         mode_config = AGENT_MODES.get(mode)
+        allowed_mcp = mode_config.allowed_mcp if mode_config else None
+        allowed_tools = mode_config.allowed_tools if mode_config else None
+        resolver = SchemaResolver(self.tool_registry, seed=build_mode_tool_seed(allowed_tools))
         if mode == PLAN_MODE:
             logger.info("PLAN MODE: using focused plan prompt, read-only tools")
             system_prompt = build_plan_system_prompt(
                 self.config.workspace_root, provider_name=provider_name, model_name=model
             )
-            if self.tool_registry and mode_config and mode_config.allowed_tools:
-                plan_tool_names = self.tool_registry.list_tools_for_mode(
-                    PLAN_MODE, allowed_mcp=mode_config.allowed_mcp
-                )
-                registered_tools = set(plan_tool_names)
-                plan_schemas = self.tool_registry.get_schemas_for_mode(
-                    PLAN_MODE,
-                    allowed_mcp=mode_config.allowed_mcp,
-                    allowed_tools=mode_config.allowed_tools,
-                )
-                openai_tools = schemas_to_openai_tools(plan_schemas)
-                logger.info("Plan mode tools: %s", sorted(registered_tools))
-            else:
-                registered_tools = set()
-                openai_tools = []
+            registered_tools = set(resolver.active_names())
+            openai_tools = resolver.openai_tools(PLAN_MODE, allowed_mcp=allowed_mcp)
+            logger.info("Plan mode tools: %s", sorted(registered_tools))
         else:
-            allowed_mcp = mode_config.allowed_mcp if mode_config else None
-            allowed_tools = mode_config.allowed_tools if mode_config else None
-            all_tool_schemas = (
-                self.tool_registry.get_schemas_for_mode(
-                    BUILD_MODE, allowed_mcp=allowed_mcp, allowed_tools=allowed_tools
-                )
-                if self.tool_registry
-                else []
-            )
-            all_tool_names = {s["name"] for s in all_tool_schemas}
+            active_schemas = resolver.schemas(BUILD_MODE, allowed_mcp=allowed_mcp)
             system_prompt = build_system_prompt(
                 self.config.workspace_root,
                 mode,
-                all_tool_schemas,
+                active_schemas,
                 skills_section=skills_section,
                 max_context_tokens=self.config.max_context_tokens,
                 provider_name=provider_name,
                 model_name=model,
             )
-            registered_tools = all_tool_names
-            openai_tools = schemas_to_openai_tools(all_tool_schemas)
+            registered_tools = set(resolver.active_names())
+            openai_tools = schemas_to_openai_tools(active_schemas)
+        self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
         model_use_system_prompt = True
         if not model_use_system_prompt:
             logger.info(
@@ -423,20 +408,24 @@ class AgentLoop:
                 if self.tool_registry:
                     for tc in tool_calls:
                         t_name = tc.get("tool")
-                        if t_name and t_name not in registered_tools:
-                            tool_obj = self.tool_registry.get(t_name)
-                            if tool_obj:
-                                registered_tools.add(t_name)
-                                tool_schema = {
-                                    "name": tool_obj.name,
-                                    "description": tool_obj.description,
-                                    "schema": tool_obj.get_schema(),
-                                }
-                                openai_tools.extend(schemas_to_openai_tools([tool_schema]))
+                        if not t_name:
+                            continue
+                        if t_name == GET_TOOL_DEFINITION_TOOL:
+                            target = (tc.get("params") or {}).get("tool_name")
+                            if target and resolver.request_tool(target):
                                 logger.info(
-                                    "Dynamic tool escalation: promoted tool '%s' into active schema",
-                                    t_name,
+                                    "Discovery: loaded tool '%s' via get_tool_definition", target
                                 )
+                        elif t_name not in registered_tools and resolver.request_tool(t_name):
+                            logger.info(
+                                "Dynamic tool escalation: promoted tool '%s' into active schema",
+                                t_name,
+                            )
+                    new_active = resolver.active_names()
+                    if set(new_active) != registered_tools:
+                        registered_tools = set(new_active)
+                        openai_tools = resolver.openai_tools(mode, allowed_mcp=allowed_mcp)
+                        self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
                 valid_calls, invalid_names = validate_tool_calls(tool_calls, registered_tools)
                 if invalid_names:
                     yield r.warning(

@@ -4,7 +4,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from server.config.constants import BUILD_MODE
+from server.config.constants import (
+    BUILD_MODE,
+    CONCURRENCY_GROUP_WORKSPACE_MUTATION,
+    PERMISSION_WRITE,
+    TOOL_DOMAIN_EDIT,
+)
 
 from ..base import BaseTool, ToolResult
 
@@ -15,6 +20,19 @@ class MultiEditTool(BaseTool):
     name = "multi_edit"
     description = "Apply multiple edits to a single file"
     requires_mode = BUILD_MODE
+    capability_id = "file_edit"
+    read_only = False
+    concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
+    permission_scope = PERMISSION_WRITE
+    domains = (TOOL_DOMAIN_EDIT,)
+    search_terms = (
+        "edit",
+        "modify",
+        "update",
+        "replace",
+        "batch edit",
+        "apply edits",
+    )
 
     def get_schema(self) -> dict:
         return {

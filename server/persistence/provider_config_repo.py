@@ -305,7 +305,9 @@ def upsert_provider_models(
                         index_elements=["provider_id", "id"],
                         set_={
                             "name": sqlite_insert(ProviderModelRecord).excluded.name,
-                            "context_window": sqlite_insert(ProviderModelRecord).excluded.context_window,
+                            "context_window": sqlite_insert(
+                                ProviderModelRecord
+                            ).excluded.context_window,
                             "description": sqlite_insert(ProviderModelRecord).excluded.description,
                             "is_default": sqlite_insert(ProviderModelRecord).excluded.is_default,
                         },

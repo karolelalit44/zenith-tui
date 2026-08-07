@@ -4,14 +4,21 @@ import platform
 from datetime import UTC, datetime
 from typing import Any
 
-from server.config.constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
-
 from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
+from server.config.constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
 from server.workspace.context import format_context_files, load_context_files
 
 SYSTEM_GUIDELINES = "<guidelines>\n- Code Actions: Use available tools to inspect, analyze, write, or modify code as needed for the user's request.\n- General Queries: Answer directly in markdown text without tool calls.\n</guidelines>\n"
 BUILD_MODE_INSTRUCTIONS = "## MODE: BUILD\nObjective: Complete coding tasks autonomously. Understand the codebase, make minimal targeted changes, and verify your work.\n"
 PLAN_MODE_INSTRUCTIONS = "## MODE: PLAN\nObjective: Analyze the codebase using read-only tools and output a clear, structured Markdown implementation plan.\n"
+TOOL_DISCOVERY_HINT = (
+    "<tool_discovery>\n"
+    "When tool functions are available: tools load on demand to keep the context small. "
+    "Call discover_capabilities to list every available capability and its tools, then "
+    "call get_tool_definition('<tool_name>') to load a tool's full schema before using it. "
+    "If no tool functions are available for this turn, answer directly instead.\n"
+    "</tool_discovery>\n"
+)
 
 
 def build_system_prompt(
@@ -32,6 +39,7 @@ def build_system_prompt(
         sections.append(tier_enhancements)
     sections.append(PLAN_MODE_INSTRUCTIONS if mode == PLAN_MODE else BUILD_MODE_INSTRUCTIONS)
     sections.append(SYSTEM_GUIDELINES)
+    sections.append(TOOL_DISCOVERY_HINT)
     if skills_section:
         sections.append(skills_section)
     context_files = load_context_files(workspace_root)

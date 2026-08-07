@@ -82,5 +82,3 @@ class TestProviderRegistry:
         reg = ProviderRegistry()
         with pytest.raises((KeyError, Exception)):
             reg.require("nonexistent")
-
-

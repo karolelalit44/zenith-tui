@@ -6,6 +6,16 @@ import platform
 import shutil
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_SHELL,
+    COST_CLASS_HIGH,
+    DEFAULT_BASH_TIMEOUT_MS,
+    LATENCY_CLASS_HIGH,
+    PERMISSION_COMMAND,
+    RISK_MEDIUM,
+    TOOL_DOMAIN_EXECUTION,
+)
+
 from ..base import BaseTool, ToolResult
 from .background import get_background_manager
 
@@ -23,10 +33,23 @@ def _resolve_shell() -> str | None:
 class BashTool(BaseTool):
     name = "bash"
     description = "Execute shell commands."
-
-    @property
-    def risk_level(self) -> str:
-        return "medium"
+    capability_id = "command_execution"
+    read_only = False
+    timeout_ms = DEFAULT_BASH_TIMEOUT_MS
+    concurrency_group = CONCURRENCY_GROUP_SHELL
+    permission_scope = PERMISSION_COMMAND
+    domains = (TOOL_DOMAIN_EXECUTION,)
+    search_terms = (
+        "shell",
+        "bash",
+        "command",
+        "run",
+        "execute",
+        "terminal",
+    )
+    risk_level = RISK_MEDIUM
+    cost_class = COST_CLASS_HIGH
+    latency_class = LATENCY_CLASS_HIGH
 
     def __init__(self, timeout: int = 30, auto_background_after: int = 60) -> None:
         self.timeout = timeout

@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_READONLY,
+    PERMISSION_READ,
+    TOOL_DOMAIN_READ,
+)
+
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
@@ -10,6 +16,19 @@ class FileReadTool(BaseTool):
     name = "file_read"
     description = "Read file contents"
     requires_mode = None
+    capability_id = "file_read"
+    read_only = True
+    concurrency_group = CONCURRENCY_GROUP_READONLY
+    permission_scope = PERMISSION_READ
+    domains = (TOOL_DOMAIN_READ,)
+    search_terms = (
+        "read",
+        "view",
+        "cat",
+        "inspect",
+        "open file",
+        "contents",
+    )
 
     def get_schema(self) -> dict:
         return {

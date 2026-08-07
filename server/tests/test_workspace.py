@@ -130,7 +130,6 @@ class TestGitOps:
         assert log[0]["message"] == "First commit"
 
 
-
 class TestRepoMap:
     def test_get_structure(self, temp_dir):
         (temp_dir / "src").mkdir()

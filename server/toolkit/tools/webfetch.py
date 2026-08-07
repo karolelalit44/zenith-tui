@@ -2,16 +2,38 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_READONLY,
+    COST_CLASS_MEDIUM,
+    LATENCY_CLASS_HIGH,
+    PERMISSION_NETWORK,
+    RISK_LOW,
+    TOOL_DOMAIN_WEB_MCP,
+)
+
 from ..base import BaseTool, ToolResult
 
 
 class WebfetchTool(BaseTool):
     name = "webfetch"
     description = "Fetch content from a URL"
-
-    @property
-    def risk_level(self) -> str:
-        return "low"
+    capability_id = "web_fetch"
+    read_only = True
+    concurrency_group = CONCURRENCY_GROUP_READONLY
+    permission_scope = PERMISSION_NETWORK
+    domains = (TOOL_DOMAIN_WEB_MCP,)
+    search_terms = (
+        "web",
+        "fetch",
+        "url",
+        "http",
+        "download",
+        "page",
+        "link",
+    )
+    risk_level = RISK_LOW
+    cost_class = COST_CLASS_MEDIUM
+    latency_class = LATENCY_CLASS_HIGH
 
     def get_schema(self) -> dict:
         return {

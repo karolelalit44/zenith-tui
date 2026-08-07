@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+
 from pydantic import BaseModel, Field
 
 from server.config.constants import DEFAULT_CONTEXT_WINDOW
@@ -79,5 +80,3 @@ class ModelInfo(BaseModel):
     streaming: bool = True
     use_system_prompt: bool = True
     edit_format: str = "tool"
-
-

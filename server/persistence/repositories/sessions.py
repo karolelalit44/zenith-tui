@@ -10,11 +10,11 @@ from server.domain.events import Event
 from server.domain.message import Message
 from server.domain.session import Session
 
-from .base import _iso
 from ..blob_store import BlobStore
 from ..connection import Database
 from ..models import MessageRecord, SessionRecord
 from ..safe import safe_db
+from .base import _iso
 
 
 class SessionRepository:

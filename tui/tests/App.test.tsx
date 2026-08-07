@@ -4,8 +4,27 @@ import React from 'react';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { App } from '../src/App';
 import { startupService } from '../src/services/api/StartupService';
+import { wsClient } from '../src/services/transport/WebSocketClient';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Unmounts queued by mountApp(), drained in afterEach to prevent leaks. */
+const cleanups: Array<() => void> = [];
+
+/**
+ * Poll lastFrame() until `predicate` matches or the timeout elapses, then return the
+ * final frame. Replaces fixed-wait-then-assert patterns that race with ink rendering
+ * under parallel test load (see flaky `/plan`/`/build`/Escape tests).
+ */
+const waitForFrame = async (getFrame: () => string, predicate: (frame: string) => boolean, timeoutMs = 5000) => {
+  const start = Date.now();
+  let frame = getFrame();
+  while (!predicate(frame) && Date.now() - start < timeoutMs) {
+    await wait(50);
+    frame = getFrame();
+  }
+  return frame;
+};
 
 // ── Mock backend for tests that need the main app ─────────────────
 
@@ -29,8 +48,10 @@ class MockWebSocket {
   constructor(_url: string) {
     setTimeout(() => {
       this.readyState = 3;
+      // Fire only `onerror` — NOT `onclose`. The app's WebSocketClient triggers
+      // its reconnect() from onclose, which spawns background reconnect timers
+      // that race the render loop and make these integration tests flaky.
       this.onerror?.(new Event('error'));
-      this.onclose?.(new Event('close'));
     }, 0);
   }
   addEventListener() {}
@@ -64,82 +85,101 @@ function mockBackendUnavailable() {
 }
 
 afterEach(() => {
+  // Unmount any App left mounted by a timed-out or assertion-failing test, so
+  // its timers/renders cannot leak into the next test (root cause of cross-test
+  // flakiness where an unlucky failure cascades through the file).
+  while (cleanups.length > 0) {
+    cleanups.pop()?.();
+  }
   vi.restoreAllMocks();
   startupService.reset();
+  // Stop the singleton wsClient's reconnect timers so background MockWebSocket
+  // churn from one test cannot bleed into the next. close() halts reconnect()
+  // while leaving connect() usable for subsequent tests.
+  wsClient.close();
 });
+
+/**
+ * Wrap render() so the mounted App is guaranteed to be unmounted in afterEach
+ * even when a test times out or an assertion throws before unmount().
+ */
+function mountApp() {
+  const result = render(<App />);
+  cleanups.push(result.unmount);
+  return result;
+}
 
 // ── Startup / Welcome Tests ───────────────────────────────────────
 
 test('App shows Welcome screen when backend validates ready', async () => {
   mockBackendReady();
-  const { lastFrame, unmount } = render(<App />);
+  const { lastFrame, unmount } = mountApp();
 
   // Initially loading
   expect(lastFrame()).toContain('Initializing');
 
   // Wait for async startup to complete
-  await wait(500);
-
-  const frame = lastFrame();
-  expect(frame).toContain('SYSTEM STATUS');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('SYSTEM STATUS'));
   expect(frame).toContain('RECENT SESSIONS');
   unmount();
 });
 
 test('Input is ready after startup', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('hello');
-  await wait(300);
-  expect(lastFrame()).toContain('hello');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('hello'));
+  expect(frame).toContain('hello');
   unmount();
 });
 
 test('Submitting a prompt triggers scenario flow', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('create a todo app');
   await wait(300);
-  stdin.write('\n');
-  await wait(1200);
+  // Submit with '\r' (real Enter → key.return). A bare '\n' is parsed by ink as
+  // key.newline with input='', so it never reaches the composer's submit path.
+  stdin.write('\r');
 
-  expect(lastFrame()).toContain('Cannot connect to backend');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('Cannot connect to backend'));
+  expect(frame).toContain('Cannot connect to backend');
   unmount();
 });
 
 test('/plan command switches to Plan mode', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('/plan');
   await wait(400);
   stdin.write('\r');
-  await wait(600);
 
-  expect(lastFrame()).toContain('PLAN');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('PLAN'));
+  expect(frame).toContain('PLAN');
   unmount();
 });
 
 test('/build command switches to Build mode', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('/build');
   await wait(400);
   stdin.write('\r');
-  await wait(600);
 
-  expect(lastFrame()).toContain('BUILD');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('BUILD'));
+  expect(frame).toContain('BUILD');
   unmount();
 });
 
@@ -147,38 +187,34 @@ test('/build command switches to Build mode', async () => {
 
 test('slash menu opens inline without hiding the input', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('/');
-  await wait(300);
 
-  const frame = lastFrame();
-  expect(frame).toContain('[SLASH COMMANDS]');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
   expect(frame).toContain('❯ /');
   unmount();
 });
 
 test('slash menu filters as the user types', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('/pl');
-  await wait(300);
 
-  const frame = lastFrame();
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('/plan'));
   expect(frame).toContain('[SLASH COMMANDS]');
-  expect(frame).toContain('/plan');
   expect(frame).toContain('❯ /pl');
   unmount();
 });
 
 test('slash menu stays closed for text that is not a slash command', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
@@ -193,75 +229,74 @@ test('slash menu stays closed for text that is not a slash command', async () =>
 
 test('Esc closes the slash menu but keeps the input', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('/plan');
-  await wait(300);
-  expect(lastFrame()).toContain('[SLASH COMMANDS]');
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
 
   stdin.write('\x1B');
-  await wait(300);
 
-  const frame = lastFrame();
-  expect(frame).not.toContain('[SLASH COMMANDS]');
+  const frame = await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]'));
   expect(frame).toContain('❯ /plan');
   unmount();
 });
 
 test('Escape during scenario stops execution', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('test');
   await wait(200);
-  stdin.write('\n');
-  await wait(500);
+  stdin.write('\r');
 
-  expect(lastFrame()).toMatch(/Working|Cannot connect to backend/);
+  const running = await waitForFrame(lastFrame, (f) => /Working|Cannot connect to backend/.test(f));
+  expect(running).toMatch(/Working|Cannot connect to backend/);
 
   stdin.write('\x1B');
-  await wait(300);
 
-  expect(lastFrame()).toContain('❯');
+  const stopped = await waitForFrame(lastFrame, (f) => f.includes('❯'));
+  expect(stopped).toContain('❯');
   unmount();
 });
 
 test('Full Build Scenario shows backend error', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('create a todo app');
   await wait(400);
-  stdin.write('\n');
-  await wait(1200);
+  stdin.write('\r');
 
-  expect(lastFrame()).toContain('Cannot connect to backend');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('Cannot connect to backend'));
+  expect(frame).toContain('Cannot connect to backend');
   unmount();
 });
 
 test('Full Plan Scenario shows backend error', async () => {
   mockBackendReady();
-  const { lastFrame, stdin, unmount } = render(<App />);
+  const { lastFrame, stdin, unmount } = mountApp();
 
   await wait(500);
 
   stdin.write('/plan');
   await wait(400);
   stdin.write('\r');
-  await wait(500);
+  await waitForFrame(lastFrame, (f) => f.includes('PLAN'));
+  // eslint-disable-next-line no-console
+  console.log('DIAGNOSTIC PLAN FRAME >>>', JSON.stringify(lastFrame().slice(0, 1200)));
 
   stdin.write('design a REST API');
   await wait(400);
-  stdin.write('\n');
-  await wait(1200);
+  stdin.write('\r');
 
-  expect(lastFrame()).toContain('Cannot connect to backend');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('Cannot connect to backend'));
+  expect(frame).toContain('Cannot connect to backend');
   unmount();
 });
 
@@ -269,16 +304,13 @@ test('Full Plan Scenario shows backend error', async () => {
 
 test('App shows SetupWizard when backend is unavailable', async () => {
   mockBackendUnavailable();
-  const { lastFrame, unmount } = render(<App />);
+  const { lastFrame, unmount } = mountApp();
 
   // Initially loading
   expect(lastFrame()).toContain('Initializing');
 
   // Wait for startup to fail
-  await wait(1000);
-
-  const frame = lastFrame();
-  expect(frame).toContain('ZENITH SETUP');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('ZENITH SETUP'));
   expect(frame).toContain('Setup Required');
   unmount();
 });

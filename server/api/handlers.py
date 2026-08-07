@@ -9,6 +9,7 @@ from fastapi import WebSocket
 
 import server.providers.responder as r
 from server.config.constants import BUILD_MODE, DEFAULT_BASH_TIMEOUT
+from server.config.settings import AGENT_MODES
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.persistence.connection import Database
@@ -16,6 +17,7 @@ from server.persistence.repositories import MessageRepository, SessionRepository
 from server.sessions.export import SessionExporter
 from server.sessions.service import DefaultSessionService, SessionService
 from server.skills.loader import SkillLoader
+from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
 from .protocol import make_error_response, make_response
 
@@ -603,8 +605,14 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"models": models}))
 
     async def _tools_list(self, ws, rid, params) -> None:
-        schemas = self.tool_registry.get_schemas_for_mode(params.get("mode", BUILD_MODE))
-        await ws.send_text(make_response(rid, {"tools": schemas}))
+        mode = params.get("mode", BUILD_MODE)
+        mode_config = AGENT_MODES.get(mode)
+        allowed_mcp = mode_config.allowed_mcp if mode_config else None
+        seed = build_mode_tool_seed(mode_config.allowed_tools if mode_config else None)
+        resolver = SchemaResolver(self.tool_registry, seed=seed)
+        await ws.send_text(
+            make_response(rid, {"tools": resolver.schemas(mode, allowed_mcp=allowed_mcp)})
+        )
 
     async def _workspace_status(self, ws, rid) -> None:
         from server.workspace.git import GitOps

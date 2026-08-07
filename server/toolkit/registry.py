@@ -17,6 +17,8 @@ class ToolRegistry:
         self._middleware: list[ToolMiddleware] = []
 
     def register(self, tool: BaseTool) -> None:
+        if tool.name in self._tools:
+            raise ValueError(f"Duplicate tool name registered: '{tool.name}'")
         self._tools[tool.name] = tool
 
     def register_middleware(self, middleware: ToolMiddleware) -> None:

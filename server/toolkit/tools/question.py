@@ -4,6 +4,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from server.config.constants import (
+    CONCURRENCY_GROUP_READONLY,
+    PERMISSION_INTERACTION,
+    TOOL_DOMAIN_TASK,
+)
+
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -13,6 +19,19 @@ _question_callback: Callable[[str, list[str]], Awaitable[str]] | None = None
 class QuestionTool(BaseTool):
     name = "question"
     description = "Ask user interactive question"
+    capability_id = "interactive_question"
+    read_only = True
+    concurrency_group = CONCURRENCY_GROUP_READONLY
+    permission_scope = PERMISSION_INTERACTION
+    domains = (TOOL_DOMAIN_TASK,)
+    search_terms = (
+        "ask",
+        "question",
+        "clarify",
+        "confirm",
+        "interactive",
+        "options",
+    )
 
     def get_schema(self) -> dict:
         return {

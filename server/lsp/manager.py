@@ -72,6 +72,7 @@ class LspManager:
             await client.stop()
             return None
 
+
 _manager: LspManager | None = None
 
 
