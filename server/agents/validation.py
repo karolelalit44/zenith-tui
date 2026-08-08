@@ -28,10 +28,6 @@ _PLACEHOLDER_PATTERNS_RAW = [
     ("\\[UPDATED_", "UPDATED_ placeholder"),
 ]
 _PLACEHOLDER_RE = re.compile("|".join((p for p, _ in _PLACEHOLDER_PATTERNS_RAW)), re.IGNORECASE)
-_COMPLETION_SIGNALS = re.compile(
-    "(?:task\\s+(?:is\\s+)?(?:complete|done|finished)|everything\\s+is\\s+(?:set|ready|done|complete)|all\\s+(?:steps?\\s+)?(?:are\\s+)?(?:complete|done|finished)|summary\\s*:|here(?:'s|\\s+is)\\s+(?:a\\s+)?(?:summary|what\\s+i\\s+did)|in\\s+summary|to\\s+sum(?:marize|mary)|the\\s+(?:code|file|script)\\s+has\\s+been|(?:created|written|generated|implemented)\\s+(?:successfully|complete))",
-    re.IGNORECASE,
-)
 _INTERACTIVE_CMD_PATTERNS = re.compile(
     "\\binput\\s*\\(|python\\s+-i\\b|python\\s+-im\\b|python\\s+-mi\\b|\\bpdb\\b|\\bgetpass\\b|\\bread\\s+-[srp]\\b",
     re.IGNORECASE,

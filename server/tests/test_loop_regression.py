@@ -121,3 +121,45 @@ async def test_usage_accounting_is_reset_per_request(test_config):
 
     assert provider.reset_calls >= 1, "process_prompt did not reset cumulative usage"
     assert provider._cumulative_usage == {}, "cumulative usage carried over across requests"
+
+
+class _ToolsProbeProvider(BaseProvider):
+    """Records the tools offered on iteration 1."""
+
+    def __init__(self):
+        super().__init__("probe", "probe-model")
+        self.first_turn_tools: list[dict] | None = None
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        if self.first_turn_tools is None:
+            self.first_turn_tools = list(tools or [])
+        yield ("I looked around. Nothing to do here.", None)
+
+    async def complete(self, messages, tools=None):
+        return ""
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["probe-model"]
+
+
+@pytest.mark.asyncio
+async def test_non_code_prompt_still_gets_tools_on_iteration_one(test_config):
+    """The removed code-relevance gate used to strip ALL tools from iteration 1
+    for prompts that didn't 'look like code' (e.g. 'research this product'). The
+    loop must always offer tools and let the model decide via tool_choice."""
+    provider = _ToolsProbeProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    async for _event in agent.process_prompt(
+        "What does this product do? research it online", "s1", [], "build"
+    ):
+        pass
+
+    assert provider.first_turn_tools is not None, "model was not offered any tools"
+    assert provider.first_turn_tools, "iteration-1 tool list must not be empty"
+    offered = {t["function"]["name"] for t in provider.first_turn_tools}
+    assert "websearch" in offered, "research tools must be offered for a research prompt"
+    assert "file_read" in offered

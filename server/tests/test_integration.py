@@ -139,7 +139,10 @@ class TestAgentWorkflow:
             return ["postcomp-model"]
 
     @pytest.mark.asyncio
-    async def test_tools_after_completion_are_skipped(self, test_config):
+    async def test_new_calls_after_completion_still_execute(self, test_config):
+        """Event-driven semantics: a phrase like 'Done' does not gate behavior. A
+        genuinely new tool call after that phrase still executes; only identical
+        repeats are skipped (handled by the stall guard)."""
         target = Path(test_config.workspace_root) / "out.txt"
         agent = AgentLoop(
             test_config,
@@ -151,10 +154,10 @@ class TestAgentWorkflow:
             "Create a file and finish", "s1", [], "build"
         ):
             events.append(event)
-        assert target.read_text(encoding="utf-8") == "hello"
-        warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert any("after signaling completion" in (e.data.get("message") or "") for e in warnings)
+        # The second write is new work (different content) and is honored.
+        assert target.read_text(encoding="utf-8") == "hello again"
         assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
 
 
 class TestMultiEditEndToEnd:
@@ -382,9 +385,9 @@ class TestRepeatedCallTermination:
         assert target.read_text(encoding="utf-8") == "same"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
         assert any(
-            "Repeated identical tool calls without new work" in (e.data.get("message") or "")
+            "No new tool was executed this iteration" in (e.data.get("message") or "")
             for e in warnings
-        )
+        ), "the stall nudge must guide the model after an identical repeat"
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
 
@@ -430,9 +433,9 @@ class TestRepeatedCallTermination:
         assert (root / "b.txt").exists()
         warnings = [e for e in events if e.kind == EventKind.WARNING]
         assert not any(
-            "Repeated identical tool calls without new work" in (e.data.get("message") or "")
+            "No new tool was executed this iteration" in (e.data.get("message") or "")
             for e in warnings
-        )
+        ), "new work alongside a repeat must not be treated as a stall"
         assert events[-1].kind == EventKind.SUCCESS
 
 
@@ -734,10 +737,10 @@ class TestDiscoveryRepeatSkip:
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert not any(
-            "treating the response as the final answer" in (e.data.get("message") or "")
+        assert any(
+            "No new tool was executed this iteration" in (e.data.get("message") or "")
             for e in warnings
-        )
+        ), "repeated calls without completion must trigger the corrective stall nudge, not finalize"
 
 
 class TestStallGuard:

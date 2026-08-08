@@ -41,7 +41,6 @@ from .context import ContextManager, _adaptive_reserve, _get_model_context_windo
 from .llm_stream import StreamState, stream_with_retries
 from .loop_detection import LoopDetector
 from .prompts import build_plan_system_prompt, build_system_prompt
-from .validation import _COMPLETION_SIGNALS as COMPLETION_SIGNALS
 from .validation import reflection_error_limit, schemas_to_openai_tools
 
 _format_tool_result = format_tool_result
@@ -362,11 +361,14 @@ class AgentLoop:
                 stream_state = StreamState()
                 finish_reason = FinishReason.STOP
                 context_exceeded = False
-                if iteration == 1:
-                    code_signal = self.context_manager._compute_code_relevance(prompt, history)
-                    turn_tools = openai_tools if code_signal >= 0.2 else []
-                else:
-                    turn_tools = openai_tools
+                # Tools are always offered. The old heuristic that withheld tools
+                # on iteration 1 when a prompt didn't "look like code" left the
+                # agent unable to use file_read/glob/websearch/bash for any
+                # research or non-code request (it broke out of the loop with no
+                # tool calls). Mode gating (plan=read-only, build=all) already
+                # controls which tools exist; tool_choice="auto" lets the model
+                # decide whether to actually call one.
+                turn_tools = openai_tools
                 try:
                     _tool_choice = mode_config.tool_choice if mode_config else "auto"
                     async for event in stream_with_retries(
@@ -497,29 +499,13 @@ class AgentLoop:
                     continue
                 messages.append({"role": "assistant", "content": response_text or "[tool calls]"})
                 if _all_calls_repeat(valid_calls, executed_calls):
-                    completed = clean_response and COMPLETION_SIGNALS.search(clean_response)
-                    if completed:
-                        if not task_completed:
-                            task_completed = True
-                            yield r.warning(
-                                "Repeated identical tool calls without new work; treating the response as the final answer.",
-                                session_id,
-                                extra={"repeated_tool_calls": [tc.get("tool") for tc in valid_calls]},
-                            )
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": (
-                                    "[System] The requested tool calls have already been completed "
-                                    "with identical parameters. The task is complete; do not call any "
-                                    "more tools. Provide your final summary only."
-                                ),
-                            }
-                        )
-                        continue
+                    # The model re-issued calls that already ran. No regex guesses
+                    # intent here: fall through so the per-call loop skips them and
+                    # the stall handler injects targeted feedback, letting the model
+                    # self-correct (write the final summary or call something new).
                     logger.info(
-                        "All requested calls already executed this turn but the model has not "
-                        "signaled completion; falling through so the per-call loop can skip them."
+                        "All requested calls already executed this turn; falling through so the "
+                        "per-call loop can skip them and the stall handler can guide the model."
                     )
                 if task_completed:
                     yield r.warning(
@@ -773,12 +759,10 @@ class AgentLoop:
                         recoverable=True,
                     )
                     return
-                if (
-                    not task_completed
-                    and clean_response
-                    and COMPLETION_SIGNALS.search(clean_response)
-                ):
-                    task_completed = True
+                # Completion is decided by the model's own behavior — it stops
+                # emitting tool calls (the text-only break above), or the stall
+                # handler finalizes after repeated identical work. No text-phrase
+                # regex is used to guess whether the model is "done".
                 if files_edited:
                     auto_commit(ws, files_edited)
                     files_edited.clear()

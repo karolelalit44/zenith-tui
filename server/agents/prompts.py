@@ -11,6 +11,9 @@ from server.workspace.context import format_context_files, load_context_files
 SYSTEM_GUIDELINES = (
     "<guidelines>\n"
     "- Code Actions: Use available tools to inspect, analyze, write, or modify code as needed for the user's request.\n"
+    "- Tool Choice: Prefer the dedicated tool for each job - file_write/file_edit to create or modify "
+    "files, file_read/glob/grep to inspect code, websearch/webfetch for web research. Use bash only for "
+    "operations with no dedicated tool (running tests, builds, installs, git commands).\n"
     "- External Products: If the request is about an external product, tool, framework, or service, "
     "research it with websearch to find sources, then webfetch specific pages to read them; for long "
     "pages, pass an 'extract' question to webfetch to get just the relevant answer. Do not "
