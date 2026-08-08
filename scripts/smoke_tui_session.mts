@@ -160,7 +160,6 @@ interface TurnResult {
   tokenInfo: Record<string, unknown>;
   tools: string[];
   eventKinds: string[];
-  confirmations: number;
   elapsedMs: number;
 }
 
@@ -181,14 +180,12 @@ function findTerminal(log: RawEvent[], from: number): number {
 
 async function runTurn(
   app: ReturnType<typeof render>,
-  wsClient: { sendConfirmation(id: string, approved: boolean): Promise<void> },
   log: RawEvent[],
   label: string,
   prompt: string,
 ): Promise<TurnResult> {
   const startIdx = log.length;
   const startedAt = Date.now();
-  const confirmations: { id: string; tool: string; seenAt: number; acked: boolean }[] = [];
 
   app.stdin.write(prompt);
   await wait(300);
@@ -199,28 +196,6 @@ async function runTurn(
   let terminalIdx = -1;
 
   while (Date.now() < deadline) {
-    for (let i = startIdx; i < log.length; i++) {
-      const e = log[i];
-      if (e.kind !== 'confirmation_request') continue;
-      const id = String(e.data?.confirmation_id ?? '');
-      if (!id) continue;
-      const existing = confirmations.find((c) => c.id === id);
-      if (!existing) {
-        const tool = String(e.data?.tool ?? '');
-        console.log(`[driver] confirmation ${id} for "${tool}" — approving via 'y'`);
-        app.stdin.write('y');
-        confirmations.push({ id, tool, seenAt: Date.now(), acked: true });
-      }
-    }
-    for (const c of confirmations) {
-      if (!c.acked && Date.now() - c.seenAt > 6000) {
-        c.acked = true;
-        console.log(`[driver] confirmation ${c.id} still unanswered — approving over RPC`);
-        try {
-          await wsClient.sendConfirmation(c.id, true);
-        } catch {}
-      }
-    }
     terminalIdx = findTerminal(log, startIdx);
     if (terminalIdx !== -1) break;
     await wait(200);
@@ -248,7 +223,6 @@ async function runTurn(
     tokenInfo: (terminal.data?.tokenInfo ?? {}) as Record<string, unknown>,
     tools,
     eventKinds: [...new Set(slice.map((e) => e.kind))],
-    confirmations: confirmations.length,
     elapsedMs: Date.now() - startedAt,
   };
 }
@@ -381,7 +355,7 @@ async function main(): Promise<number> {
 
     const turns: TurnResult[] = [];
     for (const plan of plans) {
-      const t = await runTurn(app, wsClient, rawLog, plan.label, plan.prompt());
+      const t = await runTurn(app, rawLog, plan.label, plan.prompt());
       turns.push(t);
       console.log(`[driver] turn "${t.label}" finished in ${(t.elapsedMs / 1000).toFixed(1)}s: ${t.outcome}`);
       await wait(800);
@@ -445,7 +419,6 @@ async function main(): Promise<number> {
       console.log(`  prompt:       ${t.prompt}`);
       console.log(`  outcome:      ${t.outcome}  iterations=${t.iterations ?? '?'}  ${(t.elapsedMs / 1000).toFixed(1)}s`);
       console.log(`  tools:        ${fmtTools(t.tools)}`);
-      console.log(`  confirmations:${t.confirmations}`);
       console.log(`  tokenInfo:    ${fmtUsage(t)}`);
       console.log(`  eventKinds:   ${t.eventKinds.join(', ')}`);
     }

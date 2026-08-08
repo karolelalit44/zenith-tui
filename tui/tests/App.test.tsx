@@ -288,8 +288,6 @@ test('Full Plan Scenario shows backend error', async () => {
   await wait(400);
   stdin.write('\r');
   await waitForFrame(lastFrame, (f) => f.includes('PLAN'));
-  // eslint-disable-next-line no-console
-  console.log('DIAGNOSTIC PLAN FRAME >>>', JSON.stringify(lastFrame().slice(0, 1200)));
 
   stdin.write('design a REST API');
   await wait(400);

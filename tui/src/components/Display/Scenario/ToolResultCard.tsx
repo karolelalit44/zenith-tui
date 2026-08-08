@@ -1,5 +1,20 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import {
+  BASH_TOOL,
+  EXECUTE_TOOL,
+  FILE_DELETE_TOOL,
+  FILE_EDIT_TOOL,
+  FILE_READ_TOOL,
+  FILE_WRITE_TOOL,
+  RUN_COMMAND_TOOL,
+  TOOL_RESULT_FALLBACK_EDIT_LABEL,
+  TOOL_RESULT_MAX_DEFAULT_PREVIEW_LINES,
+  TOOL_RESULT_MAX_DIFF_LINES,
+  TOOL_RESULT_MAX_OUTPUT_LINES,
+  TOOL_RESULT_MAX_READ_PREVIEW_LINES,
+  TOOL_VERB_LABELS,
+} from '../../../constants/toolDisplay';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolResultEvent } from '../../../types/scenario';
 import type { EventRenderContext } from './componentRegistry';
@@ -38,13 +53,15 @@ function BashResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType
 
       {cleanedOutput.length > 0 && (
         <Box flexDirection="column" paddingLeft={3} marginTop={0}>
-          {cleanedOutput.slice(0, 20).map((line, idx) => (
+          {cleanedOutput.slice(0, TOOL_RESULT_MAX_OUTPUT_LINES).map((line, idx) => (
             <Text key={idx} color={theme.colors.code.output} wrap="wrap">
               {line}
             </Text>
           ))}
-          {outputLines.length > 20 && (
-            <Text color={theme.colors.text.muted}>... {outputLines.length - 20} more lines</Text>
+          {outputLines.length > TOOL_RESULT_MAX_OUTPUT_LINES && (
+            <Text color={theme.colors.text.muted}>
+              ... {outputLines.length - TOOL_RESULT_MAX_OUTPUT_LINES} more lines
+            </Text>
           )}
         </Box>
       )}
@@ -109,90 +126,117 @@ function parseDiffLines(rawText: string, defaultStartLine: number = 1): ParsedDi
   return result;
 }
 
-function FileToolResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType }) {
-  const rawPath = String(event.metadata.path || event.metadata.filepath || '');
-  const winPath = formatWindowsPath(rawPath);
-  const addedLines = typeof event.metadata.added_lines === 'number' ? event.metadata.added_lines : undefined;
-  const removedLines = typeof event.metadata.removed_lines === 'number' ? event.metadata.removed_lines : undefined;
+function PlainFileOutput({ event, theme }: { event: ToolResultEvent; theme: ThemeType }) {
+  const lines = event.output ? event.output.split('\n').filter((l) => l.trim().length > 0) : [];
+  if (lines.length === 0) return null;
+  return (
+    <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+      {lines.slice(0, TOOL_RESULT_MAX_OUTPUT_LINES).map((line, idx) => (
+        <Text key={idx} color={theme.colors.code.output} wrap="wrap">
+          {line}
+        </Text>
+      ))}
+      {lines.length > TOOL_RESULT_MAX_OUTPUT_LINES && (
+        <Text color={theme.colors.text.muted}>... {lines.length - TOOL_RESULT_MAX_OUTPUT_LINES} more lines</Text>
+      )}
+    </Box>
+  );
+}
+
+function FileEditDiff({ event, theme }: { event: ToolResultEvent; theme: ThemeType }) {
   const startLine = typeof event.metadata.start_line === 'number' ? event.metadata.start_line : 1;
-
-  const parts: string[] = [];
-  if (removedLines) parts.push(`Removed ${removedLines} ${removedLines === 1 ? 'line' : 'lines'}`);
-  if (addedLines) parts.push(`Added ${addedLines} ${addedLines === 1 ? 'line' : 'lines'}`);
-  const statsStr = parts.join(', ');
-
   const rawDiff = String(event.metadata.diff || event.metadata.diff_content || event.output || '');
   const parsedLines = parseDiffLines(rawDiff, startLine);
 
-  const MAX_LINES = 15;
-  const isTruncated = parsedLines.length > MAX_LINES;
-  const visibleLines = isTruncated ? parsedLines.slice(0, MAX_LINES) : parsedLines;
+  if (parsedLines.length === 0) return null;
+
+  const isTruncated = parsedLines.length > TOOL_RESULT_MAX_DIFF_LINES;
+  const visibleLines = isTruncated ? parsedLines.slice(0, TOOL_RESULT_MAX_DIFF_LINES) : parsedLines;
 
   const maxLineNum = parsedLines.reduce((max, l) => Math.max(max, l.lineNum || 0), 1);
   const gutterWidth = Math.max(2, String(maxLineNum).length);
 
   return (
+    <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+      {visibleLines.map((line, idx) => {
+        const numStr =
+          line.lineNum !== undefined ? String(line.lineNum).padStart(gutterWidth, ' ') : ''.padStart(gutterWidth, ' ');
+        if (line.type === 'remove') {
+          return (
+            <Box key={idx} backgroundColor={theme.colors.diff.removeBg} width="100%">
+              <Text color={theme.colors.text.dim}>{numStr} </Text>
+              <Text color={theme.colors.diff.removeFg}>{line.content}</Text>
+            </Box>
+          );
+        }
+        if (line.type === 'add') {
+          return (
+            <Box key={idx} backgroundColor={theme.colors.diff.addBg} width="100%">
+              <Text color={theme.colors.text.dim}>{numStr} </Text>
+              <Text color={theme.colors.diff.addFg}>{line.content}</Text>
+            </Box>
+          );
+        }
+        return (
+          <Box key={idx} width="100%">
+            <Text color={theme.colors.text.dim}>{numStr} </Text>
+            <Text color={theme.colors.text.bright}>{line.content}</Text>
+          </Box>
+        );
+      })}
+      {isTruncated && (
+        <Text color={theme.colors.text.dim} italic>
+          ... [{parsedLines.length - TOOL_RESULT_MAX_DIFF_LINES} more lines]
+        </Text>
+      )}
+    </Box>
+  );
+}
+
+function FileToolResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType }) {
+  const rawPath = String(event.metadata.path || event.metadata.filepath || '');
+  const winPath = formatWindowsPath(rawPath);
+  const verb = TOOL_VERB_LABELS[event.tool] ?? TOOL_VERB_LABELS[FILE_EDIT_TOOL];
+  const statusColor = event.success ? theme.colors.status.success : theme.colors.status.error;
+
+  return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      {}
       <Box flexDirection="row" alignItems="center">
-        <Text color={theme.colors.status.success} bold>
+        <Text color={statusColor} bold>
           ●{' '}
         </Text>
-        <Text color={event.success ? theme.colors.status.success : theme.colors.status.error} bold>
-          Update({winPath})
+        <Text color={statusColor} bold>
+          {verb}({winPath})
         </Text>
       </Box>
 
-      {}
-      <Box flexDirection="row" alignItems="center" paddingLeft={1}>
-        <Text color={theme.colors.text.dim}>└ </Text>
-        <Text color={theme.colors.text.dim}>{statsStr || 'Updated file'}</Text>
-      </Box>
-
-      {}
-      {visibleLines.length > 0 && (
-        <Box flexDirection="column" paddingLeft={3} marginTop={0}>
-          {visibleLines.map((line, idx) => {
-            const numStr =
-              line.lineNum !== undefined
-                ? String(line.lineNum).padStart(gutterWidth, ' ')
-                : ''.padStart(gutterWidth, ' ');
-            if (line.type === 'remove') {
-              return (
-                <Box key={idx} backgroundColor={theme.colors.diff.removeBg} width="100%">
-                  <Text color={theme.colors.text.dim}>{numStr} </Text>
-                  <Text color={theme.colors.diff.removeFg}>{line.content}</Text>
-                </Box>
-              );
-            }
-            if (line.type === 'add') {
-              return (
-                <Box key={idx} backgroundColor={theme.colors.diff.addBg} width="100%">
-                  <Text color={theme.colors.text.dim}>{numStr} </Text>
-                  <Text color={theme.colors.diff.addFg}>{line.content}</Text>
-                </Box>
-              );
-            }
-            return (
-              <Box key={idx} width="100%">
-                <Text color={theme.colors.text.dim}>{numStr} </Text>
-                <Text color={theme.colors.text.bright}>{line.content}</Text>
-              </Box>
-            );
-          })}
-          {isTruncated && (
-            <Text color={theme.colors.text.dim} italic>
-              ... [{parsedLines.length - MAX_LINES} more lines]
-            </Text>
-          )}
+      {!event.success && event.error && (
+        <Box flexDirection="row" paddingLeft={1}>
+          <Text color={theme.colors.status.error} wrap="wrap">
+            {event.error}
+          </Text>
         </Box>
+      )}
+
+      {event.tool === FILE_WRITE_TOOL || event.tool === FILE_DELETE_TOOL ? (
+        <PlainFileOutput event={event} theme={theme} />
+      ) : (
+        <>
+          <Box flexDirection="row" alignItems="center" paddingLeft={1}>
+            <Text color={theme.colors.text.dim}>└ </Text>
+            <Text color={theme.colors.text.dim}>{TOOL_RESULT_FALLBACK_EDIT_LABEL}</Text>
+          </Box>
+          <FileEditDiff event={event} theme={theme} />
+        </>
       )}
     </Box>
   );
 }
 
 function DefaultResult({ event, theme }: { event: ToolResultEvent; theme: ThemeType }) {
-  const outputPreview = event.output ? event.output.split('\n').slice(0, 10).join('\n') : '';
+  const outputPreview = event.output
+    ? event.output.split('\n').slice(0, TOOL_RESULT_MAX_DEFAULT_PREVIEW_LINES).join('\n')
+    : '';
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
@@ -207,7 +251,7 @@ function DefaultResult({ event, theme }: { event: ToolResultEvent; theme: ThemeT
         <Box paddingLeft={3} marginTop={0}>
           <Text color={theme.colors.text.muted} wrap="wrap">
             {outputPreview}
-            {event.output.split('\n').length > 10 && ' ...'}
+            {event.output.split('\n').length > TOOL_RESULT_MAX_DEFAULT_PREVIEW_LINES && ' ...'}
           </Text>
         </Box>
       )}
@@ -226,31 +270,32 @@ export const ToolResultCard: React.FC<ToolResultCardProps> = React.memo(({ event
   const { theme } = useTheme();
   const tool = event.tool;
 
-  if (tool === 'bash' || tool === 'execute' || tool === 'run_command') {
+  if (tool === BASH_TOOL || tool === EXECUTE_TOOL || tool === RUN_COMMAND_TOOL) {
     return <BashResult event={event} theme={theme} />;
   }
 
-  if (tool === 'file_write' || tool === 'file_edit' || tool === 'file_delete') {
+  if (tool === FILE_WRITE_TOOL || tool === FILE_EDIT_TOOL || tool === FILE_DELETE_TOOL) {
     return <FileToolResult event={event} theme={theme} />;
   }
 
-  if (tool === 'file_read') {
+  if (tool === FILE_READ_TOOL) {
     const rawPath = String(event.metadata.path || event.metadata.filepath || '');
     const winPath = formatWindowsPath(rawPath);
+    const readVerb = TOOL_VERB_LABELS[FILE_READ_TOOL];
+    const readStatusColor = event.success ? theme.colors.status.success : theme.colors.status.error;
     const lines = event.output ? event.output.split('\n') : [];
-    const MAX_READ_LINES = 8;
-    const isTruncated = lines.length > MAX_READ_LINES;
-    const visibleLines = isTruncated ? lines.slice(0, MAX_READ_LINES) : lines;
+    const isTruncated = lines.length > TOOL_RESULT_MAX_READ_PREVIEW_LINES;
+    const visibleLines = isTruncated ? lines.slice(0, TOOL_RESULT_MAX_READ_PREVIEW_LINES) : lines;
     const gutterWidth = Math.max(2, String(lines.length).length);
 
     return (
       <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
         <Box flexDirection="row" alignItems="center">
-          <Text color={theme.colors.status.success} bold>
+          <Text color={readStatusColor} bold>
             ●{' '}
           </Text>
-          <Text color={theme.colors.status.success} bold>
-            Read({winPath})
+          <Text color={readStatusColor} bold>
+            {readVerb}({winPath})
           </Text>
         </Box>
         <Box flexDirection="row" alignItems="center" paddingLeft={1}>
@@ -272,7 +317,7 @@ export const ToolResultCard: React.FC<ToolResultCardProps> = React.memo(({ event
             })}
             {isTruncated && (
               <Text color={theme.colors.text.dim} italic>
-                ... [{lines.length - MAX_READ_LINES} more lines]
+                ... [{lines.length - TOOL_RESULT_MAX_READ_PREVIEW_LINES} more lines]
               </Text>
             )}
           </Box>

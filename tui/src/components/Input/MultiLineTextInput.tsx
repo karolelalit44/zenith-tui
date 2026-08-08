@@ -1,5 +1,5 @@
 import { Box, type Key, Text, useInput } from 'ink';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchKeypress } from '../../config/keybind';
 import { useTheme } from '../../theme/ThemeContext';
 
@@ -29,7 +29,10 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
     const [_historyIndex, setHistoryIndex] = useState(-1);
 
     useEffect(() => {
-      if (cursor > value.length) setCursor(value.length);
+      if (cursor > value.length) {
+        cursorRef.current = value.length;
+        setCursor(value.length);
+      }
     }, [value.length, cursor]);
 
     useEffect(() => {
@@ -40,11 +43,28 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
     const maxLines = useMemo(computeMaxLines, []);
     const lineCount = Math.max(MIN_LINES, Math.min(maxLines, lines.length));
 
+    // Refs mirror the latest committed render so the useInput handler never reads
+    // a stale closure when keypresses arrive between renders (e.g. a paste right
+    // after a slash command clears the input). Every mutation below also updates
+    // valueRef/cursorRef synchronously BEFORE state commits: winpty and terminal
+    // emulators can deliver one large paste as multiple stdin chunks within the
+    // same tick, and relying on the render to sync the refs would make each chunk
+    // overwrite the previous one instead of appending.
+    const valueRef = useRef(value);
+    valueRef.current = value;
+    const cursorRef = useRef(cursor);
+    cursorRef.current = cursor;
+    const linesRef = useRef(lines);
+    linesRef.current = lines;
+
     const handleInput = useCallback(
       (_input: string, key: Key) => {
         if (!focus) return;
+        const currentValue = valueRef.current;
+        const currentCursor = cursorRef.current;
+        const currentLines = linesRef.current;
 
-        if (onSpecial?.(_input, key, value)) {
+        if (onSpecial?.(_input, key, currentValue)) {
           return;
         }
 
@@ -64,9 +84,11 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             } catch {}
           }
           if (cleanPaste.length > 0) {
-            const nextValue = value.slice(0, cursor) + cleanPaste + value.slice(cursor);
+            const nextValue = currentValue.slice(0, currentCursor) + cleanPaste + currentValue.slice(currentCursor);
+            valueRef.current = nextValue;
+            cursorRef.current = currentCursor + cleanPaste.length;
             onChange(nextValue);
-            setCursor((c) => c + cleanPaste.length);
+            setCursor(cursorRef.current);
           }
           return;
         }
@@ -76,78 +98,96 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
         const newlineModifier = key.shift || key.ctrl || key.meta;
 
         if (pressed.includes('submit') || (isEnter && !newlineModifier)) {
-          onSubmit(value);
+          onSubmit(currentValue);
           return;
         }
 
         if (pressed.includes('newline') || (isEnter && newlineModifier)) {
-          const nextValue = `${value.slice(0, cursor)}\n${value.slice(cursor)}`;
+          const nextValue = `${currentValue.slice(0, currentCursor)}\n${currentValue.slice(currentCursor)}`;
+          valueRef.current = nextValue;
+          cursorRef.current = currentCursor + 1;
           onChange(nextValue);
-          setCursor((c) => c + 1);
+          setCursor(cursorRef.current);
           return;
         }
 
         if (pressed.includes('history_up')) {
-          const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
+          const currentLineIdx = currentValue.slice(0, currentCursor).split('\n').length - 1;
           if (currentLineIdx === 0 && historyUp) {
             const prev = historyUp();
             if (prev !== undefined) {
+              valueRef.current = prev;
+              cursorRef.current = prev.length;
               onChange(prev);
               setCursor(prev.length);
             }
             return;
           }
-          const prevNewline = value.lastIndexOf('\n', cursor - 1);
+          const prevNewline = currentValue.lastIndexOf('\n', currentCursor - 1);
           if (prevNewline >= 0) {
+            cursorRef.current = prevNewline;
             setCursor(prevNewline);
           }
           return;
         }
 
         if (pressed.includes('history_down')) {
-          const currentLineIdx = value.slice(0, cursor).split('\n').length - 1;
-          if (currentLineIdx >= lines.length - 1 && historyDown) {
+          const currentLineIdx = currentValue.slice(0, currentCursor).split('\n').length - 1;
+          if (currentLineIdx >= currentLines.length - 1 && historyDown) {
             const next = historyDown();
             if (next !== undefined) {
+              valueRef.current = next;
+              cursorRef.current = next.length;
               onChange(next);
               setCursor(next.length);
             }
             return;
           }
-          const nextNewline = value.indexOf('\n', cursor);
-          if (nextNewline >= 0 && nextNewline < value.length) {
+          const nextNewline = currentValue.indexOf('\n', currentCursor);
+          if (nextNewline >= 0 && nextNewline < currentValue.length) {
+            cursorRef.current = nextNewline + 1;
             setCursor(nextNewline + 1);
           }
           return;
         }
 
         if (key.leftArrow) {
-          if (cursor > 0) setCursor((c) => c - 1);
+          if (currentCursor > 0) {
+            cursorRef.current = currentCursor - 1;
+            setCursor(cursorRef.current);
+          }
           return;
         }
 
         if (key.rightArrow) {
-          if (cursor < value.length) setCursor((c) => c + 1);
+          if (currentCursor < currentValue.length) {
+            cursorRef.current = currentCursor + 1;
+            setCursor(cursorRef.current);
+          }
           return;
         }
 
         if (key.home) {
-          const lastNewline = value.lastIndexOf('\n', cursor - 1);
-          setCursor(lastNewline + 1);
+          const lastNewline = currentValue.lastIndexOf('\n', currentCursor - 1);
+          cursorRef.current = lastNewline + 1;
+          setCursor(cursorRef.current);
           return;
         }
 
         if (key.end) {
-          const nextNewline = value.indexOf('\n', cursor);
-          setCursor(nextNewline >= 0 ? nextNewline : value.length);
+          const nextNewline = currentValue.indexOf('\n', currentCursor);
+          cursorRef.current = nextNewline >= 0 ? nextNewline : currentValue.length;
+          setCursor(cursorRef.current);
           return;
         }
 
         if (key.backspace || key.delete) {
-          if (cursor > 0) {
-            const nextValue = value.slice(0, cursor - 1) + value.slice(cursor);
+          if (currentCursor > 0) {
+            const nextValue = currentValue.slice(0, currentCursor - 1) + currentValue.slice(currentCursor);
+            valueRef.current = nextValue;
+            cursorRef.current = currentCursor - 1;
             onChange(nextValue);
-            setCursor((c) => c - 1);
+            setCursor(cursorRef.current);
           }
           return;
         }
@@ -164,13 +204,15 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             .replace(/\t/g, '  ')
             .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
           if (cleanInput.length > 0) {
-            const nextValue = value.slice(0, cursor) + cleanInput + value.slice(cursor);
+            const nextValue = currentValue.slice(0, currentCursor) + cleanInput + currentValue.slice(currentCursor);
+            valueRef.current = nextValue;
+            cursorRef.current = currentCursor + cleanInput.length;
             onChange(nextValue);
-            setCursor((c) => c + cleanInput.length);
+            setCursor(cursorRef.current);
           }
         }
       },
-      [focus, value, cursor, onChange, onSubmit, lines, historyUp, historyDown, onSpecial],
+      [focus, onChange, onSubmit, historyUp, historyDown, onSpecial],
     );
 
     useInput(handleInput, { isActive: focus });

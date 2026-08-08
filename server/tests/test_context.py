@@ -4,6 +4,18 @@ from server.domain.message import Message, ToolCall
 
 
 class TestContextManager:
+    def test_count_messages_skips_non_dict_entries(self):
+        config = AppSettings(max_context_tokens=128000, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        mixed = [
+            {"role": "user", "content": "hello world"},
+            "stray raw string",
+            {"role": "assistant", "content": "hi"},
+        ]
+        assert ctx.usage_tokens(mixed, "gpt-4") > 0
+        count = ctx.token_counter.count_messages(mixed, "gpt-4")
+        assert count > 0
+
     def test_build_messages_basic(self):
         config = AppSettings(max_context_tokens=128000, repo_map_enabled=False)
         ctx = ContextManager(config)

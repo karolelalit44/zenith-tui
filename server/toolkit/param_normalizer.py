@@ -47,8 +47,16 @@ _NEW_CONTENT_CANONICAL_ALIASES = {
 _COMMAND_CANONICAL_ALIASES = {"command", "cmd", "commandstring", "script", "exec", "run"}
 _PATTERN_CANONICAL_ALIASES = {"pattern", "query", "glob", "searchpattern", "filter", "regex"}
 
+# Tools whose schema declares the path parameter as "filepath" (not "path").
+_FILEPATH_KEY_TOOLS = {
+    "multi_edit",
+    "lsp_definition",
+    "lsp_diagnostics",
+    "lsp_rename",
+}
 
-def normalize_file_params(params: dict[str, Any]) -> dict[str, Any]:
+
+def normalize_file_params(params: dict[str, Any], tool_name: str | None = None) -> dict[str, Any]:
     out = dict(params)
 
     def _apply_canonical(canonical: str, target_aliases: set[str]) -> None:
@@ -59,7 +67,8 @@ def normalize_file_params(params: dict[str, Any]) -> dict[str, Any]:
                 out[canonical] = out.pop(key)
                 break
 
-    _apply_canonical("path", _PATH_CANONICAL_ALIASES)
+    path_canonical = "filepath" if tool_name in _FILEPATH_KEY_TOOLS else "path"
+    _apply_canonical(path_canonical, _PATH_CANONICAL_ALIASES)
     _apply_canonical("old_content", _OLD_CONTENT_CANONICAL_ALIASES)
     _apply_canonical("new_content", _NEW_CONTENT_CANONICAL_ALIASES)
     _apply_canonical("command", _COMMAND_CANONICAL_ALIASES)

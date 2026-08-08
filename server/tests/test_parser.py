@@ -55,3 +55,57 @@ def test_parse_xml_tool_call():
     assert calls[0]["params"]["depth"] == "3"
     assert "<tool_call>" not in clean
     assert "I'll inspect the files." in clean
+
+
+def test_parse_multiple_objects_in_single_fence():
+    text = (
+        '```tool\n{"tool": "get_tool_definition", "params": {"tool_name": "file_write"}}\n'
+        '{"tool": "file_write", "params": {"path": "c.txt", "content": "c"}}\n```'
+    )
+    calls = parse_tool_calls(text)
+    assert [c["tool"] for c in calls] == ["get_tool_definition", "file_write"]
+    assert calls[1]["params"]["path"] == "c.txt"
+    assert calls[1]["params"]["content"] == "c"
+
+
+def test_parse_multiple_same_tool_objects_in_single_fence():
+    text = (
+        '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n'
+        '{"tool": "file_write", "params": {"path": "b.txt", "content": "b"}}\n```'
+    )
+    calls = parse_tool_calls(text)
+    assert len(calls) == 2
+    assert calls[0]["params"]["path"] == "a.txt"
+    assert calls[1]["params"]["path"] == "b.txt"
+
+
+def test_parse_multi_edit_keeps_filepath():
+    text = (
+        '```tool\n{"tool": "multi_edit", "params": {"filepath": "source.txt", "edits": '
+        '[{"old_content": "alpha", "new_content": "alpha-one"}]}}\n```'
+    )
+    calls = parse_tool_calls(text)
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "multi_edit"
+    assert calls[0]["params"]["filepath"] == "source.txt", calls[0]["params"]
+    assert "path" not in calls[0]["params"]
+
+
+def test_parse_multi_edit_path_alias_becomes_filepath():
+    text = (
+        '```tool\n{"tool": "multi_edit", "params": {"path": "source.txt", "edits": '
+        '[{"old_content": "a", "new_content": "b"}]}}\n```'
+    )
+    calls = parse_tool_calls(text)
+    assert calls[0]["params"]["filepath"] == "source.txt"
+    assert "path" not in calls[0]["params"]
+
+
+def test_parse_lsp_keeps_filepath():
+    text = (
+        '```tool\n{"tool": "lsp_definition", "params": {"filepath": "sample.py", '
+        '"line": 1, "character": 0}}\n```'
+    )
+    calls = parse_tool_calls(text)
+    assert calls[0]["params"]["filepath"] == "sample.py"
+    assert "path" not in calls[0]["params"]

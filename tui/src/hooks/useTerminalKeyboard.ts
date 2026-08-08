@@ -2,7 +2,7 @@ import { useInput } from 'ink';
 import { useEffect, useRef } from 'react';
 import { matchKeypress } from '../config/keybind';
 import { savePlanToFile } from '../services/export/markdownExport';
-import type { ConfirmationRequestEvent, ScenarioEvent } from '../types/scenario';
+import type { ScenarioEvent } from '../types/scenario';
 import type { ConversationTurn } from './useConversation';
 import type { OverlayType } from './useOverlayManager';
 
@@ -19,8 +19,6 @@ interface UseTerminalKeyboardOptions {
   markTurnSaved: (turnId: string) => void;
   clearTurns?: () => void;
   onToggleThinking?: () => void;
-  activeConfirmation: ConfirmationRequestEvent | null;
-  respondConfirmation: (approved: boolean) => void;
   scrollUp?: (lines?: number) => void;
   scrollDown?: (lines?: number) => void;
   scrollToTop?: () => void;
@@ -46,8 +44,6 @@ export function useTerminalKeyboard({
   markTurnSaved,
   clearTurns,
   onToggleThinking,
-  activeConfirmation,
-  respondConfirmation,
   scrollUp,
   scrollDown,
   scrollToTop,
@@ -71,8 +67,6 @@ export function useTerminalKeyboard({
     markTurnSaved,
     clearTurns,
     onToggleThinking,
-    activeConfirmation,
-    respondConfirmation,
     scrollUp,
     scrollDown,
     scrollToTop,
@@ -98,8 +92,6 @@ export function useTerminalKeyboard({
       markTurnSaved,
       clearTurns,
       onToggleThinking,
-      activeConfirmation,
-      respondConfirmation,
       scrollUp,
       scrollDown,
       scrollToTop,
@@ -115,18 +107,6 @@ export function useTerminalKeyboard({
   useInput(
     (input, key) => {
       const opts = optionsRef.current;
-
-      if (opts.activeConfirmation && !opts.activeConfirmation.answered && opts.overlay === 'none') {
-        if (input === 'y' || input === 'Y') {
-          opts.respondConfirmation(true);
-          return;
-        }
-        if (input === 'n' || input === 'N' || key.escape) {
-          opts.respondConfirmation(false);
-          return;
-        }
-        return;
-      }
 
       const pressed = matchKeypress(input, key);
       const paletteOpen = opts.showPalette ?? false;
@@ -201,36 +181,34 @@ export function useTerminalKeyboard({
         return;
       }
 
-      if (!opts.activeConfirmation) {
-        if (key.upArrow && (key.ctrl || key.shift)) {
-          if (opts.scrollUp) opts.scrollUp();
-          return;
-        }
+      if (key.upArrow && (key.ctrl || key.shift)) {
+        if (opts.scrollUp) opts.scrollUp();
+        return;
+      }
 
-        if (key.downArrow && (key.ctrl || key.shift)) {
-          if (opts.scrollDown) opts.scrollDown();
-          return;
-        }
+      if (key.downArrow && (key.ctrl || key.shift)) {
+        if (opts.scrollDown) opts.scrollDown();
+        return;
+      }
 
-        if (key.pageUp) {
-          if (opts.scrollUp) opts.scrollUp(10);
-          return;
-        }
+      if (key.pageUp) {
+        if (opts.scrollUp) opts.scrollUp(10);
+        return;
+      }
 
-        if (key.pageDown) {
-          if (opts.scrollDown) opts.scrollDown(10);
-          return;
-        }
+      if (key.pageDown) {
+        if (opts.scrollDown) opts.scrollDown(10);
+        return;
+      }
 
-        if (input === 'g' && key.shift) {
-          if (opts.scrollToTop) opts.scrollToTop();
-          return;
-        }
+      if (input === 'g' && key.shift) {
+        if (opts.scrollToTop) opts.scrollToTop();
+        return;
+      }
 
-        if (input === 'G' && key.shift) {
-          if (opts.scrollToBottom) opts.scrollToBottom();
-          return;
-        }
+      if (input === 'G' && key.shift) {
+        if (opts.scrollToBottom) opts.scrollToBottom();
+        return;
       }
     },
     { isActive: true },

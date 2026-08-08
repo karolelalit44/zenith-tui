@@ -71,3 +71,55 @@ MAX_ACTIVE_TOOLS_PER_TURN = 8
 
 # Schema-token benchmark
 DEFAULT_TOKENIZER_MODEL = "cl100k_base"
+
+# Tool names (registry keys)
+FILE_WRITE_TOOL = "file_write"
+FILE_EDIT_TOOL = "file_edit"
+FILE_DELETE_TOOL = "file_delete"
+FILE_READ_TOOL = "file_read"
+BASH_TOOL = "bash"
+TERMINAL_TOOL = "terminal"
+
+# Tool parameter keys
+FILE_OVERWRITE_PARAM = "overwrite"
+
+# Bash tool descriptions (OS-specific commands only)
+BASH_TOOL_DESCRIPTION_WINDOWS = (
+    "Execute a Windows PowerShell command in the workspace. Only use PowerShell commands "
+    "and PowerShell syntax (e.g. New-Item, Get-ChildItem, Get-Content, Set-Content, "
+    "Remove-Item, Select-String, Start-Process). Do NOT use Unix shell commands "
+    "(mkdir -p, ls, grep, touch, rm) or bash syntax."
+)
+BASH_TOOL_DESCRIPTION_UNIX = (
+    "Execute a shell command in the workspace. Only use Unix/Linux shell commands and bash "
+    "syntax (e.g. mkdir -p, ls, grep, touch, rm, cat). Do NOT use Windows PowerShell cmdlets."
+)
+
+# Bash tool command parameter descriptions (OS-specific)
+BASH_TOOL_COMMAND_PARAM_WINDOWS = (
+    "PowerShell command to execute (Windows PowerShell syntax only)"
+)
+BASH_TOOL_COMMAND_PARAM_UNIX = (
+    "Shell command to execute (POSIX/bash syntax only)"
+)
+
+# Tool error markers
+FILE_EXISTS_ERROR_MARKER = "already exists"
+FILE_ALREADY_EXISTS_ERROR = (
+    "File already exists: {path}. Use {overwrite_param}: true to replace it."
+)
+
+# Tool output formatting
+MAX_TOOL_OUTPUT_BASELINE = 10_000
+MAX_TOOL_METADATA_PREVIEW_CHARS = 200
+# Ordered high-to-low (context window tier, max tool output in chars).
+MAX_TOOL_OUTPUT_TIERS = (
+    (1_000_000, 50_000),
+    (200_000, 25_000),
+    (DEFAULT_CONTEXT_WINDOW, 15_000),
+)
+
+# Agent loop detection
+LOOP_DETECTION_WINDOW_SIZE = 10
+LOOP_DETECTION_MAX_REPEATS = 2
+LOOP_IDENTICAL_CONSECUTIVE_LIMIT = 3

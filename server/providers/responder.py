@@ -134,19 +134,3 @@ def context_compaction_ended(
         },
         session_id,
     )
-
-
-def confirmation_request(
-    confirmation_id: str, tool: str, reason: str, risk_level: str, message: str, session_id: str
-) -> Event:
-    return event(
-        EventKind.CONFIRMATION_REQUEST,
-        {
-            "confirmationId": confirmation_id,
-            "tool": tool,
-            "reason": reason,
-            "riskLevel": risk_level,
-            "message": message,
-        },
-        session_id,
-    )

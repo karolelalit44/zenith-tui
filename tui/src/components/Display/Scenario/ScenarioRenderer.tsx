@@ -11,8 +11,6 @@ interface ScenarioRendererProps {
   isRunning: boolean;
   isHistorical?: boolean;
   thinkingCollapsed?: boolean;
-  onRetry?: () => void;
-  onDismiss?: () => void;
 }
 
 function formatElapsedLive(ms: number): string {
@@ -76,7 +74,7 @@ class EventErrorBoundary extends Component<
 }
 
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
-  ({ events, isRunning, isHistorical = false, thinkingCollapsed = false, onRetry, onDismiss }) => {
+  ({ events, isRunning, isHistorical = false, thinkingCollapsed = false }) => {
     const { theme } = useTheme();
     const showLiveIndicator = isRunning && !isHistorical;
 
@@ -85,10 +83,8 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         thinkingCollapsed,
         isHistorical,
         isRunning,
-        onRetry,
-        onDismiss,
       }),
-      [thinkingCollapsed, isHistorical, isRunning, onRetry, onDismiss],
+      [thinkingCollapsed, isHistorical, isRunning],
     );
 
     const dynamicLimit = 20;

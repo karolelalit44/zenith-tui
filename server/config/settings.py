@@ -115,6 +115,14 @@ class AppSettings(BaseModel):
     auto_approve_plan: bool = Field(
         default=False, description="Skip user confirmation when running a plan in build mode"
     )
+    auto_overwrite: bool = Field(
+        default=True,
+        description="Automatically allow overwriting existing files without confirmation",
+    )
+    auto_risky: bool = Field(
+        default=True,
+        description="Automatically allow risky operations (file deletion, risky commands) without confirmation",
+    )
     plan_model: str | None = Field(
         default=None, description="Optional separate model for plan mode (e.g. 'gpt-4o-mini')"
     )

@@ -1,5 +1,11 @@
+import platform
+
 import pytest
 
+from server.config.constants import (
+    BASH_TOOL_DESCRIPTION_UNIX,
+    BASH_TOOL_DESCRIPTION_WINDOWS,
+)
 from server.toolkit import create_default_registry
 from server.toolkit.base import ToolResult
 from server.toolkit.registry import ToolRegistry
@@ -113,6 +119,30 @@ class TestBashTool:
         schema = tool.get_schema()
         assert "command" in schema["properties"]
         assert "command" in schema["required"]
+
+    def test_description_mentions_powershell_on_windows(self, monkeypatch):
+        monkeypatch.setattr(platform, "system", lambda: "Windows")
+        tool = BashTool()
+        assert tool.description == BASH_TOOL_DESCRIPTION_WINDOWS
+        assert "PowerShell" in tool.description
+        assert "Unix" in tool.description
+
+    def test_description_mentions_shell_on_unix(self, monkeypatch):
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
+        tool = BashTool()
+        assert tool.description == BASH_TOOL_DESCRIPTION_UNIX
+        assert "shell" in tool.description.lower()
+        assert "mkdir -p" in tool.description
+
+    def test_schema_command_param_is_os_aware(self, monkeypatch):
+        monkeypatch.setattr(platform, "system", lambda: "Windows")
+        schema = BashTool().get_schema()
+        assert "PowerShell" in schema["properties"]["command"]["description"]
+
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
+        schema = BashTool().get_schema()
+        assert "PowerShell" not in schema["properties"]["command"]["description"]
+        assert "Shell command" in schema["properties"]["command"]["description"]
 
 
 class TestFileReadTool:

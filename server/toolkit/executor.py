@@ -4,13 +4,17 @@ import json
 import logging
 import time as _time
 
-from server.agents.validation import (
-    check_python_syntax,
-    detect_interactive_command,
-    detect_placeholders,
-    strip_cd_prefix,
+from server.config.constants import (
+    BASH_TOOL,
+    FILE_DELETE_TOOL,
+    FILE_EDIT_TOOL,
+    FILE_READ_TOOL,
+    FILE_WRITE_TOOL,
+    MAX_TOOL_METADATA_PREVIEW_CHARS,
+    MAX_TOOL_OUTPUT_BASELINE,
+    MAX_TOOL_OUTPUT_TIERS,
+    TERMINAL_TOOL,
 )
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.domain.events import Event
 from server.providers import responder as r
 from server.toolkit.base import ToolResult
@@ -32,17 +36,16 @@ def validate_tool_calls(
 
 def _dynamic_max_output(context_window: int | None = None) -> int:
     if context_window is None:
-        return 10000
-    if context_window >= 1000000:
-        return 50000
-    if context_window >= 200000:
-        return 25000
-    if context_window >= DEFAULT_CONTEXT_WINDOW:
-        return 15000
-    return 10000
+        return MAX_TOOL_OUTPUT_BASELINE
+    for tier_window, tier_limit in MAX_TOOL_OUTPUT_TIERS:
+        if context_window >= tier_window:
+            return tier_limit
+    return MAX_TOOL_OUTPUT_BASELINE
 
 
-def format_tool_result(tool_name: str, result: ToolResult, max_output: int = 10000) -> str:
+def format_tool_result(
+    tool_name: str, result: ToolResult, max_output: int = MAX_TOOL_OUTPUT_BASELINE
+) -> str:
     from server.agents.compaction import compact_tool_output
 
     status = "SUCCESS" if result.success else "FAILED"
@@ -54,7 +57,7 @@ def format_tool_result(tool_name: str, result: ToolResult, max_output: int = 100
         lines.append(f"Error: {result.error}")
     if result.metadata:
         meta_str = json.dumps(result.metadata)
-        if len(meta_str) < 200:
+        if len(meta_str) < MAX_TOOL_METADATA_PREVIEW_CHARS:
             lines.append(f"Metadata: {meta_str}")
     return "\n".join(lines)
 
@@ -62,7 +65,7 @@ def format_tool_result(tool_name: str, result: ToolResult, max_output: int = 100
 def build_tool_metadata(
     tool_name: str, tool_params: dict, result: ToolResult, duration_ms: int
 ) -> dict:
-    if tool_name in ("bash", "terminal"):
+    if tool_name in (BASH_TOOL, TERMINAL_TOOL):
         cmd = str(tool_params.get("command") or "")
         out_lines = result.output.split("\n") if result.output else []
         exit_code = result.metadata.get("exit_code", 0) if result.metadata else 0
@@ -72,25 +75,31 @@ def build_tool_metadata(
             "duration_ms": duration_ms,
             "exit_code": exit_code,
         }
-    elif tool_name == "file_write":
+    elif tool_name == FILE_WRITE_TOOL:
         return {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
             "content": tool_params.get("content", ""),
             "match": "exact",
         }
-    elif tool_name == "file_edit":
+    elif tool_name == FILE_EDIT_TOOL:
         return {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
             "old_content": tool_params.get("old_content", ""),
             "new_content": tool_params.get("new_content", ""),
             "match": "exact",
         }
-    elif tool_name in ("file_delete", "file_read"):
+    elif tool_name in (FILE_DELETE_TOOL, FILE_READ_TOOL):
         return {"path": tool_params.get("filepath") or tool_params.get("path") or ""}
     return {}
 
 
 def apply_bash_prechecks(tool_params: dict, workspace_root: str) -> str | None:
+    from server.agents.validation import (
+        check_python_syntax,
+        detect_interactive_command,
+        strip_cd_prefix,
+    )
+
     command = strip_cd_prefix(tool_params.get("command", ""))
     if command != tool_params.get("command", ""):
         tool_params["command"] = command
@@ -116,6 +125,8 @@ def validate_tool_rejection(
 
 
 def check_placeholder_and_edit(tool_name: str, tool_params: dict) -> str | None:
+    from server.agents.validation import detect_placeholders
+
     placeholder = detect_placeholders(tool_params)
     if placeholder:
         return placeholder
@@ -155,23 +166,6 @@ async def execute_tool(
         len(result.output) if result.output else 0,
         result.error if result.error else "None",
     )
-    if (
-        tool_name == "file_write"
-        and (not result.success)
-        and ("already exists" in (result.error or ""))
-        and (not tool_params.get("overwrite"))
-    ):
-        tool_params["overwrite"] = True
-        logger.info("Auto-retrying file_write with overwrite=True")
-        start = _time.monotonic()
-        result = await tool_registry.execute(tool_name, tool_params, workspace_root, mode)
-        duration_ms = int((_time.monotonic() - start) * 1000)
-        logger.info(
-            "TOOL RETRY RESULT: name=%s success=%s duration=%dms",
-            tool_name,
-            result.success,
-            duration_ms,
-        )
     return (result, duration_ms)
 
 

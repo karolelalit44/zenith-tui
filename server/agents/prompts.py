@@ -13,10 +13,14 @@ BUILD_MODE_INSTRUCTIONS = "## MODE: BUILD\nObjective: Complete coding tasks auto
 PLAN_MODE_INSTRUCTIONS = "## MODE: PLAN\nObjective: Analyze the codebase using read-only tools and output a clear, structured Markdown implementation plan.\n"
 TOOL_DISCOVERY_HINT = (
     "<tool_discovery>\n"
-    "When tool functions are available: tools load on demand to keep the context small. "
-    "Call discover_capabilities to list every available capability and its tools, then "
-    "call get_tool_definition('<tool_name>') to load a tool's full schema before using it. "
-    "If no tool functions are available for this turn, answer directly instead.\n"
+    "Tool schemas are loaded on demand to keep the context small. Only call "
+    "discover_capabilities when you do not yet know which tools are available, "
+    "and only call get_tool_definition('<tool_name>') for a tool whose schema "
+    "you have not loaded yet. Once a schema is loaded it stays loaded and is "
+    "always available to you, so NEVER call discover_capabilities or "
+    "get_tool_definition a second time in the same turn, and never re-call a "
+    "tool that already succeeded this turn. If no tool functions are available "
+    "for this turn, answer directly instead.\n"
     "</tool_discovery>\n"
 )
 

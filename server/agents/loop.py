@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 
 from server.config.constants import (
     BUILD_MODE,
     CONTEXT_SUMMARY_THRESHOLD,
+    FILE_DELETE_TOOL,
+    FILE_OVERWRITE_PARAM,
+    FILE_WRITE_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     PLAN_MODE,
 )
@@ -18,6 +22,7 @@ from server.providers import responder as r
 from server.providers.base import BaseProvider
 from server.providers.parser import UnifiedResponseFormatter
 from server.toolkit.param_normalizer import normalize_file_params
+from server.toolkit.path_validator import validate_path
 from server.toolkit.registry import ToolRegistry
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
@@ -42,6 +47,36 @@ from .validation import reflection_error_limit, schemas_to_openai_tools
 _format_tool_result = format_tool_result
 logger = logging.getLogger(__name__)
 COMPACTION_KEEP_TAIL = 8
+
+
+def _call_signature(tool_name: str, params: dict) -> tuple[str, str]:
+    """Canonical signature for an executed tool call (tool + normalized params)."""
+    return (
+        tool_name,
+        json.dumps(params, sort_keys=True, separators=(",", ":"), default=str),
+    )
+
+
+def _params_label(params: dict) -> str:
+    """Short human-readable label for a call's params."""
+    if not params:
+        return ""
+    if "tool_name" in params:
+        return str(params["tool_name"])
+    if len(params) == 1:
+        key, value = next(iter(params.items()))
+        return f"{key}={value}"
+    return ""
+
+
+def _all_calls_repeat(valid_calls: list[dict], executed: set[tuple[str, str]]) -> bool:
+    """True when every requested call was already executed this turn with identical params."""
+    if not valid_calls or not executed:
+        return False
+    return all(
+        _call_signature(tc["tool"], normalize_file_params(tc.get("params", {}), tc["tool"])) in executed
+        for tc in valid_calls
+    )
 
 
 def _find_compaction_cut(history, keep_tail: int = COMPACTION_KEEP_TAIL) -> int:
@@ -125,7 +160,6 @@ class AgentLoop:
         history: list[Message],
         mode: str = BUILD_MODE,
         skills_section: str = "",
-        confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
         plan_context: str = "",
         model_override: str | None = None,
         repo_map: str | None = None,
@@ -142,7 +176,6 @@ class AgentLoop:
                 history,
                 mode,
                 skills_section,
-                confirm_callback,
                 plan_context,
                 sequence,
                 repo_map,
@@ -159,7 +192,6 @@ class AgentLoop:
         history: list[Message],
         mode: str = BUILD_MODE,
         skills_section: str = "",
-        confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None,
         plan_context: str = "",
         sequence: int = 0,
         repo_map: str | None = None,
@@ -248,9 +280,14 @@ class AgentLoop:
         iteration = 0
         reflection_errors = 0
         created_files: set[str] = set()
+        tools_used = False
         task_completed = False
         post_comp_iterations = 0
         files_edited: list[str] = []
+        executed_calls: set[tuple[str, str]] = set()
+        executed_results: dict[tuple[str, str], str] = {}
+        failed_calls: set[tuple[str, str]] = set()
+        stall_count = 0
         _total_completion_chars = 0
         try:
             safety_iterations = self._resolve_safety_iterations(model)
@@ -426,7 +463,8 @@ class AgentLoop:
                         registered_tools = set(new_active)
                         openai_tools = resolver.openai_tools(mode, allowed_mcp=allowed_mcp)
                         self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
-                valid_calls, invalid_names = validate_tool_calls(tool_calls, registered_tools)
+                valid_calls, invalid_calls = validate_tool_calls(tool_calls, registered_tools)
+                invalid_names = [str(tc.get("tool") or tc) for tc in invalid_calls]
                 if invalid_names:
                     yield r.warning(
                         f"Hallucinated tools ignored: {', '.join(invalid_names)}", session_id
@@ -442,24 +480,84 @@ class AgentLoop:
                     messages.extend(msgs)
                     continue
                 messages.append({"role": "assistant", "content": response_text or "[tool calls]"})
+                if _all_calls_repeat(valid_calls, executed_calls):
+                    completed = clean_response and COMPLETION_SIGNALS.search(clean_response)
+                    if completed:
+                        if not task_completed:
+                            task_completed = True
+                            yield r.warning(
+                                "Repeated identical tool calls without new work; treating the response as the final answer.",
+                                session_id,
+                                extra={"repeated_tool_calls": [tc.get("tool") for tc in valid_calls]},
+                            )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "[System] The requested tool calls have already been completed "
+                                    "with identical parameters. The task is complete; do not call any "
+                                    "more tools. Provide your final summary only."
+                                ),
+                            }
+                        )
+                        continue
+                    logger.info(
+                        "All requested calls already executed this turn but the model has not "
+                        "signaled completion; falling through so the per-call loop can skip them."
+                    )
+                if task_completed:
+                    yield r.warning(
+                        "Model emitted tool calls after signaling completion; skipping them.",
+                        session_id,
+                        extra={"skipped_tool_calls": [tc.get("tool") for tc in valid_calls]},
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "[System] The task is already complete; do not call any more "
+                                "tools. Provide your final summary only."
+                            ),
+                        }
+                    )
+                    continue
                 stop_turn = False
+                skipped_calls: list[str] = []
+                newly_executed = False
                 for tc in valid_calls:
                     tool_name = tc["tool"]
-                    tool_params = normalize_file_params(tc.get("params", {}))
+                    tool_params = normalize_file_params(tc.get("params", {}), tc["tool"])
+                    sig = _call_signature(tool_name, tool_params)
+                    if sig in executed_calls:
+                        failed_flag = " [failed]" if sig in failed_calls else ""
+                        skipped_calls.append(f"{tool_name}({_params_label(tool_params)}){failed_flag}")
+                        continue
                     reject_msg = validate_tool_rejection(tool_name, tool_params, created_files, ws)
-                    if tool_name in ("bash", "terminal") and (not reject_msg) and confirm_callback:
+                    if tool_name in ("bash", "terminal") and (not reject_msg):
                         from server.toolkit.command_safety import assess_command
 
                         assessment = assess_command(tool_params.get("command", ""))
-                        if assessment.is_risky:
-                            try:
-                                approved = await confirm_callback(
-                                    tool_name, assessment.reason, assessment.risk_level
-                                )
-                            except Exception:
-                                approved = False
-                            if not approved:
-                                reject_msg = f"Command denied: {tool_params.get('command', '')} ({assessment.reason})"
+                        if assessment.is_risky and not self.config.auto_risky:
+                            reject_msg = f"Command denied: {tool_params.get('command', '')} ({assessment.reason})"
+                    if tool_name == FILE_WRITE_TOOL and (not reject_msg):
+                        target = tool_params.get("filepath") or tool_params.get("path") or ""
+                        if target:
+                            resolved = validate_path(target, ws)
+                            if resolved is not None and resolved.exists():
+                                if not self.config.auto_overwrite:
+                                    reject_msg = (
+                                        f"File overwrite denied: '{target}'. Overwrite approval "
+                                        f"is disabled (auto_overwrite=false)."
+                                    )
+                                else:
+                                    tool_params[FILE_OVERWRITE_PARAM] = True
+                    if tool_name == FILE_DELETE_TOOL and (not reject_msg):
+                        target = tool_params.get("path") or ""
+                        if target:
+                            resolved = validate_path(target, ws)
+                            if resolved is not None and resolved.exists():
+                                if not self.config.auto_risky:
+                                    reject_msg = f"File delete denied: '{target}'."
                     if reject_msg:
                         yield r.warning(f"Tool '{tool_name}' rejected: {reject_msg}", session_id)
                         messages.append(
@@ -476,6 +574,8 @@ class AgentLoop:
                             return
                         continue
                     yield r.tool_call(tool_name, tool_params, session_id)
+                    tools_used = True
+                    newly_executed = True
                     result, duration_ms = await execute_tool(
                         self.tool_registry,
                         tool_name,
@@ -547,6 +647,9 @@ class AgentLoop:
                             )
                             return
                         yield r.warning("Context summarized, continuing", session_id)
+                    executed_calls.add(sig)
+                    if not result.success:
+                        failed_calls.add(sig)
                     if result.success:
                         p = tool_params.get("filepath") or tool_params.get("path") or ""
                         if p:
@@ -580,7 +683,78 @@ class AgentLoop:
                             "content": format_tool_result(tool_name, result, result_limit),
                         }
                     )
+                    executed_results[sig] = messages[-1]["content"]
                     self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
+                if skipped_calls:
+                    yield r.warning(
+                        "Skipped calls already completed with identical params this turn: "
+                        + ", ".join(skipped_calls),
+                        session_id,
+                    )
+                    failed_skips = [s for s in skipped_calls if " [failed]" in s]
+                    msg = (
+                        "[System] These calls were already attempted earlier in this turn "
+                        "with identical parameters and were NOT re-run: "
+                        + ", ".join(skipped_calls)
+                        + ". Their results are already shown above in this conversation."
+                    )
+                    if failed_skips:
+                        msg += (
+                            " The calls marked [failed] did not succeed; do NOT retry them "
+                            "with identical parameters - use different parameters or a "
+                            "different approach."
+                        )
+                    msg += " Do not re-run any of the listed calls; continue with the next unfinished step."
+                    messages.append({"role": "user", "content": msg})
+                if skipped_calls and not newly_executed and not task_completed:
+                    stall_count += 1
+                    if stall_count == 1:
+                        used_tools = {name for name, _ in executed_calls}
+                        all_tools = (
+                            self.tool_registry.list_tools() if self.tool_registry else []
+                        )
+                        remaining = sorted(
+                            t
+                            for t in all_tools
+                            if t not in used_tools and t not in ("discover_capabilities", "get_tool_definition")
+                        )
+                        stall_msg = (
+                            "[System] No new tool was executed this iteration; every call you "
+                            "emitted was already attempted earlier with identical parameters. "
+                            "You are stuck repeating previous work."
+                        )
+                        if remaining:
+                            stall_msg += (
+                                " Tools still NOT used this turn: " + ", ".join(remaining)
+                                + ". If you need any of them, call "
+                                "get_tool_definition('<tool>') NOW and then call that tool. "
+                                "Do not emit any other calls this response."
+                            )
+                        else:
+                            stall_msg += (
+                                " All available tools have been used. If the task is done, "
+                                "write your final summary and stop."
+                            )
+                        yield r.warning(stall_msg, session_id)
+                        messages.append({"role": "user", "content": stall_msg})
+                    else:
+                        task_completed = True
+                        yield r.warning(
+                            "No new tool work for several consecutive iterations; finalizing the turn.",
+                            session_id,
+                        )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "[System] The turn must end now; no new tool work has been "
+                                    "performed for several iterations. Provide your final "
+                                    "summary only. Do not call any more tools."
+                                ),
+                            }
+                        )
+                elif newly_executed:
+                    stall_count = 0
                 if stop_turn:
                     logger.info("Stopping turn: tool requested stop_turn")
                     break
@@ -615,7 +789,7 @@ class AgentLoop:
         estimated_completion = max(1, _total_completion_chars // 4)
         cum_usage: dict = getattr(self.provider, "_cumulative_usage", {})
         is_estimated = cum_usage.get("total_tokens", 0) == 0
-        if mode == BUILD_MODE and (not created_files):
+        if mode == BUILD_MODE and tools_used and (not created_files):
             yield r.warning(
                 "Build completed but no files were created. The model output text instead of using file_write.",
                 session_id,
@@ -761,7 +935,15 @@ class AgentLoop:
                 }
             )
             logger.info("Replayed live turn after compaction: %d messages", len(live_tail))
-        return rebuilt
+        sanitized = [m for m in rebuilt if isinstance(m, dict)]
+        dropped = len(rebuilt) - len(sanitized)
+        if dropped:
+            logger.warning(
+                "Rebuild dropped %d non-dict message(s): %r",
+                dropped,
+                [type(m).__name__ for m in rebuilt if not isinstance(m, dict)],
+            )
+        return sanitized
 
     async def _summarize_and_rebuild(
         self,
@@ -787,16 +969,18 @@ class AgentLoop:
         """
         async for ev in self._maybe_summarize(history, session_id, messages):
             yield ev
-        result[:] = self._rebuild_messages(
-            messages,
-            base_len,
-            history,
-            system_prompt,
-            prompt,
-            model,
-            plan_context,
-            use_system_prompt,
-            repo_map,
+        result.append(
+            self._rebuild_messages(
+                messages,
+                base_len,
+                history,
+                system_prompt,
+                prompt,
+                model,
+                plan_context,
+                use_system_prompt,
+                repo_map,
+            )
         )
 
     def _get_tool_schemas(self) -> list[dict]:

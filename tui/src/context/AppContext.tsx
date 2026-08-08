@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import type { ConversationTurn } from '../hooks/useConversation';
 import type { OverlayType } from '../hooks/useOverlayManager';
-import type { ConfirmationRequestEvent, ScenarioEvent, ScenarioMode } from '../types/scenario';
+import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
 
 export interface AppState {
   conversation: {
@@ -20,9 +20,6 @@ export interface AppState {
   };
   preferences: {
     thinkingCollapsed: boolean;
-  };
-  confirmation: {
-    active: ConfirmationRequestEvent | null;
   };
 }
 
@@ -45,7 +42,6 @@ interface AppProviderProps {
   isOverlayOpen: boolean;
   selectedMode: ScenarioMode;
   thinkingCollapsed: boolean;
-  activeConfirmation: ConfirmationRequestEvent | null;
 }
 
 export const AppProvider: React.FC<AppProviderProps> = React.memo(
@@ -60,7 +56,6 @@ export const AppProvider: React.FC<AppProviderProps> = React.memo(
     isOverlayOpen,
     selectedMode,
     thinkingCollapsed,
-    activeConfirmation,
   }) => {
     const value = useMemo<AppState>(
       () => ({
@@ -68,7 +63,6 @@ export const AppProvider: React.FC<AppProviderProps> = React.memo(
         scenario: { events, isRunning },
         overlay: { type: overlay, isOpen: isOverlayOpen, mode: selectedMode },
         preferences: { thinkingCollapsed },
-        confirmation: { active: activeConfirmation },
       }),
       [
         turns,
@@ -80,7 +74,6 @@ export const AppProvider: React.FC<AppProviderProps> = React.memo(
         isOverlayOpen,
         selectedMode,
         thinkingCollapsed,
-        activeConfirmation,
       ],
     );
 

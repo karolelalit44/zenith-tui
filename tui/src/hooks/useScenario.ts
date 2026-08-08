@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { eventBus } from '../services/eventBus';
 import type { ScenarioRunner } from '../services/scenario/types';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
 import type {
-  ConfirmationRequestEvent,
   FileAttachment,
   Scenario,
   ScenarioEvent,
@@ -23,8 +21,6 @@ export interface UseScenarioReturn {
     attachments?: FileAttachment[],
   ) => void;
   abort: () => void;
-  activeConfirmation: ConfirmationRequestEvent | null;
-  respondConfirmation: (approved: boolean) => void;
   lastSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
 }
@@ -33,7 +29,6 @@ export function useScenario(): UseScenarioReturn {
   const [events, setEvents] = useState<ScenarioEvent[]>([]);
   const eventsRef = useRef<ScenarioEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [activeConfirmation, setActiveConfirmation] = useState<ConfirmationRequestEvent | null>(null);
   const [lastSessionId, setLastSessionId] = useState<string | null>(null);
   const runnerRef = useRef<ScenarioRunner | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -75,11 +70,6 @@ export function useScenario(): UseScenarioReturn {
 
   const handleEvent = useCallback(
     (event: ScenarioEvent, index: number) => {
-      if (event.kind === 'confirmation_request') {
-        const conf = event as ConfirmationRequestEvent;
-        setActiveConfirmation(conf.answered ? null : conf);
-      }
-
       if (event.kind === 'message' || event.kind === 'thinking') {
         batchQueueRef.current.push({ event, index });
         if (!batchTimerRef.current) {
@@ -114,7 +104,6 @@ export function useScenario(): UseScenarioReturn {
   const handleComplete = useCallback(() => {
     flushBatch();
     setIsRunning(false);
-    setActiveConfirmation(null);
   }, [flushBatch]);
 
   const connectToBackend = useCallback(async () => {
@@ -207,28 +196,7 @@ export function useScenario(): UseScenarioReturn {
       wsClient.cancelPrompt(sessionIdRef.current).catch(() => {});
     }
     setIsRunning(false);
-    setActiveConfirmation(null);
   }, []);
-
-  const respondConfirmation = useCallback(
-    async (approved: boolean) => {
-      const conf = activeConfirmation;
-      if (!conf?.confirmationId) return;
-
-      wsClient.sendConfirmation(conf.confirmationId, approved).catch(() => {});
-      eventBus.emit('confirmation:response', { confirmationId: conf.confirmationId, approved });
-
-      setEvents((prev) =>
-        prev.map((e) =>
-          e.kind === 'confirmation_request' && (e as ConfirmationRequestEvent).confirmationId === conf.confirmationId
-            ? ({ ...e, answered: true, approved } as ConfirmationRequestEvent)
-            : e,
-        ),
-      );
-      setActiveConfirmation(null);
-    },
-    [activeConfirmation],
-  );
 
   const setActiveSessionId = useCallback((id: string | null) => {
     sessionIdRef.current = id;
@@ -241,8 +209,6 @@ export function useScenario(): UseScenarioReturn {
     isRunning,
     startScenario,
     abort,
-    activeConfirmation,
-    respondConfirmation,
     lastSessionId,
     setActiveSessionId,
   };

@@ -340,21 +340,6 @@ class PromptExecutor:
                     content, attachments, session_id, manager, collected_events
                 )
 
-            async def _confirm(tool_name: str, reason: str, risk_level: str) -> bool:
-                logger.info(
-                    "Confirmation requested: tool=%s reason=%s risk=%s",
-                    tool_name,
-                    reason,
-                    risk_level,
-                )
-                if handlers and manager:
-                    result = await handlers.request_confirmation(
-                        session_id, tool_name, reason, risk_level, manager
-                    )
-                    logger.info("Confirmation result: %s for tool=%s", result, tool_name)
-                    return result
-                return True
-
             mode_config = AGENT_MODES.get(mode)
             if (
                 mode == BUILD_MODE
@@ -369,7 +354,6 @@ class PromptExecutor:
                     session_id=session_id,
                     plan_output=plan_context,
                     user_prompt=content,
-                    confirm_callback=_confirm,
                     session_repo=self._session_repo,
                     message_repo=self._message_repo,
                 ):
@@ -417,7 +401,6 @@ class PromptExecutor:
                 history,
                 mode,
                 skills_section=skills_section,
-                confirm_callback=_confirm,
                 plan_context=plan_context,
                 model_override=None,
                 repo_map="" if mode == PLAN_MODE else None,

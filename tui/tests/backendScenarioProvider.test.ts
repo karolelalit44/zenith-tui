@@ -48,7 +48,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     _runner.abort();
   });
 
-  it('does not finalize on recoverable tool error events', () => {
+  it('finalizes on recoverable tool error events (retry banner)', () => {
     let completed = false;
     const eventsRecv: unknown[] = [];
 
@@ -76,7 +76,7 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     );
 
     expect(eventsRecv.length).toBe(1);
-    expect(completed).toBe(false); // MUST NOT BE COMPLETED!
+    expect(completed).toBe(true); // MUST BE COMPLETED so retry banner shows
 
     _runner.abort();
   });

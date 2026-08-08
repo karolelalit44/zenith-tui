@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import uuid
 from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 
 import server.providers.responder as r
-from server.config.constants import BUILD_MODE, DEFAULT_BASH_TIMEOUT
+from server.config.constants import BUILD_MODE
 from server.config.settings import AGENT_MODES
-from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.persistence.connection import Database
 from server.persistence.repositories import MessageRepository, SessionRepository
@@ -71,7 +68,6 @@ class MethodHandlers:
         self.message_repo = MessageRepository(db)
         self.skill_loader = SkillLoader(config.workspace_root)
         self.exporter = SessionExporter()
-        self._pending_confirmations: dict[str, asyncio.Future[bool]] = {}
         self.manager = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
@@ -117,7 +113,6 @@ class MethodHandlers:
             "workspace.log": lambda: self._workspace_log(ws, rid, params),
             "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
-            "confirmation.response": lambda: self._confirmation_response(params),
         }
         handler = handlers.get(method)
         if handler:
@@ -646,36 +641,6 @@ class MethodHandlers:
                 },
             )
         )
-
-    async def _confirmation_response(self, params) -> None:
-        confirmation_id = params.get("confirmation_id", "")
-        future = self._pending_confirmations.pop(confirmation_id, None)
-        if future and (not future.done()):
-            future.set_result(params.get("approved", False))
-
-    async def request_confirmation(
-        self, session_id: str, tool_name: str, reason: str, risk_level: str, manager
-    ) -> bool:
-        confirmation_id = f"confirm_{uuid.uuid4().hex[:8]}"
-        future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
-        self._pending_confirmations[confirmation_id] = future
-        event = Event(
-            kind=EventKind.CONFIRMATION_REQUEST,
-            data={
-                "confirmation_id": confirmation_id,
-                "tool": tool_name,
-                "reason": reason,
-                "risk_level": risk_level,
-                "message": f"Tool '{tool_name}' wants to execute a {risk_level}-risk operation: {reason}",
-            },
-            session_id=session_id,
-        )
-        await manager.send_event(session_id, event)
-        try:
-            return await asyncio.wait_for(future, timeout=DEFAULT_BASH_TIMEOUT)
-        except TimeoutError:
-            self._pending_confirmations.pop(confirmation_id, None)
-            return False
 
     def _resolve_service(self) -> SessionService:
         if self._session_service is not None:

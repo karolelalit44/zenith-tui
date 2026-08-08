@@ -108,13 +108,6 @@ function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): strin
         }
         lines.push('');
         break;
-
-      case 'confirmation_request':
-        lines.push(`### Confirmation Required: \`${event.tool}\``);
-        lines.push('');
-        lines.push(`${event.message}`);
-        lines.push('');
-        break;
     }
   }
 

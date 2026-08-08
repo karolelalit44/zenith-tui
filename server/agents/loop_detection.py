@@ -4,9 +4,13 @@ import hashlib
 import json
 import logging
 
+from server.config.constants import (
+    LOOP_DETECTION_MAX_REPEATS,
+    LOOP_DETECTION_WINDOW_SIZE,
+    LOOP_IDENTICAL_CONSECUTIVE_LIMIT,
+)
+
 logger = logging.getLogger(__name__)
-WINDOW_SIZE = 10
-MAX_REPEATS = 2
 
 
 def _compute_signature(tool_name: str, params: dict, result_output: str) -> str:
@@ -20,18 +24,38 @@ def _compute_signature(tool_name: str, params: dict, result_output: str) -> str:
 
 
 class LoopDetector:
-    def __init__(self, window_size: int = WINDOW_SIZE, max_repeats: int = MAX_REPEATS) -> None:
+    def __init__(
+        self,
+        window_size: int = LOOP_DETECTION_WINDOW_SIZE,
+        max_repeats: int = LOOP_DETECTION_MAX_REPEATS,
+        identical_limit: int = LOOP_IDENTICAL_CONSECUTIVE_LIMIT,
+    ) -> None:
         self.window_size = window_size
         self.max_repeats = max_repeats
+        self.identical_limit = identical_limit
         self._signatures: list[str] = []
+        self._consecutive_sig: str | None = None
+        self._consecutive_count = 0
 
     def record(self, tool_name: str, params: dict, result_output: str) -> None:
         sig = _compute_signature(tool_name, params, result_output)
         self._signatures.append(sig)
         if len(self._signatures) > self.window_size:
             self._signatures = self._signatures[-self.window_size :]
+        if sig == self._consecutive_sig:
+            self._consecutive_count += 1
+        else:
+            self._consecutive_sig = sig
+            self._consecutive_count = 1
 
     def is_loop_detected(self) -> bool:
+        if self._consecutive_count >= self.identical_limit:
+            logger.warning(
+                "LOOP DETECTED: signature %s repeated %d consecutive times",
+                str(self._consecutive_sig)[:16],
+                self._consecutive_count,
+            )
+            return True
         if len(self._signatures) < self.window_size:
             return False
         counts: dict[str, int] = {}
@@ -49,6 +73,8 @@ class LoopDetector:
 
     def reset(self) -> None:
         self._signatures.clear()
+        self._consecutive_sig = None
+        self._consecutive_count = 0
 
     @property
     def window_fill(self) -> int:

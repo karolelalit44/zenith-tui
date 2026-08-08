@@ -24,7 +24,6 @@ class EventKind(StrEnum):
     WARNING = "warning"
     SUCCESS = "success"
     PROGRESS = "progress"
-    CONFIRMATION_REQUEST = "confirmation_request"
     AGENT_SPAWNED = "agent_spawned"
     AGENT_COMPLETE = "agent_complete"
     AGENT_FAILED = "agent_failed"

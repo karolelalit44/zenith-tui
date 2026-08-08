@@ -120,26 +120,10 @@ describe('E2E: All 9 EventKind types produce valid ScenarioEvents', () => {
       expect(evt.label).toBe('Executing 2 tool(s)...');
     }
   });
-
-  it('maps confirmation_request with all fields', () => {
-    const evt = makeEvent('confirmation_request', {
-      confirmationId: 'conf-1',
-      tool: 'bash',
-      reason: 'Dangerous operation',
-      riskLevel: 'high',
-      message: 'Confirm deletion?',
-    });
-    expect(evt.kind).toBe('confirmation_request');
-    if (evt.kind === 'confirmation_request') {
-      expect(evt.confirmationId).toBe('conf-1');
-      expect(evt.tool).toBe('bash');
-      expect(evt.riskLevel).toBe('high');
-    }
-  });
 });
 
 describe('E2E: Full event sequence as sent by backend', () => {
-  it('simulates a complete prompt cycle with 9 event kinds', () => {
+  it('simulates a complete prompt cycle', () => {
     const events = [
       makeEvent('thinking', { thoughts: ['Processing your request in build mode...'], duration: 500 }),
       makeEvent('tool_call', { tool: 'bash', params: { command: 'ls -la' } }),

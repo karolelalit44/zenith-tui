@@ -79,6 +79,9 @@ class TokenCounter:
     def count_messages(self, messages: list[dict], model: str = "cl100k_base") -> int:
         total = 0
         for msg in messages:
+            if not isinstance(msg, dict):
+                logger.warning("count_messages skipping non-dict message: %s", type(msg).__name__)
+                continue
             total += self.count(msg.get("content", ""), model)
             total += _FRAMING_PER_MESSAGE
         total += _REPLY_PRIMING

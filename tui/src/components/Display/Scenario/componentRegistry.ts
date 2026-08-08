@@ -1,6 +1,5 @@
 import type React from 'react';
 import type { ScenarioEvent } from '../../../types/scenario';
-import { ConfirmationCard } from './ConfirmationCard';
 import { ErrorBlock } from './ErrorBlock';
 import { MessageBlock } from './MessageBlock';
 import { ProgressBar } from './ProgressBar';
@@ -15,8 +14,6 @@ export interface EventRenderContext {
   thinkingCollapsed?: boolean;
   isHistorical?: boolean;
   isRunning?: boolean;
-  onRetry?: () => void;
-  onDismiss?: () => void;
 }
 
 export type EventComponentType = React.ComponentType<{ event: ScenarioEvent; context?: EventRenderContext }>;
@@ -37,7 +34,6 @@ class ComponentRegistry {
     this.register('warning', WarningBlock as EventComponentType);
     this.register('success', SuccessCard as EventComponentType);
     this.register('progress', ProgressBar as EventComponentType);
-    this.register('confirmation_request', ConfirmationCard as EventComponentType);
     this.register('plan_ready', MessageBlock as EventComponentType);
     this.register('context_compacted', WarningBlock as EventComponentType);
     this.register('context_compaction_started', WarningBlock as EventComponentType);

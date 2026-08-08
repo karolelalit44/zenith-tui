@@ -9,7 +9,7 @@ Turns: greeting -> topic -> implementation. Asserts:
   * greeting/topic produce zero tool calls
   * implementation produces at least one of file_write/file_edit/bash
   * the requested probe file is created with the expected content
-Reports per-turn tool names, event kinds, token info, and confirmations.
+Reports per-turn tool names, event kinds, and token info.
 
 Usage::
 
@@ -58,6 +58,8 @@ ROOT = Path(__file__).resolve().parent.parent
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 TSX_CLI = ROOT / "node_modules" / "tsx" / "dist" / "cli.mjs"
 
+sys.path.insert(0, str(ROOT))
+
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-Z]|\x1b[=>]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
 
 BACKEND_WAIT = int(os.environ.get("SMOKE_BACKEND_WAIT", "90"))
@@ -67,6 +69,7 @@ TURN_TIMEOUT = int(os.environ.get("SMOKE_TURN_TIMEOUT", "360"))
 TYPE_DELAY_MS = int(os.environ.get("SMOKE_TYPE_DELAY_MS", "20"))
 TURN_GAP_S = float(os.environ.get("SMOKE_TURN_GAP_S", "2.0"))
 ERROR_GRACE_S = float(os.environ.get("SMOKE_ERROR_GRACE_S", "15.0"))
+ERROR_SCENARIOS = os.environ.get("SMOKE_ERROR_SCENARIOS", "0") == "1"
 
 TUI_READY_MARKERS = ("Ask anything", "Describe the change", "? help")
 
@@ -206,14 +209,21 @@ class PtyLog:
 
 
 def pty_reader(proc: PtyProcess, log: PtyLog) -> None:
+    consecutive_errors = 0
     while True:
         try:
             chunk = proc.read(4096)
         except EOFError:
             break
-        except Exception:
-            break
+        except Exception as exc:
+            consecutive_errors += 1
+            if consecutive_errors > 5:
+                break
+            log.append(f"\n[pty_reader] transient error: {type(exc).__name__}: {exc}\n")
+            time.sleep(0.25)
+            continue
         if chunk:
+            consecutive_errors = 0
             log.append(chunk)
 
 
@@ -257,11 +267,9 @@ async def wait_for_turn_end(
     base_seq: int,
     pty: PtyProcess | None,
     timeout: int,
-    on_confirmation,
 ) -> tuple[str, list[dict], dict, int]:
     seen_seq = base_seq
     collected: list[dict] = []
-    confirmed: set[str] = set()
     candidate: dict | None = None
     last_activity: float = time.monotonic()
     deadline = time.monotonic() + timeout
@@ -285,11 +293,6 @@ async def wait_for_turn_end(
                 if not data.get("recoverable"):
                     return "error", collected, e, seen_seq
                 candidate = e
-            if kind == "confirmation_request":
-                cid = data.get("confirmation_id")
-                if cid and cid not in confirmed:
-                    confirmed.add(cid)
-                    await on_confirmation(cid)
         if candidate is not None and time.monotonic() - last_activity >= ERROR_GRACE_S:
             return "error", collected, candidate, seen_seq
         await asyncio.sleep(1)
@@ -300,7 +303,7 @@ def summarize_turn(events: list[dict]) -> dict:
     kinds: list[str] = []
     tools: list[str] = []
     tool_results: dict[str, dict] = {}
-    confirmations: list[str] = []
+    all_tool_results: list[dict] = []
     tokens: dict | None = None
     iterations: int = 0
     message = ""
@@ -320,8 +323,14 @@ def summarize_turn(events: list[dict]) -> dict:
                 "error": str(data.get("error", ""))[:120],
                 "output_len": len(str(data.get("output", ""))),
             }
-        elif kind == "confirmation_request":
-            confirmations.append(str(data.get("confirmation_id", "?")))
+            all_tool_results.append(
+                {
+                    "tool": t,
+                    "success": data.get("success"),
+                    "error": str(data.get("error", ""))[:200],
+                    "output": str(data.get("output", ""))[:300],
+                }
+            )
         elif kind == "success":
             iterations = int(data.get("iterations", 0))
             tokens = data.get("tokenInfo")
@@ -332,7 +341,7 @@ def summarize_turn(events: list[dict]) -> dict:
         "kinds": kinds,
         "tools": tools,
         "tool_results": tool_results,
-        "confirmations": confirmations,
+        "all_tool_results": all_tool_results,
         "tokens": tokens,
         "iterations": iterations,
         "message": message,
@@ -357,10 +366,115 @@ def fmt_tokens(tokens: dict | None) -> str:
     return " ".join(parts)
 
 
+def _any_warning_contains(summary: dict, *needles: str) -> bool:
+    low = [w.lower() for w in summary.get("warnings", [])]
+    return any(any(n in w for n in needles) for w in low)
+
+
+def _any_failed_tool_contains(summary: dict, *needles: str) -> bool:
+    for tr in summary.get("all_tool_results", []):
+        if tr.get("success"):
+            continue
+        blob = f"{tr.get('error', '')} {tr.get('output', '')}".lower()
+        if any(n in blob for n in needles):
+            return True
+    return False
+
+
+def _check_syntax_fail(summary: dict) -> list[str]:
+    if _any_warning_contains(summary, "syntax error") or _any_failed_tool_contains(
+        summary, "syntax error", "syntaxerror"
+    ):
+        return []
+    return ["expected a syntax-error signal (pre-check rejection or failed tool result), got none"]
+
+
+def _check_runtime_fail(summary: dict) -> list[str]:
+    if _any_failed_tool_contains(summary, "modulenotfound", "no module named"):
+        return []
+    return [
+        "expected a runtime-failure tool result (success=False with ModuleNotFoundError), got none"
+    ]
+
+
+def _check_placeholder(summary: dict) -> list[str]:
+    if _any_warning_contains(summary, "placeholder") or _any_failed_tool_contains(
+        summary, "placeholder"
+    ):
+        return []
+    return ["expected a placeholder-content rejection, got none"]
+
+
+def _build_error_scenarios(stamp: str) -> list[dict]:
+    syntax_file = f"scripts/syntax_err_{stamp}.py"
+    placeholder_file = f"scripts/placeholder_{stamp}.txt"
+
+    return [
+        {
+            "name": "syntax_fail",            "prompt": (
+                f"Create a Python file named {syntax_file} whose exact content is:\n"
+                "def broken(\n"
+                f"Then run it with the command: py {syntax_file}\n"
+                "Report what happens when the file is run."
+            ),
+            "check": _check_syntax_fail,
+        },
+        {
+            "name": "runtime_fail",
+            "prompt": (
+                'Run this command and report the output and exit code: '
+                'py -c "import this_module_does_not_exist_xyz"'
+            ),
+            "check": _check_runtime_fail,
+        },
+        {
+            "name": "placeholder_reject",
+            "prompt": (
+                f"Create a file named {placeholder_file} whose exact content is the "
+                "literal text: [CONTENT]"
+            ),
+            "check": _check_placeholder,
+        },
+    ]
+
+
 async def type_text(proc: PtyProcess, text: str, delay_s: float) -> None:
     proc.write(text)
     await asyncio.sleep(max(delay_s, 0.2))
     proc.write("\r")
+
+
+async def _dismiss_retry_banner(log: PtyLog, pty: PtyProcess | None) -> None:
+    """Dismiss the TUI retry banner (Esc) after an errored turn.
+
+    A recoverable-error turn now ends with a keyboard-only retry banner above
+    the input; while it is open the composer is disabled, so typed prompts
+    would be swallowed. Detection reads the recent pty tail (never the whole
+    history, which keeps old banners) and keys off the disabled-composer hint,
+    so Esc cannot fire early and abort a still-running turn.
+    """
+    if pty is None or not pty.isalive():
+        return
+
+    def banner_up() -> bool:
+        recent = strip_ansi(log.text()[-20_000:])
+        last_hint, pos = "", -1
+        for candidate in ("Ask anything", "Choose an action above"):
+            at = recent.rfind(candidate)
+            if at > pos:
+                pos, last_hint = at, candidate
+        return last_hint == "Choose an action above" and "Task failed" in recent
+
+    deadline = time.monotonic() + 25.0
+    while time.monotonic() < deadline and not banner_up():
+        await asyncio.sleep(0.25)
+    if not banner_up():
+        return
+    for _ in range(4):
+        if not banner_up():
+            return
+        pty.write("\x1b")
+        await asyncio.sleep(0.8)
 
 
 async def main() -> int:
@@ -373,6 +487,12 @@ async def main() -> int:
     parser.add_argument("--type-delay-ms", type=int, default=TYPE_DELAY_MS, help="pause (ms) after typing the prompt")
     parser.add_argument("--turn-timeout", type=int, default=TURN_TIMEOUT)
     parser.add_argument("--keep-probe", action="store_true", help="Do not delete the probe file on success")
+    parser.add_argument(
+        "--error-scenarios",
+        action="store_true",
+        default=ERROR_SCENARIOS,
+        help="Also run the error-scenario turns (syntax fail, runtime fail, placeholder)",
+    )
     args = parser.parse_args()
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -415,6 +535,9 @@ async def main() -> int:
             "expect": "write",
         },
     ]
+    if args.error_scenarios:
+        turns.extend(_build_error_scenarios(stamp))
+    cleanup_files = [f"scripts/syntax_err_{stamp}.py", f"scripts/placeholder_{stamp}.txt"]
 
     try:
         print(f"[smoke] backend    -> http://127.0.0.1:{port}  (own console window)")
@@ -462,19 +585,11 @@ async def main() -> int:
             session_id: str | None = None
             base_seq = 0
 
-            async def approve_confirmation(cid: str) -> None:
-                print(f"[smoke]   confirmation approved: {cid}")
-                try:
-                    await rpc.call(
-                        "confirmation.response", {"confirmation_id": cid, "approved": True}, timeout=10
-                    )
-                except Exception as exc:
-                    print(f"[smoke]   RPC approve failed ({exc}); relying on TUI 'y'")
-                if pty and pty.isalive():
-                    pty.write("y")
-
             for turn in turns:
                 print(f"\n[smoke] === turn: {turn['name']} ===")
+                if turn.get("setup"):
+                    print(f"[smoke]   setup for {turn['name']}")
+                    await turn["setup"]()
                 print(f"[smoke] typing: {turn['prompt']}")
                 await type_text(pty, turn["prompt"], args.type_delay_ms / 1000.0)
 
@@ -485,27 +600,31 @@ async def main() -> int:
 
                 print(f"[smoke] waiting for turn completion (timeout {args.turn_timeout}s) ...")
                 status, events, _terminal, base_seq = await wait_for_turn_end(
-                    rpc, session_id, base_seq, pty, args.turn_timeout, approve_confirmation
+                    rpc, session_id, base_seq, pty, args.turn_timeout
                 )
                 summary = summarize_turn(events)
                 results.append((turn, status, summary))
                 print(f"[smoke]   status={status} iterations={summary['iterations']}")
                 print(f"[smoke]   tools={summary['tools'] or 'none'}")
                 print(f"[smoke]   kinds={summary['kinds']}")
-                if summary["confirmations"]:
-                    print(f"[smoke]   confirmations={summary['confirmations']}")
                 for w in summary["warnings"]:
                     print(f"[smoke]   warning: {w}")
                 print(f"[smoke]   tokens: {fmt_tokens(summary['tokens'])}")
                 if status != "success":
                     print(f"[smoke]   terminal message: {summary['message']}")
                 _log_tui_tail(log, name=f"after {turn['name']}")
+                if status != "success":
+                    await _dismiss_retry_banner(log, pty)
                 await asyncio.sleep(TURN_GAP_S)
 
             failed: list[str] = []
             for turn, status, summary in results:
                 name = turn["name"]
                 tools = summary["tools"]
+                if turn.get("check"):
+                    for msg in turn["check"](summary):
+                        failed.append(f"{name}: {msg}")
+                    continue
                 if status != "success":
                     failed.append(f"{name}: terminal status was {status}")
                 if turn["expect"] == "none" and tools:
@@ -544,10 +663,9 @@ async def main() -> int:
                   f"plan={SCHEMA_BUDGET['plan']} registry={SCHEMA_BUDGET['registry']}")
             for turn, status, summary in results:
                 tools = summary["tools"] or ["(none)"]
-                confs = f" confirmed={len(summary['confirmations'])}" if summary["confirmations"] else ""
                 print(
                     f"  [{turn['name']:15s}] {status:8s} iterations={summary['iterations']} "
-                    f"tools={tools}{confs}"
+                    f"tools={tools}"
                 )
                 print(f"        tokens: {fmt_tokens(summary['tokens'])}")
             print(f"probe file: {probe_rel} -> exists={probe_found} content_ok={probe_ok}")
@@ -572,7 +690,7 @@ async def main() -> int:
             _log_tui_tail(log, name="on error")
         return 1
     finally:
-        _cleanup(backend, pty, probe_path, keep_probe=((exit_code != 0) or args.keep_probe))
+        _cleanup(backend, pty, probe_path, keep_probe=((exit_code != 0) or args.keep_probe), extra_files=cleanup_files)
 
 
 def _resolve_tui_argv() -> list[str]:
@@ -619,6 +737,7 @@ def _cleanup(
     pty: PtyProcess | None,
     probe_path: Path,
     keep_probe: bool = False,
+    extra_files: list[str] | None = None,
 ) -> None:
     if pty is not None:
         try:
@@ -645,6 +764,13 @@ def _cleanup(
             probe_path.unlink()
         except OSError:
             pass
+    for rel in extra_files or []:
+        path = ROOT / rel
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

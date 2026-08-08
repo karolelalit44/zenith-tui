@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 
 from server.config.constants import BUILD_MODE
 from server.config.settings import AppSettings
@@ -48,7 +48,6 @@ class RecoverableAgentLoop:
         history: list[Message],
         mode: str = BUILD_MODE,
         skills_section: str = "",
-        confirm_callback: Callable | None = None,
         plan_context: str = "",
         model_override: str | None = None,
         repo_map: str | None = None,
@@ -61,7 +60,6 @@ class RecoverableAgentLoop:
                 history,
                 mode,
                 skills_section=skills_section,
-                confirm_callback=confirm_callback,
                 plan_context=plan_context,
                 model_override=model_override,
                 repo_map=repo_map,

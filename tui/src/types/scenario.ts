@@ -7,7 +7,6 @@ export type EventKind =
   | 'warning'
   | 'success'
   | 'progress'
-  | 'confirmation_request'
   | 'plan_ready';
 
 export interface ThinkingThought {
@@ -95,18 +94,6 @@ export interface ProgressEvent {
   iteration?: number;
 }
 
-export interface ConfirmationRequestEvent {
-  kind: 'confirmation_request';
-  id: string;
-  confirmationId: string;
-  tool: string;
-  reason: string;
-  riskLevel: string;
-  message: string;
-  answered?: boolean;
-  approved?: boolean;
-}
-
 export interface PlanReadyEvent {
   kind: 'plan_ready';
   id: string;
@@ -123,7 +110,6 @@ export type ScenarioEvent =
   | WarningEvent
   | SuccessEvent
   | ProgressEvent
-  | ConfirmationRequestEvent
   | PlanReadyEvent;
 
 export type ScenarioMode = 'plan' | 'build';

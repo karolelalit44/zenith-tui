@@ -7,6 +7,10 @@ import shutil
 from typing import Any
 
 from server.config.constants import (
+    BASH_TOOL_COMMAND_PARAM_UNIX,
+    BASH_TOOL_COMMAND_PARAM_WINDOWS,
+    BASH_TOOL_DESCRIPTION_UNIX,
+    BASH_TOOL_DESCRIPTION_WINDOWS,
     CONCURRENCY_GROUP_SHELL,
     COST_CLASS_HIGH,
     DEFAULT_BASH_TIMEOUT_MS,
@@ -30,9 +34,17 @@ def _resolve_shell() -> str | None:
     return shutil.which("bash")
 
 
+def _is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
 class BashTool(BaseTool):
     name = "bash"
-    description = "Execute shell commands."
+
+    @property
+    def description(self) -> str:
+        return BASH_TOOL_DESCRIPTION_WINDOWS if _is_windows() else BASH_TOOL_DESCRIPTION_UNIX
+
     capability_id = "command_execution"
     read_only = False
     timeout_ms = DEFAULT_BASH_TIMEOUT_MS
@@ -56,10 +68,11 @@ class BashTool(BaseTool):
         self.auto_background_after = auto_background_after
 
     def get_schema(self) -> dict:
+        command_desc = BASH_TOOL_COMMAND_PARAM_WINDOWS if _is_windows() else BASH_TOOL_COMMAND_PARAM_UNIX
         return {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Command to execute"},
+                "command": {"type": "string", "description": command_desc},
                 "timeout": {"type": "integer", "description": "Timeout seconds", "default": 30},
                 "run_in_background": {
                     "type": "boolean",

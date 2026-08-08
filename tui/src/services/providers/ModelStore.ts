@@ -117,6 +117,7 @@ export class ModelStore {
 
   public toDisplayString(sel: ModelSelection | null): string {
     if (!sel) return '';
+    if (sel.modelID.startsWith(`${sel.providerID}/`)) return sel.modelID;
     return `${sel.providerID}/${sel.modelID}`;
   }
 

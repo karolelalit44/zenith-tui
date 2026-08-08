@@ -107,6 +107,697 @@ class TestAgentWorkflow:
         assert not result.success
         assert "not available" in result.error
 
+    class _PostCompletionProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("postcomp", "postcomp-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return (
+                    "Done. The file has been created successfully.\n"
+                    '```tool\n{"tool": "file_write", "params": {"path": "out.txt", '
+                    '"content": "hello"}}\n```'
+                )
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "out.txt", '
+                    '"content": "hello again"}}\n```'
+                )
+            return "All done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["postcomp-model"]
+
+    @pytest.mark.asyncio
+    async def test_tools_after_completion_are_skipped(self, test_config):
+        target = Path(test_config.workspace_root) / "out.txt"
+        agent = AgentLoop(
+            test_config,
+            self._PostCompletionProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt(
+            "Create a file and finish", "s1", [], "build"
+        ):
+            events.append(event)
+        assert target.read_text(encoding="utf-8") == "hello"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any("after signaling completion" in (e.data.get("message") or "") for e in warnings)
+        assert events[-1].kind == EventKind.SUCCESS
+
+
+class TestMultiEditEndToEnd:
+    class _MultiEditProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("multiedit", "multiedit-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "file_write", "params": {"path": "src.txt", "content": "alpha\\nbeta\\ngamma"}}\n```'
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "multi_edit", "params": {"filepath": "src.txt", '
+                    '"edits": [{"old_content": "alpha", "new_content": "alpha-one"}, '
+                    '{"old_content": "gamma", "new_content": "gamma-three"}]}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["multiedit-model"]
+
+    @pytest.mark.asyncio
+    async def test_multi_edit_executes_through_parser(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._MultiEditProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Do the edits", "s1", [], "build"):
+            events.append(event)
+        assert (root / "src.txt").read_text(encoding="utf-8") == "alpha-one\nbeta\ngamma-three"
+        results = [
+            e
+            for e in events
+            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "multi_edit"
+        ]
+        assert len(results) == 1, "multi_edit must execute and succeed"
+        assert results[0].data.get("success") is True, results[0].data.get("error", "")
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+
+
+class TestAutoApprovalGates:
+    class _WriteProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("write", "write-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "file_write", "params": {"path": "out.txt", "content": "new content"}}\n```'
+            return "Done"
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["write-model"]
+
+    @pytest.mark.asyncio
+    async def test_auto_overwrite_true_writes_existing_file(self, test_config):
+        target = Path(test_config.workspace_root) / "out.txt"
+        target.write_text("old", encoding="utf-8")
+        agent = AgentLoop(
+            test_config, self._WriteProvider(), tool_registry=create_default_registry()
+        )
+        events = []
+        async for event in agent.process_prompt("Write file", "s1", [], "build"):
+            events.append(event)
+        assert target.read_text(encoding="utf-8") == "new content"
+        results = [e for e in events if e.kind == EventKind.TOOL_RESULT]
+        assert any(
+            e.data.get("tool") == "file_write" and e.data.get("success") is True
+            for e in results
+        )
+        assert events[-1].kind == EventKind.SUCCESS
+
+    @pytest.mark.asyncio
+    async def test_auto_overwrite_false_rejects_existing_file(self, test_config):
+        target = Path(test_config.workspace_root) / "out.txt"
+        target.write_text("old", encoding="utf-8")
+        test_config.auto_overwrite = False
+        agent = AgentLoop(
+            test_config, self._WriteProvider(), tool_registry=create_default_registry()
+        )
+        events = []
+        async for event in agent.process_prompt("Write file", "s1", [], "build"):
+            events.append(event)
+        assert target.read_text(encoding="utf-8") == "old"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any("overwrite denied" in (e.data.get("message") or "") for e in warnings)
+
+    @pytest.mark.asyncio
+    async def test_new_file_writes_without_gate(self, test_config):
+        agent = AgentLoop(
+            test_config, self._WriteProvider(), tool_registry=create_default_registry()
+        )
+        events = []
+        async for event in agent.process_prompt("Write file", "s1", [], "build"):
+            events.append(event)
+        assert (Path(test_config.workspace_root) / "out.txt").exists()
+        assert events[-1].kind == EventKind.SUCCESS
+
+    class _FileDeleteProvider(BaseProvider):
+        def __init__(self, attempts: int = 1):
+            super().__init__("delete", "delete-model")
+            self.call_count = 0
+            self.attempts = attempts
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count <= self.attempts:
+                return '```tool\n{"tool": "file_delete", "params": {"path": "out.txt"}}\n```'
+            return "Done"
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["delete-model"]
+
+    @pytest.mark.asyncio
+    async def test_auto_risky_true_deletes_file(self, test_config):
+        target = Path(test_config.workspace_root) / "out.txt"
+        target.write_text("old", encoding="utf-8")
+        agent = AgentLoop(
+            test_config,
+            self._FileDeleteProvider(1),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Delete file", "s1", [], "build"):
+            events.append(event)
+        assert not target.exists(), "auto_risky=true must allow the delete"
+        results = [e for e in events if e.kind == EventKind.TOOL_RESULT]
+        assert any(
+            e.data.get("tool") == "file_delete" and e.data.get("success") is True
+            for e in results
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_risky_false_keeps_file(self, test_config):
+        target = Path(test_config.workspace_root) / "out.txt"
+        target.write_text("old", encoding="utf-8")
+        test_config.auto_risky = False
+        agent = AgentLoop(
+            test_config,
+            self._FileDeleteProvider(3),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Delete file", "s1", [], "build"):
+            events.append(event)
+        assert target.exists(), "auto_risky=false must keep the file"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any("delete denied" in (e.data.get("message") or "") for e in warnings)
+
+
+class TestRepeatedCallTermination:
+    class _RepeatingWriteProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("repeater", "repeater-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "file_write", "params": {"path": "out.txt", "content": "same"}}\n```'
+            return (
+                "The task is complete. I am repeating the exact same write call again.\n"
+                '```tool\n{"tool": "file_write", "params": {"path": "out.txt", "content": "same"}}\n```'
+            )
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["repeater-model"]
+
+    @pytest.mark.asyncio
+    async def test_repeated_identical_calls_end_turn_cleanly(self, test_config):
+        target = Path(test_config.workspace_root) / "out.txt"
+        agent = AgentLoop(
+            test_config,
+            self._RepeatingWriteProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Write the file and stop", "s1", [], "build"):
+            events.append(event)
+        results = [
+            e
+            for e in events
+            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "file_write"
+        ]
+        assert len(results) == 1, "the repeated identical call must not execute again"
+        assert target.read_text(encoding="utf-8") == "same"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any(
+            "Repeated identical tool calls without new work" in (e.data.get("message") or "")
+            for e in warnings
+        )
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+
+    class _MixedProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("mixed", "mixed-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n```'
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n'
+                    '{"tool": "file_write", "params": {"path": "b.txt", "content": "b"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["mixed-model"]
+
+    @pytest.mark.asyncio
+    async def test_mixed_repeat_and_new_call_still_executes(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._MixedProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Do the writes", "s1", [], "build"):
+            events.append(event)
+        assert (root / "a.txt").exists()
+        assert (root / "b.txt").exists()
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert not any(
+            "Repeated identical tool calls without new work" in (e.data.get("message") or "")
+            for e in warnings
+        )
+        assert events[-1].kind == EventKind.SUCCESS
+
+
+class TestDiscoveryRepeatSkip:
+    class _DiscoveryRepeatProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("discovery-repeat", "discovery-repeat-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "discover_capabilities", "params": {}}\n```'
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "get_tool_definition", "params": {"tool_name": "file_write"}}\n'
+                    '{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n```'
+                )
+            if self.call_count == 3:
+                return (
+                    '```tool\n{"tool": "get_tool_definition", "params": {"tool_name": "file_write"}}\n'
+                    '{"tool": "file_write", "params": {"path": "b.txt", "content": "b"}}\n```'
+                )
+            if self.call_count == 4:
+                return (
+                    '```tool\n{"tool": "get_tool_definition", "params": {"tool_name": "file_write"}}\n'
+                    '{"tool": "file_write", "params": {"path": "c.txt", "content": "c"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["discovery-repeat-model"]
+
+    @pytest.mark.asyncio
+    async def test_repeated_discovery_calls_are_skipped(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._DiscoveryRepeatProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Write three files", "s1", [], "build"):
+            events.append(event)
+        for name in ("a.txt", "b.txt", "c.txt"):
+            assert (root / name).exists(), f"{name} must have been written"
+        assert events[-1].kind == EventKind.SUCCESS, "turn must end with SUCCESS"
+        assert not any(e.kind == EventKind.ERROR for e in events)
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any(
+            "already completed with identical params this turn" in (e.data.get("message") or "")
+            for e in warnings
+        )
+
+    class _HallucinatedCallsProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("hallucinated", "hallucinated-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n'
+                    '{"tool": "frobnicate", "params": {"level": 9}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["hallucinated-model"]
+
+    class _AllHallucinatedProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("all-hallucinated", "all-hallucinated-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "frobnicate", "params": {"level": 9}}\n```'
+            if self.call_count == 2:
+                return '```tool\n{"tool": "file_write", "params": {"path": "b.txt", "content": "b"}}\n```'
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["all-hallucinated-model"]
+
+    @pytest.mark.asyncio
+    async def test_mixed_valid_and_hallucinated_calls_do_not_crash(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._HallucinatedCallsProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Write the file", "s1", [], "build"):
+            events.append(event)
+        assert (root / "a.txt").exists(), "valid call must still execute"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any(
+            "Hallucinated tools ignored" in (e.data.get("message") or "") for e in warnings
+        )
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+
+    @pytest.mark.asyncio
+    async def test_all_hallucinated_calls_feed_back_and_continue(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._AllHallucinatedProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Write the file", "s1", [], "build"):
+            events.append(event)
+        assert (root / "b.txt").exists(), "loop must recover after hallucinated-only turn"
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+
+    class _FailedReplayProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("failed-replay", "failed-replay-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "file_read", "params": {"path": "missing.txt"}}\n```'
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "file_read", "params": {"path": "missing.txt"}}\n'
+                    '{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["failed-replay-model"]
+
+    @pytest.mark.asyncio
+    async def test_identical_failed_call_is_not_re_executed(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._FailedReplayProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Read then write", "s1", [], "build"):
+            events.append(event)
+        read_execs = [
+            e
+            for e in events
+            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "file_read"
+        ]
+        assert len(read_execs) == 1, "identical failed call must not re-execute"
+        assert read_execs[0].data.get("success") is False, "first attempt must still run and fail"
+        assert (root / "a.txt").exists(), "new call in same response must still execute"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any(
+            "file_read(path=missing.txt) [failed]" in (e.data.get("message") or "") for e in warnings
+        )
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+
+    class _ReplayWorkProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("replay", "replay-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "bash", "params": {"command": "mkdir out -Force"}}\n```'
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "bash", "params": {"command": "mkdir out -Force"}}\n'
+                    '{"tool": "file_write", "params": {"path": "out/a.txt", "content": "a"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["replay-model"]
+
+    @pytest.mark.asyncio
+    async def test_repeated_real_work_calls_are_not_re_executed(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._ReplayWorkProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Run the steps", "s1", [], "build"):
+            events.append(event)
+        results = [
+            e
+            for e in events
+            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "bash"
+        ]
+        assert len(results) == 1, "the replayed bash call must not execute again"
+        assert (root / "out" / "a.txt").exists()
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any(
+            "already completed with identical params this turn" in (e.data.get("message") or "")
+            for e in warnings
+        )
+
+    class _ReplayNoCompletionProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("replay-nc", "replay-nc-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "bash", "params": {"command": "mkdir out -Force"}}\n```'
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "bash", "params": {"command": "mkdir out -Force"}}\n'
+                    '{"tool": "bash", "params": {"command": "mkdir out -Force"}}\n```'
+                )
+            if self.call_count == 3:
+                return '```tool\n{"tool": "file_write", "params": {"path": "out/a.txt", "content": "a"}}\n```'
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["replay-nc-model"]
+
+    @pytest.mark.asyncio
+    async def test_all_repeat_without_completion_continues(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._ReplayNoCompletionProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Run the steps", "s1", [], "build"):
+            events.append(event)
+        results = [
+            e
+            for e in events
+            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "bash"
+        ]
+        assert len(results) == 1, "the replayed bash calls must not execute again"
+        assert (root / "out" / "a.txt").exists(), "new work after the replay must still run"
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert not any(
+            "treating the response as the final answer" in (e.data.get("message") or "")
+            for e in warnings
+        )
+
+
+class TestStallGuard:
+    class _StallProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("stall", "stall-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n```'
+            if self.call_count <= 4:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n'
+                    '{"tool": "file_write", "params": {"path": "a.txt", "content": "a"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["stall-model"]
+
+    @pytest.mark.asyncio
+    async def test_repeated_no_new_work_finalizes_turn(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._StallProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Do the write", "s1", [], "build"):
+            events.append(event)
+        results = [
+            e
+            for e in events
+            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "file_write"
+        ]
+        assert len(results) == 1, "repeated write must not re-execute"
+        assert (root / "a.txt").read_text(encoding="utf-8") == "a"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any(
+            "No new tool was executed this iteration" in (e.data.get("message") or "")
+            for e in warnings
+        ), "the stall nudge must list remaining tools"
+        assert any(
+            "No new tool work for several consecutive iterations" in (e.data.get("message") or "")
+            for e in warnings
+        ), "the turn must finalize after repeated stalls"
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+
 
 class TestErrorRecovery:
     @pytest.mark.asyncio

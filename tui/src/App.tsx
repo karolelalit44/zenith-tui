@@ -8,6 +8,7 @@ import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { CommandPalette } from './components/Input/CommandPalette';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
+import { OptionBanner } from './components/ui/OptionBanner';
 import { ASCII_SPINNER_FRAMES } from './constants/animation';
 import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
@@ -36,8 +37,14 @@ import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
-import type { ScenarioEvent } from './types/scenario';
+import type { ScenarioEvent, ScenarioMode } from './types/scenario';
 import type { AppStartupState } from './types/startup';
+
+export interface RetryTarget {
+  prompt: string;
+  mode: ScenarioMode;
+  model?: string;
+}
 
 export const App: React.FC = () => {
   const { theme } = useTheme();
@@ -58,6 +65,9 @@ export const App: React.FC = () => {
 
   const toggleThinking = useCallback(() => setThinkingCollapsed((p) => !p), []);
   const [showPalette, setShowPalette] = useState(false);
+
+  const [retryTarget, setRetryTarget] = useState<RetryTarget | null>(null);
+  const handleRetryDismiss = useCallback(() => setRetryTarget(null), []);
 
   const {
     turns,
@@ -126,8 +136,6 @@ export const App: React.FC = () => {
     isRunning,
     startScenario,
     abort,
-    activeConfirmation,
-    respondConfirmation,
     eventsRef,
     lastSessionId,
     setActiveSessionId,
@@ -213,6 +221,7 @@ export const App: React.FC = () => {
   const handleCancel = useCallback(() => {
     abort();
     abortActiveTurn();
+    setRetryTarget(null);
   }, [abort, abortActiveTurn]);
 
   const commandCtx = useMemo<CommandRunContext>(
@@ -270,6 +279,7 @@ export const App: React.FC = () => {
       addHistory(trimmed);
       addTurn(trimmed, selectedMode, modelId);
       clearInput();
+      setRetryTarget(null);
       startScenario(trimmed, selectedMode, providerId, modelId, attachments);
     },
     [selectedMode, startScenario, activeProvider.id, addTurn, clearInput, commandCtx, addHistory, attachments],
@@ -288,8 +298,6 @@ export const App: React.FC = () => {
     markTurnSaved,
     clearTurns,
     onToggleThinking: toggleThinking,
-    activeConfirmation,
-    respondConfirmation,
     scrollUp,
     scrollDown,
     scrollToTop,
@@ -301,6 +309,14 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
+      const hadRecoverableError = eventsRef.current.some((e) => e.kind === 'error' && e.recoverable);
+      if (hadRecoverableError) {
+        setRetryTarget({
+          prompt: activeTurn.prompt,
+          mode: activeTurn.mode,
+          model: activeTurn.model,
+        });
+      }
       completeActiveTurn(eventsRef.current);
       addSession(activeTurn.prompt).catch(() => {});
       refreshStats();
@@ -320,9 +336,13 @@ export const App: React.FC = () => {
   );
 
   const handleRetry = useCallback(() => {
-    if (activeTurn && !isRunning)
-      startScenario(activeTurn.prompt, activeTurn.mode, activeProvider.id, activeTurn.model);
-  }, [activeTurn, isRunning, startScenario, activeProvider.id]);
+    if (!retryTarget || isRunning) return;
+    const { prompt, mode, model } = retryTarget;
+    addTurn(prompt, mode, model);
+    clearInput();
+    setRetryTarget(null);
+    startScenario(prompt, mode, activeProvider.id, model);
+  }, [retryTarget, isRunning, activeProvider.id, addTurn, clearInput, startScenario]);
 
   const handleOpenHelp = useCallback(() => openOverlay('help'), [openOverlay]);
 
@@ -396,7 +416,6 @@ export const App: React.FC = () => {
       isOverlayOpen={isOverlayOpen}
       selectedMode={selectedMode}
       thinkingCollapsed={thinkingCollapsed}
-      activeConfirmation={activeConfirmation}
     >
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
         {turns.length === 0 && !isRunning && <WelcomeScreen workspace={workspace} />}
@@ -442,31 +461,46 @@ export const App: React.FC = () => {
               isRunning={isRunning}
               isHistorical={false}
               thinkingCollapsed={thinkingCollapsed}
-              onRetry={handleRetry}
             />
           </Box>
         )}
 
         {!showFilePicker && !isOverlayOpen && !showPalette && (
-          <CommandInput
-            input={input}
-            onInputChange={handleInputChange}
-            onSubmit={handleSubmit}
-            running={isRunning}
-            disabled={!!(activeConfirmation && !activeConfirmation.answered)}
-            attachments={attachments}
-            onRemoveAttachment={removeAttachment}
-            historyUp={historyUp}
-            historyDown={historyDown}
-            mode={selectedMode}
-            totalTokens={liveTotalTokens}
-            workspaceName={workspace}
-            onCancel={handleCancel}
-            onOpenHelp={handleOpenHelp}
-            onOpenMode={handleToggleMode}
-            onClearInput={clearInput}
-            slashMenuOpen={showAutocomplete}
-          />
+          <Box flexDirection="column" width="100%">
+            {retryTarget && (
+              <OptionBanner
+                title="Task failed"
+                message={`Retry: ${retryTarget.prompt}`}
+                options={[
+                  { label: 'Retry', value: 'retry' },
+                  { label: 'Dismiss', value: 'dismiss' },
+                ]}
+                onSelect={(value) => (value === 'retry' ? handleRetry() : handleRetryDismiss())}
+                onClose={handleRetryDismiss}
+              />
+            )}
+
+            <CommandInput
+              input={input}
+              onInputChange={handleInputChange}
+              onSubmit={handleSubmit}
+              running={isRunning}
+              disabled={!!retryTarget}
+              disabledMessage={retryTarget ? 'Choose an action above…' : undefined}
+              attachments={attachments}
+              onRemoveAttachment={removeAttachment}
+              historyUp={historyUp}
+              historyDown={historyDown}
+              mode={selectedMode}
+              totalTokens={liveTotalTokens}
+              workspaceName={workspace}
+              onCancel={handleCancel}
+              onOpenHelp={handleOpenHelp}
+              onOpenMode={handleToggleMode}
+              onClearInput={clearInput}
+              slashMenuOpen={showAutocomplete}
+            />
+          </Box>
         )}
 
         {showPalette && (

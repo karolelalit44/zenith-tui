@@ -1,5 +1,4 @@
 export type {
-  ConfirmationRequestEvent,
   ErrorEvent,
   EventKind,
   FileLine,

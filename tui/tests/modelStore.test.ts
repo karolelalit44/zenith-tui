@@ -122,4 +122,11 @@ describe('ModelStore', () => {
     expect(store.toDisplayString({ providerID: 'nvidia', modelID: 'nemotron' })).toBe('nvidia/nemotron');
     expect(store.toDisplayString(null)).toBe('');
   });
+
+  it('does not duplicate the provider prefix when the model id is already qualified', () => {
+    const store = makeStore();
+    expect(store.toDisplayString({ providerID: 'nvidia', modelID: 'nvidia/nemotron-3-ultra-550b-a55b' })).toBe(
+      'nvidia/nemotron-3-ultra-550b-a55b',
+    );
+  });
 });

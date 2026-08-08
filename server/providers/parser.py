@@ -177,6 +177,41 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
     return None
 
 
+def _split_top_level_objects(text: str) -> list[str]:
+    """Split a candidate into its top-level ``{...}`` JSON objects.
+
+    Fences sometimes contain several tool objects back to back (optionally
+    separated by commas). json_repair cannot handle multiple top-level values,
+    so split on brace depth (ignoring strings) and repair each object alone.
+    """
+    objects: list[str] = []
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                objects.append(text[start : i + 1])
+                start = -1
+    return objects
+
+
 def parse_tool_calls(text: str) -> list[dict]:
     from server.toolkit.param_normalizer import normalize_file_params
 
@@ -188,7 +223,7 @@ def parse_tool_calls(text: str) -> list[dict]:
         if not parsed or parsed.get("tool") in PLACEHOLDER_TOOL_NAMES:
             return False
         if "params" in parsed and isinstance(parsed["params"], dict):
-            parsed["params"] = normalize_file_params(parsed["params"])
+            parsed["params"] = normalize_file_params(parsed["params"], parsed.get("tool"))
         sig = json.dumps(parsed, sort_keys=True)
         if sig in seen:
             return False
@@ -216,6 +251,16 @@ def parse_tool_calls(text: str) -> list[dict]:
                         continue
                 except Exception:
                     pass
+            objects = _split_top_level_objects(candidate)
+            if len(objects) > 1:
+                added = False
+                for obj in objects:
+                    parsed = _repair_and_parse_json(obj)
+                    if parsed is not None and _add_call(parsed):
+                        added = True
+                if added:
+                    matched_spans.append((start, end))
+                continue
             parsed = _repair_and_parse_json(candidate)
             if parsed and _add_call(parsed):
                 matched_spans.append((start, end))
@@ -236,7 +281,7 @@ def parse_tool_calls(text: str) -> list[dict]:
                 key = kv.group(1)
                 val = kv.group(2) if kv.group(2) is not None else kv.group(3)
                 params[key] = val
-            parsed = {"tool": tool_name, "params": normalize_file_params(params)}
+            parsed = {"tool": tool_name, "params": normalize_file_params(params, tool_name)}
             _add_call(parsed)
     if not calls:
         for match in XML_TOOL_CALL_PATTERN.finditer(text):
@@ -255,7 +300,7 @@ def parse_tool_calls(text: str) -> list[dict]:
                     v = kv.group(2).strip()
                     params[k] = v
                 if tool_name and tool_name not in PLACEHOLDER_TOOL_NAMES:
-                    parsed = {"tool": tool_name, "params": normalize_file_params(params)}
+                    parsed = {"tool": tool_name, "params": normalize_file_params(params, tool_name)}
                     _add_call(parsed)
     return calls
 

@@ -254,7 +254,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         const hasIterations = typeof data?.iterations === 'number';
         isTerminal = hasIterations;
       } else if (kind === 'error') {
-        isTerminal = !data?.recoverable;
+        isTerminal = true;
       }
 
       if (isTerminal) {
@@ -387,17 +387,6 @@ function mapRawEvent(
         steps: Array.isArray(d.steps)
           ? (d.steps as { label: string; status: 'pending' | 'active' | 'done' | 'error' }[])
           : [],
-      };
-
-    case 'confirmation_request':
-      return {
-        kind: 'confirmation_request',
-        id,
-        confirmationId: String(d.confirmation_id || ''),
-        tool: String(d.tool || ''),
-        reason: String(d.reason || ''),
-        riskLevel: String(d.risk_level || 'medium'),
-        message: String(d.message || 'Operation requires confirmation'),
       };
 
     case 'plan_ready':

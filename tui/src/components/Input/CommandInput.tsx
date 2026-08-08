@@ -18,6 +18,7 @@ interface CommandInputProps {
   onInputChange: (value: string) => void;
   onSubmit: (value: string) => void;
   disabled?: boolean;
+  disabledMessage?: string;
   running?: boolean;
   attachments?: FileAttachment[];
   onRemoveAttachment?: (index: number) => void;
@@ -42,6 +43,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onInputChange,
     onSubmit,
     disabled = false,
+    disabledMessage = 'Input disabled',
     running = false,
     attachments = [],
     onRemoveAttachment,
@@ -143,7 +145,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
               {disabled ? (
                 <Box flexDirection="row" alignItems="center" minHeight={1}>
                   <Text color={theme.colors.text.muted} italic>
-                    Waiting for approval…
+                    {disabledMessage}
                   </Text>
                 </Box>
               ) : (

@@ -281,10 +281,6 @@ export class WebSocketClient {
     return this.send('prompt.cancel', { session_id: sessionId });
   }
 
-  sendConfirmation(confirmationId: string, approved: boolean): Promise<void> {
-    return this.send('confirmation.response', { confirmation_id: confirmationId, approved }) as Promise<void>;
-  }
-
   contextCompact(sessionId: string): Promise<{ summary: string; cleared: number }> {
     return this.send('context.compact', { session_id: sessionId });
   }

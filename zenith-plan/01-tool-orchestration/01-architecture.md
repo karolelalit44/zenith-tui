@@ -48,12 +48,21 @@ ToolInvocation
 
 ## Lazy-loading strategy
 
-Use two supported modes:
+Tools are loaded on demand to keep per-prompt schema tokens small. Implemented:
 
-- **Dynamic schema mode:** router selects capabilities, then the next model call receives selected full schemas.
-- **Static compatibility mode:** expose only compact meta-tools such as `discover_capabilities` and `request_tool_access`; after selection, start a new provider request with resolved schemas.
+- Two always-on discovery meta-tools: `discover_capabilities` (compact catalog of capabilities/tools) and `get_tool_definition('<name>')` (full schema + metadata). When the model requests a definition, the next provider request includes that tool's schema.
+- `SchemaResolver` (`server/toolkit/resolver.py`) tracks the bounded active schema set per run: seed = mode core tools + discovery meta-tools, expansion on `get_tool_definition` or escalation, capped at `MAX_ACTIVE_TOOLS_PER_TURN` with LRU eviction that always retains the discovery tools.
+- Schema tokens are counted in the context budget (`ContextManager.set_aux_tokens`) so summarization reflects offered tools.
+- Reactive escalation remains: a registered-but-unoffered tool guessed by the model is promoted into the active set.
+- WS `tools.list` advertises exactly the same offered set as the loop (mode core + discovery meta-tools).
 
-Keep a small configurable core set only when provider behavior requires it. Never represent unavailable tools in the prompt as executable.
+Remaining:
+
+- **Dynamic schema mode:** intent router selects capabilities up front, then the first request receives only the resolved schemas.
+- **Static compatibility mode:** expose only meta-tools; after selection, start a new provider request with resolved schemas.
+- Capability caching by registry version.
+
+Never represent unavailable tools in the prompt as executable.
 
 ## Safety and scheduling
 

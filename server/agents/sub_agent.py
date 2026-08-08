@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 
 from server.config.constants import BUILD_MODE
 from server.config.settings import AGENT_MODES, AppSettings
@@ -30,7 +30,6 @@ class SubAgentLoop:
         session_id: str,
         plan_output: str,
         user_prompt: str,
-        confirm_callback: Callable | None = None,
         session_repo=None,
         message_repo=None,
     ) -> AsyncIterator[Event]:
@@ -54,7 +53,6 @@ class SubAgentLoop:
             session_id=child_session_id,
             history=[],
             mode=BUILD_MODE,
-            confirm_callback=confirm_callback,
             plan_context="",
             model_override=model_override,
         ):

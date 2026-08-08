@@ -20,7 +20,6 @@ const ALL_EVENT_KINDS: EventKind[] = [
   'warning',
   'success',
   'progress',
-  'confirmation_request',
   'plan_ready',
 ];
 
@@ -47,10 +46,6 @@ describe('All EventKind types are valid ScenarioEvents', () => {
       data: { message: 'Done!', iterations: 3, tokenInfo: { used: 100, remaining: 900, total: 1000, percent: 0.1 } },
     },
     { kind: 'progress', data: { label: 'Running...', percent: 50, iteration: 2, steps: [] } },
-    {
-      kind: 'confirmation_request',
-      data: { confirmationId: 'conf-1', tool: 'bash', reason: 'Risky', riskLevel: 'high', message: 'Confirm?' },
-    },
   ];
 
   for (const { kind, data } of testCases) {
@@ -144,22 +139,6 @@ describe('Event field correctness', () => {
       expect(result.iteration).toBe(3);
     }
   });
-
-  it('confirmation_request has all fields', () => {
-    const result = makeEvent('confirmation_request', {
-      confirmationId: 'conf-1',
-      tool: 'bash',
-      reason: 'Dangerous operation',
-      riskLevel: 'high',
-      message: 'Confirm deletion?',
-    });
-    expect(result.kind).toBe('confirmation_request');
-    if (result.kind === 'confirmation_request') {
-      expect(result.confirmationId).toBe('conf-1');
-      expect(result.tool).toBe('bash');
-      expect(result.riskLevel).toBe('high');
-    }
-  });
 });
 
 // ── ComponentRegistry: every EventKind has a registered component ────────────
@@ -180,8 +159,8 @@ describe('ComponentRegistry covers all EventKind types', () => {
 
 // ── Pipeline integrity ───────────────────────────────────────────────────────
 describe('Pipeline integrity', () => {
-  it('has exactly 10 EventKind values', () => {
-    expect(ALL_EVENT_KINDS.length).toBe(10);
+  it('has exactly 9 EventKind values', () => {
+    expect(ALL_EVENT_KINDS.length).toBe(9);
   });
 
   it('no duplicate EventKind values', () => {

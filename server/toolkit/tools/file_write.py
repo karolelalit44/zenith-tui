@@ -6,6 +6,8 @@ from typing import Any
 from server.config.constants import (
     BUILD_MODE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
+    FILE_ALREADY_EXISTS_ERROR,
+    FILE_OVERWRITE_PARAM,
     PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
@@ -41,7 +43,7 @@ class FileWriteTool(BaseTool):
             "properties": {
                 "path": {"type": "string", "description": "File path"},
                 "content": {"type": "string", "description": "File content"},
-                "overwrite": {
+                FILE_OVERWRITE_PARAM: {
                     "type": "boolean",
                     "description": "Overwrite existing",
                     "default": False,
@@ -61,7 +63,7 @@ class FileWriteTool(BaseTool):
                 error=f"Path escapes workspace boundary: {rel_path}. Use relative paths within the project.",
             )
         content = params.get("content", "")
-        overwrite = params.get("overwrite", False)
+        overwrite = params.get(FILE_OVERWRITE_PARAM, False)
         if content and _PLACEHOLDER_RE.search(content):
             m = _PLACEHOLDER_RE.search(content)
             return ToolResult(
@@ -71,7 +73,9 @@ class FileWriteTool(BaseTool):
         if resolved.exists() and (not overwrite):
             return ToolResult(
                 success=False,
-                error=f"File already exists: {rel_path}. Use overwrite: true to replace it.",
+                error=FILE_ALREADY_EXISTS_ERROR.format(
+                    path=rel_path, overwrite_param=FILE_OVERWRITE_PARAM
+                ),
             )
         try:
             resolved.parent.mkdir(parents=True, exist_ok=True)

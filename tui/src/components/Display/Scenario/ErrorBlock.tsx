@@ -2,16 +2,14 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ErrorEvent } from '../../../types/scenario';
-import type { EventRenderContext } from './componentRegistry';
 
 interface ErrorBlockProps {
   event: ErrorEvent;
-  context?: EventRenderContext;
 }
 
 const _MAX_MESSAGE_LENGTH = 200;
 
-export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, context }) => {
+export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
   const displayMessage = event.message.trim();
@@ -56,25 +54,6 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, contex
         <Box flexDirection="row" alignItems="center" flexWrap="wrap" marginTop={0}>
           <Text color={theme.colors.text.muted}>{event.recoverable ? 'Recoverable' : 'Execution halted'}</Text>
         </Box>
-
-        {event.recoverable && (context?.onRetry || context?.onDismiss) && (
-          <Box flexDirection="row" marginTop={1} paddingX={1}>
-            {context?.onRetry && (
-              <Box marginRight={2}>
-                <Text color={theme.colors.status.success} bold>
-                  [R] Retry
-                </Text>
-              </Box>
-            )}
-            {context?.onDismiss && (
-              <Box>
-                <Text color={theme.colors.text.muted} bold>
-                  [D] Dismiss
-                </Text>
-              </Box>
-            )}
-          </Box>
-        )}
       </Box>
     </Box>
   );

@@ -304,6 +304,73 @@ class TestRebuildReplaysLiveTurn:
         )
         assert rebuilt[-1]["content"] == "New."
 
+    def test_rebuild_drops_non_dict_live_entries(self, temp_dir):
+        loop = self._loop(temp_dir)
+        history = [
+            Message(session_id="s", role="user", content="old request"),
+            Message(session_id="s", role="assistant", content="old reply"),
+        ]
+        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
+        base_len = len(initial)
+        live = list(initial)
+        live.append({"role": "assistant", "content": "I will read the file"})
+        live.append("this raw string must not survive rebuild")
+        rebuilt = loop._rebuild_messages(
+            live, base_len, history, "System.", "New.", "test-model", "", True, None
+        )
+        assert all(isinstance(m, dict) for m in rebuilt), "rebuild must never emit non-dict messages"
+        assert not any(
+            m.get("content") == "this raw string must not survive rebuild" for m in rebuilt
+        )
+
+
+class TestSummarizeAndRebuildHolder:
+    def _loop(self, temp_dir):
+        config = AppSettings(
+            providers={"test": ProviderConfig(model="test-model", is_active=True)},
+            active_provider="test",
+            db_path=str(temp_dir / "test.db"),
+            workspace_root=str(temp_dir),
+            max_context_tokens=128000,
+        )
+        return AgentLoop(config, _BigReadProvider())
+
+    @pytest.mark.asyncio
+    async def test_holder_0_is_full_message_list(self, temp_dir):
+        loop = self._loop(temp_dir)
+        history = [
+            Message(session_id="s", role="user", content="old request"),
+            Message(session_id="s", role="assistant", content="old reply"),
+        ]
+        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
+        base_len = len(initial)
+        live = list(initial)
+        live.append({"role": "assistant", "content": "I will read the file"})
+        live.append({"role": "user", "content": "[Tool result] file content"})
+        holder: list = []
+        async for _ev in loop._summarize_and_rebuild(
+            history,
+            "s1",
+            live,
+            result=holder,
+            base_len=base_len,
+            system_prompt="System.",
+            prompt="New.",
+            model="test-model",
+            plan_context="",
+            use_system_prompt=True,
+            repo_map=None,
+        ):
+            pass
+        assert len(holder) == 1, f"holder must hold exactly one value, got {holder!r}"
+        rebuilt = holder[0]
+        assert isinstance(
+            rebuilt, list
+        ), f"holder[0] must be the message list, got {type(rebuilt).__name__}"
+        assert all(isinstance(m, dict) for m in rebuilt), "rebuilt messages must be dicts"
+        assert rebuilt[-1]["role"] == "user"
+        assert "Continue if you have next steps" in rebuilt[-1]["content"]
+
 
 class TestPruneToolOutputs:
     def _loop(self, temp_dir):
