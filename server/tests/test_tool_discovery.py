@@ -95,6 +95,7 @@ class TestSchemaResolver:
         assert DISCOVER_CAPABILITIES_TOOL in seed
         assert GET_TOOL_DEFINITION_TOOL in seed
         assert "file_write" not in seed
+        assert "bash" not in seed
 
     def test_active_set_bounded(self):
         registry = create_default_registry()

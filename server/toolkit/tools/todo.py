@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from server.config.constants import (
+    BUILD_MODE,
     CONCURRENCY_GROUP_READONLY,
     PERMISSION_WRITE,
     TOOL_DOMAIN_TASK,
@@ -91,6 +92,7 @@ class TodoTool(BaseTool):
     name = "todo"
     description = "Track task list"
     capability_id = "task_tracking"
+    requires_mode = BUILD_MODE
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_READONLY
     permission_scope = PERMISSION_WRITE

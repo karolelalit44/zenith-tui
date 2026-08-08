@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from server.config.constants import (
+    BUILD_MODE,
     CONCURRENCY_GROUP_SUBAGENT,
     COST_CLASS_HIGH,
     LATENCY_CLASS_HIGH,
@@ -21,6 +22,7 @@ class SubAgentTool(BaseTool):
     name = "agent"
     description = "Delegate sub-task to separate agent"
     capability_id = "sub_agent"
+    requires_mode = BUILD_MODE
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_SUBAGENT
     permission_scope = PERMISSION_SUBAGENT

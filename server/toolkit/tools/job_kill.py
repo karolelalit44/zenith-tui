@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from server.config.constants import (
+    BUILD_MODE,
     CONCURRENCY_GROUP_SHELL,
     PERMISSION_COMMAND,
     RISK_LOW,
@@ -17,6 +18,7 @@ class JobKillTool(BaseTool):
     name = "job_kill"
     description = "Terminate background job"
     capability_id = "background_jobs"
+    requires_mode = BUILD_MODE
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_SHELL
     permission_scope = PERMISSION_COMMAND

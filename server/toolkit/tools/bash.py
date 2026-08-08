@@ -11,6 +11,7 @@ from server.config.constants import (
     BASH_TOOL_COMMAND_PARAM_WINDOWS,
     BASH_TOOL_DESCRIPTION_UNIX,
     BASH_TOOL_DESCRIPTION_WINDOWS,
+    BUILD_MODE,
     CONCURRENCY_GROUP_SHELL,
     COST_CLASS_HIGH,
     DEFAULT_BASH_TIMEOUT_MS,
@@ -46,6 +47,7 @@ class BashTool(BaseTool):
         return BASH_TOOL_DESCRIPTION_WINDOWS if _is_windows() else BASH_TOOL_DESCRIPTION_UNIX
 
     capability_id = "command_execution"
+    requires_mode = BUILD_MODE
     read_only = False
     timeout_ms = DEFAULT_BASH_TIMEOUT_MS
     concurrency_group = CONCURRENCY_GROUP_SHELL

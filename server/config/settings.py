@@ -6,19 +6,7 @@ from .constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
 from .env import optional_env, optional_float, optional_int
 from .providers import ProviderConfig
 
-PLAN_READ_ONLY_TOOLS = [
-    "file_read",
-    "glob",
-    "grep",
-    "lsp_definition",
-    "lsp_diagnostics",
-    "lsp_symbols",
-    "lsp_call_hierarchy",
-    "lsp_references",
-    "sourcegraph",
-    "webfetch",
-    "question",
-]
+CORE_PLAN_TOOLS = ["file_read", "glob", "grep"]
 
 
 @dataclass(frozen=True)
@@ -32,7 +20,6 @@ class AgentModeConfig:
     tool_choice: str = "auto"
 
 
-CORE_PLAN_TOOLS = ["file_read", "glob", "grep", "bash"]
 PLAN_MODE_CONFIG = AgentModeConfig(
     name=PLAN_MODE,
     allowed_tools=CORE_PLAN_TOOLS,

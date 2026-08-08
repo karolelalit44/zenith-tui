@@ -92,6 +92,32 @@ class TestToolRegistry:
         assert "not available" in result.error
 
 
+BUILD_ONLY_TOOLS = ["bash", "agent", "todo", "job_kill", "file_write", "file_edit", "file_delete", "multi_edit", "lsp_rename"]
+
+
+class TestModeGating:
+    def test_plan_mode_excludes_all_mutating_tools(self):
+        reg = create_default_registry()
+        plan_names = set(reg.list_tools_for_mode("plan"))
+        for name in BUILD_ONLY_TOOLS:
+            assert name not in plan_names, f"{name} leaked into plan mode"
+
+    def test_build_mode_includes_mutating_tools(self):
+        reg = create_default_registry()
+        build_names = set(reg.list_tools_for_mode("build"))
+        for name in BUILD_ONLY_TOOLS:
+            assert name in build_names, f"{name} missing from build mode"
+
+    @pytest.mark.asyncio
+    async def test_plan_mode_execution_rejects_leaked_tools(self):
+        reg = create_default_registry()
+        for name in ("bash", "agent", "todo", "job_kill"):
+            result = await reg.execute(name, {"command": "echo hi"}, ".", mode="plan")
+            assert not result.success
+            assert "not available" in result.error
+
+
+
 class TestBashTool:
     @pytest.mark.asyncio
     async def test_echo(self, temp_dir):
