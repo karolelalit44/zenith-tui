@@ -7,7 +7,10 @@ export type EventKind =
   | 'warning'
   | 'success'
   | 'progress'
-  | 'plan_ready';
+  | 'plan_ready'
+  | 'context_compacted'
+  | 'context_compaction_started'
+  | 'context_compaction_ended';
 
 export interface ThinkingThought {
   text: string;
@@ -101,6 +104,30 @@ export interface PlanReadyEvent {
   sessionId: string;
 }
 
+export interface ContextCompactedEvent {
+  kind: 'context_compacted';
+  id: string;
+  message: string;
+  tool?: string;
+  tokensSaved?: number;
+}
+
+export interface ContextCompactionStartedEvent {
+  kind: 'context_compaction_started';
+  id: string;
+  message: string;
+  used?: number;
+  total?: number;
+}
+
+export interface ContextCompactionEndedEvent {
+  kind: 'context_compaction_ended';
+  id: string;
+  message: string;
+  tokensSaved?: number;
+  summaryChars?: number;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | MessageEvent
@@ -110,7 +137,10 @@ export type ScenarioEvent =
   | WarningEvent
   | SuccessEvent
   | ProgressEvent
-  | PlanReadyEvent;
+  | PlanReadyEvent
+  | ContextCompactedEvent
+  | ContextCompactionStartedEvent
+  | ContextCompactionEndedEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 

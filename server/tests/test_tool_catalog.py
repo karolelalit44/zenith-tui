@@ -54,6 +54,7 @@ EXPECTED_TOOLS = {
     "question",
     "todo",
     "webfetch",
+    "websearch",
 }
 
 
@@ -97,7 +98,7 @@ class TestToolInventory:
         inventory = build_inventory(registry)
         names = {entry.name for entry in inventory}
         assert names == EXPECTED_TOOLS
-        assert len(inventory) == 19
+        assert len(inventory) == 20
 
     def test_every_tool_maps_to_known_capability(self):
         catalog = build_catalog()
@@ -119,7 +120,7 @@ class TestToolInventory:
         assert inventory["file_read"].modes == []
         assert inventory["file_write"].modes == ["build"]
         assert inventory["file_edit"].modes == ["build"]
-        assert inventory["bash"].modes == []
+        assert inventory["bash"].modes == ["build"]
 
     def test_permission_and_concurrency(self):
         inventory = {e.name: e for e in build_inventory(create_default_registry())}
@@ -131,7 +132,7 @@ class TestToolInventory:
 
     def test_baseline_schema_tokens(self):
         baseline = measure_registry_schema_tokens(create_default_registry())
-        assert baseline["tool_count"] == 19
+        assert baseline["tool_count"] == 20
         assert baseline["total_tokens"] > 0
         assert set(baseline["tools"]) == EXPECTED_TOOLS
 

@@ -131,6 +131,9 @@ class AgentLoop:
         self._loop_detector = LoopDetector()
         self._accept_sequence: int = 0
         self._cancel_sequence: int = -1
+        # Last full message text yielded this request; used to suppress duplicate
+        # final answers when the model re-emits the same closing text across turns.
+        self._last_emitted_message: str | None = None
 
     def accept(self) -> int:
         self._accept_sequence += 1
@@ -165,6 +168,15 @@ class AgentLoop:
         repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
         sequence = self.accept()
+        # Reset usage accounting to this request only. Otherwise the provider's
+        # _cumulative_usage carries over across prompts in the same session, so
+        # the context-budget checks (usage_tokens) compare session totals against
+        # a per-request window and trigger spurious "context approaching limit"
+        # summarization on an otherwise small request.
+        _reset_usage = getattr(self.provider, "_reset_cumulative_usage", None)
+        if callable(_reset_usage):
+            _reset_usage()
+        self._last_emitted_message = None
         _original_model = self.provider.model
         if model_override and model_override != self.provider.model:
             logger.info("Mode model override: %s → %s", self.provider.model, model_override)
@@ -295,7 +307,7 @@ class AgentLoop:
                 if self.is_cancelled(sequence):
                     yield r.warning("Request cancelled", session_id)
                     return
-                if task_completed and post_comp_iterations >= 2:
+                if task_completed and post_comp_iterations >= 1:
                     break
                 iteration += 1
                 if task_completed:
@@ -417,9 +429,13 @@ class AgentLoop:
                     finish_reason,
                 )
                 if clean_response:
-                    yield r.message_event(
-                        clean_response, session_id, partial=False, iteration=iteration
-                    )
+                    # Suppress re-yielding the exact same final answer when the model
+                    # repeats its closing text across iterations.
+                    if clean_response != self._last_emitted_message:
+                        yield r.message_event(
+                            clean_response, session_id, partial=False, iteration=iteration
+                        )
+                        self._last_emitted_message = clean_response
                 if finish_reason == FinishReason.LENGTH:
                     logger.info("FinishReason=LENGTH on turn %d — continuing response", iteration)
                     if iteration >= safety_iterations * 2:
@@ -507,20 +523,11 @@ class AgentLoop:
                     )
                 if task_completed:
                     yield r.warning(
-                        "Model emitted tool calls after signaling completion; skipping them.",
+                        "Model emitted tool calls after signaling completion; finalizing the turn.",
                         session_id,
                         extra={"skipped_tool_calls": [tc.get("tool") for tc in valid_calls]},
                     )
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "[System] The task is already complete; do not call any more "
-                                "tools. Provide your final summary only."
-                            ),
-                        }
-                    )
-                    continue
+                    break
                 stop_turn = False
                 skipped_calls: list[str] = []
                 newly_executed = False
@@ -531,6 +538,15 @@ class AgentLoop:
                     if sig in executed_calls:
                         failed_flag = " [failed]" if sig in failed_calls else ""
                         skipped_calls.append(f"{tool_name}({_params_label(tool_params)}){failed_flag}")
+                        # Re-present the stored result so the model can actually see the
+                        # output. A "shown above in this conversation" pointer is not
+                        # enough: after a compaction the result may be gone, which is
+                        # what drives the model to re-issue identical calls. Only do
+                        # this on the first stall to keep context growth bounded.
+                        if stall_count == 0 and not newly_executed:
+                            stored = executed_results.get(sig)
+                            if stored is not None:
+                                messages.append({"role": "user", "content": stored})
                         continue
                     reject_msg = validate_tool_rejection(tool_name, tool_params, created_files, ws)
                     if tool_name in ("bash", "terminal") and (not reject_msg):
@@ -617,7 +633,7 @@ class AgentLoop:
                     _threshold = 20000 if _ti.total >= 200000 else int(_ti.total * 0.2)
                     if _remaining <= _threshold and _remaining > 0:
                         yield r.warning(
-                            f"Context approaching limit ({_ti.percent:.0f}%), summarizing...",
+                            f"Context approaching limit ({_ti.percent * 100:.0f}%), summarizing...",
                             session_id,
                             extra={"tokenInfo": vars(_ti)},
                         )
@@ -743,16 +759,7 @@ class AgentLoop:
                             "No new tool work for several consecutive iterations; finalizing the turn.",
                             session_id,
                         )
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": (
-                                    "[System] The turn must end now; no new tool work has been "
-                                    "performed for several iterations. Provide your final "
-                                    "summary only. Do not call any more tools."
-                                ),
-                            }
-                        )
+                        break
                 elif newly_executed:
                     stall_count = 0
                 if stop_turn:

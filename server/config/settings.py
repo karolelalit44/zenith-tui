@@ -6,7 +6,7 @@ from .constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
 from .env import optional_env, optional_float, optional_int
 from .providers import ProviderConfig
 
-CORE_PLAN_TOOLS = ["file_read", "glob", "grep"]
+CORE_PLAN_TOOLS = ["file_read", "glob", "grep", "websearch", "webfetch"]
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ PLAN_MODE_CONFIG = AgentModeConfig(
     description="Read-only analysis and planning with core tools and dynamic escalation.",
     sub_agent=False,
 )
-CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep"]
+CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep", "websearch", "webfetch"]
 BUILD_MODE_CONFIG = AgentModeConfig(
     name=BUILD_MODE,
     allowed_tools=CORE_BUILD_TOOLS,

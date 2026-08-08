@@ -64,17 +64,7 @@ export const AppProvider: React.FC<AppProviderProps> = React.memo(
         overlay: { type: overlay, isOpen: isOverlayOpen, mode: selectedMode },
         preferences: { thinkingCollapsed },
       }),
-      [
-        turns,
-        activeTurn,
-        totalTokens,
-        events,
-        isRunning,
-        overlay,
-        isOverlayOpen,
-        selectedMode,
-        thinkingCollapsed,
-      ],
+      [turns, activeTurn, totalTokens, events, isRunning, overlay, isOverlayOpen, selectedMode, thinkingCollapsed],
     );
 
     return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

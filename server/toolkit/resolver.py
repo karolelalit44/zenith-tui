@@ -38,7 +38,10 @@ class SchemaResolver:
         max_tools: int = MAX_ACTIVE_TOOLS_PER_TURN,
     ) -> None:
         self.registry = registry
-        self._always_on: tuple[str, ...] = DISCOVERY_TOOLS
+        # Core seed tools + discovery meta-tools are never evicted, so escalating
+        # an on-demand tool can't drop a core tool (e.g. file_read) from the
+        # active set. Only escalated tools are candidates for eviction.
+        self._always_on: tuple[str, ...] = tuple(DISCOVERY_TOOLS) + tuple(seed or [])
         self._max_tools = max_tools
         self._active: OrderedDict[str, None] = OrderedDict()
         for name in seed or []:

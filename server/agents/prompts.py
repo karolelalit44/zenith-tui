@@ -8,9 +8,25 @@ from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_e
 from server.config.constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
 from server.workspace.context import format_context_files, load_context_files
 
-SYSTEM_GUIDELINES = "<guidelines>\n- Code Actions: Use available tools to inspect, analyze, write, or modify code as needed for the user's request.\n- General Queries: Answer directly in markdown text without tool calls.\n</guidelines>\n"
+SYSTEM_GUIDELINES = (
+    "<guidelines>\n"
+    "- Code Actions: Use available tools to inspect, analyze, write, or modify code as needed for the user's request.\n"
+    "- External Products: If the request is about an external product, tool, framework, or service, "
+    "research it with websearch to find sources, then webfetch specific pages to read them; for long "
+    "pages, pass an 'extract' question to webfetch to get just the relevant answer. Do not "
+    "substitute this local codebase for the real product.\n"
+    "- General Queries: Answer directly in markdown text without tool calls.\n"
+    "</guidelines>\n"
+)
 BUILD_MODE_INSTRUCTIONS = "## MODE: BUILD\nObjective: Complete coding tasks autonomously. Understand the codebase, make minimal targeted changes, and verify your work.\n"
-PLAN_MODE_INSTRUCTIONS = "## MODE: PLAN\nObjective: Analyze the codebase using read-only tools and output a clear, structured Markdown implementation plan.\n"
+PLAN_MODE_INSTRUCTIONS = (
+    "## MODE: PLAN\n"
+    "Objective: Analyze the codebase using read-only tools and output a clear, structured "
+    "Markdown implementation plan.\n"
+    "In this mode only read-only tools are available (e.g. file_read, glob, grep, websearch, "
+    "webfetch, and LSP query tools). Execution tools such as bash, file_write, and file_edit "
+    "are disabled; do not attempt to call them - use read-only tools instead.\n"
+)
 TOOL_DISCOVERY_HINT = (
     "<tool_discovery>\n"
     "Tool schemas are loaded on demand to keep the context small. Only call "

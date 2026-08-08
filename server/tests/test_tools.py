@@ -380,6 +380,7 @@ class TestDefaultRegistry:
         assert "glob" in tools
         assert "grep" in tools
         assert "webfetch" in tools
+        assert "websearch" in tools
         assert "job_output" in tools
         assert "job_kill" in tools
         assert "multi_edit" in tools
@@ -391,4 +392,4 @@ class TestDefaultRegistry:
         assert "agent" in tools
         assert "discover_capabilities" in tools
         assert "get_tool_definition" in tools
-        assert len(tools) == 19
+        assert len(tools) == 20

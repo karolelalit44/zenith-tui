@@ -131,15 +131,7 @@ export const App: React.FC = () => {
     [closeAutocomplete, closeFilePicker],
   );
 
-  const {
-    events,
-    isRunning,
-    startScenario,
-    abort,
-    eventsRef,
-    lastSessionId,
-    setActiveSessionId,
-  } = useScenario();
+  const { events, isRunning, startScenario, abort, eventsRef, lastSessionId, setActiveSessionId } = useScenario();
   const { activeProvider } = useProvider();
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 

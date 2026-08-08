@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { ScenarioEvent } from '../../../types/scenario';
+import { ContextStatusBlock } from './ContextStatusBlock';
 import { ErrorBlock } from './ErrorBlock';
 import { MessageBlock } from './MessageBlock';
 import { ProgressBar } from './ProgressBar';
@@ -35,9 +36,9 @@ class ComponentRegistry {
     this.register('success', SuccessCard as EventComponentType);
     this.register('progress', ProgressBar as EventComponentType);
     this.register('plan_ready', MessageBlock as EventComponentType);
-    this.register('context_compacted', WarningBlock as EventComponentType);
-    this.register('context_compaction_started', WarningBlock as EventComponentType);
-    this.register('context_compaction_ended', WarningBlock as EventComponentType);
+    this.register('context_compacted', ContextStatusBlock as EventComponentType);
+    this.register('context_compaction_started', ContextStatusBlock as EventComponentType);
+    this.register('context_compaction_ended', ContextStatusBlock as EventComponentType);
   }
 
   public register(kind: string, component: EventComponentType): void {

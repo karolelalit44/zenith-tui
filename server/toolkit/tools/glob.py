@@ -42,12 +42,24 @@ class GlobTool(BaseTool):
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         pattern = params.get("pattern", "**/*")
-        search_path = Path(workspace_root) / params.get("path", "")
+        if pattern.strip() == "**":
+            # A bare "**" matches only the root directory in pathlib, not files.
+            # Normalize it so callers asking for "everything" actually get files.
+            pattern = "**/*"
+        # Resolve both sides to absolute paths. The `path` param may arrive as an
+        # absolute path (e.g. the workspace root itself); joining a relative
+        # workspace_root with an absolute path makes relative_to() raise
+        # "not in the subpath" on the first file.
+        base = Path(workspace_root).resolve()
+        requested = params.get("path") or ""
+        search_path = (Path(requested) if Path(requested).is_absolute() else base / requested).resolve()
+        if search_path != base and base not in search_path.parents:
+            return ToolResult(success=False, error=f"Search path outside workspace: {search_path}")
         if not search_path.exists():
             return ToolResult(success=False, error=f"Search path not found: {search_path}")
         try:
             files = sorted(
-                str(f.relative_to(workspace_root)) for f in search_path.glob(pattern) if f.is_file()
+                str(f.relative_to(base)) for f in search_path.glob(pattern) if f.is_file()
             )
             output = "\n".join(files) if files else "No files found"
             return ToolResult(

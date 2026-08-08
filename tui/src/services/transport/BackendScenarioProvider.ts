@@ -296,6 +296,22 @@ export class BackendScenarioProvider implements ScenarioProvider {
   }
 }
 
+function formatContextEventMessage(kind: string, d: Record<string, unknown>): string {
+  const reason = d.reason ? String(d.reason) : 'context pressure';
+  const tokensSaved = typeof d.tokensSaved === 'number' ? d.tokensSaved : 0;
+  if (kind === 'context_compacted') {
+    const charsRemoved = typeof d.charsRemoved === 'number' ? d.charsRemoved : 0;
+    const tool = d.tool ? String(d.tool) : 'output';
+    return `Compacted ${tool} output: removed ${charsRemoved} chars, saved ~${tokensSaved} tokens — ${reason}`;
+  }
+  const used = typeof d.used === 'number' ? d.used : 0;
+  const total = typeof d.total === 'number' ? d.total : 0;
+  const pct = total > 0 ? ` (${Math.round((used / total) * 100)}%)` : '';
+  const verb = kind === 'context_compaction_started' ? 'started' : 'finished';
+  const saved = tokensSaved > 0 ? `, saved ~${tokensSaved} tokens` : '';
+  return `Context compaction ${verb}: ${used}/${total} tokens${pct}${saved} — ${reason}`;
+}
+
 function mapRawEvent(
   kind: string,
   data: Record<string, unknown> | undefined,
@@ -395,6 +411,33 @@ function mapRawEvent(
         id,
         plan: String(d.plan || ''),
         sessionId: String(d.session_id || ''),
+      };
+
+    case 'context_compacted':
+      return {
+        kind: 'context_compacted',
+        id,
+        message: formatContextEventMessage('context_compacted', d),
+        tool: d.tool ? String(d.tool) : undefined,
+        tokensSaved: typeof d.tokensSaved === 'number' ? d.tokensSaved : undefined,
+      };
+
+    case 'context_compaction_started':
+      return {
+        kind: 'context_compaction_started',
+        id,
+        message: formatContextEventMessage('context_compaction_started', d),
+        used: typeof d.used === 'number' ? d.used : undefined,
+        total: typeof d.total === 'number' ? d.total : undefined,
+      };
+
+    case 'context_compaction_ended':
+      return {
+        kind: 'context_compaction_ended',
+        id,
+        message: formatContextEventMessage('context_compaction_ended', d),
+        tokensSaved: typeof d.tokensSaved === 'number' ? d.tokensSaved : undefined,
+        summaryChars: typeof d.summaryChars === 'number' ? d.summaryChars : undefined,
       };
 
     default:

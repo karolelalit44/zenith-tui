@@ -2,12 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScenarioRunner } from '../services/scenario/types';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
-import type {
-  FileAttachment,
-  Scenario,
-  ScenarioEvent,
-  ScenarioMode,
-} from '../types/scenario';
+import type { FileAttachment, Scenario, ScenarioEvent, ScenarioMode } from '../types/scenario';
 
 export interface UseScenarioReturn {
   events: ScenarioEvent[];

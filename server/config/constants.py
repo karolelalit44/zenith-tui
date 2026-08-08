@@ -67,7 +67,10 @@ TOOL_DOMAIN_DISCOVERY = "discovery"
 CAPABILITY_TOOL_DISCOVERY = "tool_discovery"
 DISCOVER_CAPABILITIES_TOOL = "discover_capabilities"
 GET_TOOL_DEFINITION_TOOL = "get_tool_definition"
-MAX_ACTIVE_TOOLS_PER_TURN = 8
+# Leaves room for on-demand escalations beyond the mode seed. The build seed
+# alone is 6 core tools + 2 discovery; a cap of 8 gave it zero headroom, so the
+# first escalation evicted a core tool (e.g. file_read) from the active set.
+MAX_ACTIVE_TOOLS_PER_TURN = 12
 
 # Schema-token benchmark
 DEFAULT_TOKENIZER_MODEL = "cl100k_base"

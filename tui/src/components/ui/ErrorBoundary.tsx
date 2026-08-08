@@ -19,7 +19,39 @@ interface ErrorFallbackProps {
   onRetry: () => void;
 }
 
-const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error, errorInfo, onRetry }) => {
+/**
+ * Ink's `useInput` throws when stdin is not a TTY (raw mode unsupported). If the
+ * error fallback itself uses `useInput`, a headless run re-throws inside the
+ * boundary -> getDerivedStateFromError -> fallback -> throw... until React bails
+ * out with "Maximum update depth exceeded" and the whole TUI dies.
+ *
+ * Fix: pick the fallback once at module load — interactive (useInput) only when
+ * stdin is a real TTY, otherwise a static, hook-free panel that cannot re-throw.
+ */
+const IS_INTERACTIVE_INPUT = typeof process !== 'undefined' && process.stdin?.isTTY === true;
+
+const StaticErrorFallback: React.FC<ErrorFallbackProps> = ({ error }) => {
+  const { theme } = useTheme();
+
+  return (
+    <RoundedBox title="RUNTIME ERROR" borderColor={theme.colors.status.error} hasShadow={true}>
+      <Box flexDirection="column" paddingX={2} paddingY={1} width="100%">
+        <Box marginBottom={1}>
+          <Text color={theme.colors.status.error} bold>
+            [ERROR] {error.message || 'An unexpected error occurred'}
+          </Text>
+        </Box>
+        <Box paddingX={1} borderStyle="single" borderColor={theme.colors.border.muted}>
+          <Text color={theme.colors.text.muted}>
+            Interactive input is unavailable (no TTY); restart in a terminal for retry shortcuts.
+          </Text>
+        </Box>
+      </Box>
+    </RoundedBox>
+  );
+};
+
+const InteractiveErrorFallback: React.FC<ErrorFallbackProps> = ({ error, errorInfo, onRetry }) => {
   const { theme } = useTheme();
   const [showDetails, setShowDetails] = useState(false);
 
@@ -66,8 +98,11 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error, errorInfo, onRetry
   );
 };
 
+const ErrorFallback = IS_INTERACTIVE_INPUT ? InteractiveErrorFallback : StaticErrorFallback;
+
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false };
+  private infoCaptured = false;
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
@@ -75,7 +110,14 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(error, info.componentStack);
-    this.setState({ errorInfo: info });
+    // Capture the component stack exactly once. Calling setState again after the
+    // boundary is already showing the fallback re-renders it; if that render
+    // throws (e.g. no raw-mode stdin) the boundary catches it again and we loop
+    // until React reports "Maximum update depth exceeded".
+    if (!this.infoCaptured) {
+      this.infoCaptured = true;
+      this.setState({ errorInfo: info });
+    }
   }
 
   handleRetry = () => {

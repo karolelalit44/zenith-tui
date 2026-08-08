@@ -152,3 +152,66 @@ describe('BackendScenarioProvider Multi-Step & Terminal Event Handling', () => {
     expect(completed).toBe(true); // MUST BE COMPLETED!
   });
 });
+
+describe('Context compaction events map to typed events (no UNKNOWN_EVENT)', () => {
+  const emit = (kind: string, data: Record<string, unknown>) =>
+    (wsClient as unknown as { emitter: { emit: (name: string, data: unknown) => void } }).emitter.emit(
+      'event',
+      makeRpcEvent(kind, data),
+    );
+
+  function runOnce(kind: string, data: Record<string, unknown>) {
+    const eventsRecv: Array<{ kind: string; message?: string }> = [];
+    const scenario = backendScenarioProvider.resolve('test prompt', 'build');
+    const runner = backendScenarioProvider.execute(
+      scenario,
+      (evt) => {
+        eventsRecv.push(evt as { kind: string; message?: string });
+      },
+      () => {},
+    );
+    emit(kind, data);
+    runner.abort();
+    return eventsRecv;
+  }
+
+  it('maps context_compacted to a typed event with a readable message', () => {
+    const [evt] = runOnce('context_compacted', {
+      tool: 'glob',
+      charsRemoved: 12340,
+      tokensSaved: 1234,
+      reason: 'output too large',
+    });
+    expect(evt).toBeDefined();
+    expect(evt.kind).toBe('context_compacted');
+    expect(evt.message).toContain('Compacted glob output');
+    expect(evt.message).toContain('1234');
+    expect(evt.message).not.toContain('Unknown event');
+  });
+
+  it('maps context_compaction_started to a typed event', () => {
+    const [evt] = runOnce('context_compaction_started', {
+      reason: 'context approaching limit',
+      used: 90000,
+      total: 100000,
+    });
+    expect(evt.kind).toBe('context_compaction_started');
+    expect(evt.message).toContain('started');
+    expect(evt.message).toContain('90%');
+    expect(evt.message).not.toContain('Unknown event');
+  });
+
+  it('maps context_compaction_ended to a typed event', () => {
+    const [evt] = runOnce('context_compaction_ended', {
+      reason: 'context approaching limit',
+      used: 30000,
+      total: 100000,
+      tokensSaved: 60000,
+      summaryChars: 1200,
+    });
+    expect(evt.kind).toBe('context_compaction_ended');
+    expect(evt.message).toContain('finished');
+    expect(evt.message).toContain('60000');
+    expect(evt.message).not.toContain('Unknown event');
+  });
+});

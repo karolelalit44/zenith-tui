@@ -141,6 +141,17 @@ CAPABILITIES: list[CapabilityDescriptor] = [
         latency_class=LATENCY_CLASS_HIGH,
     ),
     CapabilityDescriptor(
+        id="web_search",
+        name="Web search",
+        short_description="Search the web and return ranked sources",
+        domains=[TOOL_DOMAIN_WEB_MCP],
+        search_terms=["web", "search", "query", "research", "sources", "find", "google", "bing"],
+        risk_level=RISK_LOW,
+        read_only=True,
+        cost_class=COST_CLASS_MEDIUM,
+        latency_class=LATENCY_CLASS_HIGH,
+    ),
+    CapabilityDescriptor(
         id="lsp_analysis",
         name="Code analysis",
         short_description="Language-server analysis of symbols and diagnostics",

@@ -31,6 +31,7 @@ from .tools.multi_edit import MultiEditTool
 from .tools.question import QuestionTool
 from .tools.todo import TodoTool
 from .tools.webfetch import WebfetchTool
+from .tools.websearch import WebsearchTool
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "WebfetchTool",
+    "WebsearchTool",
     "build_catalog",
     "build_inventory",
     "build_mode_tool_seed",
@@ -91,7 +93,8 @@ def create_default_registry(
     registry.register(FileDeleteTool())
     registry.register(GlobTool())
     registry.register(GrepTool())
-    registry.register(WebfetchTool())
+    registry.register(WebfetchTool(provider=provider))
+    registry.register(WebsearchTool())
     registry.register(JobOutputTool())
     registry.register(JobKillTool())
     registry.register(MultiEditTool())

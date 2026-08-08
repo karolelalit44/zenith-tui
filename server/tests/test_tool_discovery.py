@@ -125,7 +125,7 @@ class TestSchemaResolver:
         assert "file_write" not in plan_names
         assert DISCOVER_CAPABILITIES_TOOL in plan_names
 
-    def test_eviction_keeps_discovery_tools(self):
+    def test_eviction_preserves_seed_and_discovery_tools(self):
         registry = create_default_registry()
         resolver = SchemaResolver(
             registry,
@@ -135,10 +135,28 @@ class TestSchemaResolver:
         assert resolver.request_tool("grep") is True
         names = resolver.active_names()
         assert len(names) == 3
+        # Discovery and seed tools are never evicted; the escalated tool is
+        # evicted because the seed already fills the cap.
         assert DISCOVER_CAPABILITIES_TOOL in names
         assert GET_TOOL_DEFINITION_TOOL in names
-        assert "grep" in names
-        assert "file_read" not in names
+        assert "file_read" in names
+        assert "grep" not in names
+
+    def test_escalation_does_not_evict_core_seed_tools(self):
+        """Regression: escalating on-demand tools must not drop core tools.
+
+        The build seed fills most of the cap; previously the first escalation
+        evicted file_read (the first non-discovery tool), so a later file_read
+        call bounced out of the active set and had to be re-escalated.
+        """
+        registry = create_default_registry()
+        resolver = SchemaResolver(registry, seed=build_mode_tool_seed(CORE_BUILD_TOOLS))
+        core = {"file_read", "file_edit", "file_write", "bash", "glob", "grep", "websearch", "webfetch"}
+        for name in ("file_delete", "todo", "multi_edit", "agent", "job_kill", "lsp_rename"):
+            assert resolver.request_tool(name) is True
+        active = set(resolver.active_names())
+        assert len(active) <= MAX_ACTIVE_TOOLS_PER_TURN
+        assert core.issubset(active), f"core seed tools evicted: {sorted(core - active)}"
 
     def test_schema_tokens_positive(self):
         registry = create_default_registry()
