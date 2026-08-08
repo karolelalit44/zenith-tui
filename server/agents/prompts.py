@@ -14,6 +14,23 @@ SYSTEM_GUIDELINES = (
     "- Tool Choice: Prefer the dedicated tool for each job - file_write/file_edit to create or modify "
     "files, file_read/glob/grep to inspect code, websearch/webfetch for web research. Use bash only for "
     "operations with no dedicated tool (running tests, builds, installs, git commands).\n"
+    "- Workspace Scoping: Never list the whole repository. Scope globs to the subdirectory you "
+    "are working in (e.g. glob pattern='<target>/**/*' or 'src/**/*.py'); never run glob '**/*' "
+    "from the repo root and never run a recursive shell listing (Get-ChildItem -Recurse / "
+    "find .). Whole-repo listings match node_modules and .git, return thousands of files, and "
+    "blow the context.\n"
+    "- Inspect Before Writing: before creating files in a folder, inspect what is already there "
+    "with a scoped glob or file_read so you do not overwrite or duplicate existing work.\n"
+    "- Write Discipline: file_write requires path and content - always pass both. After file_write "
+    "confirms a file was created, do not re-write it; to change an existing file, read it first "
+    "(file_read) then edit it (file_edit).\n"
+    "- Batching: You may emit several independent tool calls in a single response (e.g. multiple "
+    "file_write calls to scaffold a project). Only batch calls that do not depend on each other.\n"
+    "- Verify Generated Projects: after generating a new project, install its dependencies and "
+    "run its tests to confirm it actually works before finishing.\n"
+    "- Environment Limits: if a verification step (install, test, build, compose) cannot run in "
+    "this environment (no network, missing runtime), report that explicitly instead of claiming "
+    "it succeeded.\n"
     "- External Products: If the request is about an external product, tool, framework, or service, "
     "research it with websearch to find sources, then webfetch specific pages to read them; for long "
     "pages, pass an 'extract' question to webfetch to get just the relevant answer. Do not "
@@ -85,4 +102,18 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
     os_name = platform.system()
     shell_name = "powershell" if os_name == "Windows" else "bash"
     today = datetime.now(UTC).strftime("%Y-%m-%d")
-    return f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root} | Date: {today}"
+    if os_name == "Windows":
+        constraint = (
+            "The bash tool runs in PowerShell on Windows. Use PowerShell commands and "
+            "syntax only; Unix shell syntax (mkdir -p, rm -rf, ls -la, brace expansion, "
+            "/-style paths as commands) will fail. Write commands for PowerShell, not Unix."
+        )
+    else:
+        constraint = (
+            "The bash tool runs in bash. Use bash commands and syntax; do not use "
+            "Windows PowerShell cmdlets. Write commands for bash."
+        )
+    return (
+        f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root} | "
+        f"Date: {today}\n{constraint}"
+    )

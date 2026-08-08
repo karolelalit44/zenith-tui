@@ -19,6 +19,24 @@ from server.toolkit.tools.grep import GrepTool
 from server.toolkit.tools.webfetch import WebfetchTool
 
 
+def test_file_write_documents_parent_dir_creation():
+    """B3: the tool advertises that it auto-creates missing parent directories."""
+    tool = FileWriteTool()
+    assert "automatically" in tool.description
+    schema = tool.get_schema()
+    assert "automatically" in schema["properties"]["path"]["description"]
+
+
+def test_bash_description_states_working_directory():
+    """GAP2: the bash tool tells the model commands run from the workspace root."""
+    tool = BashTool()
+    if platform.system() == "Windows":
+        assert "Set-Location" in tool.description
+    else:
+        assert "cd" in tool.description
+    assert "workspace" in tool.description
+
+
 class TestToolResult:
     def test_success_result(self):
         result = ToolResult(success=True, output="ok")
@@ -285,15 +303,22 @@ class TestFileDeleteTool:
         tool = FileDeleteTool()
         result = await tool.execute({"path": "nope.txt"}, str(temp_dir))
         assert not result.success
-        assert "not found" in result.error
+        assert "not found" in result.error.lower()
 
     @pytest.mark.asyncio
-    async def test_delete_directory_fails(self, temp_dir):
-        (temp_dir / "subdir").mkdir()
+    async def test_delete_directory_tree_recursively(self, temp_dir):
+        """X2: file_delete is a generic delete - it handles directory trees too."""
+        sub = temp_dir / "subdir"
+        sub.mkdir()
+        (sub / "a.py").write_text("x")
+        (sub / "nested").mkdir()
+        (sub / "nested" / "b.py").write_text("y")
         tool = FileDeleteTool()
         result = await tool.execute({"path": "subdir"}, str(temp_dir))
-        assert not result.success
-        assert "directory" in result.error
+        assert result.success
+        assert not sub.exists(), "directory tree must be removed"
+        assert result.metadata.get("directory") is True
+        assert result.metadata.get("entries", 0) == 3
 
 
 class TestGlobTool:
@@ -323,6 +348,22 @@ class TestGlobTool:
         result = await tool.execute({"pattern": "**/*.py"}, str(temp_dir))
         assert result.success
         assert result.metadata["count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_glob_caps_overflowing_results(self, temp_dir, monkeypatch):
+        """A recursive glob from the repo root can match tens of thousands of
+        files; the tool must cap results + output to protect the context."""
+        import server.toolkit.tools.glob as glob_mod
+
+        monkeypatch.setattr(glob_mod, "_GLOB_MAX_RESULTS", 2)
+        for i in range(5):
+            (temp_dir / f"f{i}.py").write_text("")
+        tool = GlobTool()
+        result = await tool.execute({"pattern": "*.py"}, str(temp_dir))
+        assert result.success
+        assert result.metadata["count"] == 5, "count reports the true total"
+        assert len(result.metadata["files"]) == 2, "returned list must be capped"
+        assert "more matches omitted" in result.output
 
 
 class TestGrepTool:

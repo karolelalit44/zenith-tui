@@ -46,6 +46,9 @@ from .validation import reflection_error_limit, schemas_to_openai_tools
 _format_tool_result = format_tool_result
 logger = logging.getLogger(__name__)
 COMPACTION_KEEP_TAIL = 8
+# Cap how many repeated calls the "skipped calls" warning/message lists so it
+# can't grow unboundedly across a pathological re-emission loop.
+_SKIP_WARNING_CAP = 6
 
 
 def _call_signature(tool_name: str, params: dict) -> tuple[str, str]:
@@ -62,6 +65,15 @@ def _params_label(params: dict) -> str:
         return ""
     if "tool_name" in params:
         return str(params["tool_name"])
+    # Prefer an identifying param so multi-arg calls (file_write(path,
+    # content)) render as file_write(path=...) instead of an ambiguous
+    # file_write(). This keeps the "skipped calls" warning readable.
+    for key in ("path", "pattern", "query", "url", "command", "task"):
+        if key in params and params[key]:
+            value = params[key]
+            if isinstance(value, str) and len(value) > 48:
+                value = value[:48] + "…"
+            return f"{key}={value}"
     if len(params) == 1:
         key, value = next(iter(params.items()))
         return f"{key}={value}"
@@ -289,7 +301,11 @@ class AgentLoop:
             content = str(msg.get("content", ""))
             logger.info("--- MSG [%d] role=%s (len=%d) ---\n%s", i, role, len(content), content)
         iteration = 0
-        reflection_errors = 0
+        # REFLECTION_LIMIT counts CONSECUTIVE tool failures (no successful
+        # execution between them). A scattered cosmetic failure such as
+        # "directory already exists" - followed by progress - must NOT abort the
+        # task; only an uninterrupted streak of failures signals a stuck model.
+        consecutive_failures = 0
         created_files: set[str] = set()
         tools_used = False
         task_completed = False
@@ -516,6 +532,7 @@ class AgentLoop:
                     break
                 stop_turn = False
                 skipped_calls: list[str] = []
+                replayed_results = 0
                 newly_executed = False
                 for tc in valid_calls:
                     tool_name = tc["tool"]
@@ -524,15 +541,17 @@ class AgentLoop:
                     if sig in executed_calls:
                         failed_flag = " [failed]" if sig in failed_calls else ""
                         skipped_calls.append(f"{tool_name}({_params_label(tool_params)}){failed_flag}")
-                        # Re-present the stored result so the model can actually see the
-                        # output. A "shown above in this conversation" pointer is not
-                        # enough: after a compaction the result may be gone, which is
-                        # what drives the model to re-issue identical calls. Only do
-                        # this on the first stall to keep context growth bounded.
-                        if stall_count == 0 and not newly_executed:
+                        # Re-present a bounded number of stored results so the model can
+                        # actually see the output. A "shown above" pointer is not enough
+                        # after a compaction (results are gone), which drives the model to
+                        # re-issue identical calls. Cap the number re-injected per
+                        # iteration so a pathological re-emission batch can't inflate
+                        # context; the rest are covered by the skip warning below.
+                        if stall_count == 0 and not newly_executed and replayed_results < 2:
                             stored = executed_results.get(sig)
                             if stored is not None:
                                 messages.append({"role": "user", "content": stored})
+                                replayed_results += 1
                         continue
                     reject_msg = validate_tool_rejection(tool_name, tool_params, created_files, ws)
                     if tool_name in ("bash", "terminal") and (not reject_msg):
@@ -548,8 +567,8 @@ class AgentLoop:
                             if resolved is not None and resolved.exists():
                                 if not self.config.auto_overwrite:
                                     reject_msg = (
-                                        f"File overwrite denied: '{target}'. Overwrite approval "
-                                        f"is disabled (auto_overwrite=false)."
+                                        f"File overwrite denied: '{target}' already exists. Pass "
+                                        f"overwrite=true to replace it, or delete it first."
                                     )
                                 else:
                                     tool_params[FILE_OVERWRITE_PARAM] = True
@@ -565,10 +584,10 @@ class AgentLoop:
                         messages.append(
                             {"role": "user", "content": f"[Tool rejected] {reject_msg}"}
                         )
-                        reflection_errors += 1
-                        if reflection_errors >= _reflimit:
+                        consecutive_failures += 1
+                        if consecutive_failures >= _reflimit:
                             yield r.error(
-                                f"Too many errors ({reflection_errors}).",
+                                f"Too many errors ({consecutive_failures}).",
                                 session_id,
                                 code="REFLECTION_LIMIT",
                                 recoverable=True,
@@ -598,7 +617,7 @@ class AgentLoop:
                         logger.info("Tool '%s' requested stop_turn", tool_name)
                         stop_turn = True
                     if not result.success:
-                        reflection_errors += 1
+                        consecutive_failures += 1
                         err_msg = result.error or f"Tool '{tool_name}' execution failed"
                         messages.append(
                             {
@@ -606,14 +625,18 @@ class AgentLoop:
                                 "content": f"[Tool error] {tool_name} failed: {err_msg}. Try a different approach.",
                             }
                         )
-                        if reflection_errors >= _reflimit:
+                        if consecutive_failures >= _reflimit:
                             yield r.error(
-                                f"Too many errors ({reflection_errors}).",
+                                f"Too many errors ({consecutive_failures}).",
                                 session_id,
                                 code="REFLECTION_LIMIT",
                                 recoverable=True,
                             )
                             return
+                    else:
+                        # A successful execution is progress; reset the streak so a
+                        # few scattered cosmetic failures never abort the task.
+                        consecutive_failures = 0
                     _ti = self.context_manager.get_token_info(messages, model, self.provider)
                     _remaining = _ti.total - _ti.used
                     _threshold = 20000 if _ti.total >= 200000 else int(_ti.total * 0.2)
@@ -688,16 +711,20 @@ class AgentLoop:
                     executed_results[sig] = messages[-1]["content"]
                     self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
                 if skipped_calls:
+                    shown = ", ".join(skipped_calls[:_SKIP_WARNING_CAP])
+                    omitted = len(skipped_calls) - _SKIP_WARNING_CAP
+                    if omitted > 0:
+                        shown += f", +{omitted} more"
                     yield r.warning(
                         "Skipped calls already completed with identical params this turn: "
-                        + ", ".join(skipped_calls),
+                        + shown,
                         session_id,
                     )
                     failed_skips = [s for s in skipped_calls if " [failed]" in s]
                     msg = (
                         "[System] These calls were already attempted earlier in this turn "
                         "with identical parameters and were NOT re-run: "
-                        + ", ".join(skipped_calls)
+                        + shown
                         + ". Their results are already shown above in this conversation."
                     )
                     if failed_skips:

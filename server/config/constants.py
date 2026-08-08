@@ -91,11 +91,14 @@ BASH_TOOL_DESCRIPTION_WINDOWS = (
     "Execute a Windows PowerShell command in the workspace. Only use PowerShell commands "
     "and PowerShell syntax (e.g. New-Item, Get-ChildItem, Get-Content, Set-Content, "
     "Remove-Item, Select-String, Start-Process). Do NOT use Unix shell commands "
-    "(mkdir -p, ls, grep, touch, rm) or bash syntax."
+    "(mkdir -p, ls, grep, touch, rm) or bash syntax. Commands run from the workspace "
+    "root; to act inside a subfolder, start the command with 'Set-Location <folder>;'."
 )
 BASH_TOOL_DESCRIPTION_UNIX = (
     "Execute a shell command in the workspace. Only use Unix/Linux shell commands and bash "
-    "syntax (e.g. mkdir -p, ls, grep, touch, rm, cat). Do NOT use Windows PowerShell cmdlets."
+    "syntax (e.g. mkdir -p, ls, grep, touch, rm, cat). Do NOT use Windows PowerShell cmdlets. "
+    "Commands run from the workspace root; to act inside a subfolder, start the command with "
+    "'cd <folder> &&'."
 )
 
 # Bash tool command parameter descriptions (OS-specific)

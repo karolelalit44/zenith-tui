@@ -192,21 +192,21 @@ export function useTerminalKeyboard({
       }
 
       if (key.pageUp) {
-        if (opts.scrollUp) opts.scrollUp(10);
+        if (opts.scrollUp) opts.scrollUp(15);
         return;
       }
 
       if (key.pageDown) {
-        if (opts.scrollDown) opts.scrollDown(10);
+        if (opts.scrollDown) opts.scrollDown(15);
         return;
       }
 
-      if (input === 'g' && key.shift) {
+      if (key.home) {
         if (opts.scrollToTop) opts.scrollToTop();
         return;
       }
 
-      if (input === 'G' && key.shift) {
+      if (key.end) {
         if (opts.scrollToBottom) opts.scrollToBottom();
         return;
       }

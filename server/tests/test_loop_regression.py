@@ -8,7 +8,7 @@ Covers:
 
 import pytest
 
-from server.agents.loop import AgentLoop
+from server.agents.loop import AgentLoop, _params_label
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
@@ -40,6 +40,65 @@ class _StallProvider(BaseProvider):
 
     async def list_models(self) -> list[str]:
         return ["stall-model"]
+
+
+async def _stream_from_complete(self, messages, tools=None, tool_choice=None, response_format=None):
+    """Reusable stream() that drives complete() per char (same as _StallProvider)."""
+    response = await self.complete(messages, tools)
+    for char in response:
+        yield (char, None)
+
+
+class _ScatteredFailureProvider(BaseProvider):
+    """Fails often, but always recovers with a success between failures.
+
+    The failure streak never exceeds 1, so REFLECTION_LIMIT (which counts
+    CONSECUTIVE failures) must NOT fire and the task must complete normally.
+    """
+
+    def __init__(self):
+        super().__init__("scattered", "scattered-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        n = self.call_count
+        if n > 12:
+            return "The task is complete after recovering from scattered errors."
+        if n % 2 == 1:
+            i = (n + 1) // 2
+            return f'```tool\n{{"tool": "file_read", "params": {{"path": "missing_{i}.txt"}}}}\n```'
+        i = n // 2
+        return f'```tool\n{{"tool": "file_write", "params": {{"path": "created_{i}.txt", "content": "x"}}}}\n```'
+
+    stream = _stream_from_complete
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["scattered-model"]
+
+
+class _ConsecutiveFailureProvider(BaseProvider):
+    """Emits a fresh failing call every iteration, never the same signature twice."""
+
+    def __init__(self):
+        super().__init__("consec", "consec-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        i = self.call_count
+        return f'```tool\n{{"tool": "file_read", "params": {{"path": "missing_{i}.txt"}}}}\n```'
+
+    stream = _stream_from_complete
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["consec-model"]
 
 
 @pytest.fixture
@@ -84,6 +143,59 @@ async def test_final_answer_is_emitted_exactly_once(test_config):
         if e.kind == EventKind.MESSAGE and (e.data.get("text") or "").startswith("Done.")
     ]
     assert len(final_texts) == 1, f"final answer emitted {len(final_texts)} times: {final_texts}"
+
+
+@pytest.mark.asyncio
+async def test_scattered_failures_do_not_trigger_reflection_limit(test_config):
+    """B2: failures interleaved with successes (max streak 1) must not abort.
+
+    Six failures would trip the old total-count limit (4); with consecutive-
+    failure counting the task must recover and finish normally.
+    """
+    provider = _ScatteredFailureProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Do the work", "s1", [], "build"):
+        events.append(event)
+
+    limit_errors = [
+        e
+        for e in events
+        if e.kind == EventKind.ERROR and (e.data.get("code") or "") == "REFLECTION_LIMIT"
+    ]
+    assert not limit_errors, f"REFLECTION_LIMIT fired despite scattered failures: {limit_errors}"
+
+    writes = [
+        e
+        for e in events
+        if e.kind == EventKind.TOOL_RESULT
+        and e.data.get("tool") == "file_write"
+        and e.data.get("success")
+    ]
+    assert len(writes) == 6, f"expected 6 successful writes, got {len(writes)}"
+    assert any(
+        (e.data.get("text") or "").startswith("The task is complete") for e in events
+    ), "final answer never emitted"
+
+
+@pytest.mark.asyncio
+async def test_consecutive_failures_trigger_reflection_limit(test_config):
+    """B2: an uninterrupted streak of failures still aborts the task."""
+    provider = _ConsecutiveFailureProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Do the work", "s1", [], "build"):
+        events.append(event)
+
+    limit_errors = [
+        e
+        for e in events
+        if e.kind == EventKind.ERROR and (e.data.get("code") or "") == "REFLECTION_LIMIT"
+    ]
+    assert limit_errors, "REFLECTION_LIMIT should fire on a streak of consecutive failures"
+    assert limit_errors[0].data.get("recoverable") is True
 
 
 class _UsageResetProvider(BaseProvider):
@@ -143,6 +255,19 @@ class _ToolsProbeProvider(BaseProvider):
 
     async def list_models(self) -> list[str]:
         return ["probe-model"]
+
+
+def test_params_label_is_readable_for_multi_arg_calls():
+    """'Skipped calls' warnings must distinguish calls; file_write(path=...)
+    instead of an ambiguous file_write()."""
+    assert _params_label({}) == ""
+    assert _params_label({"path": "app/main.py", "content": "x"}) == "path=app/main.py"
+    assert _params_label({"pattern": "**/*"}) == "pattern=**/*"
+    assert _params_label({"tool_name": "todo"}) == "todo"
+    long_cmd = "Get-ChildItem -Recurse | Format-Table -AutoSize"
+    label = _params_label({"command": long_cmd})
+    assert label.startswith("command=")
+    assert len(label) <= 48 + len("command="), "long values must be truncated"
 
 
 @pytest.mark.asyncio

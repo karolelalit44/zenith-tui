@@ -266,7 +266,12 @@ class TestAutoApprovalGates:
             events.append(event)
         assert target.read_text(encoding="utf-8") == "old"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert any("overwrite denied" in (e.data.get("message") or "") for e in warnings)
+        overwrite_msgs = [
+            e.data.get("message") or "" for e in warnings if "overwrite denied" in (e.data.get("message") or "")
+        ]
+        assert overwrite_msgs, "expected an overwrite-denied warning"
+        # GAP4: the denial must tell the model the remedy (overwrite=true).
+        assert "overwrite=true" in overwrite_msgs[0]
 
     @pytest.mark.asyncio
     async def test_new_file_writes_without_gate(self, test_config):

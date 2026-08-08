@@ -70,6 +70,25 @@ class TestSystemPromptBuilding:
         )
         assert "<available_tools>" not in prompt
 
+    def test_build_system_prompt_states_shell_constraint(self):
+        """B1: the model is told the OS/shell and to use only that shell's syntax."""
+        from server.agents.prompts import build_system_prompt
+
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "Shell:" in prompt
+        assert "Write commands" in prompt
+
+    def test_build_system_prompt_guides_batching_and_verification(self):
+        """GAP1/GAP3: the model can batch independent calls and must verify new projects."""
+        from server.agents.prompts import build_system_prompt
+
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "several independent tool calls" in prompt  # GAP1 batching
+        assert "Verify Generated Projects" in prompt  # GAP3 verify scaffolded projects
+        assert "run its tests" in prompt
+        assert "Inspect Before Writing" in prompt  # X1 inspect target before writing
+        assert "Environment Limits" in prompt  # X3 report failed verify steps honestly
+
 
 class TestNoFilesCreatedWarning:
     async def _run_events(self, temp_dir, provider, tool_registry=None):

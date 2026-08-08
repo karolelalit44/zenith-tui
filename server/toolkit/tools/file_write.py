@@ -23,7 +23,10 @@ _PLACEHOLDER_RE = re.compile(
 
 class FileWriteTool(BaseTool):
     name = "file_write"
-    description = "Create new file"
+    description = (
+        "Create or overwrite a file. Missing parent directories are created "
+        "automatically - do not run mkdir/New-Item first, just write the file."
+    )
     requires_mode = BUILD_MODE
     capability_id = "file_write"
     read_only = False
@@ -41,7 +44,12 @@ class FileWriteTool(BaseTool):
         return {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path"},
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "File path; any missing parent directories are created automatically"
+                    ),
+                },
                 "content": {"type": "string", "description": "File content"},
                 FILE_OVERWRITE_PARAM: {
                     "type": "boolean",
@@ -81,7 +89,9 @@ class FileWriteTool(BaseTool):
             resolved.parent.mkdir(parents=True, exist_ok=True)
             resolved.write_text(content, encoding="utf-8")
             return ToolResult(
-                success=True, output=f"Created {rel_path}", metadata={"path": str(resolved)}
+                success=True,
+                output=f"Created {rel_path} ({len(content)} bytes)",
+                metadata={"path": str(resolved), "bytes": len(content)},
             )
         except Exception as e:
             return ToolResult(success=False, error=str(e))

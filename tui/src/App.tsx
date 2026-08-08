@@ -39,6 +39,8 @@ import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
 import type { ScenarioEvent, ScenarioMode } from './types/scenario';
 import type { AppStartupState } from './types/startup';
+import { sanitizeSingleLine, truncateEnd } from './utils/text';
+import { computeVisibleTurns } from './utils/turnWindow';
 
 export interface RetryTarget {
   prompt: string;
@@ -150,9 +152,13 @@ export const App: React.FC = () => {
   }, [totalTokens, isRunning, events]);
 
   useEffect(() => {
-    const estimatedHeight = completedTurns.length * 15 + (isRunning ? events.length * 2 : 0);
+    // contentHeight tracks completed turns only; the live running block is
+    // always rendered below the window and is NOT part of the scrollable
+    // region. Counting streamed events here used to make the scroll offset
+    // jump on every incoming event (the jitter during generation).
+    const estimatedHeight = completedTurns.length * 15;
     updateContentHeight(estimatedHeight);
-  }, [completedTurns.length, events.length, isRunning, updateContentHeight]);
+  }, [completedTurns.length, updateContentHeight]);
 
   useEffect(() => {
     if (!isRunning && activeTurn?.isComplete) {
@@ -352,19 +358,20 @@ export const App: React.FC = () => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });
   }, [startupState]);
 
-  const visibleTurns = useMemo(() => {
-    if (!scrollState.isUserScrolled || isRunning) {
-      return completedTurns;
-    }
+  const visibleTurns = useMemo(
+    () =>
+      computeVisibleTurns({
+        completedTurns,
+        isUserScrolled: scrollState.isUserScrolled,
+        isRunning,
+        scrollOffset: scrollState.scrollOffset,
+        viewportHeight: scrollState.viewportHeight,
+      }),
+    [completedTurns, scrollState.isUserScrolled, scrollState.scrollOffset, scrollState.viewportHeight, isRunning],
+  );
 
-    const viewportTurns = scrollState.viewportHeight / 15;
-    const startIdx = Math.floor(scrollState.scrollOffset / 15);
-    const endIdx = Math.min(completedTurns.length, startIdx + Math.ceil(viewportTurns) + 2);
-
-    return completedTurns.slice(Math.max(0, startIdx), endIdx);
-  }, [completedTurns, scrollState.isUserScrolled, scrollState.scrollOffset, scrollState.viewportHeight, isRunning]);
-
-  const hiddenAbove = completedTurns.length - visibleTurns.length - (completedTurns.indexOf(visibleTurns[0]) || 0);
+  const firstVisibleIdx = visibleTurns.length > 0 ? completedTurns.indexOf(visibleTurns[0]) : completedTurns.length;
+  const hiddenAbove = Math.max(0, completedTurns.length - visibleTurns.length - Math.max(0, firstVisibleIdx));
   const showScrollIndicator = scrollState.isUserScrolled && (isRunning || completedTurns.length > 0);
 
   if (startupState.phase === 'loading') {
@@ -447,13 +454,23 @@ export const App: React.FC = () => {
 
         {isRunning && (
           <Box flexDirection="column" marginTop={1} width="100%">
-            {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
-            <ScenarioRenderer
-              events={events}
-              isRunning={isRunning}
-              isHistorical={false}
-              thinkingCollapsed={thinkingCollapsed}
-            />
+            {scrollState.isUserScrolled ? (
+              <Box paddingX={1}>
+                <Text color={theme.colors.text.muted} dimColor>
+                  ▸ Generating… (PgDn / End to follow the live output)
+                </Text>
+              </Box>
+            ) : (
+              <>
+                {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
+                <ScenarioRenderer
+                  events={events}
+                  isRunning={isRunning}
+                  isHistorical={false}
+                  thinkingCollapsed={thinkingCollapsed}
+                />
+              </>
+            )}
           </Box>
         )}
 
@@ -462,7 +479,7 @@ export const App: React.FC = () => {
             {retryTarget && (
               <OptionBanner
                 title="Task failed"
-                message={`Retry: ${retryTarget.prompt}`}
+                message={`Retry: ${truncateEnd(sanitizeSingleLine(retryTarget.prompt), 90)}`}
                 options={[
                   { label: 'Retry', value: 'retry' },
                   { label: 'Dismiss', value: 'dismiss' },

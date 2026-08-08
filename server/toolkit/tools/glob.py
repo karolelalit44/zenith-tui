@@ -11,10 +11,20 @@ from server.config.constants import (
 
 from ..base import BaseTool, ToolResult
 
+# A glob like **/* from the repo root can match tens of thousands of files
+# (node_modules, .git, ...) and blow the context by megabytes. Always cap both
+# the number of results and the rendered output.
+_GLOB_MAX_RESULTS = 500
+_GLOB_MAX_OUTPUT_CHARS = 40000
+
 
 class GlobTool(BaseTool):
     name = "glob"
-    description = "Search files by glob pattern"
+    description = (
+        "Search files by glob pattern. Scope the pattern to a subdirectory "
+        "(e.g. 'app/**/*.py') instead of '**/*' from the repo root - an "
+        "unscoped recursive glob returns a huge list and wastes context."
+    )
     requires_mode = None
     capability_id = "workspace_discovery"
     read_only = True
@@ -34,8 +44,18 @@ class GlobTool(BaseTool):
         return {
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "description": "Glob pattern (e.g. **/*.py)"},
-                "path": {"type": "string", "description": "Directory to search"},
+                "pattern": {
+                    "type": "string",
+                    "description": (
+                        "Glob pattern, scoped to a subdirectory (e.g. 'app/**/*.py'). "
+                        "Avoid '**/*' from the repo root; it matches node_modules and "
+                        ".git and returns thousands of files."
+                    ),
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Directory to search (defaults to the workspace root)",
+                },
             },
             "required": ["pattern"],
         }
@@ -61,9 +81,23 @@ class GlobTool(BaseTool):
             files = sorted(
                 str(f.relative_to(base)) for f in search_path.glob(pattern) if f.is_file()
             )
+            total = len(files)
+            truncated_files = total > _GLOB_MAX_RESULTS
+            if truncated_files:
+                files = files[:_GLOB_MAX_RESULTS]
             output = "\n".join(files) if files else "No files found"
+            if truncated_files:
+                output += (
+                    f"\n[... {total - _GLOB_MAX_RESULTS} more matches omitted; "
+                    f"narrow the glob pattern or add a path to search]"
+                )
+            if len(output) > _GLOB_MAX_OUTPUT_CHARS:
+                output = output[:_GLOB_MAX_OUTPUT_CHARS]
+                output += "\n[... output truncated; narrow the glob pattern]"
             return ToolResult(
-                success=True, output=output, metadata={"count": len(files), "files": files}
+                success=True,
+                output=output,
+                metadata={"count": total, "files": files},
             )
         except Exception as e:
             return ToolResult(success=False, error=str(e))
