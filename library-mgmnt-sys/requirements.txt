@@ -4,5 +4,7 @@ sqlalchemy
 pydantic
 pydantic-settings
 psycopg2-binary
+alembic
 pytest
 httpx
+requests
