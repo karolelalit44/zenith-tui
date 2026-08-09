@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite
+airflow.db
+logs/
+plugins/
+*.log
+.pytest_cache/
+.DS_Store
+data/
