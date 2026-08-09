@@ -42,10 +42,18 @@ describe('ToolStepCard', () => {
     expect(frame).toContain('✗ Failed');
   });
 
-  it('uses the backend text field as the call header when present', () => {
+  it('replaces the generic "Executing <tool>…" template with the verb label', () => {
     const { lastFrame } = renderStep(makeStep({ text: 'Executing file_write…' }));
     const frame = lastFrame();
-    expect(frame).toContain('Executing file_write…');
+    expect(frame).not.toContain('Executing file_write');
+    expect(frame).toContain('Create');
+    expect(frame).toContain('src/a.ts');
+  });
+
+  it('keeps a non-generic backend text field as the call header when present', () => {
+    const { lastFrame } = renderStep(makeStep({ text: 'Custom header text here' }));
+    const frame = lastFrame();
+    expect(frame).toContain('Custom header text here');
   });
 
   it('renders GET_TOOL_DEFINITION as a compact loaded line without raw JSON', () => {

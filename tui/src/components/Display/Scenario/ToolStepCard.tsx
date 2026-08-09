@@ -46,8 +46,15 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
   const statusText = !isPending ? getToolStepStatusText(event) : '';
   const verb = getToolVerbLabel(event.tool);
-  const hasTextHeader = Boolean(event.text);
-  const headerText = event.text || `${verb}${primary ? ` ${primary.value}` : ''}`;
+  // The server emits a generic "Executing <tool>..." template with the raw tool
+  // name. Use the verb label ("Create path: x" / "Run <cmd>") for both pending
+  // and completed rows so they stay consistent with the status line.
+  const isGenericTemplate =
+    event.text != null && /^Executing\s+.+(?:\.\.\.|…)$/.test(event.text.trim());
+  const hasTextHeader = Boolean(event.text) && !isGenericTemplate;
+  const headerText = hasTextHeader
+    ? event.text
+    : `${verb}${primary ? ` ${primary.value}` : ''}`;
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>

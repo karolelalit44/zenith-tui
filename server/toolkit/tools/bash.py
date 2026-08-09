@@ -109,7 +109,7 @@ class BashTool(BaseTool):
         self, command: str, workspace_root: str, description: str
     ) -> ToolResult:
         manager = get_background_manager()
-        job = manager.start(command, workspace_root, description)
+        job = await manager.start(command, workspace_root, description)
         try:
             await asyncio.sleep(1.0)
         except asyncio.CancelledError:
@@ -177,13 +177,15 @@ class BashTool(BaseTool):
                 await asyncio.wait_for(process.wait(), timeout=auto_bg_timeout)
             except TimeoutError:
                 if process.returncode is None:
-                    manager = get_background_manager()
-                    job = manager.start(command, workspace_root)
-                    manager._jobs[job.id].process = process
-                    manager._jobs[job.id].done = False
                     for t in (stdout_task, stderr_task):
                         if t and (not t.done()):
                             t.cancel()
+                    await asyncio.gather(
+                        *(t for t in (stdout_task, stderr_task) if t is not None),
+                        return_exceptions=True,
+                    )
+                    manager = get_background_manager()
+                    job = manager.register(command, workspace_root, "", process)
                     return ToolResult(
                         success=True,
                         output=f"Command is taking longer than expected and has been moved to background.\nBackground job ID: {job.id}\nCommand: {command}\n\nUse job_output tool to view output or job_kill to terminate.",

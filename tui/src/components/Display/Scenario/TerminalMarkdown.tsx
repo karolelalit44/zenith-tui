@@ -53,7 +53,7 @@ const FormattedInlineText: React.FC<{ text: string }> = ({ text }) => {
         if (t.code) {
           return (
             <Text key={i} color={theme.colors.status.warning} backgroundColor={theme.colors.bg.modal}>
-              {` ${t.text} `}
+              {t.text}
             </Text>
           );
         }

@@ -1,4 +1,7 @@
+import asyncio
 import platform
+import sys
+import time
 
 import pytest
 
@@ -9,6 +12,7 @@ from server.config.constants import (
 from server.toolkit import create_default_registry
 from server.toolkit.base import ToolResult
 from server.toolkit.registry import ToolRegistry
+from server.toolkit.tools.background import get_background_manager
 from server.toolkit.tools.bash import BashTool
 from server.toolkit.tools.file_delete import FileDeleteTool
 from server.toolkit.tools.file_edit import FileEditTool
@@ -196,6 +200,68 @@ class TestBashTool:
         schema = BashTool().get_schema()
         assert "PowerShell" not in schema["properties"]["command"]["description"]
         assert "Shell command" in schema["properties"]["command"]["description"]
+
+
+def _python_cmd() -> str:
+    if " " in sys.executable:
+        return "python"
+    return sys.executable
+
+
+def _slow_command(temp_dir, marker: str) -> str:
+    script = temp_dir / f"slow_{marker}.py"
+    script.write_text(
+        f"import time\ntime.sleep(1.5)\nprint('{marker}')\n",
+        encoding="utf-8",
+    )
+    return f"{_python_cmd()} {script}"
+
+
+async def _wait_for_job(manager, job_id: str, marker: str, timeout: float = 10.0) -> str | None:
+    deadline = time.monotonic() + timeout
+    output: str | None = None
+    while time.monotonic() < deadline:
+        output = manager.get_output(job_id)
+        if output and "Completed" in output and marker in output:
+            return output
+        await asyncio.sleep(0.1)
+    return output
+
+
+class TestBackgroundJobs:
+    @pytest.mark.asyncio
+    async def test_direct_background_job_starts_and_completes(self, temp_dir):
+        """B4: run_in_background must actually spawn the process and finish it."""
+        tool = BashTool()
+        result = await tool.execute(
+            {"command": _slow_command(temp_dir, "bg-done"), "run_in_background": True},
+            str(temp_dir),
+        )
+        assert result.success
+        assert result.metadata.get("background") is True
+        job_id = result.metadata.get("job_id")
+        assert job_id
+        output = await _wait_for_job(get_background_manager(), job_id, "bg-done")
+        assert output is not None, "background job never completed"
+        assert "bg-done" in output
+
+    @pytest.mark.asyncio
+    async def test_auto_backgrounded_command_adopts_running_process(self, temp_dir):
+        """B4: a command that exceeds auto_background_after is adopted, not re-spawned."""
+        tool = BashTool(auto_background_after=1)
+        start = time.monotonic()
+        result = await tool.execute(
+            {"command": _slow_command(temp_dir, "auto-bg")}, str(temp_dir)
+        )
+        assert result.metadata.get("background") is True, "should auto-background"
+        assert result.success
+        job_id = result.metadata.get("job_id")
+        assert job_id
+        elapsed = time.monotonic() - start
+        assert elapsed < 5, f"auto-background returned too slowly: {elapsed:.1f}s"
+        output = await _wait_for_job(get_background_manager(), job_id, "auto-bg")
+        assert output is not None, "adopted background job never completed"
+        assert "auto-bg" in output
 
 
 class TestFileReadTool:

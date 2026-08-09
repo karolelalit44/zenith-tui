@@ -440,12 +440,82 @@ class TestRepeatedCallTermination:
         assert len(results) == 1, "the repeated identical call must not execute again"
         assert target.read_text(encoding="utf-8") == "same"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert any(
+        assert not any(
             "No new tool was executed this iteration" in (e.data.get("message") or "")
             for e in warnings
-        ), "the stall nudge must guide the model after an identical repeat"
+        ), "a final summary with a stray repeated call must be accepted as completion, not stalled"
+        manifests = [
+            e for e in events if e.kind == EventKind.TURN_MANIFEST
+        ]
+        assert manifests, "a completed turn must emit a turn_manifest"
+        final_manifest = manifests[-1].data
+        assert final_manifest.get("completed") is True, "the turn must report completed"
+        assert final_manifest.get("stalled") is False, "the turn must not be stalled"
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
+
+    class _SummaryRepeaterProvider(BaseProvider):
+        """Creates a file, then repeats the write call alongside a final summary.
+        Records how many times the executed result appears in each request so the
+        test can assert it is never re-injected (duplicated)."""
+
+        def __init__(self):
+            super().__init__("sumrep", "sumrep-model")
+            self.call_count = 0
+            self.result_occurrences: list[int] = []
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self.result_occurrences.append(
+                sum(
+                    1
+                    for m in messages
+                    if isinstance(m.get("content"), str)
+                    and "[Tool: file_write | Status: SUCCESS]" in m["content"]
+                    and "out.txt" in m["content"]
+                )
+            )
+            if self.call_count == 1:
+                return '```tool\n{"tool": "file_write", "params": {"path": "out.txt", "content": "same"}}\n```'
+            return (
+                "The task is complete. I am repeating the exact same write call again.\n"
+                '```tool\n{"tool": "file_write", "params": {"path": "out.txt", "content": "same"}}\n```'
+            )
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["sumrep-model"]
+
+    @pytest.mark.asyncio
+    async def test_summary_with_repeat_is_accepted_without_duplicate_result(self, test_config):
+        """B1/B2/B3: a final summary accompanying a repeated call completes the turn
+        with no extra API call, and the stored result is never re-injected."""
+        provider = self._SummaryRepeaterProvider()
+        agent = AgentLoop(
+            test_config,
+            provider,
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Write the file and stop", "s1", [], "build"):
+            events.append(event)
+        assert provider.call_count == 2, "no extra API call after the summary + repeat"
+        assert provider.result_occurrences == [0, 1], (
+            "the executed result must appear exactly once in the repeat request, "
+            "never duplicated by the replay path"
+        )
+        manifests = [e for e in events if e.kind == EventKind.TURN_MANIFEST]
+        assert manifests, "a completed turn must emit a turn_manifest"
+        assert manifests[-1].data.get("completed") is True
+        assert manifests[-1].data.get("stalled") is False
+        assert events[-1].kind == EventKind.SUCCESS
 
     class _MixedProvider(BaseProvider):
         def __init__(self):

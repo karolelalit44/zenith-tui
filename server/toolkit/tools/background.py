@@ -26,15 +26,29 @@ class BackgroundJobManager:
     def __init__(self) -> None:
         self._jobs: dict[str, BackgroundJob] = {}
 
-    def start(self, command: str, workspace_root: str, description: str = "") -> BackgroundJob:
+    async def start(
+        self, command: str, workspace_root: str, description: str = ""
+    ) -> BackgroundJob:
         job_id = uuid.uuid4().hex[:8]
         logger.info("Starting background job %s: %s", job_id, command)
-        process = asyncio.create_subprocess_shell(
+        process = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=workspace_root,
         )
+        return self.register(command, workspace_root, description, process, job_id)
+
+    def register(
+        self,
+        command: str,
+        workspace_root: str,
+        description: str,
+        process: asyncio.subprocess.Process,
+        job_id: str | None = None,
+    ) -> BackgroundJob:
+        job_id = job_id or uuid.uuid4().hex[:8]
+        logger.info("Registering background job %s: %s", job_id, command)
         job = BackgroundJob(
             id=job_id,
             command=command,

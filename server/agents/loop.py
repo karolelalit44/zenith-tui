@@ -51,6 +51,15 @@ COMPACTION_KEEP_TAIL = 8
 # Cap how many repeated calls the "skipped calls" warning/message lists so it
 # can't grow unboundedly across a pathological re-emission loop.
 _SKIP_WARNING_CAP = 6
+# A closing message this long (with real files written this turn) is treated as
+# the model's own completion signal even when it accompanies already-completed
+# tool calls, instead of finalizing the turn as a "stall".
+_SUMMARY_MIN_CHARS = 40
+
+
+def _result_present(messages: list[dict], content: str) -> bool:
+    """True when ``content`` already appears as a message body in the conversation."""
+    return any(m.get("content") == content for m in messages)
 
 
 def _call_signature(tool_name: str, params: dict) -> tuple[str, str]:
@@ -676,7 +685,12 @@ class AgentLoop:
                         # context; the rest are covered by the skip warning below.
                         if stall_count == 0 and not newly_executed and replayed_results < 2:
                             stored = executed_results.get(sig)
-                            if stored is not None:
+                            # Re-inject a stored result only when it is not already
+                            # in the conversation (e.g. a compaction pruned it).
+                            # Re-presenting a result the model already saw duplicates
+                            # context and makes the model treat its own completed work
+                            # as fresh output, which drives it to re-emit the call.
+                            if stored is not None and not _result_present(messages, stored):
                                 messages.append({"role": "user", "content": stored})
                                 replayed_results += 1
                         continue
@@ -904,6 +918,20 @@ class AgentLoop:
                     messages.append({"role": "user", "content": msg})
                 if skipped_calls and not newly_executed and not task_completed:
                     stall_count += 1
+                    final_text = (self._last_emitted_message or "").strip()
+                    # The model's own completion signal is its closing text (see the
+                    # text-only break above). When that same response also repeats
+                    # already-completed calls, treat a substantive summary written
+                    # alongside real file work as a legitimate completion instead of
+                    # a stall - otherwise the manifest reports the turn "stalled"
+                    # with the model's success summary listed as "remaining" work.
+                    if final_text and len(final_text) >= _SUMMARY_MIN_CHARS and created_files:
+                        task_completed = True
+                        yield r.warning(
+                            "Model produced a final summary with no new tool work; finalizing the turn.",
+                            session_id,
+                        )
+                        break
                     if stall_count == 1:
                         stall_msg = (
                             "[System] No new tool was executed this iteration; every call you "
