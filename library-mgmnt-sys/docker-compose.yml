@@ -1,34 +1,28 @@
 version: '3.8'
 
 services:
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-library_db}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d library_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   web:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "8000:8000"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@db:5432/library_db}
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/library_db
     depends_on:
-      db:
-        condition: service_healthy
+      - db
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: library_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
 volumes:
   postgres_data:
