@@ -10,10 +10,12 @@ from server.config.constants import (
     BUILD_MODE,
     CONTEXT_SUMMARY_THRESHOLD,
     FILE_DELETE_TOOL,
+    FILE_EDIT_TOOL,
     FILE_OVERWRITE_PARAM,
     FILE_WRITE_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     PLAN_MODE,
+    POLL_TOOLS,
 )
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.domain import FinishReason
@@ -55,6 +57,11 @@ _SKIP_WARNING_CAP = 6
 # the model's own completion signal even when it accompanies already-completed
 # tool calls, instead of finalizing the turn as a "stall".
 _SUMMARY_MIN_CHARS = 40
+# Tail of a background job's output surfaced to the model on completion, so a
+# failed install/test job is visible without flooding the context.
+_BG_OUTPUT_TAIL = 800
+# How many successful post-write tool results the manifest records as evidence.
+_MANIFEST_CHECKS_CAP = 5
 
 
 def _result_present(messages: list[dict], content: str) -> bool:
@@ -98,6 +105,7 @@ def _build_manifest(
     stall_finalized: bool,
     last_text: str = "",
     workspace_root: str | None = None,
+    verification: list[dict] | None = None,
 ) -> dict:
     """End-of-turn summary of files written and work still outstanding.
 
@@ -105,6 +113,9 @@ def _build_manifest(
     terminal error events so the UI can show "Built these files; not yet done:
     ..." and offer a Continue action. ``files`` is a light post-failure sanity
     check: whether each declared file actually exists on disk and its size.
+    ``verification`` lists the successful tool results that ran after files were
+    written (evidence the work was at least executed/checked); ``verified`` is
+    False when files were written but no such check ran.
     """
     created = sorted(created_files)
     modified = sorted(p for p in files_edited if p not in created_files)
@@ -122,6 +133,8 @@ def _build_manifest(
         "remaining": remaining,
         "completed": completed,
         "stalled": bool(stall_finalized),
+        "verified": True if not created_files else bool(verification),
+        "checks": verification or [],
     }
     files: list[dict] = []
     if created_files:
@@ -141,14 +154,21 @@ def _build_manifest(
 
 
 def _all_calls_repeat(valid_calls: list[dict], executed: set[tuple[str, str]]) -> bool:
-    """True when every requested call was already executed this turn with identical params."""
+    """True when every requested call was already executed this turn with identical params.
+
+    Polling tools (see ``POLL_TOOLS``) are exempt: re-invoking them with identical
+    parameters is the intended usage, not a repeat, so a request containing one
+    never counts as an all-repeat.
+    """
     if not valid_calls or not executed:
         return False
-    return all(
-        _call_signature(tc["tool"], normalize_file_params(tc.get("params", {}), tc["tool"]))
-        in executed
-        for tc in valid_calls
-    )
+    for tc in valid_calls:
+        if tc["tool"] in POLL_TOOLS:
+            return False
+        sig = _call_signature(tc["tool"], normalize_file_params(tc.get("params", {}), tc["tool"]))
+        if sig not in executed:
+            return False
+    return True
 
 
 def _most_common_count(items: list[str]) -> int:
@@ -156,6 +176,20 @@ def _most_common_count(items: list[str]) -> int:
     if not items:
         return 0
     return Counter(items).most_common(1)[0][1]
+
+
+def _pending_background_completions() -> list:
+    """Background jobs that finished since the last poll (empty when none).
+
+    Imported lazily so the loop never pays for (or couples to) the background-job
+    machinery unless it is actually in use.
+    """
+    try:
+        from server.toolkit.tools.background import get_background_manager
+
+        return get_background_manager().pending_completions()
+    except Exception:
+        return []
 
 
 def _find_compaction_cut(history, keep_tail: int = COMPACTION_KEEP_TAIL) -> int:
@@ -354,7 +388,7 @@ class AgentLoop:
                 yield _ev
             messages = _rebuild_holder[0]
         if self.is_cancelled(sequence):
-            yield r.warning("Request was cancelled before starting", session_id)
+            yield r.warning("Request was cancelled before starting", session_id, code="CANCELLED")
             return
         messages = self._apply_prompt_caching(messages)
         logger.info(
@@ -398,6 +432,10 @@ class AgentLoop:
         # completed) call does not spam the same warning every iteration.
         warned_rejects: set[tuple[str, str]] = set()
         warned_skips: set[str] = set()
+        # Successful tool results that ran after at least one file was written this
+        # turn. Surfaced as `verification` evidence in the turn manifest; empty
+        # means the writes were never checked (unverified completion).
+        post_write_checks: list[dict] = []
         _total_completion_chars = 0
 
         def _with_manifest(ev: Event) -> Event:
@@ -410,6 +448,7 @@ class AgentLoop:
                     stall_finalized,
                     self._last_emitted_message or "",
                     self.config.workspace_root,
+                    post_write_checks,
                 )
             return ev
 
@@ -417,7 +456,7 @@ class AgentLoop:
             safety_iterations = self._resolve_safety_iterations(model)
             while iteration < safety_iterations:
                 if self.is_cancelled(sequence):
-                    yield r.warning("Request cancelled", session_id)
+                    yield r.warning("Request cancelled", session_id, code="CANCELLED")
                     return
                 if task_completed and post_comp_iterations >= 1:
                     break
@@ -432,6 +471,7 @@ class AgentLoop:
                     yield r.warning(
                         "Context approaching limit, summarizing...",
                         session_id,
+                        code="CONTEXT",
                         extra={
                             "tokenInfo": {
                                 "used": token_info.used,
@@ -469,6 +509,18 @@ class AgentLoop:
                             )
                         )
                         return
+                # Surface background jobs that completed since the last poll so a
+                # finished (especially failed) job is never silently invisible to
+                # the model or the user. Polling tools may also report a non-zero
+                # exit via job_output; this is the proactive channel.
+                for job in _pending_background_completions():
+                    status = "completed" if job.exit_code == 0 else f"failed (exit code {job.exit_code})"
+                    detail = f"Background job {job.id} {status}."
+                    tail_source = (job.stderr or job.stdout or "").strip()
+                    if tail_source:
+                        detail += f"\nOutput (tail): {tail_source[-_BG_OUTPUT_TAIL:]}"
+                    messages.append({"role": "user", "content": detail})
+                    yield r.warning(detail, session_id, code="BACKGROUND_COMPLETED")
                 logger.info(
                     "Agent turn %d (dynamic stop) session=%s tokens=%.1f%%",
                     iteration,
@@ -520,7 +572,9 @@ class AgentLoop:
                 if context_exceeded:
                     logger.info("Context exceeded at runtime — summarizing")
                     yield r.warning(
-                        "Context window exceeded, summarizing and retrying...", session_id
+                        "Context window exceeded, summarizing and retrying...",
+                        session_id,
+                        code="CONTEXT",
                     )
                     _rebuild_holder: list = []
                     async for ev in self._summarize_and_rebuild(
@@ -634,7 +688,9 @@ class AgentLoop:
                 invalid_names = [str(tc.get("tool") or tc) for tc in invalid_calls]
                 if invalid_names:
                     yield r.warning(
-                        f"Hallucinated tools ignored: {', '.join(invalid_names)}", session_id
+                        f"Hallucinated tools ignored: {', '.join(invalid_names)}",
+                        session_id,
+                        code="INVALID_TOOLS",
                     )
                 if not valid_calls:
                     msgs = [
@@ -660,6 +716,7 @@ class AgentLoop:
                     yield r.warning(
                         "Model emitted tool calls after signaling completion; finalizing the turn.",
                         session_id,
+                        code="STALL",
                         extra={"skipped_tool_calls": [tc.get("tool") for tc in valid_calls]},
                     )
                     break
@@ -672,7 +729,10 @@ class AgentLoop:
                     tool_params = normalize_file_params(tc.get("params", {}), tc["tool"])
                     sig = _call_signature(tool_name, tool_params)
                     blocked_write = False
-                    if sig in executed_calls:
+                    # Polling tools are exempt from the identical-param skip guard:
+                    # re-invoking job_output with the same job_id is polling, not a
+                    # repeat, so it always executes.
+                    if sig in executed_calls and tool_name not in POLL_TOOLS:
                         failed_flag = " [failed]" if sig in failed_calls else ""
                         skipped_calls.append(
                             f"{tool_name}({_params_label(tool_params)}){failed_flag}"
@@ -737,7 +797,9 @@ class AgentLoop:
                         if reject_sig not in warned_rejects:
                             warned_rejects.add(reject_sig)
                             yield r.warning(
-                                f"Tool '{tool_name}' rejected: {reject_msg}", session_id
+                                f"Tool '{tool_name}' rejected: {reject_msg}",
+                                session_id,
+                                code="REJECTED",
                             )
                         messages.append(
                             {"role": "user", "content": f"[Tool rejected] {reject_msg}"}
@@ -816,6 +878,7 @@ class AgentLoop:
                         yield r.warning(
                             f"Context approaching limit ({_ti.percent * 100:.0f}%), summarizing...",
                             session_id,
+                            code="CONTEXT",
                             extra={"tokenInfo": vars(_ti)},
                         )
                         _rebuild_holder: list = []
@@ -847,7 +910,7 @@ class AgentLoop:
                                 )
                             )
                             return
-                        yield r.warning("Context summarized, continuing", session_id)
+                        yield r.warning("Context summarized, continuing", session_id, code="CONTEXT")
                     executed_calls.add(sig)
                     if not result.success:
                         failed_calls.add(sig)
@@ -859,6 +922,11 @@ class AgentLoop:
                                 written_paths.add(p)
                             if tool_name in ("file_edit", "file_write"):
                                 files_edited.append(p)
+                        # A successful non-write tool that runs after files were written
+                        # is evidence the work was executed/checked (verification).
+                        if created_files and tool_name not in (FILE_WRITE_TOOL, FILE_EDIT_TOOL):
+                            if len(post_write_checks) < _MANIFEST_CHECKS_CAP:
+                                post_write_checks.append({"tool": tool_name})
                     for ev in await post_execution_hooks(
                         tool_name, tool_params, result, ws, session_id
                     ):
@@ -899,23 +967,24 @@ class AgentLoop:
                             "Skipped calls already completed with identical params this turn "
                             "(or blocked as re-writes): " + shown,
                             session_id,
+                            code="SKIPPED_CALLS",
                         )
-                    failed_skips = [s for s in skipped_calls if " [failed]" in s]
-                    msg = (
-                        "[System] Calls listed below were already completed earlier in this "
-                        "turn with identical parameters (or were blocked) and were NOT "
-                        "re-run: "
-                        + ", ".join(skipped_calls[:_SKIP_WARNING_CAP])
-                        + ". Do not re-run them; continue with the next "
-                        "unfinished step."
-                    )
-                    if failed_skips:
-                        msg += (
-                            " The calls marked [failed] did not succeed; do not retry them "
-                            "with identical parameters - use different parameters or a "
-                            "different approach."
+                        failed_skips = [s for s in skipped_calls if " [failed]" in s]
+                        msg = (
+                            "[System] Calls listed below were already completed earlier in this "
+                            "turn with identical parameters (or were blocked) and were NOT "
+                            "re-run: "
+                            + ", ".join(skipped_calls[:_SKIP_WARNING_CAP])
+                            + ". Do not re-run them; continue with the next "
+                            "unfinished step."
                         )
-                    messages.append({"role": "user", "content": msg})
+                        if failed_skips:
+                            msg += (
+                                " The calls marked [failed] did not succeed; do not retry them "
+                                "with identical parameters - use different parameters or a "
+                                "different approach."
+                            )
+                        messages.append({"role": "user", "content": msg})
                 if skipped_calls and not newly_executed and not task_completed:
                     stall_count += 1
                     final_text = (self._last_emitted_message or "").strip()
@@ -930,6 +999,7 @@ class AgentLoop:
                         yield r.warning(
                             "Model produced a final summary with no new tool work; finalizing the turn.",
                             session_id,
+                            code="STALL",
                         )
                         break
                     if stall_count == 1:
@@ -940,7 +1010,7 @@ class AgentLoop:
                             "work. If the task is complete, write your final summary now and "
                             "stop; otherwise take a different action than before."
                         )
-                        yield r.warning(stall_msg, session_id)
+                        yield r.warning(stall_msg, session_id, code="STALL")
                         messages.append({"role": "user", "content": stall_msg})
                     else:
                         task_completed = True
@@ -948,6 +1018,7 @@ class AgentLoop:
                         yield r.warning(
                             "No new tool work for several consecutive iterations; finalizing the turn.",
                             session_id,
+                            code="STALL",
                         )
                         break
                 elif newly_executed:
@@ -964,6 +1035,7 @@ class AgentLoop:
                     yield r.warning(
                         f"The model kept re-writing '{path_write_attempts[0]}'; finalizing the turn.",
                         session_id,
+                        code="STALL",
                     )
                     break
                 if stop_turn:
@@ -1016,6 +1088,15 @@ class AgentLoop:
                 f"Stopped after {iteration} iterations: the model stopped making progress. "
                 f"Files written: {created}."
             )
+        # Files were written but no non-write tool ran successfully afterwards, so
+        # nothing confirms the result actually works. Surface that honestly instead
+        # of reporting an unverified build as a clean success.
+        if created_files and not post_write_checks:
+            success_message += (
+                " Files written but not verified: no successful tool ran after the writes "
+                "to confirm the result. Use file_read to inspect the files or run the app/"
+                "tests to verify they work."
+            )
         manifest = _build_manifest(
             created_files,
             files_edited,
@@ -1023,6 +1104,7 @@ class AgentLoop:
             stall_finalized,
             self._last_emitted_message or "",
             self.config.workspace_root,
+            post_write_checks,
         )
         yield r.turn_manifest(manifest, session_id)
         yield _with_manifest(
@@ -1057,7 +1139,7 @@ class AgentLoop:
         used = token_info.used if token_info else 0
         total = token_info.total if token_info else 0
         yield r.context_compaction_started(session_id, reason, used, total)
-        yield r.warning("Context approaching limit, summarizing...", session_id)
+        yield r.warning("Context approaching limit, summarizing...", session_id, code="CONTEXT")
         try:
             if messages:
                 pruned = self._prune_tool_outputs(messages)
@@ -1098,9 +1180,9 @@ class AgentLoop:
                 tokens_saved=tokens_saved,
                 summary_chars=len(self._summary),
             )
-            yield r.warning("Context summarized", session_id)
+            yield r.warning("Context summarized", session_id, code="CONTEXT")
         except Exception as e:
-            yield r.warning(f"Summarization failed: {e}", session_id)
+            yield r.warning(f"Summarization failed: {e}", session_id, code="CONTEXT")
 
     def _prune_tool_outputs(
         self, messages: list[dict], keep_turns: int = 2, max_output: int = 2000

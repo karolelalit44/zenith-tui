@@ -10,6 +10,7 @@ from server.config.constants import (
     BASH_TOOL_DESCRIPTION_WINDOWS,
 )
 from server.toolkit import create_default_registry
+from server.toolkit.auto_lint import detect_linter, run_lint
 from server.toolkit.base import ToolResult
 from server.toolkit.registry import ToolRegistry
 from server.toolkit.tools.background import get_background_manager
@@ -48,7 +49,6 @@ class TestToolResult:
         assert result.output == "ok"
         assert result.error == ""
         assert result.metadata == {}
-
     def test_failure_result(self):
         result = ToolResult(success=False, error="failed")
         assert not result.success
@@ -57,6 +57,40 @@ class TestToolResult:
     def test_result_with_metadata(self):
         result = ToolResult(success=True, output="ok", metadata={"count": 5})
         assert result.metadata["count"] == 5
+
+
+class TestAutoLint:
+    def test_detect_linter_by_extension(self):
+        assert detect_linter("a.py") is not None
+        assert detect_linter("a.tsx") is not None
+        assert detect_linter("a.unknown") is None
+
+    @pytest.mark.asyncio
+    async def test_run_lint_fix_removes_unused_import(self, temp_dir):
+        target = temp_dir / "fixme.py"
+        target.write_text("import math\nprint('hi')\n", encoding="utf-8")
+        result = await run_lint(str(target), str(temp_dir), fix=True)
+        assert result is not None
+        assert result.success, f"auto-fix should clean the file, got: {result}"
+        assert "import math" not in target.read_text(encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_run_lint_unfixable_error_still_reported(self, temp_dir):
+        target = temp_dir / "broken.py"
+        target.write_text("def foo():\n    return missing_symbol\n", encoding="utf-8")
+        result = await run_lint(str(target), str(temp_dir), fix=True)
+        assert result is not None
+        assert not result.success, "an unfixable lint error must still be reported"
+        assert "missing_symbol" in result.output
+
+    @pytest.mark.asyncio
+    async def test_run_lint_without_fix_keeps_file(self, temp_dir):
+        target = temp_dir / "keep.py"
+        target.write_text("import math\nprint('hi')\n", encoding="utf-8")
+        result = await run_lint(str(target), str(temp_dir), fix=False)
+        assert result is not None
+        assert not result.success
+        assert "import math" in target.read_text(encoding="utf-8")
 
 
 class TestToolRegistry:

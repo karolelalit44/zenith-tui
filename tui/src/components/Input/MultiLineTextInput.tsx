@@ -2,6 +2,7 @@ import { Box, type Key, Text, useInput } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchKeypress } from '../../config/keybind';
 import { useTheme } from '../../theme/ThemeContext';
+import { expandPastedMarkers, insertOrMergePaste } from '../../utils/pasteTracker';
 
 const MIN_LINES = 1;
 const HARD_MAX_LINES = 15;
@@ -69,26 +70,19 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
         }
 
         if (_input.length > 1) {
-          let cleanPaste = _input
+          const cleanPaste = _input
             .replace(/\r\n/g, '\n')
             .replace(/\r/g, '\n')
             .replace(/\t/g, '  ')
-
             .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-
             .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
 
-          if (cleanPaste.includes('\\"') || cleanPaste.includes('\\n')) {
-            try {
-              cleanPaste = JSON.parse(`"${cleanPaste.replace(/"/g, '\\"')}"`);
-            } catch {}
-          }
           if (cleanPaste.length > 0) {
-            const nextValue = currentValue.slice(0, currentCursor) + cleanPaste + currentValue.slice(currentCursor);
+            const { nextValue, nextCursor } = insertOrMergePaste(currentValue, currentCursor, cleanPaste);
             valueRef.current = nextValue;
-            cursorRef.current = currentCursor + cleanPaste.length;
+            cursorRef.current = nextCursor;
             onChange(nextValue);
-            setCursor(cursorRef.current);
+            setCursor(nextCursor);
           }
           return;
         }
@@ -98,7 +92,8 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
         const newlineModifier = key.shift || key.ctrl || key.meta;
 
         if (pressed.includes('submit') || (isEnter && !newlineModifier)) {
-          onSubmit(currentValue);
+          const expandedValue = expandPastedMarkers(currentValue);
+          onSubmit(expandedValue);
           return;
         }
 
@@ -231,12 +226,27 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
       const cursorLineIdx = value.slice(0, cursor).split('\n').length - 1;
       const cursorCol = cursor - (value.lastIndexOf('\n', cursor - 1) + 1);
 
+      const renderStyledSegment = (text: string) => {
+        const parts = text.split(/(\[Pasted (?:(?:\+\d+ lines)|\d+ chars) #\d+\])/g);
+        return parts.map((part, i) => {
+          const match = part.match(/\[Pasted ((?:\+\d+ lines)|\d+ chars) #\d+\]/);
+          if (match) {
+            return (
+              <Text key={i} color={theme.colors.status.info} bold>
+                [{`Pasted ${match[1]}`}]
+              </Text>
+            );
+          }
+          return <Text key={i}>{part}</Text>;
+        });
+      };
+
       content = lines.map((line, lineIdx) => {
         const isCursorLine = lineIdx === cursorLineIdx;
         if (isCursorLine) {
-          const before = line.slice(0, cursorCol);
+          const before = renderStyledSegment(line.slice(0, cursorCol));
           const charAtCursor = line[cursorCol];
-          const after = line.slice(cursorCol + 1);
+          const after = renderStyledSegment(line.slice(cursorCol + 1));
           return (
             <Text key={lineIdx} wrap="wrap">
               {before}
@@ -247,7 +257,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
         }
         return (
           <Text key={lineIdx} wrap="wrap">
-            {line || ' '}
+            {renderStyledSegment(line)}
           </Text>
         );
       });

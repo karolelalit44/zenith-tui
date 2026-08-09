@@ -1,6 +1,0 @@
-[project]
-name = "prism-poc"
-version = "0.1.0"
-dependencies = [
-    "apache-airflow>=2.8.0",
-]

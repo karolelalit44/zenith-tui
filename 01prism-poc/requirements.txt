@@ -1,3 +1,0 @@
-apache-airflow==2.8.1
-pandas>=2.0.0
-pytest>=7.0.0

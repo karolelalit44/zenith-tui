@@ -61,7 +61,7 @@ describe('ComposerFooter', () => {
     const frame = app.lastFrame();
     expect(frame).not.toContain('nvidia/nvidia/');
     expect(frame).toContain('◇ nvidia/');
-    expect(frame).toContain('tokens');
+    expect(frame).toContain('0.0K');
     restore();
   });
 
@@ -87,7 +87,7 @@ describe('ComposerFooter', () => {
 
     const frame = app.lastFrame();
     expect(frame).toContain('Esc cancel');
-    expect(frame).toContain('(turn)');
+    expect(frame).toContain('0.0K');
     const lines = frame.split('\n').filter((line) => line.length > 0);
     expect(lines).toHaveLength(1);
     restore();
@@ -113,19 +113,13 @@ describe('ComposerFooter', () => {
       const contentWidth = columns - 4;
       const renderedWidth =
         layout.modeLabel.length +
-        4 +
+        2 +
         layout.chip.length +
         layout.provider.length +
-        layout.dir.length +
-        layout.branch.length +
-        3 +
-        layout.tokenCount.length +
-        1 +
-        layout.maxTokens.length +
-        8 +
-        3 +
-        layout.status.length +
-        layout.scopeLabel.length;
+        (layout.dirText ? layout.dirText.length : 0) +
+        (layout.branchText ? layout.branchText.length + 1 : 0) +
+        layout.tokenUsage.length +
+        11;
 
       expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
     }

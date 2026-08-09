@@ -15,6 +15,7 @@ Run with:  python -m pytest server/tests/test_dryrun_scenarios.py -v
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -51,6 +52,9 @@ from server.toolkit.executor import (
 # ---------------------------------------------------------------------------
 # Scripted provider
 # ---------------------------------------------------------------------------
+
+
+_PY = ("python" if " " in sys.executable else sys.executable.replace("\\", "/"))
 
 
 class _DryRunProvider(BaseProvider):
@@ -461,14 +465,77 @@ SCENARIOS: list[dict] = [
     },
     {
         "name": "S19_lint_warning_on_python",
-        "desc": "Writing a Python file with lint issues triggers the post-execution lint hook warning.",
+        "desc": "Writing a Python file with an unfixable lint error triggers the post-execution lint hook warning with code=LINT.",
         "scripts": [
-            '```tool\n{"tool": "file_write", "params": {"path": "bad.py", "content": "import math\nprint(\"hi\")\n"}}\n```',
+            '```tool\n{"tool": "file_write", "params": {"path": "bad.py", "content": "def foo():\\n    return missing_symbol\\n"}}\n```',
             "Done.",
         ],
         "checks": [
             ("lint warning emitted", lambda e, p, c: _require(e, "lint", _has_warning(e, "Lint issues detected"))),
+            ("lint warning carries LINT code", lambda e, p, c: _require(e, "code", any((x.data.get("code") or "") == "LINT" and "Lint issues detected" in (x.data.get("message") or "") for x in e if x.kind == EventKind.WARNING))),
             ("file written anyway", lambda e, p, c: _require(e, "file", (Path(c.workspace_root) / "bad.py").exists())),
+            ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
+            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+        ],
+    },
+    {
+        "name": "S20_lint_auto_fix",
+        "desc": "A fixable lint issue is auto-fixed by the post-execution hook, so no lint warning is emitted.",
+        "scripts": [
+            '```tool\n{"tool": "file_write", "params": {"path": "fixable.py", "content": "import math\\nprint(\\"hi\\")\\n"}}\n```',
+            "Done.",
+        ],
+        "checks": [
+            ("no lint warning emitted", lambda e, p, c: _require(e, "lint", not _has_warning(e, "Lint issues detected"))),
+            ("file written anyway", lambda e, p, c: _require(e, "file", (Path(c.workspace_root) / "fixable.py").exists())),
+            ("auto-fix removed unused import", lambda e, p, c: _require(e, "fixed", "import math" not in (Path(c.workspace_root) / "fixable.py").read_text(encoding="utf-8"))),
+            ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
+            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+        ],
+    },
+    {
+        "name": "S21_write_unverified",
+        "desc": "Files written with no successful tool after them are reported as not verified in the manifest and success message.",
+        "scripts": [
+            '```tool\n{"tool": "file_write", "params": {"path": "good.py", "content": "print(\\"hi\\")\\n"}}\n```',
+            "Done.",
+        ],
+        "checks": [
+            ("unverified note in success", lambda e, p, c: _require(e, "unverified", any(x.kind == EventKind.SUCCESS and "Files written but not verified" in (x.data.get("message") or "") for x in e))),
+            ("manifest verified false", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is False)),
+            ("manifest checks empty", lambda e, p, c: _require(e, "checks", _manifests(e)[-1].get("checks") == [])),
+            ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
+            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+        ],
+    },
+    {
+        "name": "S22_write_then_read_verified",
+        "desc": "A successful read after a write marks the manifest verified and drops the unverified note.",
+        "scripts": [
+            '```tool\n{"tool": "file_write", "params": {"path": "good.py", "content": "print(\\"hi\\")\\n"}}\n{"tool": "file_read", "params": {"path": "good.py"}}\n```',
+            "Verified it.",
+        ],
+        "checks": [
+            ("manifest verified true", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is True)),
+            ("read recorded as check", lambda e, p, c: _require(e, "check", any(c.get("tool") == "file_read" for c in _manifests(e)[-1].get("checks", [])))),
+            ("no unverified note", lambda e, p, c: _require(e, "no-unverified", not any(x.kind == EventKind.SUCCESS and "Files written but not verified" in (x.data.get("message") or "") for x in e))),
+            ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
+            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+        ],
+    },
+    {
+        "name": "S23_background_completion_surfaced",
+        "desc": "A background job that finishes during the turn surfaces a BACKGROUND_COMPLETED warning at the next iteration boundary.",
+        "prelude": "bg.py:marker",
+        "scripts": [
+            '```tool\n{"tool": "bash", "params": {"command": "' + _PY + ' bg.py", "run_in_background": true}}\n```',
+            '```tool\n{"tool": "bash", "params": {"command": "' + _PY + ' bg.py"}}\n```',
+            "All done.",
+        ],
+        "checks": [
+            ("BACKGROUND_COMPLETED warning", lambda e, p, c: _require(e, "bg", any((x.data.get("code") or "") == "BACKGROUND_COMPLETED" for x in e if x.kind == EventKind.WARNING))),
+            ("warning names the job", lambda e, p, c: _require(e, "job", any("Background job" in (x.data.get("message") or "") for x in e if (x.data.get("code") or "") == "BACKGROUND_COMPLETED"))),
+            ("background job actually started", lambda e, p, c: _require(e, "bg-job", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "bash" and "Background job started" in (x.data.get("output") or "") for x in e))),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
             ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
         ],
@@ -496,6 +563,10 @@ async def _prelude(config: AppSettings, spec: str | None) -> None:
         count = int(rest)
         content = "\n".join(f"line {i} of content to pad the read output significantly" for i in range(count))
         (ws / "big.txt").write_text(content + "\n", encoding="utf-8")
+    elif kind == "bg.py":
+        (ws / "bg.py").write_text(
+            "import time\ntime.sleep(1.2)\nprint('bg-done')\n", encoding="utf-8"
+        )
 
 
 async def _run_scenario(scenario: dict, temp_dir: Path) -> tuple[list[str], dict]:
@@ -583,6 +654,23 @@ class TestLoopHelperDryRun:
         m2 = _build_manifest({"made.txt"}, [], False, True, "stuck", ws)
         assert m2["completed"] is False and m2["stalled"] is True
         assert m2["remaining"] == ["stuck"]
+
+    def test_build_manifest_verification_flag(self, temp_dir):
+        ws = str(temp_dir)
+        (temp_dir / "a.txt").write_text("a", encoding="utf-8")
+        # No files created: verified defaults to True (nothing to verify).
+        empty = _build_manifest(set(), [], True, False, "done", ws)
+        assert empty["verified"] is True and empty["checks"] == []
+        # Files created but nothing ran after them: not verified.
+        unverified = _build_manifest({"a.txt"}, ["a.txt"], True, False, "done", ws)
+        assert unverified["verified"] is False and unverified["checks"] == []
+        # A successful post-write tool run marks the turn verified.
+        verified = _build_manifest(
+            {"a.txt"}, ["a.txt"], True, False, "done", ws,
+            verification=[{"tool": "file_read"}],
+        )
+        assert verified["verified"] is True
+        assert verified["checks"] == [{"tool": "file_read"}]
 
     def test_find_compaction_cut_and_group(self):
         def m(role, content=""):

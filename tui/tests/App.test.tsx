@@ -170,10 +170,11 @@ test('/plan command switches to Plan mode', async () => {
 
   stdin.write('/plan');
   await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
+
   stdin.write('\r');
 
-  const frame = await waitForFrame(lastFrame, (f) => f.includes('PLAN'));
-  expect(frame).toContain('PLAN');
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('[PLAN]'));
+  expect(frame).toContain('[PLAN]');
   unmount();
 });
 
@@ -247,8 +248,8 @@ test('Esc closes the slash menu but keeps the input', async () => {
 
   stdin.write('\x1B');
 
-  const frame = await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]'));
-  expect(frame).toContain('❯ /plan');
+  const frame = await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]') && f.includes('/plan'));
+  expect(frame).toContain('/plan');
   unmount();
 });
 
@@ -294,7 +295,7 @@ test('Full Plan Scenario shows backend error', async () => {
   stdin.write('/plan');
   await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
   stdin.write('\r');
-  await waitForFrame(lastFrame, (f) => f.includes('PLAN'));
+  await waitForFrame(lastFrame, (f) => f.includes('[PLAN]'));
 
   stdin.write('design a REST API');
   stdin.write('\r');

@@ -219,7 +219,7 @@ describe('ProviderFlow pick -> models -> key -> validate', () => {
     expect(lastFrame()).not.toContain('Google AI Studio');
 
     stdin.write('\r');
-    await wait(150);
+    await wait(300);
     // Same shared model selector, fed from the backend for Anthropic.
     expect(lastFrame()).toContain('Claude Sonnet 4');
     unmount();

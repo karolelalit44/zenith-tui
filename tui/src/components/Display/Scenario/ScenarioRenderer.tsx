@@ -1,11 +1,7 @@
 import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
-import { getToolStepPrimaryParam, getToolVerbLabel } from '../../../constants/toolDisplay';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ScenarioEvent, TurnManifestEvent } from '../../../types/scenario';
-import { formatDuration } from '../../../utils/text';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -35,31 +31,6 @@ export function resolveLiveBanner(lastEvent: ScenarioEvent | undefined): LiveBan
   }
   return { interruptible: true, hint: 'esc to interrupt' };
 }
-
-const LiveSpinner: React.FC<{ action: string | null; hint: string | null }> = React.memo(({ action, hint }) => {
-  const spinnerTick = useAnimationTick();
-  const { theme } = useTheme();
-
-  const spinnerChar = SPINNER_FRAMES[spinnerTick % SPINNER_FRAMES.length];
-  const elapsedMs = spinnerTick * 100;
-  const elapsedStr = formatDuration(elapsedMs);
-
-  return (
-    <Box flexDirection="row" alignItems="center" width="100%" paddingX={1} marginBottom={1}>
-      <Text color={theme.colors.status.accent} bold>
-        {spinnerChar}{' '}
-      </Text>
-      <Text color={theme.colors.text.bright} bold>
-        {action || 'Working'}
-      </Text>
-      <Text color={theme.colors.text.dim}> · </Text>
-      <Text color={theme.colors.text.muted}>{elapsedStr}</Text>
-
-      <Box flexGrow={1} />
-      {hint && <Text color={theme.colors.text.dim}>{hint}</Text>}
-    </Box>
-  );
-});
 
 class EventErrorBoundary extends Component<
   { children: ReactNode; eventKind: string; errorColor: string },
@@ -147,7 +118,6 @@ function countHiddenEvents(hidden: ScenarioEvent[]): string | null {
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
   ({ events, isRunning, isHistorical = false, thinkingCollapsed = false, historyExpanded = false }) => {
     const { theme } = useTheme();
-    const showLiveIndicator = isRunning && !isHistorical;
 
     const renderContext = useMemo(
       () => ({
@@ -212,19 +182,6 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       return labels;
     }, [visibleEvents]);
 
-    const currentAction = useMemo(() => {
-      if (!showLiveIndicator) return null;
-      for (let i = events.length - 1; i >= 0; i--) {
-        const e = events[i];
-        if (e.kind === 'tool_step' && e.pending) {
-          const primary = getToolStepPrimaryParam(e.tool, e.params);
-          const verb = getToolVerbLabel(e.tool);
-          return primary ? `${verb} ${primary.value}` : verb;
-        }
-      }
-      return null;
-    }, [events, showLiveIndicator]);
-
     const renderEvent = (event: ScenarioEvent) => {
       const Component = componentRegistry.getComponent(event.kind);
       const manifest = event.kind === 'success' ? successManifests.get(event.id) : undefined;
@@ -234,9 +191,6 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         </EventErrorBoundary>
       );
     };
-
-    const banner = showLiveIndicator ? resolveLiveBanner(events[events.length - 1]) : null;
-    const showLiveSpinner = banner !== null && (banner.interruptible || Boolean(banner.hint));
 
     return (
       <Box flexDirection="column" width="100%">
@@ -266,8 +220,6 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
             </Box>
           );
         })}
-
-        {showLiveSpinner && <LiveSpinner action={currentAction} hint={banner?.hint ?? null} />}
       </Box>
     );
   },

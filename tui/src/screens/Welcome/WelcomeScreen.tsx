@@ -47,22 +47,21 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
   const renderSessionRow = (session: SessionSummary, idx: number) => {
     const timeStr = formatSessionTime(session.updated_at || session.created_at || '');
     const tokStr = formatTokens(session.total_tokens);
-    const modeLabel = session.mode ? session.mode.toUpperCase() : '';
     const title = session.title?.trim() || 'Untitled Session';
 
     return (
-      <Box key={session.id || idx} flexDirection="row" alignItems="center" width="100%">
-        <Text color={theme.colors.text.dim}>· </Text>
-
-        <Text color={theme.colors.text.dim}>{timeStr}</Text>
-
-        {modeLabel ? <Text color={theme.colors.text.dim}>{`  ${modeLabel}  `}</Text> : <Text>{'  '}</Text>}
-
-        <Text color={theme.colors.text.ethereal} wrap="truncate-end">
-          {title}
-        </Text>
-
-        {tokStr ? <Text color={theme.colors.text.dim}>{`  ${tokStr}`}</Text> : null}
+      <Box key={session.id || idx} flexDirection="row" justifyContent="space-between" alignItems="center" width="100%">
+        <Box flexShrink={1} overflow="hidden">
+          <Text color={theme.colors.text.bright} wrap="truncate-end">
+            · {title}
+          </Text>
+        </Box>
+        <Box flexShrink={0} marginLeft={2}>
+          <Text color={theme.colors.text.dim}>
+            {timeStr}
+            {tokStr ? `  ${tokStr}` : ''}
+          </Text>
+        </Box>
       </Box>
     );
   };
@@ -73,12 +72,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
         flexGrow={1}
         width="100%"
         flexDirection="row"
-        justifyContent="center"
+        justifyContent="space-between"
         alignItems="center"
-        paddingX={4}
+        paddingX={3}
         paddingY={2}
       >
-        <Box flexDirection="column" width="60%" minWidth={56} paddingRight={2}>
+        <Box flexDirection="column" width="48%" minWidth={48} paddingRight={2}>
           <Box marginBottom={1} flexDirection="column">
             <Text color={theme.colors.logo[0]} bold>
               {'███████╗ ███████╗ ███╗   ██╗ ██╗ ████████╗ ██╗  ██╗'}
@@ -133,7 +132,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
           </Text>
         </Box>
 
-        <Box flexDirection="column" width="39%" justifyContent="center" paddingLeft={3}>
+        <Box flexDirection="column" width="48%" justifyContent="center" paddingLeft={2}>
           <Box marginBottom={1} flexDirection="row" flexWrap="wrap">
             <Text color={theme.colors.text.emerald} bold>
               {getGreeting()}

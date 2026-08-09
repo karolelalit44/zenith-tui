@@ -31,7 +31,9 @@ _INTERACTIVE_CMD_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 _CD_PREFIX_RE = re.compile(
-    "^(?:cd\\s+[\\\"']?[^\\\"';|&]+[\\\"']?\\s*(?:&&\\s*|;\\s*|)\\s*)", re.IGNORECASE
+    r"^(?:Set-Location|cd)\s+(?:\"([^\"]+)\"|'([^']+)'|([^;|&\"'\s]+))"
+    r"\s*(?:;|&&|)\s*",
+    re.IGNORECASE,
 )
 
 
@@ -68,13 +70,28 @@ def detect_interactive_command(command: str) -> str | None:
     return None
 
 
-def strip_cd_prefix(command: str) -> str:
+def parse_cd_prefix(command: str) -> tuple[str | None, str]:
+    """Split a leading ``cd <dir>;`` / ``Set-Location <dir>;`` prefix off a command.
+
+    Returns ``(target, remainder)`` where ``target`` is the directory the model
+    asked to change into (with quotes stripped), or ``None`` when the command has
+    no leading change-directory prefix. ``remainder`` is the rest of the command.
+    The prefix is only split off when a usable target and a remainder both exist.
+    """
     m = _CD_PREFIX_RE.match(command.strip())
-    if m:
-        stripped = command.strip()[m.end() :].strip()
-        if stripped:
-            return stripped
-    return command
+    if not m:
+        return None, command
+    target = next((g for g in m.groups() if g), None)
+    remainder = command.strip()[m.end() :].strip()
+    if target is None or not remainder:
+        return None, command
+    return target, remainder
+
+
+def strip_cd_prefix(command: str) -> str:
+    """Return the command without its leading change-directory prefix."""
+    _, remainder = parse_cd_prefix(command)
+    return remainder
 
 
 def schemas_to_openai_tools(schemas: list[dict]) -> list[dict]:

@@ -40,7 +40,18 @@ class JobOutputTool(BaseTool):
         if not job_id:
             return ToolResult(success=False, error="No job_id provided")
         manager = get_background_manager()
-        output = manager.get_output(job_id)
-        if output is None:
+        job = manager.get(job_id)
+        if job is None:
             return ToolResult(success=False, error=f"Job {job_id} not found")
-        return ToolResult(success=True, output=output, metadata={"job_id": job_id})
+        output = manager.get_output(job_id)
+        if not job.done:
+            return ToolResult(
+                success=True, output=output, metadata={"job_id": job_id, "completed": False}
+            )
+        ok = job.exit_code == 0
+        return ToolResult(
+            success=ok,
+            output=output,
+            error="" if ok else output,
+            metadata={"job_id": job_id, "completed": True, "exit_code": job.exit_code},
+        )

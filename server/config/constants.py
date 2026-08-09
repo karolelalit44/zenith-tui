@@ -83,6 +83,28 @@ TERMINAL_TOOL = "terminal"
 
 # Tool parameter keys
 FILE_OVERWRITE_PARAM = "overwrite"
+# Internal bash parameter injected by the prechecks: the resolved working
+# directory extracted from a leading `cd <dir>;` / `Set-Location <dir>;` prefix,
+# so the subprocess runs inside the folder the model asked for instead of having
+# the intent silently dropped.
+BASH_WORKDIR_PARAM = "workdir"
+
+# Bash false-success signatures: a shell command that exits 0 but whose output
+# proves it did not actually run (e.g. the Windows Store `python` alias prints
+# "Unable to initialize device PRN" and does nothing). A match upgrades the tool
+# result to a failure so the agent is told the command did not execute.
+BASH_FALSE_SUCCESS_PATTERNS = (
+    "Unable to initialize device PRN",
+)
+
+# Read-only tools that may legitimately be re-invoked with identical parameters.
+# They are exempt from the identical-param skip guard so polling loops (e.g.
+# checking a background job's output more than once) keep working.
+POLL_TOOLS = ("job_output",)
+
+# Auto-fix lint issues found after file writes (ruff/eslint --fix). When a fix
+# is applied the post-write lint hook re-reports only the issues that remain.
+AUTO_LINT_FIX_ENABLED = True
 
 # Bash tool descriptions (OS-specific commands only)
 BASH_TOOL_DESCRIPTION_WINDOWS = (

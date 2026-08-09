@@ -25,19 +25,25 @@ class BackgroundJob:
 class BackgroundJobManager:
     def __init__(self) -> None:
         self._jobs: dict[str, BackgroundJob] = {}
+        self._reported: set[str] = set()
 
     async def start(
-        self, command: str, workspace_root: str, description: str = ""
+        self,
+        command: str,
+        workspace_root: str,
+        description: str = "",
+        cwd: str | None = None,
     ) -> BackgroundJob:
         job_id = uuid.uuid4().hex[:8]
-        logger.info("Starting background job %s: %s", job_id, command)
+        cwd = cwd or workspace_root
+        logger.info("Starting background job %s (cwd=%s): %s", job_id, cwd, command)
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=workspace_root,
+            cwd=cwd,
         )
-        return self.register(command, workspace_root, description, process, job_id)
+        return self.register(command, workspace_root, description, process, job_id, cwd=cwd)
 
     def register(
         self,
@@ -46,6 +52,7 @@ class BackgroundJobManager:
         description: str,
         process: asyncio.subprocess.Process,
         job_id: str | None = None,
+        cwd: str | None = None,
     ) -> BackgroundJob:
         job_id = job_id or uuid.uuid4().hex[:8]
         logger.info("Registering background job %s: %s", job_id, command)
@@ -54,7 +61,7 @@ class BackgroundJobManager:
             command=command,
             description=description,
             process=process,
-            working_dir=workspace_root,
+            working_dir=cwd or workspace_root,
         )
         self._jobs[job_id] = job
         asyncio.create_task(self._collect_output(job))
@@ -93,6 +100,21 @@ class BackgroundJobManager:
         if job.stderr.strip():
             parts.append(f"stderr: {job.stderr.strip()}")
         return "\n".join(parts)
+
+    def get(self, job_id: str) -> BackgroundJob | None:
+        return self._jobs.get(job_id)
+
+    def pending_completions(self) -> list[BackgroundJob]:
+        """Jobs that finished since the last poll, each returned exactly once.
+
+        The agent loop polls this each turn and surfaces completions (especially
+        failures) to the model, so a background job that exits non-zero is no
+        longer silently invisible.
+        """
+        fresh = [j for j in self._jobs.values() if j.done and j.id not in self._reported]
+        for job in fresh:
+            self._reported.add(job.id)
+        return fresh
 
     def kill(self, job_id: str) -> str:
         job = self._jobs.get(job_id)

@@ -11,6 +11,7 @@ from server.config.constants import (
     BASH_TOOL_COMMAND_PARAM_WINDOWS,
     BASH_TOOL_DESCRIPTION_UNIX,
     BASH_TOOL_DESCRIPTION_WINDOWS,
+    BASH_WORKDIR_PARAM,
     BUILD_MODE,
     CONCURRENCY_GROUP_SHELL,
     COST_CLASS_HIGH,
@@ -22,6 +23,7 @@ from server.config.constants import (
 )
 
 from ..base import BaseTool, ToolResult
+from ..command_result import detect_false_success
 from .background import get_background_manager
 
 logger = logging.getLogger(__name__)
@@ -94,6 +96,7 @@ class BashTool(BaseTool):
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         command = params.get("command", "")
+        workdir = params.get(BASH_WORKDIR_PARAM) or workspace_root
         timeout = params.get("timeout", self.timeout)
         run_in_background = params.get("run_in_background", False)
         auto_background_after = params.get("auto_background_after", self.auto_background_after)
@@ -101,15 +104,15 @@ class BashTool(BaseTool):
             return ToolResult(success=False, error="No command provided")
         if run_in_background:
             return await self._start_background(
-                command, workspace_root, params.get("description", "")
+                command, workdir, params.get("description", "")
             )
-        return await self._execute_sync(command, workspace_root, timeout, auto_background_after)
+        return await self._execute_sync(command, workdir, timeout, auto_background_after)
 
     async def _start_background(
-        self, command: str, workspace_root: str, description: str
+        self, command: str, workdir: str, description: str
     ) -> ToolResult:
         manager = get_background_manager()
-        job = await manager.start(command, workspace_root, description)
+        job = await manager.start(command, workdir, description)
         try:
             await asyncio.sleep(1.0)
         except asyncio.CancelledError:
@@ -119,6 +122,17 @@ class BashTool(BaseTool):
             return ToolResult(success=False, error="Failed to start background job")
         if job.done:
             manager.remove(job.id)
+            false_sig = detect_false_success(job.stdout, job.stderr)
+            if job.exit_code == 0 and false_sig:
+                return ToolResult(
+                    success=False,
+                    output=job.stdout,
+                    error=(
+                        f"Background job reported success (exit 0) but its output indicates "
+                        f"failure: '{false_sig}'. The command was likely not actually executed."
+                    ),
+                    metadata={"exit_code": job.exit_code, "background": False, "job_id": job.id},
+                )
             return ToolResult(
                 success=job.exit_code == 0,
                 output=output,
@@ -132,7 +146,7 @@ class BashTool(BaseTool):
         )
 
     async def _execute_sync(
-        self, command: str, workspace_root: str, timeout: int, auto_background_after: int
+        self, command: str, workdir: str, timeout: int, auto_background_after: int
     ) -> ToolResult:
         process = None
         try:
@@ -142,14 +156,14 @@ class BashTool(BaseTool):
                     f'"{shell}" -NoProfile -Command {command}',
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    cwd=workspace_root,
+                    cwd=workdir,
                 )
             else:
                 process = await asyncio.create_subprocess_shell(
                     command,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    cwd=workspace_root,
+                    cwd=workdir,
                     shell=True,
                 )
             stdout_chunks: list[bytes] = []
@@ -185,7 +199,7 @@ class BashTool(BaseTool):
                         return_exceptions=True,
                     )
                     manager = get_background_manager()
-                    job = manager.register(command, workspace_root, "", process)
+                    job = manager.register(command, workdir, "", process)
                     return ToolResult(
                         success=True,
                         output=f"Command is taking longer than expected and has been moved to background.\nBackground job ID: {job.id}\nCommand: {command}\n\nUse job_output tool to view output or job_kill to terminate.",
@@ -211,6 +225,19 @@ class BashTool(BaseTool):
             error = b"".join(stderr_chunks).decode("utf-8", errors="replace")
             exit_code = process.returncode
             if exit_code == 0:
+                false_sig = detect_false_success(output, error)
+                if false_sig:
+                    return ToolResult(
+                        success=False,
+                        output=output,
+                        error=(
+                            f"Command reported success (exit 0) but its output indicates "
+                            f"failure: '{false_sig}'. This usually means the command was not "
+                            "actually executed (e.g. the Windows Store 'python' alias). Run it "
+                            "again with an explicit interpreter or fix the environment."
+                        ),
+                        metadata={"exit_code": exit_code, "false_success": false_sig},
+                    )
                 return ToolResult(success=True, output=output, metadata={"exit_code": exit_code})
             else:
                 return ToolResult(

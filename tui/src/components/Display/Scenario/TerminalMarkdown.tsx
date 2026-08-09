@@ -238,9 +238,9 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       let diffStatsStr = '';
       if (lang === 'DIFF') {
         const parts: string[] = [];
-        if (removedCount) parts.push(`Removed ${removedCount} ${removedCount === 1 ? 'line' : 'lines'}`);
-        if (addedCount) parts.push(`Added ${addedCount} ${addedCount === 1 ? 'line' : 'lines'}`);
-        diffStatsStr = parts.join(', ') || `${codeLines.length} lines`;
+        if (addedCount) parts.push(`+${addedCount}`);
+        if (removedCount) parts.push(`-${removedCount}`);
+        diffStatsStr = parts.length > 0 ? `L ${parts.join(' ')} lines` : `L ${codeLines.length} lines`;
       }
 
       const gutterWidth = Math.max(2, String(codeLines.length).length);
@@ -248,15 +248,14 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
       blocks.push(
         <Box key={`code_${idx}`} flexDirection="column" marginY={1} width="100%">
-          {}
           <Box flexDirection="row" alignItems="center" marginBottom={0}>
             {lang === 'DIFF' ? (
               <>
-                <Text color={theme.colors.status.success} bold>
-                  ●{' '}
+                <Text color={theme.colors.status.accent} bold>
+                  *{' '}
                 </Text>
-                <Text color={theme.colors.status.success} bold>
-                  Update(diff)
+                <Text color={theme.colors.status.accent} bold>
+                  editor(chat.py)
                 </Text>
               </>
             ) : (
@@ -265,16 +264,15 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
               </Text>
             )}
           </Box>
-          {}
           <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
-            <Text color={theme.colors.text.dim}>└ </Text>
             <Text color={theme.colors.text.dim}>
-              {lang === 'DIFF' ? diffStatsStr : `${codeLines.length} ${codeLines.length === 1 ? 'line' : 'lines'}`}
+              {lang === 'DIFF'
+                ? `${diffStatsStr} | python`
+                : `${codeLines.length} ${codeLines.length === 1 ? 'line' : 'lines'}`}
               {isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
             </Text>
           </Box>
-          {}
-          <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+          <Box flexDirection="column" paddingLeft={0} marginTop={0}>
             {visibleLines.map((cL, cIdx) => {
               if (lang === 'DIFF') {
                 const hunkMatch = cL.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
@@ -292,7 +290,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
                   const cleanContent = cL.startsWith('- ') ? cL.slice(2) : cL.slice(1);
                   return (
                     <Box key={cIdx} backgroundColor={theme.colors.diff.removeBg} width="100%">
-                      <Text color={theme.colors.text.dim}>{numStr} </Text>
+                      <Text color={theme.colors.diff.removeFg}>{numStr} - </Text>
                       <Text color={theme.colors.diff.removeFg}>{cleanContent}</Text>
                     </Box>
                   );
@@ -304,7 +302,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
                   lineCounter++;
                   return (
                     <Box key={cIdx} backgroundColor={theme.colors.diff.addBg} width="100%">
-                      <Text color={theme.colors.text.dim}>{numStr} </Text>
+                      <Text color={theme.colors.diff.addFg}>{numStr} + </Text>
                       <Text color={theme.colors.diff.addFg}>{cleanContent}</Text>
                     </Box>
                   );
@@ -356,11 +354,10 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     if (line.startsWith('# ')) {
       const title = line.slice(2).trim();
       blocks.push(
-        <Box key={`h1_${idx}`} flexDirection="column" marginTop={1} marginBottom={1}>
-          <Text color={theme.colors.status.accent} bold>
-            {title.toUpperCase()}
+        <Box key={`h1_${idx}`} flexDirection="column" marginTop={1} marginBottom={0}>
+          <Text color="#C77DBB" bold>
+            {title}
           </Text>
-          <Text color={theme.colors.border.muted}>{'─'.repeat(Math.min(title.length + 8, 60))}</Text>
         </Box>,
       );
       idx++;
@@ -371,8 +368,8 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       const title = line.slice(3).trim();
       blocks.push(
         <Box key={`h2_${idx}`} flexDirection="row" alignItems="center" marginTop={1} marginBottom={0}>
-          <Text color={theme.colors.status.success} bold>
-            ▸ {title}
+          <Text color="#C77DBB" bold>
+            {title}
           </Text>
         </Box>,
       );

@@ -21,6 +21,13 @@ export function truncateEnd(text: string, maxLength: number): string {
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
+export function truncateStart(text: string, maxLength: number): string {
+  if (maxLength <= 0) return '';
+  if (text.length <= maxLength) return text;
+  if (maxLength === 1) return text.slice(-1);
+  return `…${text.slice(text.length - (maxLength - 1))}`;
+}
+
 /** Formats a byte count as a compact human-readable string. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

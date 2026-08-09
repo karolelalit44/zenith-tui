@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
+from pathlib import Path
 
 from server.config.constants import (
+    AUTO_LINT_FIX_ENABLED,
     BASH_TOOL,
+    BASH_WORKDIR_PARAM,
     FILE_DELETE_TOOL,
     FILE_EDIT_TOOL,
     FILE_READ_TOOL,
@@ -93,21 +96,49 @@ def build_tool_metadata(
     return {}
 
 
+def _resolve_workdir(workspace_root: str, target: str) -> Path | None:
+    """Resolve ``target`` against the workspace, or ``None`` if it escapes it."""
+    workspace = Path(workspace_root).resolve()
+    try:
+        resolved = (workspace / target).resolve()
+    except (OSError, ValueError):
+        return None
+    try:
+        resolved.relative_to(workspace)
+        return resolved
+    except ValueError:
+        return None
+
+
 def apply_bash_prechecks(tool_params: dict, workspace_root: str) -> str | None:
     from server.agents.validation import (
         check_python_syntax,
         detect_interactive_command,
-        strip_cd_prefix,
+        parse_cd_prefix,
     )
 
-    command = strip_cd_prefix(tool_params.get("command", ""))
-    if command != tool_params.get("command", ""):
-        tool_params["command"] = command
-        logger.info("Stripped cd prefix, command now: %s", command)
-    err = check_python_syntax(command, workspace_root)
+    command = tool_params.get("command", "")
+    target, remainder = parse_cd_prefix(command)
+    if target is not None and remainder != command:
+        resolved = _resolve_workdir(workspace_root, target)
+        if resolved is None:
+            return (
+                f"Command changes directory to '{target}' but that path is outside the "
+                "workspace; refusing. Run the command from the workspace root instead."
+            )
+        if not resolved.is_dir():
+            return (
+                f"Command changes directory to '{target}' but it is not an existing "
+                "directory. Create it first (e.g. `New-Item -ItemType Directory "
+                f"'{target}'`), then run your command."
+            )
+        tool_params["command"] = remainder
+        tool_params[BASH_WORKDIR_PARAM] = str(resolved)
+        logger.info("Resolved cd prefix: workdir=%s command=%s", resolved, remainder)
+    err = check_python_syntax(tool_params.get("command", ""), workspace_root)
     if err:
         return err
-    return detect_interactive_command(command)
+    return detect_interactive_command(tool_params.get("command", ""))
 
 
 def validate_tool_rejection(
@@ -178,11 +209,15 @@ async def post_execution_hooks(
         try:
             from server.toolkit.auto_lint import format_lint_result, run_lint
 
-            lint_result = await run_lint(edited_path, workspace_root)
+            lint_result = await run_lint(
+                edited_path, workspace_root, fix=AUTO_LINT_FIX_ENABLED
+            )
             if lint_result and (not lint_result.success):
                 lint_msg = format_lint_result(lint_result)
                 if lint_msg:
-                    events.append(r.warning(f"Lint issues detected:\n{lint_msg}", session_id))
+                    events.append(
+                        r.warning(f"Lint issues detected:\n{lint_msg}", session_id, code="LINT")
+                    )
         except Exception as e:
             logger.debug("Auto-lint failed: %s", e)
     return events

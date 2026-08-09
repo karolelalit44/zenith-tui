@@ -26,24 +26,33 @@ _LINTER_MAP: dict[str, tuple[str, str]] = {
     ".tsx": ("eslint", "--no-error-on-unmatched-pattern"),
 }
 
+# Fix-capable flags per linter (``--fix`` applied before re-reporting).
+_LINTER_FIX_FLAGS: dict[str, str] = {
+    "ruff": "check --fix --output-format=concise",
+    "eslint": "--fix --no-error-on-unmatched-pattern",
+}
+
 
 def detect_linter(file_path: str) -> tuple[str, str] | None:
     ext = Path(file_path).suffix.lower()
     return _LINTER_MAP.get(ext)
 
 
-async def run_lint(file_path: str, workspace_root: str, timeout: int = 30) -> LintResult | None:
+async def run_lint(
+    file_path: str, workspace_root: str, timeout: int = 30, fix: bool = False
+) -> LintResult | None:
     linter_info = detect_linter(file_path)
     if not linter_info:
         return None
-    linter_name, flags = linter_info
+    linter_name, _flags = linter_info
+    flags = _LINTER_FIX_FLAGS.get(linter_name, _flags) if fix else _flags
     rel_path = (
         str(Path(file_path).relative_to(workspace_root))
         if Path(file_path).is_absolute()
         else file_path
     )
     cmd = f"{linter_name} {flags} {rel_path}"
-    logger.info("Auto-lint: %s", cmd)
+    logger.info("Auto-lint%s: %s", " (fix)" if fix else "", cmd)
     try:
         process = await asyncio.create_subprocess_shell(
             cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=workspace_root

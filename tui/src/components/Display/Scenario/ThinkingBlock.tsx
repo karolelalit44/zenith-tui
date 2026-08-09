@@ -43,8 +43,6 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
   const displayedThoughts = isCollapsed || historical ? event.thoughts : event.thoughts.slice(0, visibleCount);
 
   const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
-  const headerTitle = durationStr ? `Thought for ${durationStr}` : `Thought (${event.thoughts.length} steps)`;
-
   const firstRealThought = event.thoughts
     .map((thought) => getThoughtText(thought).trim())
     .find((text) => text.length > 0 && !STATUS_THOUGHT_RE.test(text));
@@ -53,21 +51,24 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
-      <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
-        <Text color={theme.colors.text.muted}>• </Text>
-        <Text color={theme.colors.text.bright}>{headerTitle} </Text>
-        <Text color={theme.colors.text.dim}>
-          {isCollapsed ? `(${toggleHint} to expand)` : `(${toggleHint} to collapse)`}
-        </Text>
-      </Box>
-
-      {isCollapsed && preview && (
-        <Box flexDirection="row" paddingLeft={2} width="100%">
-          <Box flexShrink={1}>
-            <Text color={theme.colors.text.muted} italic wrap="wrap">
+      {isCollapsed ? (
+        <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
+          <Text color={theme.colors.status.info} bold>
+            ▶ Thinking:{' '}
+          </Text>
+          {durationStr ? <Text color={theme.colors.text.muted}>Thought for {durationStr} </Text> : null}
+          {preview ? (
+            <Text color={theme.colors.text.dim} italic wrap="truncate-end">
               {preview}
             </Text>
-          </Box>
+          ) : null}
+        </Box>
+      ) : (
+        <Box flexDirection="row" alignItems="center" marginBottom={1}>
+          <Text color={theme.colors.status.warning} bold>
+            {durationStr ? `Thought: ${durationStr}` : `Thought (${event.thoughts.length} steps)`}
+          </Text>
+          <Text color={theme.colors.text.dim}> ({toggleHint} to collapse)</Text>
         </Box>
       )}
 

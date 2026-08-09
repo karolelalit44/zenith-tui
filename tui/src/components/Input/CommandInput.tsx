@@ -1,17 +1,18 @@
 import { Box, type Key, Text } from 'ink';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback } from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
 import { getActiveGitBranch } from '../../services/git';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
 import type { FileAttachment } from '../../types/scenario';
+import { expandPastedMarkers } from '../../utils/pasteTracker';
 import { AttachmentChips } from './AttachmentChips';
 import { ComposerFooter } from './ComposerFooter';
 import { MultiLineTextInput } from './MultiLineTextInput';
+import { ProcessingWaveBar } from './ProcessingWaveBar';
 
-const PLACEHOLDERS = ['Ask anything…', 'Describe the change…', '@ file · / cmd · ? help'];
-const PLACEHOLDER_INTERVAL_MS = 4000;
+const STATIC_PLACEHOLDER = 'Ask anything...';
 
 interface CommandInputProps {
   input: string;
@@ -20,6 +21,7 @@ interface CommandInputProps {
   disabled?: boolean;
   disabledMessage?: string;
   running?: boolean;
+  actionLabel?: string | null;
   attachments?: FileAttachment[];
   onRemoveAttachment?: (index: number) => void;
   historyUp?: () => string | undefined;
@@ -45,6 +47,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     disabled = false,
     disabledMessage = 'Input disabled',
     running = false,
+    actionLabel,
     attachments = [],
     onRemoveAttachment,
     historyUp,
@@ -62,25 +65,12 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
   }) => {
     const { theme } = useTheme();
     const { activeProvider } = useProvider();
-    const [placeholderIndex, setPlaceholderIndex] = useState(0);
-
-    useEffect(() => {
-      const timer = setInterval(
-        () => setPlaceholderIndex((i) => (i + 1) % PLACEHOLDERS.length),
-        PLACEHOLDER_INTERVAL_MS,
-      );
-      return () => clearInterval(timer);
-    }, []);
 
     const activeBranch = gitBranch || getActiveGitBranch();
     const providerName = activeProvider.meta.name || 'Unknown';
     const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
     const columns = process.stdout.columns ?? 80;
-    const shortDir = useMemo(() => {
-      const parts = workspaceName.replace(/\\/g, '/').split('/');
-      return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : workspaceName;
-    }, [workspaceName]);
     const dividerWidth = Math.max(0, columns - 6);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
@@ -122,10 +112,19 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
       [slashMenuOpen, onOpenHelp, onOpenMode, onInputChange, onClearInput, onCancel, running],
     );
 
+    const handleSubmit = useCallback(
+      (val: string) => {
+        const fullText = expandPastedMarkers(val);
+        onSubmit(fullText);
+      },
+      [onSubmit],
+    );
+
     const focused = !disabled;
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
+        <ProcessingWaveBar isRunning={running} actionLabel={actionLabel} />
         <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
         <Box
@@ -151,8 +150,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
                 <MultiLineTextInput
                   value={input}
                   onChange={onInputChange}
-                  onSubmit={onSubmit}
-                  placeholder={PLACEHOLDERS[placeholderIndex]}
+                  onSubmit={handleSubmit}
+                  placeholder={STATIC_PLACEHOLDER}
                   focus={focused}
                   historyUp={historyUp}
                   historyDown={historyDown}
@@ -172,7 +171,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             mode={mode}
             modelFallback={modelFallback}
             providerName={providerName}
-            dir={shortDir}
+            dir={workspaceName}
             branch={activeBranch}
             totalTokens={totalTokens}
             effectiveMaxTokens={effectiveMaxTokens}
