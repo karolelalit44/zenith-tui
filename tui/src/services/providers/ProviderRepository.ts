@@ -2,12 +2,14 @@ import { appConfig } from '../../config/appConfig';
 import { BaseApiService } from '../api/BaseApiService';
 import type {
   ModelInfo,
+  ProviderCatalogItem,
   ProviderConfig,
   ProviderId,
   ProviderInfo,
   ProviderListResponse,
   ProviderMeta,
   ProviderModelInfo,
+  ProviderModelListResponse,
   ProviderState,
   ValidateProviderOptions,
   ValidationStreamEvent,
@@ -44,6 +46,10 @@ export class ProviderRepository extends BaseApiService {
     return this._listCache?.all ?? [];
   }
 
+  public get maxContextTokens(): number {
+    return this._listCache?.max_context_tokens ?? 0;
+  }
+
   public getConnectedIds(): string[] {
     return this._listCache?.connected ?? [];
   }
@@ -54,6 +60,43 @@ export class ProviderRepository extends BaseApiService {
 
   public async refreshFromBackend(): Promise<ProviderListResponse | null> {
     return this.fetchProviderList();
+  }
+
+  /** Fetch the lightweight provider catalog (id/name/type only — no models). */
+  public async fetchProviderCatalog(): Promise<ProviderCatalogItem[]> {
+    try {
+      const data = await this.get<ProviderCatalogItem[]>('/providers', {
+        timeout: appConfig.timeout.fetchMs,
+      });
+      if (Array.isArray(data)) return data;
+    } catch {}
+    return [];
+  }
+
+  /** Fetch a page of models for a provider from the backend. */
+  public async fetchModels(providerId: ProviderId, offset = 0, limit = 50): Promise<ProviderModelListResponse> {
+    try {
+      const data = await this.get<ProviderModelListResponse>(
+        `/providers/${encodeURIComponent(providerId)}/models?offset=${offset}&limit=${limit}`,
+        { timeout: appConfig.timeout.fetchMs },
+      );
+      if (data && Array.isArray(data.models)) return data;
+    } catch {}
+    return { models: [], total: 0, offset, limit };
+  }
+
+  /** Fetch every model for a provider (loops over backend pagination). */
+  public async fetchAllModels(providerId: ProviderId): Promise<ProviderModelInfo[]> {
+    const chunk = 100;
+    let offset = 0;
+    const collected: ProviderModelInfo[] = [];
+    for (;;) {
+      const page = await this.fetchModels(providerId, offset, chunk);
+      collected.push(...page.models);
+      if (page.total <= offset + page.models.length) break;
+      offset += page.models.length;
+    }
+    return collected;
   }
 
   public async setModel(id: ProviderId, model: string): Promise<ProviderInfo | null> {

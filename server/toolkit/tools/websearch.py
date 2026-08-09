@@ -92,8 +92,7 @@ class WebsearchTool(BaseTool):
         if allowed_domains:
             domains = {d.lower().lstrip(".") for d in allowed_domains}
             results = [
-                r for r in results
-                if any(dom in (r.get("url") or "").lower() for dom in domains)
+                r for r in results if any(dom in (r.get("url") or "").lower() for dom in domains)
             ][:max_results]
 
         if not results:
@@ -129,7 +128,11 @@ class WebsearchTool(BaseTool):
             async with httpx.AsyncClient(timeout=20) as client:
                 data = (await client.post(url, json=body, headers=headers)).json()
             return [
-                {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")}
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("content", ""),
+                }
                 for r in data.get("results", [])[:max_results]
             ]
         if api == "brave":
@@ -138,7 +141,11 @@ class WebsearchTool(BaseTool):
             async with httpx.AsyncClient(timeout=20) as client:
                 data = (await client.get(url, params={"q": query}, headers=headers)).json()
             return [
-                {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("description", "")}
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("description", ""),
+                }
                 for r in data.get("web", {}).get("results", [])[:max_results]
             ]
         if api == "serper":
@@ -147,7 +154,11 @@ class WebsearchTool(BaseTool):
             async with httpx.AsyncClient(timeout=20) as client:
                 data = (await client.post(url, json={"q": query}, headers=headers)).json()
             return [
-                {"title": r.get("title", ""), "url": r.get("link", ""), "snippet": r.get("snippet", "")}
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("link", ""),
+                    "snippet": r.get("snippet", ""),
+                }
                 for r in data.get("organic", [])[:max_results]
             ]
         if api == "bing":
@@ -156,14 +167,16 @@ class WebsearchTool(BaseTool):
             async with httpx.AsyncClient(timeout=20) as client:
                 data = (await client.get(url, params={"q": query}, headers=headers)).json()
             return [
-                {"title": r.get("name", ""), "url": r.get("url", ""), "snippet": r.get("snippet", "")}
+                {
+                    "title": r.get("name", ""),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("snippet", ""),
+                }
                 for r in data.get("webPages", {}).get("value", [])[:max_results]
             ]
         raise ValueError(f"Unknown search API '{api}' (expected tavily|brave|serper|bing)")
 
-    async def _search_duckduckgo(
-        self, query: str, max_results: int
-    ) -> list[dict[str, str]]:
+    async def _search_duckduckgo(self, query: str, max_results: int) -> list[dict[str, str]]:
         """No-key fallback: scrape the DuckDuckGo HTML endpoint."""
         import httpx
 
@@ -177,6 +190,7 @@ class WebsearchTool(BaseTool):
 
 def _parse_ddg_results(page: str) -> list[dict[str, str]]:
     """Parse DuckDuckGo HTML results (title/url/snippet), unwrapping redirects."""
+
     def _clean(s: str) -> str:
         import html as _html
 
@@ -186,9 +200,7 @@ def _parse_ddg_results(page: str) -> list[dict[str, str]]:
         return re.sub(r"\s+", " ", _html.unescape(s).strip())
 
     results: list[dict[str, str]] = []
-    for m in re.finditer(
-        r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, re.S
-    ):
+    for m in re.finditer(r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, re.S):
         href = m.group(1)
         if href.startswith("//duckduckgo.com/l/?uddg="):
             encoded = href.split("uddg=", 1)[1].split("&", 1)[0]
@@ -196,9 +208,7 @@ def _parse_ddg_results(page: str) -> list[dict[str, str]]:
         elif not href.startswith("http"):
             continue
         results.append({"title": _clean(m.group(2)), "url": href, "snippet": ""})
-    snips = list(re.finditer(
-        r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', page, re.S
-    ))
+    snips = list(re.finditer(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', page, re.S))
     for i, sm in enumerate(snips):
         if i < len(results):
             results[i]["snippet"] = _clean(sm.group(1))

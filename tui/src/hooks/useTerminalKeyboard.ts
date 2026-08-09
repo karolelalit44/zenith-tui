@@ -29,6 +29,7 @@ interface UseTerminalKeyboardOptions {
   composerRunning?: boolean;
 
   slashMenuOpen?: boolean;
+  onToggleHistoryExpanded?: () => void;
 }
 
 export function useTerminalKeyboard({
@@ -53,6 +54,7 @@ export function useTerminalKeyboard({
   openModelPicker,
   composerRunning,
   slashMenuOpen,
+  onToggleHistoryExpanded,
 }: UseTerminalKeyboardOptions): void {
   const optionsRef = useRef({
     turns,
@@ -76,6 +78,7 @@ export function useTerminalKeyboard({
     openModelPicker,
     composerRunning,
     slashMenuOpen,
+    onToggleHistoryExpanded,
   });
 
   useEffect(() => {
@@ -101,6 +104,7 @@ export function useTerminalKeyboard({
       openModelPicker,
       composerRunning,
       slashMenuOpen,
+      onToggleHistoryExpanded,
     };
   });
 
@@ -178,6 +182,11 @@ export function useTerminalKeyboard({
           opts.abort();
           opts.abortActiveTurn(opts.events);
         }
+        return;
+      }
+
+      if (pressed.includes('expand_history')) {
+        if (opts.onToggleHistoryExpanded) opts.onToggleHistoryExpanded();
         return;
       }
 

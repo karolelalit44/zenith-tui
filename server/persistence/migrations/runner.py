@@ -125,4 +125,11 @@ def run_pending(db_path: str) -> list[MigrationInfo]:
         db_log("migrate", status="ok", version=m["version"], file=m["filename"], db=str(db_path))
         logger.info("Applied migration %s (%s)", m["version"], m["filename"])
         results.append(m)
+    if results:
+        try:
+            from server.persistence.repositories.base import invalidate_catalog_cache
+
+            invalidate_catalog_cache()
+        except Exception:  # pragma: no cover - cache invalidation is best-effort
+            pass
     return results

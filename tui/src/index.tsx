@@ -3,14 +3,17 @@ import { render } from 'ink';
 import React from 'react';
 import { App } from './App';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { AnimationProvider } from './context/AnimationContext';
 import { wsClient } from './services/transport/WebSocketClient';
 import { ThemeProvider } from './theme/ThemeContext';
 
 const app = render(
   <ThemeProvider>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <AnimationProvider>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </AnimationProvider>
   </ThemeProvider>,
 );
 

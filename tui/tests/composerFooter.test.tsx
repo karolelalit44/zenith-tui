@@ -54,6 +54,7 @@ describe('ComposerFooter', () => {
         running={false}
         disabled={false}
         inputEmpty
+        tokenScope="session"
       />,
     );
 
@@ -80,11 +81,13 @@ describe('ComposerFooter', () => {
         running
         disabled={false}
         inputEmpty
+        tokenScope="turn"
       />,
     );
 
     const frame = app.lastFrame();
     expect(frame).toContain('Esc cancel');
+    expect(frame).toContain('(turn)');
     const lines = frame.split('\n').filter((line) => line.length > 0);
     expect(lines).toHaveLength(1);
     restore();
@@ -104,6 +107,7 @@ describe('ComposerFooter', () => {
         running: true,
         disabled: false,
         inputEmpty: true,
+        tokenScope: 'turn',
       });
 
       const contentWidth = columns - 4;
@@ -119,9 +123,9 @@ describe('ComposerFooter', () => {
         1 +
         layout.maxTokens.length +
         8 +
-        (layout.showGauge ? layout.gauge.length : 0) +
         3 +
-        layout.status.length;
+        layout.status.length +
+        layout.scopeLabel.length;
 
       expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
     }

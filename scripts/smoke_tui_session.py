@@ -52,6 +52,7 @@ try:
     from winpty import Backend, PtyProcess
 except ImportError:
     from winpty import PtyProcess
+
     Backend = None
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,7 +61,9 @@ TSX_CLI = ROOT / "node_modules" / "tsx" / "dist" / "cli.mjs"
 
 sys.path.insert(0, str(ROOT))
 
-ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-Z]|\x1b[=>]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
+ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-Z]|\x1b[=>]|\x1b\][^\x07]*(?:\x07|\x1b\\)"
+)
 
 BACKEND_WAIT = int(os.environ.get("SMOKE_BACKEND_WAIT", "90"))
 TUI_READY_WAIT = int(os.environ.get("SMOKE_TUI_READY_WAIT", "90"))
@@ -156,7 +159,9 @@ def show_tui_window(before: set[int], timeout: float = 15.0) -> None:
             try:
                 user32.ShowWindow(hwnd, SW_SHOW)
                 user32.ShowWindow(hwnd, SW_RESTORE)
-                user32.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+                user32.SetWindowPos(
+                    hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+                )
                 user32.SetForegroundWindow(hwnd)
                 shown = True
             except Exception:
@@ -198,7 +203,7 @@ class PtyLog:
             self._buf.append(chunk)
             if len("".join(self._buf)) > self._max:
                 joined = "".join(self._buf)
-                self._buf = [joined[-self._max:]]
+                self._buf = [joined[-self._max :]]
 
     def text(self) -> str:
         with self._lock:
@@ -241,7 +246,9 @@ class RpcClient:
         await self._ws.send(json.dumps(payload))
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            raw = await asyncio.wait_for(self._ws.recv(), timeout=max(0.1, deadline - time.monotonic()))
+            raw = await asyncio.wait_for(
+                self._ws.recv(), timeout=max(0.1, deadline - time.monotonic())
+            )
             data = json.loads(raw)
             if data.get("id") == rid:
                 if data.get("error"):
@@ -411,7 +418,8 @@ def _build_error_scenarios(stamp: str) -> list[dict]:
 
     return [
         {
-            "name": "syntax_fail",            "prompt": (
+            "name": "syntax_fail",
+            "prompt": (
                 f"Create a Python file named {syntax_file} whose exact content is:\n"
                 "def broken(\n"
                 f"Then run it with the command: py {syntax_file}\n"
@@ -422,7 +430,7 @@ def _build_error_scenarios(stamp: str) -> list[dict]:
         {
             "name": "runtime_fail",
             "prompt": (
-                'Run this command and report the output and exit code: '
+                "Run this command and report the output and exit code: "
                 'py -c "import this_module_does_not_exist_xyz"'
             ),
             "check": _check_runtime_fail,
@@ -483,10 +491,19 @@ async def main() -> int:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    parser = argparse.ArgumentParser(description="Smoke-test the Zenith TUI (visible winpty console).")
-    parser.add_argument("--type-delay-ms", type=int, default=TYPE_DELAY_MS, help="pause (ms) after typing the prompt")
+    parser = argparse.ArgumentParser(
+        description="Smoke-test the Zenith TUI (visible winpty console)."
+    )
+    parser.add_argument(
+        "--type-delay-ms",
+        type=int,
+        default=TYPE_DELAY_MS,
+        help="pause (ms) after typing the prompt",
+    )
     parser.add_argument("--turn-timeout", type=int, default=TURN_TIMEOUT)
-    parser.add_argument("--keep-probe", action="store_true", help="Do not delete the probe file on success")
+    parser.add_argument(
+        "--keep-probe", action="store_true", help="Do not delete the probe file on success"
+    )
     parser.add_argument(
         "--error-scenarios",
         action="store_true",
@@ -570,7 +587,10 @@ async def main() -> int:
         print("[smoke] TUI main input visible")
 
         async with ws_connect(
-            f"ws://127.0.0.1:{port}/ws", ping_interval=None, open_timeout=10, max_size=4 * 1024 * 1024
+            f"ws://127.0.0.1:{port}/ws",
+            ping_interval=None,
+            open_timeout=10,
+            max_size=4 * 1024 * 1024,
         ) as ws:
             rpc = RpcClient(ws)
             baseline = ""
@@ -639,17 +659,19 @@ async def main() -> int:
             probe_ok = False
             probe_found = probe_path.exists()
             if probe_found:
-                probe_ok = "zenith smoke ok" in probe_path.read_text(encoding="utf-8", errors="replace")
+                probe_ok = "zenith smoke ok" in probe_path.read_text(
+                    encoding="utf-8", errors="replace"
+                )
             if results and results[-1][0]["name"] == "implementation":
                 if not probe_found:
                     failed.append(f"implementation: probe file missing: {probe_rel}")
                     alternatives = sorted(ROOT.rglob("smoke_probe_*.txt"))
                     if alternatives:
-                        print(f"[smoke]   probe files found elsewhere: {[str(p) for p in alternatives[:5]]}")
+                        print(
+                            f"[smoke]   probe files found elsewhere: {[str(p) for p in alternatives[:5]]}"
+                        )
                 elif not probe_ok:
-                    failed.append(
-                        f"implementation: probe file content mismatch ({probe_path} )"
-                    )
+                    failed.append(f"implementation: probe file content mismatch ({probe_path} )")
 
             print()
             print("=" * 72)
@@ -659,8 +681,10 @@ async def main() -> int:
             print("            backend console output -> scripts/_diag_backend.log")
             print(f"tui pid   : {pty.pid}")
             print(f"session   : {session_id}")
-            print(f"schema budget (gpt-4o/cl100k_base): build={SCHEMA_BUDGET['build']} "
-                  f"plan={SCHEMA_BUDGET['plan']} registry={SCHEMA_BUDGET['registry']}")
+            print(
+                f"schema budget (gpt-4o/cl100k_base): build={SCHEMA_BUDGET['build']} "
+                f"plan={SCHEMA_BUDGET['plan']} registry={SCHEMA_BUDGET['registry']}"
+            )
             for turn, status, summary in results:
                 tools = summary["tools"] or ["(none)"]
                 print(
@@ -690,7 +714,13 @@ async def main() -> int:
             _log_tui_tail(log, name="on error")
         return 1
     finally:
-        _cleanup(backend, pty, probe_path, keep_probe=((exit_code != 0) or args.keep_probe), extra_files=cleanup_files)
+        _cleanup(
+            backend,
+            pty,
+            probe_path,
+            keep_probe=((exit_code != 0) or args.keep_probe),
+            extra_files=cleanup_files,
+        )
 
 
 def _resolve_tui_argv() -> list[str]:
@@ -718,7 +748,8 @@ async def _wait_tui_ready(log: PtyLog) -> None:
         await asyncio.sleep(0.5)
     tail = strip_ansi(log.text())[-3000:]
     raise TimeoutError(
-        "TUI never reached the main input screen.\nCaptured TUI output tail:\n" + (tail or "(empty)")
+        "TUI never reached the main input screen.\nCaptured TUI output tail:\n"
+        + (tail or "(empty)")
     )
 
 
@@ -726,7 +757,7 @@ def _log_tui_tail(log: PtyLog, name: str) -> None:
     tail = strip_ansi(log.text())[-2500:]
     if not tail.strip():
         return
-    lines = [l for l in tail.splitlines() if l.strip()]
+    lines = [line for line in tail.splitlines() if line.strip()]
     print(f"[smoke] TUI output tail {name} ({len(tail)} chars):")
     for line in lines[-12:]:
         print(f"    {line}")

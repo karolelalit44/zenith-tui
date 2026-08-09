@@ -33,7 +33,7 @@ export interface CommandDef {
 
 /**
  * Single source of truth for both the `/` autocomplete and the ctrl+p command
- * palette. `tui/src/services/api/options.json` is kept as reference only.
+ * palette.
  */
 export const commandRegistry: CommandDef[] = [
   {
@@ -202,6 +202,10 @@ export const commandRegistry: CommandDef[] = [
   },
 ];
 
-export function getCommandSlashes(): string[] {
-  return commandRegistry.filter((c) => c.slash).map((c) => c.slash as string);
+export function dispatchCommand(rawInput: string, ctx: CommandRunContext): boolean {
+  const trimmed = rawInput.trim().toLowerCase();
+  const def = commandRegistry.find((c) => c.slash && c.slash.toLowerCase() === trimmed);
+  if (!def) return false;
+  def.run(ctx);
+  return true;
 }

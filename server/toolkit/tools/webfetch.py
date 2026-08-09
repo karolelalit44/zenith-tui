@@ -114,8 +114,7 @@ class WebfetchTool(BaseTool):
             truncated = len(markdown) >= max_chars and len(raw) > max_chars
             if truncated:
                 markdown += (
-                    f"\n\n[...truncated at {max_chars} chars; fetched page was "
-                    f"{len(raw)} chars]"
+                    f"\n\n[...truncated at {max_chars} chars; fetched page was {len(raw)} chars]"
                 )
             if not markdown.strip():
                 return ToolResult(

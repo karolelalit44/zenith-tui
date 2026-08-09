@@ -146,6 +146,7 @@ class CatalogProviderRecord(Base):
         BoolInt, nullable=False, server_default="0"
     )
     custom_flow: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
+    rate_limit_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
 
@@ -249,19 +250,6 @@ class BudgetSettingsRecord(Base):
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
-
-
-class BudgetEventRecord(Base):
-    __tablename__ = "budget_events"
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
-    event_type: Mapped[str] = mapped_column(Text, nullable=False)
-    current_cost: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
-    budget_limit: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
-    message: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class SessionCheckpointRecord(Base):

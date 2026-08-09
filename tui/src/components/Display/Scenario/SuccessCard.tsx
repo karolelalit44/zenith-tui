@@ -2,28 +2,21 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { formatTokenCount } from '../../../services/api/tokenEstimationService';
 import { useTheme } from '../../../theme/ThemeContext';
-import type { SuccessEvent } from '../../../types/scenario';
+import type { SuccessEvent, TurnManifestEvent } from '../../../types/scenario';
+import { formatDuration } from '../../../utils/text';
 
 interface SuccessCardProps {
   event: SuccessEvent;
+  manifest?: TurnManifestEvent;
 }
 
-function formatElapsed(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const totalSec = ms / 1000;
-  if (totalSec < 60) return `${totalSec.toFixed(1)}s`;
-  const mins = Math.floor(totalSec / 60);
-  const secs = Math.round(totalSec % 60);
-  if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
-}
-
-export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event }) => {
+export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, manifest }) => {
   const { theme } = useTheme();
 
   const parts: string[] = [];
+  if (manifest && manifest.created.length > 0) {
+    parts.push(`${manifest.created.length} file${manifest.created.length === 1 ? '' : 's'} created`);
+  }
   if (event.iterations !== undefined) {
     parts.push(`${event.iterations} iter${event.iterations === 1 ? '' : 's'}`);
   }
@@ -31,7 +24,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event }) =>
     parts.push(`${formatTokenCount(event.tokenInfo.used)} tokens`);
   }
   if (event.elapsedMs !== undefined) {
-    parts.push(formatElapsed(event.elapsedMs));
+    parts.push(formatDuration(event.elapsedMs));
   }
 
   return (

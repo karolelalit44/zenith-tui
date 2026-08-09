@@ -174,15 +174,12 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
 
     return (
       <Box key={s.id} flexDirection="row" alignItems="center" paddingLeft={2} paddingRight={1}>
-        {/* Selection marker */}
         <Box width={2} flexShrink={0}>
           <Text color={theme.colors.status.accent}>{isSelected ? '▸' : ' '}</Text>
         </Box>
 
-        {/* Timestamp */}
         <Text color={theme.colors.text.dim}>{timeStr}</Text>
 
-        {/* Mode badge */}
         {modeLabel ? (
           <Text color={isSelected ? theme.colors.status.info : theme.colors.text.dim}>
             {'  '}
@@ -193,7 +190,6 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
           <Text>{'  '}</Text>
         )}
 
-        {/* Title — grows to fill remaining space */}
         <Text
           color={isSelected ? theme.colors.text.bright : theme.colors.text.ethereal}
           bold={isSelected}
@@ -202,7 +198,6 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
           {title}
         </Text>
 
-        {/* Token count — right-aligned */}
         {tokStr ? (
           <Text color={isSelected ? theme.colors.status.warning : theme.colors.text.dim}>
             {'  '}
@@ -217,7 +212,6 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
 
   return (
     <Box flexDirection="column" width="100%">
-      {/* Header */}
       <Box flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2}>
         <Text color={theme.colors.text.ethereal} bold>
           Sessions
@@ -225,7 +219,6 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
         <Text color={theme.colors.text.muted}>esc to close</Text>
       </Box>
 
-      {/* Search input */}
       <Box paddingLeft={2} paddingRight={2} marginTop={1}>
         <Text color={theme.colors.text.muted}>▸ </Text>
         <Text color={theme.colors.text.ethereal}>
@@ -238,12 +231,10 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
         <Text color={theme.colors.text.dim}>{filter.value ? '' : ' Search sessions'}</Text>
       </Box>
 
-      {/* Divider */}
       <Box paddingLeft={2} paddingRight={2} marginTop={1}>
         <Text color={theme.colors.border.muted}>{'─'.repeat(Math.min(process.stdout.columns ?? 80, 76))}</Text>
       </Box>
 
-      {/* Content */}
       <Box flexDirection="column" marginTop={0} minHeight={3}>
         {loading && (
           <Box paddingLeft={4}>
@@ -271,7 +262,6 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
         )}
       </Box>
 
-      {/* Footer */}
       {filtered.length > 0 && (
         <Box paddingLeft={2} paddingRight={2} marginTop={1}>
           <Text color={theme.colors.text.dim}>

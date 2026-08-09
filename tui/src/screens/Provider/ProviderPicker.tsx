@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { SearchListOption } from '../../components/ui/SearchList';
 import { SearchList } from '../../components/ui/SearchList';
-import type { ProviderState } from '../../services/providers/types';
+import type { ProviderCatalogItem } from '../../services/providers/types';
 
 export interface ProviderPickerSelection {
   type: 'provider' | 'custom';
@@ -10,37 +10,34 @@ export interface ProviderPickerSelection {
 }
 
 interface ProviderPickerProps {
-  providers: ProviderState[];
-  connected: string[];
+  providers: ProviderCatalogItem[];
   onSelect: (selection: ProviderPickerSelection) => void;
   onClose: () => void;
 }
 
-export const ProviderPicker: React.FC<ProviderPickerProps> = ({ providers, connected, onSelect, onClose }) => {
+/**
+ * Shared provider selector. Both keyboard navigation and search resolve to the
+ * same ProviderPickerSelection value and the same onSelect handler, so there is
+ * exactly one selection path (defaults, search, keyboard, mouse).
+ */
+export const ProviderPicker: React.FC<ProviderPickerProps> = ({ providers, onSelect, onClose }) => {
   const options = useMemo<SearchListOption<ProviderPickerSelection>[]>(() => {
-    const customProvider = providers.find((provider) => provider.isCustomFlow);
     const list: SearchListOption<ProviderPickerSelection>[] = [];
     for (const provider of providers) {
-      if (provider.isCustomFlow) continue;
+      const isCustom = provider.type === 'custom';
       list.push({
-        title: provider.meta.name,
-        value: { type: 'provider', providerID: provider.id, title: provider.meta.name },
-        category: provider.isPopular ? 'Popular' : 'Providers',
-        footer: provider.hasApiKey ? 'configured' : undefined,
-        gutter: connected.includes(provider.id) ? '✓' : undefined,
-        current: provider.isActive,
-      });
-    }
-    if (customProvider) {
-      list.push({
-        title: 'Other (Custom OpenAI-Compatible)',
-        value: { type: 'custom', providerID: customProvider.id, title: 'Custom OpenAI-Compatible' },
-        category: 'Providers',
-        description: 'Bring your own endpoint',
+        title: provider.name,
+        value: {
+          type: isCustom ? 'custom' : 'provider',
+          providerID: provider.id,
+          title: provider.name,
+        },
+        category: isCustom ? 'Custom' : 'Default',
+        description: isCustom ? 'Bring your own endpoint' : undefined,
       });
     }
     return list;
-  }, [providers, connected]);
+  }, [providers]);
 
   return (
     <SearchList

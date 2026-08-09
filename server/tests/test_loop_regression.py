@@ -10,6 +10,7 @@ import pytest
 
 from server.agents.loop import AgentLoop, _params_label
 from server.config.settings import AppSettings
+from server.domain.errors import RateLimitError
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
 from server.toolkit import create_default_registry
@@ -101,6 +102,32 @@ class _ConsecutiveFailureProvider(BaseProvider):
         return ["consec-model"]
 
 
+class _RateLimitProvider(BaseProvider):
+    """Raises a non-recoverable rate limit on the first stream call."""
+
+    def __init__(self):
+        super().__init__("ratelimit", "ratelimit-model")
+
+    async def complete(self, messages, tools=None):
+        raise RateLimitError(
+            "free-models-per-day quota", provider="ratelimit", retry_after=3600, recoverable=False
+        )
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        # An async generator that raises on first iteration (matches LLMProvider).
+        if False:
+            yield None
+        raise RateLimitError(
+            "free-models-per-day quota", provider="ratelimit", retry_after=3600, recoverable=False
+        )
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["ratelimit-model"]
+
+
 @pytest.fixture
 def test_config(temp_dir):
     return AppSettings(
@@ -174,9 +201,9 @@ async def test_scattered_failures_do_not_trigger_reflection_limit(test_config):
         and e.data.get("success")
     ]
     assert len(writes) == 6, f"expected 6 successful writes, got {len(writes)}"
-    assert any(
-        (e.data.get("text") or "").startswith("The task is complete") for e in events
-    ), "final answer never emitted"
+    assert any((e.data.get("text") or "").startswith("The task is complete") for e in events), (
+        "final answer never emitted"
+    )
 
 
 @pytest.mark.asyncio
@@ -196,6 +223,21 @@ async def test_consecutive_failures_trigger_reflection_limit(test_config):
     ]
     assert limit_errors, "REFLECTION_LIMIT should fire on a streak of consecutive failures"
     assert limit_errors[0].data.get("recoverable") is True
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_error_does_not_emit_empty_response(test_config):
+    """T3: a provider error must not also trigger a spurious EMPTY_RESPONSE."""
+    provider = _RateLimitProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Do the work", "s1", [], "build"):
+        events.append(event)
+
+    codes = [e.data.get("code") for e in events if e.kind == EventKind.ERROR]
+    assert "RATE_LIMIT" in codes, f"expected the rate-limit error, got: {codes}"
+    assert "EMPTY_RESPONSE" not in codes, f"spurious empty-response error emitted: {codes}"
 
 
 class _UsageResetProvider(BaseProvider):
@@ -286,5 +328,99 @@ async def test_non_code_prompt_still_gets_tools_on_iteration_one(test_config):
     assert provider.first_turn_tools is not None, "model was not offered any tools"
     assert provider.first_turn_tools, "iteration-1 tool list must not be empty"
     offered = {t["function"]["name"] for t in provider.first_turn_tools}
-    assert "websearch" in offered, "research tools must be offered for a research prompt"
     assert "file_read" in offered
+    # T1 (token strategy): the lean seed no longer ships the large web schemas on
+    # every turn. Research tools stay reachable - a direct call to an unseeded
+    # tool auto-escalates it, and discover_capabilities lists what exists
+    # (see test_build_seed_is_lean_and_web_tools_still_escalate).
+    assert "websearch" not in offered, "web schemas should not be in the lean default seed"
+    assert "discover_capabilities" in offered, "discovery tools must remain offered"
+
+
+class _ManifestProvider(BaseProvider):
+    """Emits one file_write then succeeds, so the loop finishes with a manifest."""
+
+    def __init__(self):
+        super().__init__("manifest", "manifest-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        if self.call_count == 1:
+            return '```tool\n{"tool": "file_write", "params": {"path": "test_manifest.txt", "content": "ok"}}\n```'
+        return "Done. The file has been created successfully."
+
+    stream = _stream_from_complete
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["manifest-model"]
+
+
+@pytest.mark.asyncio
+async def test_success_path_emits_turn_manifest(test_config):
+    """P0-5: a successful turn must emit turn_manifest before the terminal success."""
+    from server.domain.events import EventKind
+
+    provider = _ManifestProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Create a file", "s1", [], "build"):
+        events.append(event)
+
+    kinds = [e.kind for e in events]
+    assert EventKind.TURN_MANIFEST in kinds, "turn_manifest event missing on success"
+    manifest_events = [e for e in events if e.kind == EventKind.TURN_MANIFEST]
+    manifest = manifest_events[-1].data
+    assert "test_manifest.txt" in manifest.get("created", [])
+    success_events = [e for e in events if e.kind == EventKind.SUCCESS]
+    assert len(success_events) == 1
+    assert "manifest" in success_events[0].data, "success event missing manifest payload"
+
+
+class _StalledProvider(BaseProvider):
+    """Repeatedly emits the same file_write, forcing stall-finalize."""
+
+    def __init__(self):
+        super().__init__("stalled", "stalled-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        return (
+            "I will keep working.\n"
+            '```tool\n{"tool": "file_write", "params": {"path": "stalled.txt", "content": "x"}}\n```'
+        )
+
+    stream = _stream_from_complete
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["stalled-model"]
+
+
+@pytest.mark.asyncio
+async def test_stall_finalize_emits_turn_manifest(test_config):
+    """P0-5: a stalled turn must emit turn_manifest with remaining steps."""
+    from server.domain.events import EventKind
+
+    provider = _StalledProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Stall me", "s1", [], "build"):
+        events.append(event)
+
+    kinds = [e.kind for e in events]
+    assert EventKind.TURN_MANIFEST in kinds, "turn_manifest event missing on stall"
+    manifest_events = [e for e in events if e.kind == EventKind.TURN_MANIFEST]
+    manifest = manifest_events[-1].data
+    assert manifest.get("stalled") is True
+    success_events = [e for e in events if e.kind == EventKind.SUCCESS]
+    assert len(success_events) == 1
+    assert "manifest" in success_events[0].data, "stall success missing manifest payload"

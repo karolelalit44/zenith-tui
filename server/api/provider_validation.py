@@ -19,9 +19,11 @@ from server.providers.validation import validate_provider
 
 from .schemas import (
     ModelStoreRequest,
+    ProviderCatalogItem,
     ProviderInfo,
     ProviderListResponse,
     ProviderModelInfo,
+    ProviderModelListResponse,
     ProviderModelRequest,
     ProviderValidationRequest,
 )
@@ -134,11 +136,21 @@ def get_provider_list(db_path: str | None = None) -> ProviderListResponse:
     db_path = db_path or resolve_db_path()
     catalog = load_catalog(db_path)
     active = ""
+    max_context_tokens = 0
+    if Path(db_path).exists():
+        try:
+            from server.config.loader import load_config
+
+            max_context_tokens = int(load_config().max_context_tokens)
+        except Exception:
+            pass
     if not Path(db_path).exists():
         infos = [
             build_provider_info(pid, {}, catalog, active) for pid in catalog.get("providers", {})
         ]
-        return ProviderListResponse(all=infos, active=active, connected=[])
+        return ProviderListResponse(
+            all=infos, active=active, connected=[], max_context_tokens=max_context_tokens
+        )
     active = ""
     providers_dict: dict[str, Any] = {}
     try:
@@ -157,7 +169,70 @@ def get_provider_list(db_path: str | None = None) -> ProviderListResponse:
         infos.append(info)
         if info.has_api_key:
             connected.append(pid)
-    return ProviderListResponse(all=infos, active=active, connected=connected)
+    return ProviderListResponse(
+        all=infos, active=active, connected=connected, max_context_tokens=max_context_tokens
+    )
+
+
+def get_provider_catalog(db_path: str | None = None) -> list[ProviderCatalogItem]:
+    """Return only the available providers (id/name/type) — no models.
+
+    Single responsibility: the provider list API must not bundle the model
+    catalog; models are fetched separately via get_provider_models().
+    """
+    db_path = db_path or resolve_db_path()
+    catalog = load_catalog(db_path)
+    providers = catalog.get("providers", {})
+    items: list[ProviderCatalogItem] = []
+    for pid in providers:
+        entry = providers[pid]
+        items.append(
+            ProviderCatalogItem(
+                id=pid,
+                name=entry.get("name") or pid,
+                type="custom" if entry.get("custom_flow") else "default",
+            )
+        )
+    seen: set[str] = set()
+    ordered: list[ProviderCatalogItem] = []
+    for item in items:
+        if item.id in seen:
+            continue
+        seen.add(item.id)
+        ordered.append(item)
+    return ordered
+
+
+def get_provider_models(
+    provider_id: str,
+    offset: int = 0,
+    limit: int = 50,
+    db_path: str | None = None,
+) -> ProviderModelListResponse:
+    """Return the models for a single provider, taken from the authoritative
+    backend catalog/storage rather than any frontend hardcoded list.
+
+    Models are always read fresh from the database so newly configured models
+    (e.g. an expanded Groq/NVIDIA catalog) appear without a frontend patch.
+    Backend pagination is preferred; the caller may request offset/limit.
+    """
+    db_path = db_path or resolve_db_path()
+    catalog = load_catalog(db_path)
+    active = ""
+    providers_dict: dict[str, Any] = {}
+    if Path(db_path).exists():
+        try:
+            active, providers_dict = read_provider_config_full(db_path)
+        except Exception as e:
+            logger.warning("get_provider_models: read failed: %s", e)
+    p = providers_dict.get(provider_id, {})
+    info = build_provider_info(provider_id, p, catalog, active)
+    all_models = list(info.models.values())
+    total = len(all_models)
+    safe_offset = max(0, offset)
+    safe_limit = max(0, limit)
+    page = all_models[safe_offset : safe_offset + safe_limit] if safe_limit else []
+    return ProviderModelListResponse(models=page, total=total, offset=safe_offset, limit=safe_limit)
 
 
 def set_provider_model(

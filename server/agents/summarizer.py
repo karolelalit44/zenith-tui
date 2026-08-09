@@ -37,10 +37,7 @@ class ConversationSummarizer:
             ):
                 kwargs["model"] = self.config.weak_model
             result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    asyncio.run,
-                    self.provider.complete([{"role": "user", "content": prompt}], **kwargs),
-                ),
+                self.provider.complete([{"role": "user", "content": prompt}], **kwargs),
                 timeout=30.0,
             )
         except TimeoutError:

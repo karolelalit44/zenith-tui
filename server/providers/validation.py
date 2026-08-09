@@ -171,6 +171,21 @@ async def validate_provider(
         key: ValidationStep(key=key, label=label) for key, label in STEP_LABELS.items()
     }
 
+    def _mask_key(value: str) -> str:
+        if not value:
+            return ""
+        if len(value) <= 4:
+            return "*" * len(value)
+        return f"{value[:4]}...{value[-2:]}" if len(value) > 8 else value[:4] + "***"
+
+    logger.info(
+        "validate request: provider=%s api_key=%s base_url=%s model=%s",
+        provider_id,
+        _mask_key(api_key),
+        base_url or "(default)",
+        model or "(default)",
+    )
+
     def _update(key: str, status: ValidationStepStatus, message: str = "") -> None:
         steps[key] = ValidationStep(key=key, label=STEP_LABELS[key], status=status, message=message)
 
@@ -199,6 +214,16 @@ async def validate_provider(
             ValidationError(code="UNKNOWN_PROVIDER", message=msg),
         )
         return
+    logger.info(
+        "validate resolved: provider=%s name=%s adapter=%s base_url=%s model=%s key_present=%s key_prefix=%s",
+        provider_id,
+        entry.get("name", provider_id),
+        entry.get("adapter"),
+        cfg["base_url"],
+        cfg["model"],
+        bool(cfg["api_key"]),
+        cfg.get("api_key_prefix"),
+    )
     _update("config", ValidationStepStatus.SUCCESS, f"Using {entry.get('name', provider_id)}")
     yield _step_event(
         "config", ValidationStepStatus.SUCCESS, f"Using {entry.get('name', provider_id)}"

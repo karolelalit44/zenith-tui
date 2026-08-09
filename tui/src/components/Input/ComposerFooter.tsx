@@ -18,6 +18,7 @@ interface ComposerFooterProps {
   running: boolean;
   disabled: boolean;
   inputEmpty: boolean;
+  tokenScope?: 'turn' | 'session';
 }
 
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
@@ -32,6 +33,7 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     running,
     disabled,
     inputEmpty,
+    tokenScope,
   }) => {
     const { theme } = useTheme();
     const [, forceUpdate] = useState(0);
@@ -54,6 +56,7 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
       running,
       disabled,
       inputEmpty,
+      tokenScope,
     });
 
     return (
@@ -74,7 +77,7 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
           <Text color={theme.colors.status.info}>{layout.tokenCount}</Text>
           <Text color={theme.colors.text.muted}>/</Text>
           <Text color={theme.colors.text.bright}>{layout.maxTokens}</Text>
-          <Text color={theme.colors.text.muted}> tokens </Text>
+          <Text color={theme.colors.text.muted}> tokens{layout.scopeLabel}</Text>
           {layout.showGauge ? <ComposerGauge usedTokens={totalTokens} maxTokens={effectiveMaxTokens} /> : null}
           <Text color={theme.colors.text.muted}> | </Text>
           {running ? (

@@ -4,6 +4,7 @@ import { providerRepository } from '../../services/providers/ProviderRepository'
 import { providerService } from '../../services/providers/ProviderService';
 import type {
   ModelSelection,
+  ProviderCatalogItem,
   ProviderId,
   ProviderState,
   ValidateProviderOptions,
@@ -15,34 +16,37 @@ import { ModelPicker } from './ModelPicker';
 import { ProviderPicker, type ProviderPickerSelection } from './ProviderPicker';
 import { ValidationProgress } from './ValidationProgress';
 
-type ProviderFlowPhase = 'pick' | 'key' | 'custom' | 'validating' | 'models';
+/**
+ * Default-provider flow:
+ *   Choose Provider → Choose Model → Enter API Key → Validate → Mark active.
+ * Custom providers use their own dedicated form (see handleCustomSubmit).
+ */
+type ProviderFlowPhase = 'pick' | 'models' | 'key' | 'custom' | 'validating';
 
 export interface ProviderFlowProps {
   onClose: () => void;
   onComplete?: (sel: ModelSelection) => void;
-
   initialProviderID?: ProviderId;
 }
 
 export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete, initialProviderID }) => {
-  const [phase, setPhase] = useState<ProviderFlowPhase>(() => (initialProviderID ? 'key' : 'pick'));
-  const [providers, setProviders] = useState<ProviderState[]>(() => providerService.getAllProviders());
-  const [providerID, setProviderID] = useState<ProviderId>(
-    () => initialProviderID ?? providerService.getActiveProviderId(),
-  );
+  const [phase, setPhase] = useState<ProviderFlowPhase>(initialProviderID ? 'models' : 'pick');
+  const [catalogItems, setCatalogItems] = useState<ProviderCatalogItem[]>([]);
+  const [providers, setProviders] = useState<ProviderState[]>([]);
+  const [providerID, setProviderID] = useState<ProviderId>(initialProviderID ?? '');
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [validateOptions, setValidateOptions] = useState<ValidateProviderOptions>({});
-  const [prevPhase, setPrevPhase] = useState<ProviderFlowPhase>('key');
+  const [prevPhase, setPrevPhase] = useState<ProviderFlowPhase>('pick');
 
   useEffect(() => {
-    providerService.refreshFromBackend().then(() => {
-      setProviders(providerService.getAllProviders());
-    });
+    providerService.refreshFromBackend().then(() => setProviders(providerService.getAllProviders()));
+    providerRepository.fetchProviderCatalog().then(setCatalogItems);
   }, []);
 
-  const provider = useMemo(
-    () => providers.find((item) => item.id === providerID) ?? providerService.getProviderState(providerID),
-    [providers, providerID],
-  );
+  const provider = useMemo<ProviderState>(() => {
+    return providers.find((item) => item.id === providerID) ?? providerService.getProviderState(providerID);
+  }, [providers, providerID]);
+
   const commitModel = useCallback(
     async (sel: ModelSelection) => {
       await providerRepository.setModel(sel.providerID, sel.modelID);
@@ -55,30 +59,27 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
   );
 
   const handlePick = useCallback((selection: ProviderPickerSelection) => {
-    if (selection.type === 'custom') {
-      setProviderID(selection.providerID!);
-      setPhase('custom');
-      return;
-    }
-    const id = selection.providerID!;
-    setProviderID(id);
-    const state = providerService.getProviderState(id);
-    setPhase(state.isCustomFlow ? 'custom' : state.hasApiKey ? 'models' : 'key');
+    setProviderID(selection.providerID ?? '');
+    setSelectedModel(null);
+    setPhase(selection.type === 'custom' ? 'custom' : 'models');
+  }, []);
+
+  const handleModelSelect = useCallback((sel: ModelSelection) => {
+    setProviderID(sel.providerID);
+    setSelectedModel(sel.modelID);
+    setPhase('key');
   }, []);
 
   const handleKeySubmit = useCallback(
     (values: Record<string, string>) => {
       setPrevPhase('key');
-      const targetState = providerService.getProviderState(providerID);
-      const targetFlow = providers.find((item) => item.id === providerID);
       setValidateOptions({
         apiKey: values.apiKey,
-        baseUrl: (targetFlow?.baseUrlStyle ?? targetState.baseUrlStyle) === 'user' ? values.baseUrl : undefined,
-        model: targetState.config.model || targetState.meta.defaultModel,
+        model: selectedModel ?? provider.meta.defaultModel ?? '',
       });
       setPhase('validating');
     },
-    [providerID, providers],
+    [selectedModel, provider],
   );
 
   const handleCustomSubmit = useCallback((values: Record<string, string>) => {
@@ -96,50 +97,41 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
     async (result: ValidationResult) => {
       await providerService.refreshFromBackend();
       setProviders(providerService.getAllProviders());
-
-      const resolvedModel = validateOptions.model || provider.meta.defaultModel;
-      if (resolvedModel) {
-        modelStore.set({ providerID, modelID: resolvedModel });
-      }
-      const discovered = result.models ?? [];
-      if (discovered.length > 0) {
-        setPhase('models');
-        return;
-      }
-      await commitModel({
-        providerID,
-        modelID: resolvedModel,
-      });
+      const resolvedModel =
+        selectedModel || validateOptions.model || result.models?.[0]?.id || provider.meta.defaultModel || '';
+      if (!resolvedModel) return;
+      await commitModel({ providerID: providerID || provider.meta.id, modelID: resolvedModel });
     },
-    [providerID, validateOptions.model, provider.meta.defaultModel, commitModel],
-  );
-
-  const handleModelSelect = useCallback(
-    (sel: ModelSelection) => {
-      void commitModel(sel);
-    },
-    [commitModel],
+    [providerID, selectedModel, validateOptions.model, provider, commitModel],
   );
 
   switch (phase) {
     case 'pick':
+      return <ProviderPicker providers={catalogItems} onSelect={handlePick} onClose={onClose} />;
+    case 'models':
       return (
-        <ProviderPicker
-          providers={providers}
-          connected={providerService.getConnectedIds()}
-          onSelect={handlePick}
-          onClose={onClose}
+        <ModelPicker
+          providerID={providerID || undefined}
+          providerName={provider.meta.name || providerID}
+          onSelect={handleModelSelect}
+          onClose={() => setPhase('pick')}
         />
       );
     case 'key':
-      return <ApiKeyPrompt provider={provider} onBack={() => setPhase('pick')} onSubmit={handleKeySubmit} />;
+      return (
+        <ApiKeyPrompt
+          provider={{ ...provider, meta: { ...provider.meta, name: provider.meta.name || providerID } }}
+          onBack={() => setPhase('models')}
+          onSubmit={handleKeySubmit}
+        />
+      );
     case 'custom':
       return <CustomProviderPrompt onBack={() => setPhase('pick')} onSubmit={handleCustomSubmit} />;
     case 'validating':
       return (
         <ValidationProgress
-          providerID={providerID}
-          providerName={provider.meta.name}
+          providerID={providerID || provider.meta.id}
+          providerName={provider.meta.name || providerID}
           options={validateOptions}
           onResult={(result) => {
             if (result.valid) void handleValidResult(result);
@@ -147,7 +139,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
           onClose={() => setPhase(prevPhase)}
         />
       );
-    case 'models':
-      return <ModelPicker providerID={providerID} onSelect={handleModelSelect} onClose={() => setPhase('pick')} />;
+    default:
+      return null;
   }
 };

@@ -1,6 +1,8 @@
 import { Box, Text } from 'ink';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { ASCII_SPINNER_FRAMES } from '../../../constants/animation';
+import { useAnimationTick } from '../../../context/AnimationContext';
+import { modelStore } from '../../../services/providers/ModelStore';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { MessageEvent } from '../../../types/scenario';
 import { TerminalMarkdown } from './TerminalMarkdown';
@@ -11,18 +13,13 @@ interface MessageBlockProps {
 
 export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
-  const [frameIdx, setFrameIdx] = useState(0);
-
-  useEffect(() => {
-    if (!event.partial) return;
-    const id = setInterval(() => setFrameIdx((v) => (v + 1) % ASCII_SPINNER_FRAMES.length), 100);
-    return () => clearInterval(id);
-  }, [event.partial]);
+  const tick = useAnimationTick();
 
   const hasContent = event.text && event.text.trim().length > 0;
+  const modelLabel = modelStore.current ? modelStore.toDisplayString(modelStore.current) : '';
 
   const icon = event.partial ? (
-    <Text color={theme.colors.status.accent}> {ASCII_SPINNER_FRAMES[frameIdx % ASCII_SPINNER_FRAMES.length]}</Text>
+    <Text color={theme.colors.status.accent}> {ASCII_SPINNER_FRAMES[tick % ASCII_SPINNER_FRAMES.length]}</Text>
   ) : null;
 
   return (
@@ -32,6 +29,10 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event }) 
           ◇
         </Text>
         <Text color={theme.colors.text.muted}> Assistant</Text>
+        {modelLabel && <Text color={theme.colors.text.dim}> ({modelLabel})</Text>}
+        {typeof event.iteration === 'number' && event.iteration > 0 && (
+          <Text color={theme.colors.text.dim}> · turn {event.iteration}</Text>
+        )}
         {icon}
       </Box>
       {hasContent && (

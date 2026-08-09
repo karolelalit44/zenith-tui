@@ -5,8 +5,6 @@ from pathlib import Path
 
 from server.config.constants import DEFAULT_CONTEXT_WINDOW
 
-REFLECTION_ERROR_LIMIT = 6
-
 
 def reflection_error_limit(context_window: int = DEFAULT_CONTEXT_WINDOW) -> int:
     if context_window <= 32000:

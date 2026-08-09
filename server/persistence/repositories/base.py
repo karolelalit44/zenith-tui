@@ -10,6 +10,16 @@ _logger = logging.getLogger(__name__)
 _catalog_cache: dict | None = None
 
 
+def invalidate_catalog_cache() -> None:
+    """Drop any cached catalog so subsequent reads reflect the live database.
+
+    Migration runs (and catalog reseeds) must call this to avoid serving a
+    stale provider/model list (e.g. Groq showing old models after an update).
+    """
+    global _catalog_cache
+    _catalog_cache = None
+
+
 def load_catalog(db_path: str | None = None) -> dict:
     global _catalog_cache
     if db_path is None:

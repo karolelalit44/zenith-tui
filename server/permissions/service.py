@@ -4,6 +4,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -39,20 +40,25 @@ class PermissionService:
         risk_level: RiskLevel,
         params: dict[str, Any],
         session_id: str,
-    ) -> PermissionDecision: ...
+    ) -> PermissionDecision:
+        raise NotImplementedError
 
     async def grant_persistent(
         self, tool_name: str, decision: PermissionDecision, session_id: str | None = None
-    ) -> None: ...
+    ) -> None:
+        raise NotImplementedError
 
-    async def revoke_persistent(self, tool_name: str, session_id: str | None = None) -> None: ...
+    async def revoke_persistent(self, tool_name: str, session_id: str | None = None) -> None:
+        raise NotImplementedError
 
-    async def get_grants(self, session_id: str) -> list[PermissionGrant]: ...
+    async def get_grants(self, session_id: str) -> list[PermissionGrant]:
+        raise NotImplementedError
 
-    async def clear_session(self, session_id: str) -> None: ...
+    async def clear_session(self, session_id: str) -> None:
+        raise NotImplementedError
 
     async def get_decision(self, tool_name: str, session_id: str) -> PermissionDecision | None:
-        pass
+        raise NotImplementedError
 
 
 class DefaultPermissionService(PermissionService):
@@ -61,6 +67,7 @@ class DefaultPermissionService(PermissionService):
         self._repo = repo
         self._pending: dict[str, asyncio.Future[PermissionDecision]] = {}
         self._load_started = False
+        self._callback: Callable[[PermissionRequest], Any] | None = None
 
     async def _ensure_loaded(self) -> None:
         if self._repo is None or self._load_started:

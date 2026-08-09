@@ -52,10 +52,23 @@ def tool_result(
     )
 
 
-def error(message: str, session_id: str, code: str = "", recoverable: bool = False) -> Event:
-    return event(
-        EventKind.ERROR, {"message": message, "code": code, "recoverable": recoverable}, session_id
-    )
+def error(
+    message: str,
+    session_id: str,
+    code: str = "",
+    recoverable: bool = False,
+    provider: str = "",
+    action: str = "",
+    hint: str = "",
+) -> Event:
+    data: dict = {"message": message, "code": code, "recoverable": recoverable}
+    if provider:
+        data["provider"] = provider
+    if action:
+        data["action"] = action
+    if hint:
+        data["hint"] = hint
+    return event(EventKind.ERROR, data, session_id)
 
 
 def warning(message: str, session_id: str, code: str = "", extra: dict | None = None) -> Event:
@@ -72,6 +85,15 @@ def success(
     if token_info:
         data["tokenInfo"] = token_info
     return event(EventKind.SUCCESS, data, session_id)
+
+
+def turn_manifest(payload: dict, session_id: str) -> Event:
+    """End-of-turn summary of files created/modified and remaining work.
+
+    Emitted before the terminal success event so the UI can render "Built
+    these files; not yet done: ..." and offer a Continue path.
+    """
+    return event(EventKind.TURN_MANIFEST, dict(payload), session_id)
 
 
 def progress(percent: int, status: str, session_id: str, iteration: int = 0) -> Event:

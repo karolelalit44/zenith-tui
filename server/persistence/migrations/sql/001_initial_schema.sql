@@ -160,16 +160,6 @@ CREATE TABLE budget_settings (
     updated_at       TEXT NOT NULL
 );
 
-CREATE TABLE budget_events (
-    id            TEXT PRIMARY KEY,
-    session_id    TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
-    event_type    TEXT NOT NULL,
-    current_cost  REAL NOT NULL DEFAULT 0.0,
-    budget_limit  REAL NOT NULL DEFAULT 0.0,
-    message       TEXT NOT NULL DEFAULT '',
-    created_at    TEXT NOT NULL
-);
-
 -- ---------------------------------------------------------------------------
 -- Session management
 -- ---------------------------------------------------------------------------

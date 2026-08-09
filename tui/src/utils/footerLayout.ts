@@ -20,6 +20,7 @@ export interface FooterLayoutInput {
   running: boolean;
   disabled: boolean;
   inputEmpty: boolean;
+  tokenScope?: 'turn' | 'session';
 }
 
 export interface FooterLayoutOutput {
@@ -33,6 +34,7 @@ export interface FooterLayoutOutput {
   gauge: string;
   status: string;
   showGauge: boolean;
+  scopeLabel: string;
 }
 
 export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutput {
@@ -41,6 +43,7 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
 
   const tokenCount = formatTokenCount(input.totalTokens);
   const maxTokens = formatTokenCount(input.effectiveMaxTokens);
+  const scopeLabel = input.tokenScope === 'turn' ? ' (turn)' : input.tokenScope === 'session' ? ' (session)' : '';
 
   const percent =
     input.effectiveMaxTokens > 0 ? Math.min(100, Math.round((input.totalTokens / input.effectiveMaxTokens) * 100)) : 0;
@@ -56,7 +59,7 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
         : '↵ send';
 
   const leftFixed = modeLabel.length + 4;
-  const coreFixed = 3 + tokenCount.length + 1 + maxTokens.length + 8 + 3 + status.length;
+  const coreFixed = 3 + tokenCount.length + 1 + maxTokens.length + 8 + 3 + status.length + scopeLabel.length;
 
   let showGauge = true;
   let rightFixed = coreFixed + gauge.length;
@@ -102,5 +105,6 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     gauge,
     status,
     showGauge,
+    scopeLabel,
   };
 }

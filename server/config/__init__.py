@@ -1,6 +1,5 @@
 from .constants import (
     CONTEXT_SUMMARY_THRESHOLD,
-    DEFAULT_BASH_TIMEOUT,
     DEFAULT_HOST,
     DEFAULT_PORT,
     HEALTH_PATH,
@@ -15,7 +14,6 @@ from .settings import DEFAULTS, AppSettings, BootstrapDefaults, ToolConfig
 __all__ = [
     "CONTEXT_SUMMARY_THRESHOLD",
     "DEFAULTS",
-    "DEFAULT_BASH_TIMEOUT",
     "DEFAULT_HOST",
     "DEFAULT_PORT",
     "HEALTH_PATH",

@@ -52,21 +52,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
 
     return (
       <Box key={session.id || idx} flexDirection="row" alignItems="center" width="100%">
-        {/* Dim bullet */}
         <Text color={theme.colors.text.dim}>· </Text>
 
-        {/* Timestamp */}
         <Text color={theme.colors.text.dim}>{timeStr}</Text>
 
-        {/* Mode */}
         {modeLabel ? <Text color={theme.colors.text.dim}>{`  ${modeLabel}  `}</Text> : <Text>{'  '}</Text>}
 
-        {/* Title — fills remaining space */}
         <Text color={theme.colors.text.ethereal} wrap="truncate-end">
           {title}
         </Text>
 
-        {/* Token count */}
         {tokStr ? <Text color={theme.colors.text.dim}>{`  ${tokStr}`}</Text> : null}
       </Box>
     );

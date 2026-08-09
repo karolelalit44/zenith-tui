@@ -87,13 +87,33 @@ export interface ProviderInfo {
   supports_thinking_headers: boolean;
   custom_flow: boolean;
   env_keys: string[];
+  max_context_tokens?: number;
 }
 
 export interface ProviderListResponse {
   all: ProviderInfo[];
   active: string;
   connected: string[];
+  max_context_tokens?: number;
 }
+
+/** Lightweight provider catalog item — the `/providers` list carries no models. */
+export interface ProviderCatalogItem {
+  id: string;
+  name: string;
+  type: 'default' | 'custom';
+}
+
+/** Paginated models returned by `GET /providers/{id}/models`. */
+export interface ProviderModelListResponse {
+  models: ProviderModelInfo[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+/** Number of models rendered per page in the shared model selector. */
+export const MODELS_PER_PAGE = 5;
 
 export interface ValidationStep {
   key: string;

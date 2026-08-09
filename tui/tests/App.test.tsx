@@ -26,6 +26,16 @@ const waitForFrame = async (getFrame: () => string, predicate: (frame: string) =
   return frame;
 };
 
+/**
+ * Waits until the CommandInput is mounted and enabled (its '❯' prompt is
+ * rendered). stdin writes sent before the input exists are dropped silently, so
+ * every interactive test must gate its first keystroke on this instead of a
+ * fixed sleep (fixed waits race the async startup under parallel load).
+ */
+const waitForReady = async (getFrame: () => string, timeoutMs = 10_000) => {
+  return waitForFrame(getFrame, (f) => f.includes('❯'), timeoutMs);
+};
+
 // ── Mock backend for tests that need the main app ─────────────────
 
 // Mock WebSocket to fail immediately in tests (no real backend running)
@@ -128,7 +138,7 @@ test('Input is ready after startup', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('hello');
   const frame = await waitForFrame(lastFrame, (f) => f.includes('hello'));
@@ -140,10 +150,9 @@ test('Submitting a prompt triggers scenario flow', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('create a todo app');
-  await wait(300);
   // Submit with '\r' (real Enter → key.return). A bare '\n' is parsed by ink as
   // key.newline with input='', so it never reaches the composer's submit path.
   stdin.write('\r');
@@ -157,10 +166,10 @@ test('/plan command switches to Plan mode', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('/plan');
-  await wait(400);
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
   stdin.write('\r');
 
   const frame = await waitForFrame(lastFrame, (f) => f.includes('PLAN'));
@@ -172,10 +181,10 @@ test('/build command switches to Build mode', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('/build');
-  await wait(400);
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
   stdin.write('\r');
 
   const frame = await waitForFrame(lastFrame, (f) => f.includes('BUILD'));
@@ -189,7 +198,7 @@ test('slash menu opens inline without hiding the input', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('/');
 
@@ -202,7 +211,7 @@ test('slash menu filters as the user types', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('/pl');
 
@@ -216,7 +225,7 @@ test('slash menu stays closed for text that is not a slash command', async () =>
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('Hello /');
   await wait(300);
@@ -231,7 +240,7 @@ test('Esc closes the slash menu but keeps the input', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('/plan');
   await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
@@ -247,10 +256,9 @@ test('Escape during scenario stops execution', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('test');
-  await wait(200);
   stdin.write('\r');
 
   const running = await waitForFrame(lastFrame, (f) => /Working|Cannot connect to backend/.test(f));
@@ -267,10 +275,9 @@ test('Full Build Scenario shows backend error', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('create a todo app');
-  await wait(400);
   stdin.write('\r');
 
   const frame = await waitForFrame(lastFrame, (f) => f.includes('Cannot connect to backend'));
@@ -282,15 +289,14 @@ test('Full Plan Scenario shows backend error', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();
 
-  await wait(500);
+  await waitForReady(lastFrame);
 
   stdin.write('/plan');
-  await wait(400);
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
   stdin.write('\r');
   await waitForFrame(lastFrame, (f) => f.includes('PLAN'));
 
   stdin.write('design a REST API');
-  await wait(400);
   stdin.write('\r');
 
   const frame = await waitForFrame(lastFrame, (f) => f.includes('Cannot connect to backend'));

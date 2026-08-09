@@ -1,4 +1,9 @@
-from server.api.provider_validation import get_provider_list, set_provider_model
+from server.api.provider_validation import (
+    get_provider_catalog,
+    get_provider_list,
+    get_provider_models,
+    set_provider_model,
+)
 from server.api.schemas import ProviderModelRequest
 from server.persistence import provider_config_repo
 from server.persistence.connection import Database
@@ -69,6 +74,55 @@ def test_get_provider_list_missing_db_empty():
     result = get_provider_list(db_path=":memory:")
     assert result.all == []
     assert result.connected == []
+
+
+def test_get_provider_catalog_returns_only_metadata(tmp_path):
+    db_file = str(tmp_path / "test.db")
+    _bootstrap_db(db_file)
+    items = get_provider_catalog(db_path=db_file)
+    ids = [i.id for i in items]
+    assert "nvidia" in ids
+    assert "openrouter" in ids
+    assert "custom" in ids
+    for item in items:
+        # Provider list carries no models — models are fetched separately.
+        assert not hasattr(item, "models")
+        assert item.type in ("default", "custom")
+    assert next(i for i in items if i.id == "custom").type == "custom"
+    assert next(i for i in items if i.id == "nvidia").type == "default"
+    assert next(i for i in items if i.id == "openrouter").type == "default"
+
+
+def test_get_provider_models_paginated_and_complete(tmp_path):
+    db_file = str(tmp_path / "test.db")
+    _bootstrap_db(db_file)
+    res = get_provider_models("groq", offset=0, limit=2, db_path=db_file)
+    assert res.total >= 2
+    assert len(res.models) == min(2, res.total)
+    assert res.offset == 0
+    assert res.limit == 2
+    all_res = get_provider_models("groq", offset=0, limit=1000, db_path=db_file)
+    assert all_res.total == len(all_res.models)
+    # The expanded Groq catalog (migration 006) must be surfaced here.
+    assert "llama-3.3-70b-versatile" in [m.id for m in all_res.models]
+
+
+def test_get_provider_models_offset_paginates(tmp_path):
+    db_file = str(tmp_path / "test.db")
+    _bootstrap_db(db_file)
+    first = get_provider_models("groq", offset=0, limit=1, db_path=db_file)
+    second = get_provider_models("groq", offset=1, limit=1, db_path=db_file)
+    assert first.total == second.total
+    assert first.models and second.models
+    assert first.models[0].id != second.models[0].id
+
+
+def test_get_provider_models_unknown_empty(tmp_path):
+    db_file = str(tmp_path / "test.db")
+    _bootstrap_db(db_file)
+    res = get_provider_models("nonexistent", db_path=db_file)
+    assert res.total == 0
+    assert res.models == []
 
 
 def test_get_provider_list_after_auth_and_model(tmp_path):

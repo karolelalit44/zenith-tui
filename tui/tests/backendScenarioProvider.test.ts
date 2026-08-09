@@ -214,4 +214,32 @@ describe('Context compaction events map to typed events (no UNKNOWN_EVENT)', () 
     expect(evt.message).toContain('60000');
     expect(evt.message).not.toContain('Unknown event');
   });
+
+  it('maps turn_manifest to a typed event (no UNKNOWN_EVENT)', () => {
+    const [evt] = runOnce('turn_manifest', {
+      created: ['a.txt'],
+      modified: ['b.txt'],
+      remaining: ['x'],
+      completed: false,
+      stalled: true,
+      files: [
+        { path: 'a.txt', exists: true, size: 123 },
+        { path: 'b.txt', exists: true, size: 45 },
+      ],
+    });
+    expect(evt.kind).toBe('turn_manifest');
+    expect(evt).toMatchObject({
+      created: ['a.txt'],
+      modified: ['b.txt'],
+      remaining: ['x'],
+      completed: false,
+      stalled: true,
+    });
+  });
+
+  it('maps message iteration when the server provides it', () => {
+    const [evt] = runOnce('message', { text: 'done', partial: false, iteration: 3 });
+    expect(evt.kind).toBe('message');
+    expect(evt).toMatchObject({ text: 'done', partial: false, iteration: 3 });
+  });
 });

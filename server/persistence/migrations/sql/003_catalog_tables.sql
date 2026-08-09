@@ -1,9 +1,9 @@
 -- 003: reference provider catalog tables
 --
 -- SQL-backed provider catalog (the SQL source of truth for the provider list,
--- provider metadata, and curated model details). Replaces the old
--- provider_catalog.json reference file: /startup/providers and the config
--- loader enrich from these tables instead of a JSON file.
+-- provider metadata, and curated model details): /startup/providers and the
+-- config loader enrich from these tables instead of a JSON file. The former
+-- server/config/provider_catalog.json was removed; flags now live here.
 --
 -- catalog_providers: static provider metadata (name, swatch, adapter,
 -- config_fields, capabilities, ...). User state (API keys, active provider,

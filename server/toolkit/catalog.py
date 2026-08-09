@@ -174,17 +174,6 @@ CAPABILITIES: list[CapabilityDescriptor] = [
         latency_class=LATENCY_CLASS_MEDIUM,
     ),
     CapabilityDescriptor(
-        id="interactive_question",
-        name="Ask the user",
-        short_description="Ask the user an interactive question",
-        domains=[TOOL_DOMAIN_TASK],
-        search_terms=["ask", "question", "clarify", "confirm", "interactive", "options"],
-        risk_level=RISK_SAFE,
-        read_only=True,
-        cost_class=COST_CLASS_LOW,
-        latency_class=LATENCY_CLASS_LOW,
-    ),
-    CapabilityDescriptor(
         id="task_tracking",
         name="Task tracking",
         short_description="Track an in-memory task/todo list",

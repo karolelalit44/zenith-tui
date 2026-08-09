@@ -10,20 +10,12 @@ export const CustomProviderPrompt: React.FC<CustomProviderPromptProps> = ({ onBa
   const fields = useMemo<FormField[]>(
     () => [
       {
-        key: 'name',
-        label: 'Provider Name',
-        type: 'text',
-        required: true,
-        defaultValue: 'Custom Provider',
-        placeholder: 'e.g. TokenRouter',
-      },
-      {
         key: 'baseUrl',
-        label: 'Base URL',
+        label: 'Provider URL',
         type: 'text',
         required: true,
         placeholder: 'https://api.example.com/v1',
-        description: 'Endpoint that is OpenAI-compatible.',
+        description: 'OpenAI-compatible endpoint base URL.',
       },
       {
         key: 'apiKey',
@@ -33,10 +25,11 @@ export const CustomProviderPrompt: React.FC<CustomProviderPromptProps> = ({ onBa
       },
       {
         key: 'model',
-        label: 'Default model',
+        label: 'Model ID',
         type: 'text',
-        placeholder: 'llama3',
-        description: 'Leave blank to auto-pick from the endpoint on validation.',
+        required: true,
+        placeholder: 'my-model-name',
+        description: 'Model identifier this endpoint exposes.',
       },
     ],
     [],
@@ -44,7 +37,7 @@ export const CustomProviderPrompt: React.FC<CustomProviderPromptProps> = ({ onBa
 
   return (
     <FieldForm
-      title="Custom OpenAI-Compatible endpoint"
+      title="Custom Provider"
       fields={fields}
       onSubmit={onSubmit}
       onCancel={onBack}

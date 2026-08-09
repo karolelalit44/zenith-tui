@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
-from server.config.env import require_int
+from server.config.env import optional_int
 
 logger = logging.getLogger(__name__)
-_GIT_TIMEOUT = require_int("ZENITH_GIT_TIMEOUT")
+_GIT_TIMEOUT_DEFAULT = 30
+
+
+def _git_timeout() -> int:
+    raw = os.environ.get("ZENITH_GIT_TIMEOUT", "").strip()
+    if not raw:
+        return _GIT_TIMEOUT_DEFAULT
+    return optional_int("ZENITH_GIT_TIMEOUT", _GIT_TIMEOUT_DEFAULT)
 
 
 class GitOps:
@@ -29,10 +37,12 @@ class GitOps:
     def is_git_repo(self) -> bool:
         return self.find_git_root() is not None
 
-    def _run(self, *args: str, timeout: int = _GIT_TIMEOUT) -> tuple[int, str, str]:
+    def _run(self, *args: str, timeout: int | None = None) -> tuple[int, str, str]:
         root = self.find_git_root()
         if not root:
             return (-1, "", "Not a git repository")
+        if timeout is None:
+            timeout = _git_timeout()
         try:
             result = subprocess.run(
                 ["git"] + list(args),
@@ -49,8 +59,6 @@ class GitOps:
             return (-1, "", "git executable not found")
         except subprocess.TimeoutExpired:
             return (-1, "", f"git command timed out after {timeout}s")
-        except Exception as e:
-            return (-1, "", str(e))
 
     def status(self) -> dict:
         code, stdout, stderr = self._run("status", "--porcelain")

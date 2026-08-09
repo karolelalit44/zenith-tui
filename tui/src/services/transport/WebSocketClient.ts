@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { appConfig } from '../../config/appConfig';
+import type { TurnManifestEvent } from '../../types/scenario';
 
 if (typeof WebSocket === 'undefined') {
   try {
@@ -265,16 +266,39 @@ export class WebSocketClient {
     provider?: string,
     opts?: PromptOptions,
   ): Promise<{ session_id: string; status: string }> {
-    return this.send('prompt.send', {
+    return this.send('prompt.send', this.buildPromptPayload(content, mode, sessionId, provider, opts));
+  }
+
+  continuePrompt(
+    content: string,
+    mode: string = 'build',
+    sessionId?: string,
+    provider?: string,
+    manifest?: TurnManifestEvent,
+    opts?: PromptOptions,
+  ): Promise<{ session_id: string; status: string }> {
+    return this.send('prompt.continue', this.buildPromptPayload(content, mode, sessionId, provider, opts, manifest));
+  }
+
+  private buildPromptPayload(
+    content: string,
+    mode: string,
+    sessionId?: string,
+    provider?: string,
+    opts?: PromptOptions,
+    manifest?: TurnManifestEvent,
+  ): Record<string, unknown> {
+    return {
       content,
       mode,
       session_id: sessionId,
       provider,
+      manifest,
       ...(opts?.model ? { model: opts.model } : {}),
       ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
       ...(opts?.max_tokens !== undefined ? { max_tokens: opts.max_tokens } : {}),
       ...(opts?.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),
-    });
+    };
   }
 
   cancelPrompt(sessionId: string): Promise<{ cancelled: boolean }> {

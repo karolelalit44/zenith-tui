@@ -318,7 +318,9 @@ class TestRebuildReplaysLiveTurn:
         rebuilt = loop._rebuild_messages(
             live, base_len, history, "System.", "New.", "test-model", "", True, None
         )
-        assert all(isinstance(m, dict) for m in rebuilt), "rebuild must never emit non-dict messages"
+        assert all(isinstance(m, dict) for m in rebuilt), (
+            "rebuild must never emit non-dict messages"
+        )
         assert not any(
             m.get("content") == "this raw string must not survive rebuild" for m in rebuilt
         )
@@ -364,9 +366,9 @@ class TestSummarizeAndRebuildHolder:
             pass
         assert len(holder) == 1, f"holder must hold exactly one value, got {holder!r}"
         rebuilt = holder[0]
-        assert isinstance(
-            rebuilt, list
-        ), f"holder[0] must be the message list, got {type(rebuilt).__name__}"
+        assert isinstance(rebuilt, list), (
+            f"holder[0] must be the message list, got {type(rebuilt).__name__}"
+        )
         assert all(isinstance(m, dict) for m in rebuilt), "rebuilt messages must be dicts"
         assert rebuilt[-1]["role"] == "user"
         assert "Continue if you have next steps" in rebuilt[-1]["content"]

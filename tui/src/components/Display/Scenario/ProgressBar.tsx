@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
-import { useTickAnimation } from '../../../hooks/useTickAnimation';
+import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ProgressEvent } from '../../../types/scenario';
 
@@ -11,7 +11,7 @@ interface ProgressBarProps {
 
 export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
-  const tick = useTickAnimation(200);
+  const tick = useAnimationTick();
 
   const barWidth = 20;
 
@@ -56,8 +56,8 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
             let textColor: string;
             switch (step.status) {
               case 'done':
-                icon = '■';
-                color = theme.colors.status.warning;
+                icon = '✓';
+                color = theme.colors.status.success;
                 textColor = theme.colors.text.bright;
                 break;
               case 'active':
@@ -66,12 +66,12 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
                 textColor = theme.colors.text.bright;
                 break;
               case 'error':
-                icon = '■';
+                icon = '✗';
                 color = theme.colors.status.error;
                 textColor = theme.colors.text.error;
                 break;
               default:
-                icon = '□';
+                icon = '·';
                 color = theme.colors.text.dim;
                 textColor = theme.colors.text.muted;
                 break;

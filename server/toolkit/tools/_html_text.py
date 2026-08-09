@@ -19,19 +19,77 @@ from html.parser import HTMLParser
 
 _SKIP_TAGS = frozenset(
     {
-        "script", "style", "noscript", "template", "svg", "iframe", "frame", "frameset",
-        "form", "button", "select", "option", "optgroup", "textarea", "input", "label",
-        "nav", "header", "footer", "aside", "dialog", "picture", "source", "track",
-        "audio", "video", "canvas", "map", "area", "embed", "object", "param",
-        "link", "meta", "base", "title", "head", "figure", "figcaption",
+        "script",
+        "style",
+        "noscript",
+        "template",
+        "svg",
+        "iframe",
+        "frame",
+        "frameset",
+        "form",
+        "button",
+        "select",
+        "option",
+        "optgroup",
+        "textarea",
+        "input",
+        "label",
+        "nav",
+        "header",
+        "footer",
+        "aside",
+        "dialog",
+        "picture",
+        "source",
+        "track",
+        "audio",
+        "video",
+        "canvas",
+        "map",
+        "area",
+        "embed",
+        "object",
+        "param",
+        "link",
+        "meta",
+        "base",
+        "title",
+        "head",
+        "figure",
+        "figcaption",
     }
 )
 _HEADING_TAGS = frozenset(f"h{i}" for i in range(1, 7))
 _BLOCK_TAGS = frozenset(
     {
-        "p", "div", "section", "main", "article", "ul", "ol", "li", "pre", "blockquote",
-        "table", "thead", "tbody", "tfoot", "tr", "td", "th", "hr", "br", "address",
-        "details", "summary", "fieldset", "dl", "dt", "dd", "form",
+        "p",
+        "div",
+        "section",
+        "main",
+        "article",
+        "ul",
+        "ol",
+        "li",
+        "pre",
+        "blockquote",
+        "table",
+        "thead",
+        "tbody",
+        "tfoot",
+        "tr",
+        "td",
+        "th",
+        "hr",
+        "br",
+        "address",
+        "details",
+        "summary",
+        "fieldset",
+        "dl",
+        "dt",
+        "dd",
+        "form",
     }
 )
 _CODE_TAGS = frozenset({"pre", "code", "kbd", "samp", "tt"})
@@ -95,7 +153,11 @@ class _Extractor(HTMLParser):
         if tag in _CODE_TAGS:
             if self._pre:
                 self._pre -= 1
-        if tag in ("main", "article") and self._root_depth is not None and self._depth == self._root_depth:
+        if (
+            tag in ("main", "article")
+            and self._root_depth is not None
+            and self._depth == self._root_depth
+        ):
             self._root_closed = True
         if tag in _HEADING_TAGS or tag in _BLOCK_TAGS:
             self._newline()

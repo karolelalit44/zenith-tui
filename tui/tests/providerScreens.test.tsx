@@ -11,6 +11,32 @@ import { ThemeProvider } from '../src/theme/ThemeContext';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Poll lastFrame() until predicate matches; returns the matching frame or throws. */
+const pollForFrame = async (
+  getFrame: () => string,
+  predicate: (frame: string) => boolean,
+  message: string,
+  timeoutMs = 5000,
+): Promise<string> => {
+  const start = Date.now();
+  let frame = getFrame();
+  while (!predicate(frame)) {
+    if (Date.now() - start >= timeoutMs) throw new Error(`Timed out waiting for: ${message}`);
+    await wait(25);
+    frame = getFrame();
+  }
+  return frame;
+};
+
+/** Poll a boolean predicate (e.g. a vi.fn() call count) until true or throws. */
+const pollUntil = async (predicate: () => boolean, message: string, timeoutMs = 5000): Promise<void> => {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start >= timeoutMs) throw new Error(`Timed out waiting for: ${message}`);
+    await wait(25);
+  }
+};
+
 const LIST: ProviderListResponse = {
   all: [
     {
@@ -83,10 +109,24 @@ function renderWithTheme(node: React.ReactNode) {
   return render(<ThemeProvider>{node}</ThemeProvider>);
 }
 
+const CATALOG: Array<{ id: string; name: string; type: string }> = [
+  { id: 'nvidia', name: 'NVIDIA AI', type: 'default' },
+  { id: 'openai', name: 'OpenAI', type: 'default' },
+  { id: 'custom', name: 'Custom OpenAI-Compatible', type: 'custom' },
+];
+
 beforeEach(() => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response(JSON.stringify(LIST), { status: 200 })),
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/startup/')) return new Response(JSON.stringify(LIST), { status: 200 });
+      if (url.includes('/models')) {
+        return new Response(JSON.stringify({ models: [], total: 0, offset: 0, limit: 100 }), { status: 200 });
+      }
+      if (url.includes('/providers')) return new Response(JSON.stringify(CATALOG), { status: 200 });
+      return new Response(JSON.stringify(LIST), { status: 200 });
+    }),
   );
 });
 
@@ -113,13 +153,19 @@ describe('Provider screens', () => {
   it('renders the ProviderFlow picker with SQL-backed providers', async () => {
     const { lastFrame, stdin, unmount } = renderWithTheme(<ProviderFlow onClose={() => {}} />);
 
-    await wait(100);
     expect(lastFrame()).toContain('Choose a provider');
-    expect(lastFrame()).toContain('NVIDIA AI');
+    await pollForFrame(
+      () => lastFrame(),
+      (f) => f.includes('NVIDIA AI'),
+      'provider catalog rendered',
+    );
 
     stdin.write('o');
-    await wait(50);
-    expect(lastFrame()).toContain('OpenAI');
+    await pollForFrame(
+      () => lastFrame(),
+      (f) => f.includes('OpenAI'),
+      'filter narrowed to OpenAI',
+    );
     unmount();
   });
 
@@ -128,7 +174,11 @@ describe('Provider screens', () => {
     const { lastFrame, unmount } = renderWithTheme(<ModelPicker onSelect={() => {}} onClose={() => {}} />);
 
     expect(lastFrame()).toContain('Select a model');
-    expect(lastFrame()).toContain('NVIDIA AI');
+    await pollForFrame(
+      () => lastFrame(),
+      (f) => f.includes('NVIDIA AI'),
+      'configured provider models rendered',
+    );
     expect(lastFrame()).toContain('Nemotron 3 Ultra');
     expect(lastFrame()).not.toContain('OpenAI');
     expect(lastFrame()).not.toContain('GPT-4o Mini');
@@ -144,13 +194,32 @@ describe('Provider screens', () => {
 
     expect(lastFrame()).toContain('MODEL PICKER');
     expect(lastFrame()).toContain('Select a model');
-    expect(lastFrame()).toContain('Nemotron 3 Ultra');
+    await pollForFrame(
+      () => lastFrame(),
+      (f) => f.includes('Nemotron 3 Ultra'),
+      'model list rendered',
+    );
 
     stdin.write('\t');
-    await wait(30);
+    // The '\t' moves focus onto the action row; wait for its focused marker
+    // ('⏎') so the following '\r' triggers the action instead of selecting a
+    // model option. Without this the two keys can race (30ms was not enough
+    // under parallel load).
+    await pollForFrame(
+      () => lastFrame(),
+      (f) => f.includes('View all providers ⏎'),
+      'action row focused',
+    );
+
+    // The '\t' commits the action-row focus to the frame synchronously, but the
+    // useInput handler that closes over `actionIndex` is re-subscribed in a
+    // passive effect that flushes AFTER commit. A '\r' in that window is handled
+    // by the stale handler (actionIndex null) and takes the select path instead.
+    // Draining the microtask queue lets the re-subscription land first.
+    await wait(0);
+
     stdin.write('\r');
-    await wait(50);
-    expect(onOpenProvider).toHaveBeenCalled();
+    await pollUntil(() => onOpenProvider.mock.calls.length > 0, 'onOpenProvider triggered');
     unmount();
   });
 
@@ -158,7 +227,11 @@ describe('Provider screens', () => {
     await providerRepository.fetchProviderList();
     const { lastFrame, unmount } = renderWithTheme(<ModelPickerFlow onClose={() => {}} />);
 
-    expect(lastFrame()).toContain('Nemotron 3 Ultra');
+    await pollForFrame(
+      () => lastFrame(),
+      (f) => f.includes('Nemotron 3 Ultra'),
+      'model list rendered',
+    );
     expect(lastFrame()).not.toContain('GPT-4o Mini');
     unmount();
   });

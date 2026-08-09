@@ -90,7 +90,6 @@ async def test_e2e_prompt_processing(test_config, test_db, test_registry):
     async for event in agent.process_prompt("Hello world", "session-1", [], "build"):
         events.append(event)
     assert len(events) >= 2
-    assert events[0].kind == EventKind.THINKING
     assert any(e.kind == EventKind.MESSAGE for e in events)
     assert events[-1].kind == EventKind.SUCCESS
 

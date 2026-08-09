@@ -1,0 +1,17 @@
+dags/
+plugins/
+tests/
+scripts/
+config/
+docker/
+data/
+data/bronze/
+data/silver/
+data/gold/
+.env
+.env.example
+.gitignore
+docker-compose.yml
+Dockerfile
+requirements.txt
+README.md

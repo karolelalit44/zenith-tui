@@ -43,15 +43,6 @@ export function requireInt(key: string): number {
   return n;
 }
 
-export function requireFloat(key: string): number {
-  const raw = requireEnv(key);
-  const n = parseFloat(raw);
-  if (Number.isNaN(n)) {
-    throw new Error(`Environment variable '${key}' must be a float, got: ${JSON.stringify(raw)}`);
-  }
-  return n;
-}
-
 export function envInt(key: string, fallback: number): number {
   const raw = process.env?.[key];
   if (raw === undefined || raw.trim() === '') return fallback;

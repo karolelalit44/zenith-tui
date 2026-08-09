@@ -14,8 +14,7 @@ import type { EventKind, ScenarioEvent } from '../src/types/scenario';
 const ALL_EVENT_KINDS: EventKind[] = [
   'thinking',
   'message',
-  'tool_call',
-  'tool_result',
+  'tool_step',
   'error',
   'warning',
   'success',
@@ -37,8 +36,10 @@ describe('All EventKind types are valid ScenarioEvents', () => {
     { kind: 'thinking', data: { thoughts: ['Analyzing...'], duration: 500 } },
     { kind: 'message', data: { text: 'Hello world', partial: false } },
     { kind: 'message', data: { text: 'partial ', partial: true } },
-    { kind: 'tool_call', data: { tool: 'bash', params: { command: 'ls -la' } } },
-    { kind: 'tool_result', data: { tool: 'bash', success: true, output: 'file1\nfile2', error: '', metadata: {} } },
+    {
+      kind: 'tool_step',
+      data: { tool: 'file_write', success: true, params: { path: 'test.txt' }, metadata: { size: 233 } },
+    },
     { kind: 'error', data: { message: 'Something failed', code: 'ERR_1', recoverable: true } },
     { kind: 'warning', data: { message: 'Deprecated API used' } },
     {
@@ -80,28 +81,23 @@ describe('Event field correctness', () => {
     }
   });
 
-  it('tool_call has tool name and params', () => {
-    const result = makeEvent('tool_call', { tool: 'bash', params: { command: 'npm test' } });
-    expect(result.kind).toBe('tool_call');
-    if (result.kind === 'tool_call') {
-      expect(result.tool).toBe('bash');
-      expect(result.params.command).toBe('npm test');
-    }
-  });
-
-  it('tool_result has tool, success, output, and metadata', () => {
-    const result = makeEvent('tool_result', {
+  it('tool_step has tool, params, success, and metadata', () => {
+    const result = makeEvent('tool_step', {
       tool: 'file_write',
       success: true,
+      params: { path: '/src/app.ts' },
       output: '',
       error: '',
-      metadata: { path: '/src/app.ts' },
+      metadata: { size: 233 },
+      pending: false,
     });
-    expect(result.kind).toBe('tool_result');
-    if (result.kind === 'tool_result') {
+    expect(result.kind).toBe('tool_step');
+    if (result.kind === 'tool_step') {
       expect(result.tool).toBe('file_write');
       expect(result.success).toBe(true);
-      expect(result.metadata.path).toBe('/src/app.ts');
+      expect(result.params.path).toBe('/src/app.ts');
+      expect(result.metadata.size).toBe(233);
+      expect(result.pending).toBe(false);
     }
   });
 
@@ -159,8 +155,8 @@ describe('ComponentRegistry covers all EventKind types', () => {
 
 // ── Pipeline integrity ───────────────────────────────────────────────────────
 describe('Pipeline integrity', () => {
-  it('has exactly 9 EventKind values', () => {
-    expect(ALL_EVENT_KINDS.length).toBe(9);
+  it('has exactly 8 EventKind values', () => {
+    expect(ALL_EVENT_KINDS.length).toBe(8);
   });
 
   it('no duplicate EventKind values', () => {

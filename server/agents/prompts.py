@@ -49,14 +49,10 @@ PLAN_MODE_INSTRUCTIONS = (
 )
 TOOL_DISCOVERY_HINT = (
     "<tool_discovery>\n"
-    "Tool schemas are loaded on demand to keep the context small. Only call "
-    "discover_capabilities when you do not yet know which tools are available, "
-    "and only call get_tool_definition('<tool_name>') for a tool whose schema "
-    "you have not loaded yet. Once a schema is loaded it stays loaded and is "
-    "always available to you, so NEVER call discover_capabilities or "
-    "get_tool_definition a second time in the same turn, and never re-call a "
-    "tool that already succeeded this turn. If no tool functions are available "
-    "for this turn, answer directly instead.\n"
+    "A lean set of tool schemas is always available. To use a tool outside that "
+    "set, call get_tool_definition('<tool_name>') once to load it, or "
+    "discover_capabilities to list what exists. Loaded schemas persist, so never "
+    "load a tool you already have.\n"
     "</tool_discovery>\n"
 )
 

@@ -72,6 +72,7 @@ try:
     from winpty import Backend, PtyProcess
 except ImportError:
     from winpty import PtyProcess
+
     Backend = None
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -195,14 +196,14 @@ async def _run_turn(
     """Send ``prompt``, wait for the turn to end, and summarize the result."""
     print(f"\n[flow] === scenario: {name} ===")
     if not await _wait_idle(_pty_log):
-        raise RuntimeError(f"{name}: composer not idle before typing; refusing to type into a disabled composer")
+        raise RuntimeError(
+            f"{name}: composer not idle before typing; refusing to type into a disabled composer"
+        )
     print(f"[flow] typing: {prompt}")
     await type_text(pty, prompt, 0.02)
 
     try:
-        status, events, seen_seq = await wait_turn_end(
-            ws, rpc, session_id, base_seq, turn_timeout
-        )
+        status, events, seen_seq = await wait_turn_end(ws, rpc, session_id, base_seq, turn_timeout)
     except TimeoutError as exc:
         print(f"[flow]   {name}: TIMEOUT ({exc})")
         _log_tui_tail(_pty_log, name=f"on {name} timeout")
@@ -252,7 +253,9 @@ def _composer_hint(log: PtyLog) -> str:
 
 
 def _banner_is_up(log: PtyLog) -> bool:
-    return _composer_hint(log) == "Choose an action above" and "Task failed" in strip_ansi(_recent_tail(log))
+    return _composer_hint(log) == "Choose an action above" and "Task failed" in strip_ansi(
+        _recent_tail(log)
+    )
 
 
 def _composer_idle(log: PtyLog) -> bool:
@@ -313,7 +316,13 @@ async def phase_create(
     )
     status, summary, seen_seq = await _run_turn(
         "1. create (new file) - auto-approved, no confirmation",
-        ws, rpc, session_id, base_seq, prompt, pty, turn_timeout,
+        ws,
+        rpc,
+        session_id,
+        base_seq,
+        prompt,
+        pty,
+        turn_timeout,
     )
     content = probe_path.read_text(encoding="utf-8") if probe_path.exists() else None
     checks = [
@@ -332,9 +341,8 @@ async def phase_create(
     note = []
     if status not in ("success", "timeout") and summary.get("error_code"):
         note.append(f"turn ended with recoverable error code={summary['error_code']}")
-    detail = (
-        f"file_after={content!r} final_message={summary['message'][:120]!r}"
-        + (f" ; note: {'; '.join(note)}" if note else "")
+    detail = f"file_after={content!r} final_message={summary['message'][:120]!r}" + (
+        f" ; note: {'; '.join(note)}" if note else ""
     )
     failures = _report("1. CREATE", checks, detail)
     await _finish_turn(status, pty)
@@ -360,7 +368,13 @@ async def phase_update(
     )
     status, summary, seen_seq = await _run_turn(
         "2. update (existing file) - auto_overwrite=true, no confirmation",
-        ws, rpc, session_id, base_seq, prompt, pty, turn_timeout,
+        ws,
+        rpc,
+        session_id,
+        base_seq,
+        prompt,
+        pty,
+        turn_timeout,
     )
     content = probe_path.read_text(encoding="utf-8") if probe_path.exists() else None
     checks = [
@@ -379,9 +393,8 @@ async def phase_update(
     note = []
     if status not in ("success", "timeout") and summary.get("error_code"):
         note.append(f"turn ended with recoverable error code={summary['error_code']}")
-    detail = (
-        f"file_after={content!r} final_message={summary['message'][:120]!r}"
-        + (f" ; note: {'; '.join(note)}" if note else "")
+    detail = f"file_after={content!r} final_message={summary['message'][:120]!r}" + (
+        f" ; note: {'; '.join(note)}" if note else ""
     )
     failures = _report("2. UPDATE", checks, detail)
     await _finish_turn(status, pty)
@@ -407,7 +420,13 @@ async def phase_delete(
     )
     status, summary, seen_seq = await _run_turn(
         "3. delete (risky op) - auto_risky=true, no confirmation",
-        ws, rpc, session_id, base_seq, prompt, pty, turn_timeout,
+        ws,
+        rpc,
+        session_id,
+        base_seq,
+        prompt,
+        pty,
+        turn_timeout,
     )
     deleted = not probe_path.exists()
     checks = [
@@ -426,9 +445,8 @@ async def phase_delete(
     note = []
     if status not in ("success", "timeout") and summary.get("error_code"):
         note.append(f"turn ended with recoverable error code={summary['error_code']}")
-    detail = (
-        f"file_deleted={deleted} final_message={summary['message'][:120]!r}"
-        + (f" ; note: {'; '.join(note)}" if note else "")
+    detail = f"file_deleted={deleted} final_message={summary['message'][:120]!r}" + (
+        f" ; note: {'; '.join(note)}" if note else ""
     )
     failures = _report("3. DELETE", checks, detail)
     await _finish_turn(status, pty)
@@ -522,9 +540,7 @@ async def main() -> int:
             base_seq = 0
 
             print("[flow] warm-up turn (greeting) ...")
-            status, events, seen_seq = await wait_turn_end(
-                ws, rpc, session_id, base_seq, 240
-            )
+            status, events, seen_seq = await wait_turn_end(ws, rpc, session_id, base_seq, 240)
             base_seq = seen_seq
             print(f"[flow] warm-up status={status} events={len(events)}")
             if status != "success":
@@ -555,8 +571,12 @@ async def main() -> int:
             print(f"backend   : http://127.0.0.1:{port}  pid={backend.pid}")
             print(f"tui pid   : {pty.pid}")
             print(f"session   : {session_id}")
-            print("scenarios : 1. create / 2. update (auto_overwrite=true) / 3. delete (auto_risky=true)")
-            print("flags     : auto_overwrite=true auto_risky=true (defaults) - no confirmation raised")
+            print(
+                "scenarios : 1. create / 2. update (auto_overwrite=true) / 3. delete (auto_risky=true)"
+            )
+            print(
+                "flags     : auto_overwrite=true auto_risky=true (defaults) - no confirmation raised"
+            )
             if total_failures:
                 print(f"\nRESULT: FAIL ({total_failures} failed checks)")
             else:

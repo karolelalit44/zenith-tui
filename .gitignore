@@ -26,5 +26,7 @@ ref_repo/
 .mypy_cache
 data
 
+# Local audit scratch (may carry restrictive ACLs; not source)
+.audit_tmp/
 
 .claude

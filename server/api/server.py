@@ -22,7 +22,9 @@ if TYPE_CHECKING:
 from .middleware import wrap_handler
 from .provider_validation import (
     get_model_selection,
+    get_provider_catalog,
     get_provider_list,
+    get_provider_models,
     ndjson_validate_stream,
     save_model_selection_endpoint,
     set_provider_model,
@@ -205,7 +207,26 @@ def startup_validate():
 
 @app.get("/startup/providers")
 def startup_providers_list():
-    return get_provider_list().model_dump()
+    data = get_provider_list()
+    logger.info(
+        "providers fetched: count=%d active=%s connected=%s",
+        len(data.all),
+        data.active or "(none)",
+        ",".join(data.connected) or "(none)",
+    )
+    return data.model_dump()
+
+
+@app.get("/providers")
+def providers_list():
+    """Provider list API — returns provider information only (no models)."""
+    return [item.model_dump() for item in get_provider_catalog()]
+
+
+@app.get("/providers/{provider_id}/models")
+def providers_models(provider_id: str, offset: int = 0, limit: int = 50):
+    """Models API — fetch models for a single provider from the backend."""
+    return get_provider_models(provider_id, offset=offset, limit=limit).model_dump()
 
 
 @app.get("/startup/model-selection")
@@ -216,7 +237,15 @@ def startup_model_selection_get():
 @app.put("/startup/model-selection")
 def startup_model_selection_put(request: ModelStoreRequest):
     try:
-        return save_model_selection_endpoint(request)
+        payload = save_model_selection_endpoint(request)
+        current = payload.get("current")
+        logger.info(
+            "model selection saved: current=%s recent=%d favorite=%d",
+            (f"{current.get('providerID')}/{current.get('modelID')}" if current else "(none)"),
+            len(payload.get("recent", [])),
+            len(payload.get("favorite", [])),
+        )
+        return payload
     except Exception as e:
         logger.warning("Failed to save model selection: %s", e)
         raise HTTPException(status_code=500, detail=f"Failed to save model selection: {e}")
@@ -257,6 +286,7 @@ def _reload_config_after_validate(provider_id: str) -> None:
 
 @app.post("/startup/providers/{provider_id}/model")
 async def startup_providers_model(provider_id: str, request: ProviderModelRequest):
+    logger.info("model selected: provider=%s model=%s", provider_id, request.model)
     try:
         info = set_provider_model(provider_id, request)
     except ValueError as e:

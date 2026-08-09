@@ -30,6 +30,8 @@ interface SearchListProps<T> {
   actions?: SearchListAction<T>[];
   onQueryChange?: (query: string) => void;
   initialSelectedIndex?: number;
+  /** When > 0, paginate the list into fixed-size pages (e.g. 5 models/page). */
+  pageSize?: number;
 }
 
 function computeVisibleCount(): number {
@@ -46,12 +48,14 @@ export function SearchList<T>({
   actions = [],
   onQueryChange,
   initialSelectedIndex = 0,
+  pageSize,
 }: SearchListProps<T>): React.JSX.Element {
   const { theme } = useTheme();
   const filter = useTextBuffer('');
   const [selected, setSelected] = useState(initialSelectedIndex);
   const [actionIndex, setActionIndex] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(computeVisibleCount);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     const onResize = () => setVisibleCount(computeVisibleCount());
@@ -86,31 +90,85 @@ export function SearchList<T>({
     return Array.from(groups.entries()).map(([category, list]) => ({ category, options: list }));
   }, [filtered, filter.value]);
 
-  const flat = useMemo(() => filtered, [filtered]);
+  const paged = Boolean(pageSize && pageSize > 0);
+
+  const totalPages = useMemo(() => {
+    if (!paged || !pageSize) return 1;
+    return Math.max(1, Math.ceil(filtered.length / pageSize));
+  }, [paged, pageSize, filtered.length]);
+
+  const safePage = Math.min(page, totalPages - 1);
+
+  // Options available to select/render on the current page (or all when unpaged).
+  const viewItems = useMemo(() => {
+    if (!paged || !pageSize) return filtered;
+    const start = safePage * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [paged, filtered, pageSize, safePage]);
 
   const clampSelected = useCallback(
     (index: number) => {
-      const max = Math.max(0, flat.length - 1);
+      const max = Math.max(0, viewItems.length - 1);
       return Math.max(0, Math.min(index, max));
     },
-    [flat.length],
+    [viewItems.length],
   );
 
   const visibleWindow = useMemo(() => {
-    const count = Math.min(visibleCount, flat.length);
-    if (flat.length === 0) return { start: 0, end: 0 };
-    const start = Math.max(0, Math.min(selected - Math.floor(count / 2), flat.length - count));
+    const count = Math.min(visibleCount, viewItems.length);
+    if (viewItems.length === 0) return { start: 0, end: 0 };
+    const start = Math.max(0, Math.min(selected - Math.floor(count / 2), viewItems.length - count));
     return { start, end: start + count };
-  }, [flat.length, selected, visibleCount]);
+  }, [viewItems.length, selected, visibleCount]);
 
   const select = useCallback(
     (index: number) => {
-      const option = flat[index];
+      const option = viewItems[index];
       if (!option || option.disabled) return;
       option.onSelect?.();
       onSelect(option);
     },
-    [flat, onSelect],
+    [viewItems, onSelect],
+  );
+
+  const goPage = useCallback(
+    (next: number) => {
+      setPage(Math.max(0, Math.min(next, totalPages - 1)));
+    },
+    [totalPages],
+  );
+
+  const moveSelection = useCallback(
+    (delta: number) => {
+      setActionIndex(null);
+      const index = Math.max(0, Math.min(selected, viewItems.length - 1));
+      if (!paged) {
+        setSelected((s) => clampSelected(s + delta));
+        return;
+      }
+      const count = viewItems.length;
+      const next = index + delta;
+      if (next >= count) {
+        if (safePage < totalPages - 1) {
+          goPage(safePage + 1);
+          setSelected(0);
+        } else {
+          setSelected(count - 1);
+        }
+        return;
+      }
+      if (next < 0) {
+        if (safePage > 0) {
+          goPage(safePage - 1);
+          setSelected((pageSize as number) - 1);
+        } else {
+          setSelected(0);
+        }
+        return;
+      }
+      setSelected(next);
+    },
+    [paged, clampSelected, selected, pageSize, goPage, totalPages, safePage, viewItems.length],
   );
 
   useInput((char, key) => {
@@ -120,23 +178,31 @@ export function SearchList<T>({
     }
 
     if (key.upArrow) {
-      setActionIndex(null);
-      setSelected((s) => clampSelected(s - 1));
+      moveSelection(-1);
       return;
     }
     if (key.downArrow) {
-      setActionIndex(null);
-      setSelected((s) => clampSelected(s + 1));
+      moveSelection(1);
       return;
     }
     if (key.pageUp) {
       setActionIndex(null);
-      setSelected((s) => clampSelected(s - 10));
+      if (paged) {
+        goPage(safePage - 1);
+        setSelected(0);
+      } else {
+        setSelected((s) => clampSelected(s - 10));
+      }
       return;
     }
     if (key.pageDown) {
       setActionIndex(null);
-      setSelected((s) => clampSelected(s + 10));
+      if (paged) {
+        goPage(safePage + 1);
+        setSelected(0);
+      } else {
+        setSelected((s) => clampSelected(s + 10));
+      }
       return;
     }
     if (key.home) {
@@ -146,14 +212,14 @@ export function SearchList<T>({
     }
     if (key.end) {
       setActionIndex(null);
-      setSelected(flat.length - 1);
+      setSelected(viewItems.length - 1);
       return;
     }
 
     if (key.return) {
       if (actionIndex !== null) {
         const action = actions[actionIndex];
-        const option = flat[selected];
+        const option = viewItems[selected];
         if (action && option) action.onTrigger(option);
         return;
       }
@@ -182,6 +248,7 @@ export function SearchList<T>({
       filter.handleKey(char, key);
       setActionIndex(null);
       setSelected(0);
+      setPage(0);
       onQueryChange?.(filter.value);
     }
   });
@@ -227,9 +294,9 @@ export function SearchList<T>({
   };
 
   const rows: React.ReactNode[] = [];
-  if (filter.value.trim()) {
+  if (paged || filter.value.trim()) {
     for (let i = visibleWindow.start; i < visibleWindow.end; i++) {
-      const option = flat[i];
+      const option = viewItems[i];
       rows.push(renderOptionRow(option, i));
     }
   } else {
@@ -281,9 +348,17 @@ export function SearchList<T>({
           rows
         )}
       </Box>
-      {(placeholder || actions.length > 0) && (
+      {(paged || placeholder || actions.length > 0) && (
         <Box flexDirection="row" justifyContent="space-between" marginTop={1} paddingLeft={2} paddingRight={2}>
-          <Text color={theme.colors.text.muted}>{placeholder && <Text italic>{placeholder}</Text>}</Text>
+          <Text color={theme.colors.text.muted}>
+            {paged ? (
+              <Text italic>
+                Page {safePage + 1} of {totalPages} · ↑↓ navigate · PgUp/PgDn pages
+              </Text>
+            ) : (
+              placeholder && <Text italic>{placeholder}</Text>
+            )}
+          </Text>
           <Box flexDirection="row" gap={1}>
             {actions.map((action, i) => {
               const isFocused = actionIndex === i;

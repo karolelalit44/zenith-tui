@@ -70,7 +70,9 @@ class BashTool(BaseTool):
         self.auto_background_after = auto_background_after
 
     def get_schema(self) -> dict:
-        command_desc = BASH_TOOL_COMMAND_PARAM_WINDOWS if _is_windows() else BASH_TOOL_COMMAND_PARAM_UNIX
+        command_desc = (
+            BASH_TOOL_COMMAND_PARAM_WINDOWS if _is_windows() else BASH_TOOL_COMMAND_PARAM_UNIX
+        )
         return {
             "type": "object",
             "properties": {

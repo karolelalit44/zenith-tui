@@ -80,7 +80,7 @@ class TestAgentWorkflow:
         events = []
         async for event in agent.process_prompt("Hello", "s1", [], "build"):
             events.append(event)
-        assert events[0].kind == EventKind.THINKING
+        assert events[0].kind == EventKind.MESSAGE
         assert any(e.kind == EventKind.MESSAGE for e in events)
         assert events[-1].kind == EventKind.SUCCESS
 
@@ -93,7 +93,6 @@ class TestAgentWorkflow:
         async for event in agent.process_prompt("Read a file", "s1", [], "build"):
             events.append(event)
         kinds = [e.kind for e in events]
-        assert EventKind.THINKING in kinds
         assert EventKind.TOOL_CALL in kinds or EventKind.SUCCESS in kinds
 
     @pytest.mark.asyncio
@@ -122,7 +121,7 @@ class TestAgentWorkflow:
                 )
             if self.call_count == 2:
                 return (
-                    '```tool\n{"tool": "file_write", "params": {"path": "out.txt", '
+                    '```tool\n{"tool": "file_write", "params": {"path": "out2.txt", '
                     '"content": "hello again"}}\n```'
                 )
             return "All done."
@@ -143,19 +142,71 @@ class TestAgentWorkflow:
         """Event-driven semantics: a phrase like 'Done' does not gate behavior. A
         genuinely new tool call after that phrase still executes; only identical
         repeats are skipped (handled by the stall guard)."""
-        target = Path(test_config.workspace_root) / "out.txt"
+        root = Path(test_config.workspace_root)
         agent = AgentLoop(
             test_config,
             self._PostCompletionProvider(),
             tool_registry=create_default_registry(),
         )
         events = []
-        async for event in agent.process_prompt(
-            "Create a file and finish", "s1", [], "build"
-        ):
+        async for event in agent.process_prompt("Create a file and finish", "s1", [], "build"):
             events.append(event)
-        # The second write is new work (different content) and is honored.
-        assert target.read_text(encoding="utf-8") == "hello again"
+        # The second call targets a NEW path, so it is genuinely new work and is
+        # honored even though it follows the 'Done' phrase.
+        assert (root / "out.txt").read_text(encoding="utf-8") == "hello"
+        assert (root / "out2.txt").read_text(encoding="utf-8") == "hello again"
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+
+    class _SamePathRewriteProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("rewrite", "rewrite-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", '
+                    '"content": "v1"}}\n```'
+                )
+            if self.call_count == 2:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", '
+                    '"content": "v2"}}\n'
+                    '{"tool": "file_write", "params": {"path": "b.txt", "content": "b"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["rewrite-model"]
+
+    @pytest.mark.asyncio
+    async def test_same_path_rewrite_is_blocked(self, test_config):
+        """One-write-per-path-per-turn: a second file_write to a path already
+        written this turn is blocked even with different content, while other
+        new work in the same response still executes."""
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._SamePathRewriteProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Write the files", "s1", [], "build"):
+            events.append(event)
+        assert (root / "a.txt").read_text(encoding="utf-8") == "v1", "first write must win"
+        assert (root / "b.txt").read_text(encoding="utf-8") == "b", "other new work must run"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any("File rewrite blocked" in (e.data.get("message") or "") for e in warnings)
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
 
@@ -248,8 +299,7 @@ class TestAutoApprovalGates:
         assert target.read_text(encoding="utf-8") == "new content"
         results = [e for e in events if e.kind == EventKind.TOOL_RESULT]
         assert any(
-            e.data.get("tool") == "file_write" and e.data.get("success") is True
-            for e in results
+            e.data.get("tool") == "file_write" and e.data.get("success") is True for e in results
         )
         assert events[-1].kind == EventKind.SUCCESS
 
@@ -267,7 +317,9 @@ class TestAutoApprovalGates:
         assert target.read_text(encoding="utf-8") == "old"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
         overwrite_msgs = [
-            e.data.get("message") or "" for e in warnings if "overwrite denied" in (e.data.get("message") or "")
+            e.data.get("message") or ""
+            for e in warnings
+            if "overwrite denied" in (e.data.get("message") or "")
         ]
         assert overwrite_msgs, "expected an overwrite-denied warning"
         # GAP4: the denial must tell the model the remedy (overwrite=true).
@@ -322,8 +374,7 @@ class TestAutoApprovalGates:
         assert not target.exists(), "auto_risky=true must allow the delete"
         results = [e for e in events if e.kind == EventKind.TOOL_RESULT]
         assert any(
-            e.data.get("tool") == "file_delete" and e.data.get("success") is True
-            for e in results
+            e.data.get("tool") == "file_delete" and e.data.get("success") is True for e in results
         )
 
     @pytest.mark.asyncio
@@ -565,9 +616,7 @@ class TestDiscoveryRepeatSkip:
             events.append(event)
         assert (root / "a.txt").exists(), "valid call must still execute"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert any(
-            "Hallucinated tools ignored" in (e.data.get("message") or "") for e in warnings
-        )
+        assert any("Hallucinated tools ignored" in (e.data.get("message") or "") for e in warnings)
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
 
@@ -634,7 +683,8 @@ class TestDiscoveryRepeatSkip:
         assert (root / "a.txt").exists(), "new call in same response must still execute"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
         assert any(
-            "file_read(path=missing.txt) [failed]" in (e.data.get("message") or "") for e in warnings
+            "file_read(path=missing.txt) [failed]" in (e.data.get("message") or "")
+            for e in warnings
         )
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
@@ -678,9 +728,7 @@ class TestDiscoveryRepeatSkip:
         async for event in agent.process_prompt("Run the steps", "s1", [], "build"):
             events.append(event)
         results = [
-            e
-            for e in events
-            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "bash"
+            e for e in events if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "bash"
         ]
         assert len(results) == 1, "the replayed bash call must not execute again"
         assert (root / "out" / "a.txt").exists()
@@ -733,9 +781,7 @@ class TestDiscoveryRepeatSkip:
         async for event in agent.process_prompt("Run the steps", "s1", [], "build"):
             events.append(event)
         results = [
-            e
-            for e in events
-            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "bash"
+            e for e in events if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "bash"
         ]
         assert len(results) == 1, "the replayed bash calls must not execute again"
         assert (root / "out" / "a.txt").exists(), "new work after the replay must still run"
@@ -806,6 +852,72 @@ class TestStallGuard:
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
 
+    class _PathObsessionProvider(BaseProvider):
+        """Keeps re-writing the same path with new content while interleaving other
+        new files. Each iteration has new work, so the stall counter never fires;
+        the path-stuck detector must finalize the turn instead."""
+
+        def __init__(self):
+            super().__init__("obsess", "obsess-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            n = self.call_count
+            if n == 1:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", '
+                    '"content": "v1"}}\n```'
+                )
+            if n == 2:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", '
+                    '"content": "v2"}}\n'
+                    '{"tool": "file_write", "params": {"path": "b.txt", "content": "b"}}\n```'
+                )
+            if n == 3:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.txt", '
+                    '"content": "v3"}}\n'
+                    '{"tool": "file_write", "params": {"path": "c.txt", "content": "c"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["obsess-model"]
+
+    @pytest.mark.asyncio
+    async def test_path_stuck_obsession_finalizes_turn(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._PathObsessionProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Write the files", "s1", [], "build"):
+            events.append(event)
+        assert (root / "a.txt").read_text(encoding="utf-8") == "v1", "first write must win"
+        assert (root / "b.txt").read_text(encoding="utf-8") == "b"
+        assert (root / "c.txt").read_text(encoding="utf-8") == "c"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert any("kept re-writing" in (e.data.get("message") or "") for e in warnings), (
+            "the path-stuck detector must finalize the turn"
+        )
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+        # The graceful stall summary must list what was written.
+        success = [e for e in events if e.kind == EventKind.SUCCESS]
+        assert success and "Stopped after" in (success[0].data.get("message") or "")
+
 
 class TestErrorRecovery:
     @pytest.mark.asyncio
@@ -846,7 +958,7 @@ class TestErrorRecovery:
             async def complete(self, messages, tools=None):
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 
-            async def stream(self, messages, tools=None):
+            async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
                 yield ("should not reach", None)
                 raise ProviderError("Rate limited", provider="rate", recoverable=True)
 

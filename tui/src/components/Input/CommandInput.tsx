@@ -85,10 +85,9 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
     const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
-    const effectiveMaxTokens =
-      maxTokens && maxTokens !== SESSION_STATUS_DEFAULTS.maxTokens
-        ? maxTokens
-        : activeModelInfo?.context_window || SESSION_STATUS_DEFAULTS.maxTokens;
+    const modelContextWindow = activeModelInfo?.context_window ?? SESSION_STATUS_DEFAULTS.maxTokens;
+    const backendMaxTokens = maxTokens > 0 ? maxTokens : SESSION_STATUS_DEFAULTS.maxTokens;
+    const effectiveMaxTokens = Math.min(modelContextWindow, backendMaxTokens);
 
     const handleSpecial = useCallback(
       (char: string, key: Key, value: string): boolean => {
@@ -180,6 +179,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             running={running}
             disabled={disabled}
             inputEmpty={!input.trim()}
+            tokenScope={running ? 'turn' : 'session'}
           />
         </Box>
       </Box>

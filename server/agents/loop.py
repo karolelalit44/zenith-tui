@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from server.config.constants import (
     BUILD_MODE,
@@ -38,7 +40,7 @@ from ..toolkit.executor import (
 )
 from .compaction import CHARS_PER_TOKEN, compact_tool_output, head_tail_trim
 from .context import ContextManager, _adaptive_reserve, _get_model_context_window
-from .llm_stream import StreamState, stream_with_retries
+from .llm_stream import StreamState, stream_completion
 from .loop_detection import LoopDetector
 from .prompts import build_plan_system_prompt, build_system_prompt
 from .validation import reflection_error_limit, schemas_to_openai_tools
@@ -80,14 +82,71 @@ def _params_label(params: dict) -> str:
     return ""
 
 
+def _build_manifest(
+    created_files: set[str],
+    files_edited: list[str],
+    task_completed: bool,
+    stall_finalized: bool,
+    last_text: str = "",
+    workspace_root: str | None = None,
+) -> dict:
+    """End-of-turn summary of files written and work still outstanding.
+
+    Emitted as a ``turn_manifest`` event (success/stall paths) and embedded in
+    terminal error events so the UI can show "Built these files; not yet done:
+    ..." and offer a Continue action. ``files`` is a light post-failure sanity
+    check: whether each declared file actually exists on disk and its size.
+    """
+    created = sorted(created_files)
+    modified = sorted(p for p in files_edited if p not in created_files)
+    completed = bool(task_completed and not stall_finalized)
+    remaining: list[str] = []
+    if not completed:
+        text = (last_text or "").strip()
+        if text:
+            remaining = [text]
+        else:
+            remaining = ["The model stopped before completing all work."]
+    payload: dict = {
+        "created": created,
+        "modified": modified,
+        "remaining": remaining,
+        "completed": completed,
+        "stalled": bool(stall_finalized),
+    }
+    files: list[dict] = []
+    if created_files:
+        root = Path(workspace_root or ".")
+        for p in created:
+            resolved = root / p
+            exists = resolved.exists()
+            files.append(
+                {
+                    "path": p,
+                    "exists": exists,
+                    "size": resolved.stat().st_size if exists else 0,
+                }
+            )
+    payload["files"] = files
+    return payload
+
+
 def _all_calls_repeat(valid_calls: list[dict], executed: set[tuple[str, str]]) -> bool:
     """True when every requested call was already executed this turn with identical params."""
     if not valid_calls or not executed:
         return False
     return all(
-        _call_signature(tc["tool"], normalize_file_params(tc.get("params", {}), tc["tool"])) in executed
+        _call_signature(tc["tool"], normalize_file_params(tc.get("params", {}), tc["tool"]))
+        in executed
         for tc in valid_calls
     )
+
+
+def _most_common_count(items: list[str]) -> int:
+    """Highest number of times a single value appears in ``items``."""
+    if not items:
+        return 0
+    return Counter(items).most_common(1)[0][1]
 
 
 def _find_compaction_cut(history, keep_tail: int = COMPACTION_KEEP_TAIL) -> int:
@@ -268,7 +327,6 @@ class AgentLoop:
         logger.info(
             "Context built: %d messages, system_prompt=%d chars", len(messages), len(system_prompt)
         )
-        yield r.thinking(f"Processing your request in {mode} mode...", session_id)
         if self.context_manager.should_summarize(messages, model, self.provider):
             _rebuild_holder: list = []
             async for _ev in self._summarize_and_rebuild(
@@ -315,7 +373,37 @@ class AgentLoop:
         executed_results: dict[tuple[str, str], str] = {}
         failed_calls: set[tuple[str, str]] = set()
         stall_count = 0
+        # True when the turn ended because the model stalled (repeated work with
+        # no progress) rather than by its own "done" text. Used to emit a
+        # graceful summary of what was and was not accomplished.
+        stall_finalized = False
+        # Paths written with file_write this turn. A second write to the same
+        # path is blocked (one-write-per-path-per-turn guard) regardless of the
+        # content, so a model that keeps re-writing one file cannot clobber it
+        # nor reset the stall counter with "new" content.
+        written_paths: set[str] = set()
+        # Every file_write target attempted this turn (executed or blocked).
+        path_write_attempts: list[str] = []
+        # Signatures already surfaced to the user as rejections / skips this
+        # turn, so a model that keeps repeating the same (rejected or already
+        # completed) call does not spam the same warning every iteration.
+        warned_rejects: set[tuple[str, str]] = set()
+        warned_skips: set[str] = set()
         _total_completion_chars = 0
+
+        def _with_manifest(ev: Event) -> Event:
+            """Attach the current turn manifest to a terminal event."""
+            if isinstance(ev.data, dict) and "manifest" not in ev.data:
+                ev.data["manifest"] = _build_manifest(
+                    created_files,
+                    files_edited,
+                    task_completed,
+                    stall_finalized,
+                    self._last_emitted_message or "",
+                    self.config.workspace_root,
+                )
+            return ev
+
         try:
             safety_iterations = self._resolve_safety_iterations(model)
             while iteration < safety_iterations:
@@ -362,10 +450,14 @@ class AgentLoop:
                     messages = _rebuild_holder[0]
                     token_info = self.context_manager.get_token_info(messages, model, self.provider)
                     if token_info.percent > 0.95:
-                        yield r.error(
-                            "Context window exhausted even after summarization",
-                            session_id,
-                            code="CONTEXT_EXHAUSTED",
+                        yield _with_manifest(
+                            r.error(
+                                "Context window exhausted even after summarization",
+                                session_id,
+                                code="CONTEXT_EXHAUSTED",
+                                action="retry",
+                                hint="Start a new session to free up context.",
+                            )
                         )
                         return
                 logger.info(
@@ -385,9 +477,10 @@ class AgentLoop:
                 # controls which tools exist; tool_choice="auto" lets the model
                 # decide whether to actually call one.
                 turn_tools = openai_tools
+                turn_errored = False
                 try:
                     _tool_choice = mode_config.tool_choice if mode_config else "auto"
-                    async for event in stream_with_retries(
+                    async for event in stream_completion(
                         self.provider,
                         messages,
                         turn_tools,
@@ -398,8 +491,22 @@ class AgentLoop:
                     ):
                         if event.kind == EventKind.WARNING and event.data.get("context_exceeded"):
                             context_exceeded = True
+                        if event.kind == EventKind.ERROR:
+                            # A provider error already explained this turn; don't
+                            # also report an empty response on top of it.
+                            turn_errored = True
                         yield event
                 except ZenithError:
+                    return
+                if turn_errored:
+                    # A provider stream error is a failed attempt for this turn;
+                    # count it toward REFLECTION_LIMIT so a string of provider
+                    # errors terminates the task with a clear error instead of
+                    # looping. There is no retry here: stream_completion makes a
+                    # single attempt and emits the error event. The error event is
+                    # already terminal - do not also emit a turn_manifest + success
+                    # banner after it.
+                    consecutive_failures += 1
                     return
                 if context_exceeded:
                     logger.info("Context exceeded at runtime — summarizing")
@@ -424,10 +531,14 @@ class AgentLoop:
                     messages = _rebuild_holder[0]
                     token_info = self.context_manager.get_token_info(messages, model, self.provider)
                     if token_info.percent > 0.95:
-                        yield r.error(
-                            "Context window exhausted even after summarization",
-                            session_id,
-                            code="CONTEXT_EXHAUSTED",
+                        yield _with_manifest(
+                            r.error(
+                                "Context window exhausted even after summarization",
+                                session_id,
+                                code="CONTEXT_EXHAUSTED",
+                                action="retry",
+                                hint="Start a new session to free up context.",
+                            )
                         )
                         return
                     continue
@@ -457,21 +568,34 @@ class AgentLoop:
                 if finish_reason == FinishReason.LENGTH:
                     logger.info("FinishReason=LENGTH on turn %d — continuing response", iteration)
                     if iteration >= safety_iterations * 2:
-                        yield r.error(
-                            "Response length limit exceeded repeatedly",
-                            session_id,
-                            code="LENGTH_EXCEEDED",
+                        yield _with_manifest(
+                            r.error(
+                                "Response length limit exceeded repeatedly",
+                                session_id,
+                                code="LENGTH_EXCEEDED",
+                                action="retry",
+                                hint="Try a shorter prompt or a model with a larger output budget.",
+                            )
                         )
                         return
                     continue
                 if not tool_calls:
-                    if not clean_response and (not stream_state.full_response):
-                        yield r.error(
-                            "Model returned empty response.",
-                            session_id,
-                            code="EMPTY_RESPONSE",
-                            recoverable=True,
+                    if not clean_response and (not stream_state.full_response) and not turn_errored:
+                        yield _with_manifest(
+                            r.error(
+                                "Model returned empty response.",
+                                session_id,
+                                code="EMPTY_RESPONSE",
+                                recoverable=True,
+                                action="retry",
+                                hint="The model produced no output. Retry this prompt.",
+                            )
                         )
+                        return
+                    # The model stopped emitting tool calls: the task is complete
+                    # on its own signal. Mark it so the turn manifest reports
+                    # completed=true with no remaining work.
+                    task_completed = True
                     break
                 if not self.tool_registry:
                     yield r.error("No tool registry available", session_id)
@@ -538,9 +662,12 @@ class AgentLoop:
                     tool_name = tc["tool"]
                     tool_params = normalize_file_params(tc.get("params", {}), tc["tool"])
                     sig = _call_signature(tool_name, tool_params)
+                    blocked_write = False
                     if sig in executed_calls:
                         failed_flag = " [failed]" if sig in failed_calls else ""
-                        skipped_calls.append(f"{tool_name}({_params_label(tool_params)}){failed_flag}")
+                        skipped_calls.append(
+                            f"{tool_name}({_params_label(tool_params)}){failed_flag}"
+                        )
                         # Re-present a bounded number of stored results so the model can
                         # actually see the output. A "shown above" pointer is not enough
                         # after a compaction (results are gone), which drives the model to
@@ -563,6 +690,7 @@ class AgentLoop:
                     if tool_name == FILE_WRITE_TOOL and (not reject_msg):
                         target = tool_params.get("filepath") or tool_params.get("path") or ""
                         if target:
+                            path_write_attempts.append(target)
                             resolved = validate_path(target, ws)
                             if resolved is not None and resolved.exists():
                                 if not self.config.auto_overwrite:
@@ -572,6 +700,17 @@ class AgentLoop:
                                     )
                                 else:
                                     tool_params[FILE_OVERWRITE_PARAM] = True
+                            if target in written_paths:
+                                # One-write-per-path-per-turn guard: re-writing a path that
+                                # already succeeded this turn is blocked (even with new
+                                # content), so a model stuck on one file cannot clobber it
+                                # or reset the stall counter by varying the content.
+                                blocked_write = True
+                                reject_msg = (
+                                    f"File rewrite blocked: '{target}' was already written this "
+                                    f"turn. To modify it, read it first, then use file_edit; "
+                                    f"do not re-write the same path."
+                                )
                     if tool_name == FILE_DELETE_TOOL and (not reject_msg):
                         target = tool_params.get("path") or ""
                         if target:
@@ -580,17 +719,34 @@ class AgentLoop:
                                 if not self.config.auto_risky:
                                     reject_msg = f"File delete denied: '{target}'."
                     if reject_msg:
-                        yield r.warning(f"Tool '{tool_name}' rejected: {reject_msg}", session_id)
+                        reject_sig = _call_signature(tool_name, tool_params)
+                        if reject_sig not in warned_rejects:
+                            warned_rejects.add(reject_sig)
+                            yield r.warning(
+                                f"Tool '{tool_name}' rejected: {reject_msg}", session_id
+                            )
                         messages.append(
                             {"role": "user", "content": f"[Tool rejected] {reject_msg}"}
                         )
+                        if blocked_write:
+                            # A blocked re-write of an already-written path is corrective
+                            # guidance, not a failure: it must not count toward
+                            # REFLECTION_LIMIT. It also counts as "no new work" so the
+                            # stall handler can finalize quickly if the model keeps
+                            # repeating the same path.
+                            skipped_calls.append(
+                                f"{tool_name}({_params_label(tool_params)}) [blocked]"
+                            )
+                            continue
                         consecutive_failures += 1
                         if consecutive_failures >= _reflimit:
-                            yield r.error(
-                                f"Too many errors ({consecutive_failures}).",
-                                session_id,
-                                code="REFLECTION_LIMIT",
-                                recoverable=True,
+                            yield _with_manifest(
+                                r.error(
+                                    f"Too many errors ({consecutive_failures}).",
+                                    session_id,
+                                    code="REFLECTION_LIMIT",
+                                    recoverable=True,
+                                )
                             )
                             return
                         continue
@@ -626,11 +782,13 @@ class AgentLoop:
                             }
                         )
                         if consecutive_failures >= _reflimit:
-                            yield r.error(
-                                f"Too many errors ({consecutive_failures}).",
-                                session_id,
-                                code="REFLECTION_LIMIT",
-                                recoverable=True,
+                            yield _with_manifest(
+                                r.error(
+                                    f"Too many errors ({consecutive_failures}).",
+                                    session_id,
+                                    code="REFLECTION_LIMIT",
+                                    recoverable=True,
+                                )
                             )
                             return
                     else:
@@ -664,11 +822,15 @@ class AgentLoop:
                         messages = _rebuild_holder[0]
                         _ti2 = self.context_manager.get_token_info(messages, model, self.provider)
                         if _ti2.percent > 0.95:
-                            yield r.error(
-                                f"Context exhausted ({_ti2.percent:.0f}%)",
-                                session_id,
-                                code="CONTEXT_EXHAUSTED",
-                                recoverable=True,
+                            yield _with_manifest(
+                                r.error(
+                                    f"Too many errors ({consecutive_failures}).",
+                                    session_id,
+                                    code="REFLECTION_LIMIT",
+                                    recoverable=True,
+                                    action="retry",
+                                    hint="Adjust the prompt and retry.",
+                                )
                             )
                             return
                         yield r.warning("Context summarized, continuing", session_id)
@@ -680,6 +842,7 @@ class AgentLoop:
                         if p:
                             if tool_name == "file_write":
                                 created_files.add(p)
+                                written_paths.add(p)
                             if tool_name in ("file_edit", "file_write"):
                                 files_edited.append(p)
                     for ev in await post_execution_hooks(
@@ -711,63 +874,49 @@ class AgentLoop:
                     executed_results[sig] = messages[-1]["content"]
                     self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
                 if skipped_calls:
-                    shown = ", ".join(skipped_calls[:_SKIP_WARNING_CAP])
-                    omitted = len(skipped_calls) - _SKIP_WARNING_CAP
-                    if omitted > 0:
-                        shown += f", +{omitted} more"
-                    yield r.warning(
-                        "Skipped calls already completed with identical params this turn: "
-                        + shown,
-                        session_id,
-                    )
+                    new_skips = [s for s in skipped_calls if s not in warned_skips]
+                    if new_skips:
+                        warned_skips.update(new_skips)
+                        shown = ", ".join(new_skips[:_SKIP_WARNING_CAP])
+                        omitted = len(new_skips) - _SKIP_WARNING_CAP
+                        if omitted > 0:
+                            shown += f", +{omitted} more"
+                        yield r.warning(
+                            "Skipped calls already completed with identical params this turn "
+                            "(or blocked as re-writes): " + shown,
+                            session_id,
+                        )
                     failed_skips = [s for s in skipped_calls if " [failed]" in s]
                     msg = (
-                        "[System] These calls were already attempted earlier in this turn "
-                        "with identical parameters and were NOT re-run: "
-                        + shown
-                        + ". Their results are already shown above in this conversation."
+                        "[System] Calls listed below were already completed earlier in this "
+                        "turn with identical parameters (or were blocked) and were NOT "
+                        "re-run: "
+                        + ", ".join(skipped_calls[:_SKIP_WARNING_CAP])
+                        + ". Do not re-run them; continue with the next "
+                        "unfinished step."
                     )
                     if failed_skips:
                         msg += (
-                            " The calls marked [failed] did not succeed; do NOT retry them "
+                            " The calls marked [failed] did not succeed; do not retry them "
                             "with identical parameters - use different parameters or a "
                             "different approach."
                         )
-                    msg += " Do not re-run any of the listed calls; continue with the next unfinished step."
                     messages.append({"role": "user", "content": msg})
                 if skipped_calls and not newly_executed and not task_completed:
                     stall_count += 1
                     if stall_count == 1:
-                        used_tools = {name for name, _ in executed_calls}
-                        all_tools = (
-                            self.tool_registry.list_tools() if self.tool_registry else []
-                        )
-                        remaining = sorted(
-                            t
-                            for t in all_tools
-                            if t not in used_tools and t not in ("discover_capabilities", "get_tool_definition")
-                        )
                         stall_msg = (
                             "[System] No new tool was executed this iteration; every call you "
-                            "emitted was already attempted earlier with identical parameters. "
-                            "You are stuck repeating previous work."
+                            "emitted was already attempted earlier with identical parameters "
+                            "(or was blocked as a re-write). You are stuck repeating previous "
+                            "work. If the task is complete, write your final summary now and "
+                            "stop; otherwise take a different action than before."
                         )
-                        if remaining:
-                            stall_msg += (
-                                " Tools still NOT used this turn: " + ", ".join(remaining)
-                                + ". If you need any of them, call "
-                                "get_tool_definition('<tool>') NOW and then call that tool. "
-                                "Do not emit any other calls this response."
-                            )
-                        else:
-                            stall_msg += (
-                                " All available tools have been used. If the task is done, "
-                                "write your final summary and stop."
-                            )
                         yield r.warning(stall_msg, session_id)
                         messages.append({"role": "user", "content": stall_msg})
                     else:
                         task_completed = True
+                        stall_finalized = True
                         yield r.warning(
                             "No new tool work for several consecutive iterations; finalizing the turn.",
                             session_id,
@@ -775,15 +924,32 @@ class AgentLoop:
                         break
                 elif newly_executed:
                     stall_count = 0
+                # Path-stuck detector: the model keeps re-writing the same path. Each
+                # attempt carries different content so it is not an identical-param repeat
+                # (and may be interleaved with other new work, which resets the stall
+                # counter), but the loop is still not making progress on that path. Once a
+                # path is targeted >= 3 times in one turn, finalize with a graceful summary
+                # instead of burning more iterations.
+                if path_write_attempts and _most_common_count(path_write_attempts) >= 3:
+                    task_completed = True
+                    stall_finalized = True
+                    yield r.warning(
+                        f"The model kept re-writing '{path_write_attempts[0]}'; finalizing the turn.",
+                        session_id,
+                    )
+                    break
                 if stop_turn:
                     logger.info("Stopping turn: tool requested stop_turn")
+                    task_completed = True
                     break
                 if self._loop_detector.is_loop_detected():
-                    yield r.error(
-                        "Loop detected: the same tool calls are repeating without progress.",
-                        session_id,
-                        code="LOOP_DETECTED",
-                        recoverable=True,
+                    yield _with_manifest(
+                        r.error(
+                            "Loop detected: the same tool calls are repeating without progress.",
+                            session_id,
+                            code="LOOP_DETECTED",
+                            recoverable=True,
+                        )
                     )
                     return
                 # Completion is decided by the model's own behavior — it stops
@@ -794,10 +960,12 @@ class AgentLoop:
                     auto_commit(ws, files_edited)
                     files_edited.clear()
             else:
-                yield r.error(
-                    f"Safety net exceeded ({safety_iterations} iterations)",
-                    session_id,
-                    code="MAX_ITERATIONS",
+                yield _with_manifest(
+                    r.error(
+                        f"Safety net exceeded ({safety_iterations} iterations)",
+                        session_id,
+                        code="MAX_ITERATIONS",
+                    )
                 )
                 return
         finally:
@@ -813,22 +981,40 @@ class AgentLoop:
                 session_id,
                 code="NO_FILES_CREATED",
             )
-        yield r.success(
-            "Request processed successfully",
-            session_id,
-            iteration,
-            {
-                "used": token_info.used,
-                "remaining": token_info.remaining,
-                "total": token_info.total,
-                "percent": round(token_info.percent, 3),
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": estimated_completion,
-                "cached_tokens": cum_usage.get("cached_tokens", 0),
-                "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
-                "estimated": is_estimated,
-                "mode": mode,
-            },
+        success_message = "Request processed successfully"
+        if stall_finalized:
+            created = ", ".join(sorted(created_files)) or "none"
+            success_message = (
+                f"Stopped after {iteration} iterations: the model stopped making progress. "
+                f"Files written: {created}."
+            )
+        manifest = _build_manifest(
+            created_files,
+            files_edited,
+            task_completed,
+            stall_finalized,
+            self._last_emitted_message or "",
+            self.config.workspace_root,
+        )
+        yield r.turn_manifest(manifest, session_id)
+        yield _with_manifest(
+            r.success(
+                success_message,
+                session_id,
+                iteration,
+                {
+                    "used": token_info.used,
+                    "remaining": token_info.remaining,
+                    "total": token_info.total,
+                    "percent": round(token_info.percent, 3),
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": estimated_completion,
+                    "cached_tokens": cum_usage.get("cached_tokens", 0),
+                    "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
+                    "estimated": is_estimated,
+                    "mode": mode,
+                },
+            )
         )
 
     async def _maybe_summarize(self, history, session_id, messages=None, reason="automatic"):

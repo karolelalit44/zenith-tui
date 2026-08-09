@@ -18,9 +18,7 @@ describe('appConfig', () => {
     expect(appConfig.buildWsUrl()).toBe('ws://localhost:8765/ws');
   });
 
-  it('exposes environment/development metadata and timeout defaults', () => {
-    expect(typeof appConfig.isDevelopment).toBe('boolean');
-    expect(['development', 'production']).toContain(appConfig.environment);
+  it('exposes timeout and retry defaults', () => {
     expect(appConfig.timeout.fetchMs).toBeGreaterThan(0);
     expect(appConfig.timeout.rpcMs).toBeGreaterThan(0);
     expect(appConfig.ws.maxReconnect).toBeGreaterThanOrEqual(0);

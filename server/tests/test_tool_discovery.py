@@ -43,6 +43,17 @@ class TestDiscoveryTools:
         props = get_definition.get_schema()["properties"]
         assert "tool_name" in props
 
+    def test_build_seed_is_lean_and_web_tools_still_escalate(self):
+        """T1: heavy web schemas are not in the always-sent seed but stay reachable."""
+        assert "websearch" not in CORE_BUILD_TOOLS
+        assert "webfetch" not in CORE_BUILD_TOOLS
+        registry = create_default_registry()
+        resolver = SchemaResolver(registry, seed=build_mode_tool_seed(CORE_BUILD_TOOLS))
+        assert "websearch" not in resolver.active_names()
+        # On-demand promotion still works for the trimmed tools.
+        assert resolver.request_tool("websearch") is True
+        assert "websearch" in resolver.active_names()
+
     @pytest.mark.asyncio
     async def test_discover_lists_capabilities(self):
         registry = create_default_registry()
@@ -151,7 +162,9 @@ class TestSchemaResolver:
         """
         registry = create_default_registry()
         resolver = SchemaResolver(registry, seed=build_mode_tool_seed(CORE_BUILD_TOOLS))
-        core = {"file_read", "file_edit", "file_write", "bash", "glob", "grep", "websearch", "webfetch"}
+        # Derive the core set from the config so the trim (web tools no longer
+        # seeded, T1) is tracked automatically instead of a hard-coded list.
+        core = set(CORE_BUILD_TOOLS)
         for name in ("file_delete", "todo", "multi_edit", "agent", "job_kill", "lsp_rename"):
             assert resolver.request_tool(name) is True
         active = set(resolver.active_names())

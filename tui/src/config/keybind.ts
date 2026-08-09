@@ -13,7 +13,8 @@ export type KeybindId =
   | 'clear_turns'
   | 'clear_input'
   | 'interrupt'
-  | 'model_picker';
+  | 'model_picker'
+  | 'expand_history';
 
 export interface Keybinding {
   keys: string[];
@@ -36,6 +37,7 @@ export const KEYBINDINGS: KeybindingMap = {
   clear_input: { keys: ['ctrl+c'], description: 'Clear input / cancel run' },
   interrupt: { keys: ['escape'], description: 'Cancel running / close' },
   model_picker: { keys: ['ctrl+e'], description: 'Switch provider/model' },
+  expand_history: { keys: ['shift+e'], description: 'Show all hidden events during a run' },
 };
 
 export type InkKeyLike = Pick<

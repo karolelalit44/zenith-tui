@@ -58,4 +58,19 @@ def test_get_tier_prompt_enhancements():
     reasoning_rules = get_tier_prompt_enhancements(ModelTier.REASONING)
     assert "<reasoning_model_rules>" in reasoning_rules
     flagship_rules = get_tier_prompt_enhancements(ModelTier.FLAGSHIP)
-    assert flagship_rules == ""
+    assert "<flagship_model_rules>" in flagship_rules
+
+
+def test_compact_rules_include_anti_loop_rules():
+    rules = get_tier_prompt_enhancements(ModelTier.COMPACT)
+    assert "Never call a tool twice with identical parameters in one turn" in rules
+    assert "Never write the same file path twice in one turn" in rules
+    assert "output ONLY your final summary text and stop" in rules
+    assert "A tool call that already succeeded this turn will be skipped" in rules
+
+
+def test_large_model_rules_include_short_anti_loop_variant():
+    for tier in (ModelTier.FLAGSHIP, ModelTier.REASONING):
+        rules = get_tier_prompt_enhancements(tier)
+        assert "Never call a tool twice with identical parameters in one turn" in rules
+        assert "final summary" in rules

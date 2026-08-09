@@ -4,7 +4,6 @@ HOST_ENV_VAR = "ZENITH_HOST"
 PORT_ENV_VAR = "ZENITH_PORT"
 WS_PATH = "/ws"
 HEALTH_PATH = "/health"
-DEFAULT_BASH_TIMEOUT = 120
 CONTEXT_SUMMARY_THRESHOLD = 0.85
 DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
@@ -34,7 +33,6 @@ PERMISSION_COMMAND = "command"
 PERMISSION_NETWORK = "network"
 PERMISSION_MCP = "mcp"
 PERMISSION_SUBAGENT = "sub_agent"
-PERMISSION_INTERACTION = "interaction"
 
 # Tool concurrency groups
 CONCURRENCY_GROUP_READONLY = "read_only"
@@ -102,12 +100,8 @@ BASH_TOOL_DESCRIPTION_UNIX = (
 )
 
 # Bash tool command parameter descriptions (OS-specific)
-BASH_TOOL_COMMAND_PARAM_WINDOWS = (
-    "PowerShell command to execute (Windows PowerShell syntax only)"
-)
-BASH_TOOL_COMMAND_PARAM_UNIX = (
-    "Shell command to execute (POSIX/bash syntax only)"
-)
+BASH_TOOL_COMMAND_PARAM_WINDOWS = "PowerShell command to execute (Windows PowerShell syntax only)"
+BASH_TOOL_COMMAND_PARAM_UNIX = "Shell command to execute (POSIX/bash syntax only)"
 
 # Tool error markers
 FILE_EXISTS_ERROR_MARKER = "already exists"
@@ -129,3 +123,12 @@ MAX_TOOL_OUTPUT_TIERS = (
 LOOP_DETECTION_WINDOW_SIZE = 10
 LOOP_DETECTION_MAX_REPEATS = 2
 LOOP_IDENTICAL_CONSECUTIVE_LIMIT = 3
+
+# Rate limiting / quota handling
+# Client-side request pacing: provider failures are surfaced explicitly (no
+# silent retries), so pacing is the only client-side mitigation. The env var is
+# the global default; the provider catalog may override it per provider via
+# `rate_limit`.
+MIN_REQUEST_INTERVAL_ENV = "ZENITH_MIN_REQUEST_INTERVAL"
+DEFAULT_MIN_REQUEST_INTERVAL = 0.0  # disabled unless configured
+REQUEST_THROTTLE_JITTER = 0.5

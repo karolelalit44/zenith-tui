@@ -1,9 +1,8 @@
 import { Box, Static, Text } from 'ink';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScrollIndicator } from './components/Display/ScrollIndicator';
-import { SessionStatusBar } from './components/Display/SessionStatusBar';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
 import { CommandInput } from './components/Input/CommandInput';
 import { CommandPalette } from './components/Input/CommandPalette';
@@ -24,7 +23,7 @@ import { ExitScreen } from './screens/Exit/ExitScreen';
 import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
 import type { CommandRunContext } from './services/api/CommandRegistry';
-import { commandService } from './services/api/CommandService';
+import { dispatchCommand } from './services/api/CommandRegistry';
 import { addSession } from './services/api/SessionRepository';
 import { startupService } from './services/api/StartupService';
 import type { TokenUsageStats } from './services/api/TokenUsageService';
@@ -37,7 +36,7 @@ import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
-import type { ScenarioEvent, ScenarioMode } from './types/scenario';
+import type { ScenarioEvent, ScenarioMode, TurnManifestEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 import { computeVisibleTurns } from './utils/turnWindow';
@@ -67,6 +66,7 @@ export const App: React.FC = () => {
 
   const toggleThinking = useCallback(() => setThinkingCollapsed((p) => !p), []);
   const [showPalette, setShowPalette] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const [retryTarget, setRetryTarget] = useState<RetryTarget | null>(null);
   const handleRetryDismiss = useCallback(() => setRetryTarget(null), []);
@@ -133,8 +133,19 @@ export const App: React.FC = () => {
     [closeAutocomplete, closeFilePicker],
   );
 
-  const { events, isRunning, startScenario, abort, eventsRef, lastSessionId, setActiveSessionId } = useScenario();
+  const {
+    events,
+    isRunning,
+    startScenario,
+    abort,
+    eventsRef,
+    lastSessionId,
+    setActiveSessionId,
+    lastManifest,
+    continueFromManifest,
+  } = useScenario();
   const { activeProvider } = useProvider();
+  const [continueTarget, setContinueTarget] = useState<{ prompt: string; manifest: TurnManifestEvent } | null>(null);
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
   const refreshStats = useCallback(() => {
@@ -147,8 +158,25 @@ export const App: React.FC = () => {
     }
   }, [startupState.phase, refreshStats]);
 
-  const liveTotalTokens = useMemo(() => {
-    return totalTokens + (isRunning ? estimateTokensForEvents(events) : 0);
+  // Throttle live token estimate: recalculate at most every 2 s while running
+  // so that each streamed event does not trigger a full CommandInput re-render.
+  const tokenEstimateRef = useRef(0);
+  const lastTokenUpdateRef = useRef(0);
+  const [liveTotalTokens, setLiveTotalTokens] = useState(totalTokens);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setLiveTotalTokens(totalTokens);
+      tokenEstimateRef.current = 0;
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTokenUpdateRef.current > 2000) {
+      lastTokenUpdateRef.current = now;
+      const estimate = totalTokens + estimateTokensForEvents(events);
+      tokenEstimateRef.current = estimate;
+      setLiveTotalTokens(estimate);
+    }
   }, [totalTokens, isRunning, events]);
 
   useEffect(() => {
@@ -254,7 +282,7 @@ export const App: React.FC = () => {
       if (!trimmed) return;
       if (trimmed.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(trimmed, commandCtx);
+        dispatchCommand(trimmed, commandCtx);
         return;
       }
 
@@ -278,6 +306,7 @@ export const App: React.FC = () => {
       addTurn(trimmed, selectedMode, modelId);
       clearInput();
       setRetryTarget(null);
+      setHistoryExpanded(false);
       startScenario(trimmed, selectedMode, providerId, modelId, attachments);
     },
     [selectedMode, startScenario, activeProvider.id, addTurn, clearInput, commandCtx, addHistory, attachments],
@@ -303,29 +332,37 @@ export const App: React.FC = () => {
     showPalette,
     setShowPalette: handleSetShowPalette,
     slashMenuOpen: showAutocomplete,
+    onToggleHistoryExpanded: () => setHistoryExpanded((v) => !v),
   });
 
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
       const hadRecoverableError = eventsRef.current.some((e) => e.kind === 'error' && e.recoverable);
       if (hadRecoverableError) {
-        setRetryTarget({
-          prompt: activeTurn.prompt,
-          mode: activeTurn.mode,
-          model: activeTurn.model,
-        });
+        if (lastManifest) {
+          setContinueTarget({
+            prompt: activeTurn.prompt,
+            manifest: lastManifest.manifest,
+          });
+        } else {
+          setRetryTarget({
+            prompt: activeTurn.prompt,
+            mode: activeTurn.mode,
+            model: activeTurn.model,
+          });
+        }
       }
       completeActiveTurn(eventsRef.current);
       addSession(activeTurn.prompt).catch(() => {});
       refreshStats();
     }
-  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats]);
+  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats, lastManifest]);
 
   const handleAutocompleteSelectWithRouter = useCallback(
     (cmd: string) => {
       if (cmd.startsWith('/')) {
         clearInput();
-        commandService.dispatchCommand(cmd, commandCtx);
+        dispatchCommand(cmd, commandCtx);
       } else {
         handleAutocompleteSelect(cmd);
       }
@@ -341,6 +378,26 @@ export const App: React.FC = () => {
     setRetryTarget(null);
     startScenario(prompt, mode, activeProvider.id, model);
   }, [retryTarget, isRunning, activeProvider.id, addTurn, clearInput, startScenario]);
+
+  const handleContinue = useCallback(() => {
+    if (!continueTarget || isRunning) return;
+    const { prompt, manifest } = continueTarget;
+    addTurn(prompt, selectedMode, activeProvider.config.model);
+    clearInput();
+    setContinueTarget(null);
+    continueFromManifest(prompt, selectedMode, manifest, activeProvider.id, activeProvider.config.model);
+  }, [
+    continueTarget,
+    isRunning,
+    selectedMode,
+    activeProvider.id,
+    activeProvider.config.model,
+    addTurn,
+    clearInput,
+    continueFromManifest,
+  ]);
+
+  const handleContinueDismiss = useCallback(() => setContinueTarget(null), []);
 
   const handleOpenHelp = useCallback(() => openOverlay('help'), [openOverlay]);
 
@@ -454,28 +511,38 @@ export const App: React.FC = () => {
 
         {isRunning && (
           <Box flexDirection="column" marginTop={1} width="100%">
-            {scrollState.isUserScrolled ? (
-              <Box paddingX={1}>
-                <Text color={theme.colors.text.muted} dimColor>
-                  ▸ Generating… (PgDn / End to follow the live output)
+            {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
+            <ScenarioRenderer
+              events={events}
+              isRunning={isRunning}
+              isHistorical={false}
+              thinkingCollapsed={thinkingCollapsed}
+              historyExpanded={historyExpanded}
+            />
+            {scrollState.isUserScrolled && (
+              <Box paddingX={1} marginTop={0}>
+                <Text color={theme.colors.text.dim} dimColor>
+                  ▸ PgDn / End to follow live output
                 </Text>
               </Box>
-            ) : (
-              <>
-                {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
-                <ScenarioRenderer
-                  events={events}
-                  isRunning={isRunning}
-                  isHistorical={false}
-                  thinkingCollapsed={thinkingCollapsed}
-                />
-              </>
             )}
           </Box>
         )}
 
         {!showFilePicker && !isOverlayOpen && !showPalette && (
           <Box flexDirection="column" width="100%">
+            {continueTarget && (
+              <OptionBanner
+                title="Continue where you left off"
+                message={`Resume: ${truncateEnd(sanitizeSingleLine(continueTarget.prompt), 90)}`}
+                options={[
+                  { label: 'Continue', value: 'continue' },
+                  { label: 'Dismiss', value: 'dismiss' },
+                ]}
+                onSelect={(value) => (value === 'continue' ? handleContinue() : handleContinueDismiss())}
+                onClose={handleContinueDismiss}
+              />
+            )}
             {retryTarget && (
               <OptionBanner
                 title="Task failed"
@@ -494,14 +561,17 @@ export const App: React.FC = () => {
               onInputChange={handleInputChange}
               onSubmit={handleSubmit}
               running={isRunning}
-              disabled={!!retryTarget}
-              disabledMessage={retryTarget ? 'Choose an action above…' : undefined}
+              disabled={!!retryTarget || !!continueTarget}
+              disabledMessage={
+                retryTarget ? 'Choose an action above…' : continueTarget ? 'Choose an action above…' : undefined
+              }
               attachments={attachments}
               onRemoveAttachment={removeAttachment}
               historyUp={historyUp}
               historyDown={historyDown}
               mode={selectedMode}
               totalTokens={liveTotalTokens}
+              maxTokens={providerRepository.maxContextTokens || undefined}
               workspaceName={workspace}
               onCancel={handleCancel}
               onOpenHelp={handleOpenHelp}
@@ -555,15 +625,6 @@ export const App: React.FC = () => {
           onComplete={handleSetupComplete}
           onOpenProvider={handleOpenProvider}
           onResumeSession={handleSessionResume}
-        />
-
-        <SessionStatusBar
-          mode={selectedMode}
-          totalTokens={totalTokens}
-          isRunning={isRunning}
-          isOverlayOpen={isOverlayOpen}
-          hasEvents={events.length > 0 || turns.length > 0}
-          tokenUsageStats={tokenUsageStats}
         />
       </Box>
     </AppProvider>

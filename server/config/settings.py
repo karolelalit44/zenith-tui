@@ -27,7 +27,10 @@ PLAN_MODE_CONFIG = AgentModeConfig(
     description="Read-only analysis and planning with core tools and dynamic escalation.",
     sub_agent=False,
 )
-CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep", "websearch", "webfetch"]
+# Always-offered schemas. Web research tools stay registered and are promoted on
+# demand (get_tool_definition or a direct call auto-escalates), so a pure code
+# task never pays for their (large) schemas on every turn.
+CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep"]
 BUILD_MODE_CONFIG = AgentModeConfig(
     name=BUILD_MODE,
     allowed_tools=CORE_BUILD_TOOLS,
@@ -48,17 +51,6 @@ class ToolConfig(BaseModel):
     file_edit_enabled: bool = True
     file_delete_enabled: bool = True
     max_bash_timeout: int = Field(default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300)
-    max_retries: int = Field(default=optional_int("ZENITH_MAX_RETRIES", 3), ge=0, le=10)
-    stream_max_retries: int = Field(
-        default=optional_int("ZENITH_STREAM_MAX_RETRIES", 3), ge=0, le=10
-    )
-    retry_base_delay: float = Field(
-        default=optional_float("ZENITH_RETRY_BASE_DELAY", 0.125), ge=0.1, le=30.0
-    )
-    retry_max_delay: float = Field(
-        default=optional_float("ZENITH_RETRY_MAX_DELAY", 60.0), ge=1.0, le=300.0
-    )
-    git_timeout: int = Field(default=optional_int("ZENITH_GIT_TIMEOUT", 30), ge=5, le=120)
 
 
 class McpServerConfig(BaseModel):

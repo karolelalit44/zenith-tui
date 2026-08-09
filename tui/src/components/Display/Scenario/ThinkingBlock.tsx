@@ -1,7 +1,9 @@
 import { Box, Text } from 'ink';
 import React, { useEffect, useState } from 'react';
+import { formatKeyBind } from '../../../config/keybind';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ThinkingEvent, ThinkingThought } from '../../../types/scenario';
+import { formatDuration } from '../../../utils/text';
 
 import type { EventRenderContext } from './componentRegistry';
 
@@ -13,20 +15,19 @@ interface ThinkingBlockProps {
 const getThoughtText = (thought: string | ThinkingThought): string =>
   typeof thought === 'string' ? thought : thought.text;
 
-const _getThoughtDelay = (thought: string | ThinkingThought, index: number): number =>
-  typeof thought === 'string' ? 0 : (thought.delay ?? index * 400);
+const STATUS_THOUGHT_RE = /^Processing your request\b/i;
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rem = (s % 60).toFixed(0);
-  return `${m}m ${rem}s`;
+function hasRealReasoning(event: ThinkingEvent): boolean {
+  return event.thoughts.some((thought) => {
+    const text = getThoughtText(thought);
+    return Boolean(text) && text.trim().length > 0 && !STATUS_THOUGHT_RE.test(text.trim());
+  });
 }
 
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
+  const toggleHint = formatKeyBind('thinking');
+
   const isCollapsed = context?.thinkingCollapsed ?? true;
   const historical = context?.isHistorical ?? false;
   const [visibleCount, setVisibleCount] = useState(historical ? event.thoughts.length : 0);
@@ -35,18 +36,40 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     setVisibleCount(event.thoughts.length);
   }, [event.thoughts.length]);
 
+  if (!hasRealReasoning(event)) {
+    return null;
+  }
+
   const displayedThoughts = isCollapsed || historical ? event.thoughts : event.thoughts.slice(0, visibleCount);
 
   const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
   const headerTitle = durationStr ? `Thought for ${durationStr}` : `Thought (${event.thoughts.length} steps)`;
+
+  const firstRealThought = event.thoughts
+    .map((thought) => getThoughtText(thought).trim())
+    .find((text) => text.length > 0 && !STATUS_THOUGHT_RE.test(text));
+  const preview =
+    firstRealThought && firstRealThought.length > 72 ? `${firstRealThought.slice(0, 71)}…` : firstRealThought;
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
       <Box flexDirection="row" alignItems="center" marginBottom={isCollapsed ? 0 : 1} flexWrap="wrap">
         <Text color={theme.colors.text.muted}>• </Text>
         <Text color={theme.colors.text.bright}>{headerTitle} </Text>
-        <Text color={theme.colors.text.dim}>{isCollapsed ? '(ctrl+o to expand)' : '(ctrl+o to collapse)'}</Text>
+        <Text color={theme.colors.text.dim}>
+          {isCollapsed ? `(${toggleHint} to expand)` : `(${toggleHint} to collapse)`}
+        </Text>
       </Box>
+
+      {isCollapsed && preview && (
+        <Box flexDirection="row" paddingLeft={2} width="100%">
+          <Box flexShrink={1}>
+            <Text color={theme.colors.text.muted} italic wrap="wrap">
+              {preview}
+            </Text>
+          </Box>
+        </Box>
+      )}
 
       {!isCollapsed && (
         <Box flexDirection="column" paddingLeft={2} width="100%">

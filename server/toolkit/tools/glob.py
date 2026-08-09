@@ -72,7 +72,9 @@ class GlobTool(BaseTool):
         # "not in the subpath" on the first file.
         base = Path(workspace_root).resolve()
         requested = params.get("path") or ""
-        search_path = (Path(requested) if Path(requested).is_absolute() else base / requested).resolve()
+        search_path = (
+            Path(requested) if Path(requested).is_absolute() else base / requested
+        ).resolve()
         if search_path != base and base not in search_path.parents:
             return ToolResult(success=False, error=f"Search path outside workspace: {search_path}")
         if not search_path.exists():

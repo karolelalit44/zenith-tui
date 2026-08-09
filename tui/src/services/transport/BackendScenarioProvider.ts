@@ -26,12 +26,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
     let eventIndex = 0;
     let partialMessageIndex: number | null = null;
     let lastPartialMessageIndex: number | null = null;
+    let partialMessageId: string | null = null;
     let accumulatedText = '';
     let completed = false;
     let timerHandle: ReturnType<typeof setTimeout> | null = null;
     let staleTimer: ReturnType<typeof setTimeout> | null = null;
     let lastEventKind: string | null = null;
     let mergedThinkingThoughts: string[] = [];
+    let mergedThinkingId: string | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disconnectEventIndex: number | null = null;
 
@@ -153,6 +155,9 @@ export class BackendScenarioProvider implements ScenarioProvider {
         const token = String(data.text || '');
         accumulatedText += token;
 
+        const eventId = partialMessageId ?? rpcId ?? uid();
+        partialMessageId = eventId;
+
         if (partialMessageIndex === null) {
           partialMessageIndex = eventIndex;
           lastPartialMessageIndex = eventIndex;
@@ -163,7 +168,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         onEvent(
           {
             kind: 'message',
-            id: rpcId || uid(),
+            id: eventId,
             text: accumulatedText,
             partial: true,
           },
@@ -188,14 +193,16 @@ export class BackendScenarioProvider implements ScenarioProvider {
         onEvent(
           {
             kind: 'message',
-            id: rpcId || uid(),
+            id: partialMessageId ?? rpcId ?? uid(),
             text: fullText,
             partial: false,
+            iteration: typeof data.iteration === 'number' ? data.iteration : undefined,
           },
           targetIndex,
         );
         partialMessageIndex = null;
         lastPartialMessageIndex = null;
+        partialMessageId = null;
         accumulatedText = '';
         return;
       }
@@ -206,13 +213,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
         onEvent(
           {
             kind: 'message',
-            id: uid(),
+            id: partialMessageId ?? uid(),
             text: accumulatedText,
             partial: false,
           },
           partialMessageIndex,
         );
         partialMessageIndex = null;
+        partialMessageId = null;
         accumulatedText = '';
       }
 
@@ -225,10 +233,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
           if (text) mergedThinkingThoughts.push(text);
         }
 
+        const mergedId = mergedThinkingId ?? (mapped as import('../../types/scenario').ThinkingEvent).id;
+        mergedThinkingId = mergedId;
+
         onEvent(
           {
             kind: 'thinking',
-            id: uid(),
+            id: mergedId,
             thoughts: [...mergedThinkingThoughts],
             duration: 500,
           },
@@ -237,11 +248,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
       } else {
         if (kind !== 'thinking') {
           mergedThinkingThoughts = [];
+          mergedThinkingId = null;
         } else {
           const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
           mergedThinkingThoughts = newThoughts
             .map((t) => (typeof t === 'string' ? t : t.text))
             .filter(Boolean) as string[];
+          mergedThinkingId = (mapped as import('../../types/scenario').ThinkingEvent).id;
         }
         onEvent(mapped, eventIndex);
         eventIndex++;
@@ -335,6 +348,7 @@ function mapRawEvent(
         id,
         text: String(d.text || ''),
         partial: d.partial === true,
+        iteration: typeof d.iteration === 'number' ? d.iteration : undefined,
       };
 
     case 'tool_call':
@@ -366,6 +380,8 @@ function mapRawEvent(
         code: d.code ? String(d.code) : undefined,
         recoverable: typeof d.recoverable === 'boolean' ? d.recoverable : undefined,
         provider: d.provider ? String(d.provider) : undefined,
+        action: d.action ? String(d.action) : undefined,
+        hint: d.hint ? String(d.hint) : undefined,
       };
 
     case 'warning':
@@ -438,6 +454,24 @@ function mapRawEvent(
         message: formatContextEventMessage('context_compaction_ended', d),
         tokensSaved: typeof d.tokensSaved === 'number' ? d.tokensSaved : undefined,
         summaryChars: typeof d.summaryChars === 'number' ? d.summaryChars : undefined,
+      };
+
+    case 'turn_manifest':
+      return {
+        kind: 'turn_manifest',
+        id,
+        created: Array.isArray(d.created) ? d.created.map(String) : [],
+        modified: Array.isArray(d.modified) ? d.modified.map(String) : [],
+        remaining: Array.isArray(d.remaining) ? d.remaining.map(String) : [],
+        completed: d.completed === true,
+        stalled: d.stalled === true,
+        files: Array.isArray(d.files)
+          ? d.files.map((f: Record<string, unknown>) => ({
+              path: String(f.path || ''),
+              exists: f.exists === true,
+              size: typeof f.size === 'number' ? f.size : 0,
+            }))
+          : [],
       };
 
     default:

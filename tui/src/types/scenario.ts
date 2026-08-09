@@ -3,6 +3,7 @@ export type EventKind =
   | 'message'
   | 'tool_call'
   | 'tool_result'
+  | 'tool_step'
   | 'error'
   | 'warning'
   | 'success'
@@ -37,6 +38,8 @@ export interface ErrorEvent {
   code?: string;
   recoverable?: boolean;
   provider?: string;
+  action?: string;
+  hint?: string;
 }
 
 export interface WarningEvent {
@@ -67,6 +70,7 @@ export interface MessageEvent {
   id: string;
   text: string;
   partial?: boolean;
+  iteration?: number;
 }
 
 export interface ToolCallEvent {
@@ -86,6 +90,20 @@ export interface ToolResultEvent {
   error: string;
   truncated?: boolean;
   metadata: Record<string, unknown>;
+}
+
+export interface ToolStepEvent {
+  kind: 'tool_step';
+  id: string;
+  tool: string;
+  params: Record<string, unknown>;
+  success: boolean;
+  output: string;
+  error: string;
+  truncated?: boolean;
+  metadata: Record<string, unknown>;
+  text?: string;
+  pending: boolean;
 }
 
 export interface ProgressEvent {
@@ -128,11 +146,23 @@ export interface ContextCompactionEndedEvent {
   summaryChars?: number;
 }
 
+export interface TurnManifestEvent {
+  kind: 'turn_manifest';
+  id: string;
+  created: string[];
+  modified: string[];
+  remaining: string[];
+  completed: boolean;
+  stalled: boolean;
+  files: { path: string; exists: boolean; size: number }[];
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | MessageEvent
   | ToolCallEvent
   | ToolResultEvent
+  | ToolStepEvent
   | ErrorEvent
   | WarningEvent
   | SuccessEvent
@@ -140,7 +170,8 @@ export type ScenarioEvent =
   | PlanReadyEvent
   | ContextCompactedEvent
   | ContextCompactionStartedEvent
-  | ContextCompactionEndedEvent;
+  | ContextCompactionEndedEvent
+  | TurnManifestEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 

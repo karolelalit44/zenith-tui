@@ -158,7 +158,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           </Box>
         ) : (
           <Box flexDirection="column">
-            {/* Preference Option 1: Auto Approve Tools */}
             <Box flexDirection="row" alignItems="center" marginY={1}>
               <Box width={3}>
                 <Text color={prefCursor === 0 ? theme.colors.text.emerald : theme.colors.text.dim}>
@@ -181,7 +180,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               </Text>
             </Box>
 
-            {/* Preference Option 2: Thinking Chain-of-Thought Collapse */}
             <Box flexDirection="row" alignItems="center" marginY={1}>
               <Box width={3}>
                 <Text color={prefCursor === 1 ? theme.colors.text.emerald : theme.colors.text.dim}>

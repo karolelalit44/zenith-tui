@@ -102,6 +102,7 @@ class MethodHandlers:
             "session.sync": lambda: self._session_sync(ws, rid, params, session_id),
             "session.search": lambda: self._session_search(ws, rid, params, session_id),
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
+            "prompt.continue": lambda: self._prompt_continue(ws, rid, params, session_id),
             "prompt.cancel": lambda: self._cancel_prompt(ws, rid, session_id),
             "context.compact": lambda: self._context_compact(ws, rid, session_id),
             "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id),
@@ -517,6 +518,29 @@ class MethodHandlers:
         except Exception:
             logger.exception("Prompt execution failed for session %s", session_id)
         return session_id
+
+    async def _prompt_continue(self, ws, rid, params, session_id) -> str | None:
+        if not session_id:
+            await ws.send_text(make_error_response(rid, -32602, "No active session"))
+            return None
+        manifest = params.get("manifest") or {}
+        original_prompt = params.get("prompt") or params.get("content") or ""
+        created = manifest.get("created") or []
+        remaining = manifest.get("remaining") or []
+        parts = ["[Continue from previous turn]"]
+        if created:
+            parts.append(f"Files already written: {', '.join(created)}.")
+        if remaining:
+            parts.append(f"Remaining steps: {' '.join(str(s) for s in remaining)}")
+        parts.append(f"Original request: {original_prompt}")
+        parts.append(
+            "Continue working on the remaining steps. Do not re-write files that already exist."
+        )
+        continue_params = dict(params)
+        continue_params["content"] = "\n\n".join(parts)
+        continue_params.pop("manifest", None)
+        continue_params.pop("prompt", None)
+        return await self._prompt(ws, rid, continue_params, session_id)
 
     async def _cancel_prompt(self, ws, rid, session_id) -> str | None:
         if not session_id:

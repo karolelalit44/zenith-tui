@@ -23,9 +23,6 @@ Turn 2 — multi-tool exercise
     server for the language); the script records their outcome but does not
     hard-fail on "no LSP server" — it only fails if they are never invoked.
 
-Excluded: the interactive ``question`` tool (blocking; no interactive handler
-exists anymore).
-
 Usage::
 
     .venv\\Scripts\\python.exe scripts/smoke_tool_exercise.py [--turn-timeout 600]
@@ -78,6 +75,7 @@ try:
     from winpty import Backend, PtyProcess
 except ImportError:
     from winpty import PtyProcess
+
     Backend = None
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -119,7 +117,7 @@ ARTIFACT_EXPECTATIONS = [
     ("subagent_result.txt", "sub-agent ok", "sub-agent delegated write"),
 ]
 OPTIONAL_ARTIFACTS = [
-    "fetched.txt",   # webfetch -> /health body saved by the model
+    "fetched.txt",  # webfetch -> /health body saved by the model
     "lsp_result.txt",  # lsp results (if any) saved by the model
 ]
 DELETED_ARTIFACT = "temp_delete.txt"
@@ -216,13 +214,17 @@ async def _type_verified(pty, log: PtyLog, text: str) -> bool:
     if ok:
         await asyncio.sleep(1.5)
     else:
-        print("[tools]   warning: prompt echo not detected in composer; submitting anyway (export check gates it)")
+        print(
+            "[tools]   warning: prompt echo not detected in composer; submitting anyway (export check gates it)"
+        )
         await asyncio.sleep(3.0)
     pty.write("\r")
     return True
 
 
-async def _prompt_landed_verified(rpc: RpcClient, session_id: str, marker: str, timeout: float = 45.0) -> bool:
+async def _prompt_landed_verified(
+    rpc: RpcClient, session_id: str, marker: str, timeout: float = 45.0
+) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -260,6 +262,7 @@ async def _finish_turn(status: str, pty) -> None:
 
 
 # ── Turn helpers ──────────────────────────────────────────────────────────────
+
 
 def _report(name: str, checks: list[tuple[str, bool]], detail: str = "") -> int:
     failures = 0
@@ -348,8 +351,14 @@ async def phase_inventory(
 ) -> tuple[int, int]:
     status, summary, seen_seq = await _run_turn(
         "1. TOOL INVENTORY",
-        ws, rpc, session_id, base_seq, TOOL_INVENTORY_PROMPT,
-        "get_tool_definition a second time", pty, turn_timeout,
+        ws,
+        rpc,
+        session_id,
+        base_seq,
+        TOOL_INVENTORY_PROMPT,
+        "get_tool_definition a second time",
+        pty,
+        turn_timeout,
     )
     report_path = TURN1_DIR / "report.txt"
     report_path.write_text(summary.get("message", "").strip(), encoding="utf-8")
@@ -567,6 +576,7 @@ async def phase_exercise(
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 async def main() -> int:
     global _pty_log
     try:
@@ -641,7 +651,9 @@ async def main() -> int:
             session_id = session["id"]
             print(f"[tools] session created: {session_id} ({session.get('title')!r})")
 
-            print("[tools] waiting for the greeting turn to finish (clean composer before phase 1) ...")
+            print(
+                "[tools] waiting for the greeting turn to finish (clean composer before phase 1) ..."
+            )
             try:
                 gstatus, _gevents, _gterminal, base_seq = await wait_for_turn_end(
                     rpc, session_id, 0, pty, args.turn_timeout
@@ -676,11 +688,7 @@ async def main() -> int:
             print(f"tui pid   : {pty.pid}")
             print(f"session   : {session_id}")
             print(f"artifacts : {ARTIFACTS_ROOT.relative_to(ROOT)} (kept for inspection)")
-            print(
-                "expected tools: "
-                + ", ".join(sorted(REQUIRED_TOOLS | LSP_TOOLS))
-            )
-            print("excluded      : question (interactive; no handler)")
+            print("expected tools: " + ", ".join(sorted(REQUIRED_TOOLS | LSP_TOOLS)))
             if total_failures:
                 print(f"\nRESULT: FAIL ({total_failures} failed checks)")
             else:

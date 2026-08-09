@@ -2,7 +2,15 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScenarioRunner } from '../services/scenario/types';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
-import type { FileAttachment, Scenario, ScenarioEvent, ScenarioMode } from '../types/scenario';
+import type {
+  FileAttachment,
+  Scenario,
+  ScenarioEvent,
+  ScenarioMode,
+  ToolStepEvent,
+  TurnManifestEvent,
+} from '../types/scenario';
+import { resolvePendingToolStep, upsertEvent } from '../utils/eventUpsert';
 
 export interface UseScenarioReturn {
   events: ScenarioEvent[];
@@ -15,9 +23,17 @@ export interface UseScenarioReturn {
     model?: string,
     attachments?: FileAttachment[],
   ) => void;
+  continueFromManifest: (
+    prompt: string,
+    mode: ScenarioMode,
+    manifest: TurnManifestEvent,
+    provider?: string,
+    model?: string,
+  ) => void;
   abort: () => void;
   lastSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
+  lastManifest: { manifest: TurnManifestEvent; originalPrompt: string } | null;
 }
 
 export function useScenario(): UseScenarioReturn {
@@ -25,6 +41,9 @@ export function useScenario(): UseScenarioReturn {
   const eventsRef = useRef<ScenarioEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [lastSessionId, setLastSessionId] = useState<string | null>(null);
+  const [lastManifest, setLastManifest] = useState<{ manifest: TurnManifestEvent; originalPrompt: string } | null>(
+    null,
+  );
   const runnerRef = useRef<ScenarioRunner | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
@@ -34,6 +53,10 @@ export function useScenario(): UseScenarioReturn {
 
   const batchQueueRef = useRef<{ event: ScenarioEvent; index: number }[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingToolSteps = useRef<
+    Map<string, { index: number; tool: string; params: Record<string, unknown>; text?: string }>
+  >(new Map());
+  const lastWarningRef = useRef<string | null>(null);
 
   const flushBatch = useCallback(() => {
     if (batchQueueRef.current.length === 0) return;
@@ -41,22 +64,9 @@ export function useScenario(): UseScenarioReturn {
     batchQueueRef.current = [];
 
     setEvents((prev) => {
-      const next = [...prev];
-      const existingIds = new Set(prev.map((e) => e.id));
-
+      let next = [...prev];
       for (const { event, index } of queue) {
-        if (event.id && existingIds.has(event.id)) {
-          continue;
-        }
-
-        if (typeof index === 'number' && index < next.length) {
-          next[index] = event;
-        } else {
-          next.push(event);
-        }
-        if (event.id) {
-          existingIds.add(event.id);
-        }
+        next = upsertEvent(next, event, index);
       }
       eventsRef.current = next;
       return next;
@@ -65,6 +75,120 @@ export function useScenario(): UseScenarioReturn {
 
   const handleEvent = useCallback(
     (event: ScenarioEvent, index: number) => {
+      if (event.kind === 'turn_manifest') {
+        const originalPrompt = eventsRef.current.find((e) => e.kind === 'message')?.text ?? '';
+        setLastManifest({ manifest: event as unknown as TurnManifestEvent, originalPrompt });
+        flushBatch();
+        setEvents((prev) => {
+          const next = upsertEvent(prev, event, index);
+          eventsRef.current = next;
+          return next;
+        });
+        return;
+      }
+
+      if (event.kind === 'tool_call') {
+        flushBatch();
+        const toolStep: ToolStepEvent = {
+          kind: 'tool_step',
+          id: event.id,
+          tool: event.tool,
+          params: event.params,
+          success: false,
+          output: '',
+          error: '',
+          metadata: {},
+          text: event.text,
+          pending: true,
+        };
+
+        setEvents((prev) => {
+          const existingIds = new Set(prev.map((e) => e.id));
+          if (event.id && existingIds.has(event.id)) {
+            return prev;
+          }
+
+          let next: ScenarioEvent[];
+          if (typeof index === 'number' && index < prev.length) {
+            next = [...prev];
+            next[index] = toolStep;
+          } else {
+            next = [...prev, toolStep];
+          }
+          pendingToolSteps.current.set(event.id, {
+            index: typeof index === 'number' && index < next.length ? index : next.length - 1,
+            tool: event.tool,
+            params: event.params,
+            text: event.text,
+          });
+          eventsRef.current = next;
+          return next;
+        });
+        return;
+      }
+
+      if (event.kind === 'tool_result') {
+        flushBatch();
+        const matched = resolvePendingToolStep(pendingToolSteps.current, event.id, event.tool);
+
+        if (matched) {
+          const { step: pending } = matched;
+          const toolStep: ToolStepEvent = {
+            kind: 'tool_step',
+            id: event.id,
+            tool: event.tool,
+            params: pending.params,
+            success: event.success,
+            output: event.output,
+            error: event.error,
+            truncated: event.truncated,
+            metadata: event.metadata,
+            text: pending.text,
+            pending: false,
+          };
+
+          setEvents((prev) => {
+            const next = upsertEvent(prev, toolStep, pending.index);
+            eventsRef.current = next;
+            return next;
+          });
+          return;
+        }
+
+        const orphan: ToolStepEvent = {
+          kind: 'tool_step',
+          id: event.id,
+          tool: event.tool,
+          params: (event.metadata.params as Record<string, unknown>) || {},
+          success: event.success,
+          output: event.output,
+          error: event.error,
+          truncated: event.truncated,
+          metadata: event.metadata,
+          pending: false,
+        };
+
+        setEvents((prev) => {
+          const next = upsertEvent(prev, orphan, index);
+          eventsRef.current = next;
+          return next;
+        });
+        return;
+      }
+
+      if (event.kind === 'warning') {
+        const message = String(event.message || '');
+        if (message.includes('[System]')) {
+          return;
+        }
+        if (lastWarningRef.current === message) {
+          return;
+        }
+        lastWarningRef.current = message;
+      } else {
+        lastWarningRef.current = null;
+      }
+
       if (event.kind === 'message' || event.kind === 'thinking') {
         batchQueueRef.current.push({ event, index });
         if (!batchTimerRef.current) {
@@ -76,18 +200,7 @@ export function useScenario(): UseScenarioReturn {
       } else {
         flushBatch();
         setEvents((prev) => {
-          const existingIds = new Set(prev.map((e) => e.id));
-          if (event.id && existingIds.has(event.id)) {
-            return prev;
-          }
-
-          let next: ScenarioEvent[];
-          if (typeof index === 'number' && index < prev.length) {
-            next = [...prev];
-            next[index] = event;
-          } else {
-            next = [...prev, event];
-          }
+          const next = upsertEvent(prev, event, index);
           eventsRef.current = next;
           return next;
         });
@@ -198,13 +311,58 @@ export function useScenario(): UseScenarioReturn {
     setLastSessionId(id);
   }, []);
 
+  const continueFromManifest = useCallback(
+    async (
+      prompt: string,
+      selectedMode: ScenarioMode,
+      manifest: TurnManifestEvent,
+      provider?: string,
+      model?: string,
+    ) => {
+      setLastManifest(null);
+      setIsRunning(true);
+
+      try {
+        await connectToBackend();
+      } catch {
+        reportError('conn', 'Cannot connect to backend. Run: zenith serve');
+        return;
+      }
+
+      const scenario: Scenario = {
+        ...backendScenarioProvider.resolve(prompt, selectedMode),
+        sessionId: sessionIdRef.current ?? undefined,
+      };
+      runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
+
+      wsClient
+        .continuePrompt(
+          prompt,
+          selectedMode,
+          sessionIdRef.current ?? undefined,
+          provider,
+          manifest as TurnManifestEvent,
+          {
+            ...(model ? { model } : {}),
+          },
+        )
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          reportError('prompt_err', `Backend prompt error: ${message}`);
+        });
+    },
+    [connectToBackend, handleEvent, handleComplete, reportError],
+  );
+
   return {
     events,
     eventsRef,
     isRunning,
     startScenario,
+    continueFromManifest,
     abort,
     lastSessionId,
     setActiveSessionId,
+    lastManifest,
   };
 }

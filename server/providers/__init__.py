@@ -10,7 +10,6 @@ from .base import (
 )
 from .llm_provider import LLMProvider
 from .registry import ProviderRegistry
-from .retry import retry_with_backoff
 from .token_counter import TokenCounter
 
 __all__ = [
@@ -26,5 +25,4 @@ __all__ = [
     "ToolCallDelta",
     "parser",
     "responder",
-    "retry_with_backoff",
 ]

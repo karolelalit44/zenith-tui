@@ -1,24 +1,58 @@
 from __future__ import annotations
 
+import ast
+import asyncio
 import json
 import logging
 import os
+import random
 import re
 import time
 from collections.abc import AsyncIterator
 
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_MIN_REQUEST_INTERVAL,
+    MIN_REQUEST_INTERVAL_ENV,
+    REQUEST_THROTTLE_JITTER,
+)
+from server.config.env import optional_float
 from server.domain.domain import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
 from server.persistence.repositories import load_catalog
 
 from .base import BaseProvider
-from .retry import retry_with_backoff
 from .token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 _catalog: dict | None = None
 _ANSI_RE = re.compile("\\x1b\\[[0-9;]*m")
+# Google's 429 body carries the advised delay as `"retryDelay": "9.788501089s"`
+# inside a RetryInfo detail. Accepts "9.7s", 9.7, 9000ms, 2m, ... (both the
+# bare `retryDelay:` and the JSON-quoted `"retryDelay":` forms).
+_RETRY_DELAY_RE = re.compile(
+    r'retryDelay\s*"?\s*[:=]\s*"?(\d+(?:\.\d+)?)\s*(ms|s|m|h)?"?', re.IGNORECASE
+)
+# Fallback for prose like "Please retry in 9.788501089s" at the end of the
+# exception message (no retryDelay key present).
+_RETRY_IN_RE = re.compile(r"\bretry\s+in\s+(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\b", re.IGNORECASE)
+_MIN_REQUEST_INTERVAL_DEFAULT = optional_float(
+    MIN_REQUEST_INTERVAL_ENV, DEFAULT_MIN_REQUEST_INTERVAL
+)
+# Daily/billing quota exhaustion is terminal within a turn (recoverable=False).
+# Per-minute free-tier throttling ("quota exceeded", "free_tier_requests",
+# RESOURCE_EXHAUSTED, ...) is transient and stays recoverable=True with a
+# server-advised cooldown (see llm_stream). Only the hard keywords below flip
+# a 429 into a non-recoverable error.
+_QUOTA_EXHAUSTED_KEYWORDS = (
+    "free-models-per-day",
+    "insufficient_quota",
+    "credit_balance",
+    "payment_required",
+    "add 10 credits",
+    "daily quota",
+    "daily_limit",
+)
 
 
 def _strip_ansi(text: str) -> str:
@@ -48,17 +82,68 @@ def _set_api_key(provider_name: str, api_key: str | None) -> None:
         os.environ[env_var] = api_key
 
 
+def _unwrap_bytes_literal(text: str) -> str:
+    """Strip a ``b'...'`` / ``b"..."`` wrapper embedded in a message.
+
+    litellm surfaces Google's JSON error body as the repr of a bytes object
+    (``b'{"error": {...}}'``). Evaluating that repr with ``ast.literal_eval``
+    yields the original bytes (handling ``\\n``, ``\\xNN``, ``\\u`` and quote
+    escapes correctly), which is then decoded back to text so the JSON parser
+    sees the actual body instead of a ``b'...'``-wrapped blob.
+    """
+    stripped = text.strip()
+    for marker in ("b'", 'b"'):
+        start = stripped.find(marker)
+        if start < 0:
+            continue
+        quote = marker[1]
+        end = stripped.rfind(quote)
+        if end <= start + 2:
+            continue
+        try:
+            payload = ast.literal_eval(stripped[start : end + 1])
+        except (ValueError, SyntaxError, TypeError):
+            continue
+        if isinstance(payload, bytes):
+            return payload.decode("utf-8", errors="replace")
+    return text
+
+
+def _extract_json_error_message(text: str) -> str:
+    """Pull a clean message out of an embedded JSON error object.
+
+    Scans for the first parseable JSON object anywhere in ``text`` (handles the
+    surrounding litellm/provider wrapper text) and prefers ``error.message``.
+    """
+    decoder = json.JSONDecoder()
+    idx = 0
+    while True:
+        idx = text.find("{", idx)
+        if idx < 0:
+            return ""
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        if isinstance(obj, dict):
+            err = obj.get("error")
+            if isinstance(err, dict):
+                msg = err.get("message")
+                if msg:
+                    return str(msg)
+            msg = obj.get("message")
+            if msg:
+                return str(msg)
+        idx = max(idx + 1, end)
+
+
 def _extract_clean_message(exc: Exception) -> str:
     raw = _strip_ansi(str(exc))
-    try:
-        json_start = raw.find('{"error"')
-        if json_start >= 0:
-            json_body = json.loads(raw[json_start:])
-            inner_msg = json_body.get("error", {}).get("message", "")
-            if inner_msg:
-                return inner_msg
-    except Exception:
-        pass
+    for candidate in (raw, _unwrap_bytes_literal(raw)):
+        inner_msg = _extract_json_error_message(candidate)
+        if inner_msg:
+            return inner_msg
     for prefix in (
         "GroqException - ",
         "NVIDIAException - ",
@@ -75,37 +160,69 @@ def _extract_clean_message(exc: Exception) -> str:
     return raw
 
 
-def _extract_retry_after(exc: Exception) -> float | None:
-    resp = getattr(exc, "response", None)
-    if resp is None:
+def _parse_retry_delay(text: str) -> float | None:
+    """Parse a provider-advised retry delay out of an error body.
+
+    Google (among others) does not set a ``retry-after`` header; it embeds the
+    delay as ``"retryDelay": "9.788501089s"`` inside a ``RetryInfo`` detail in
+    the JSON body, which litellm surfaces as part of ``str(exc)``. This handles
+    that form plus bare seconds, milliseconds, minutes, and hours.
+    """
+    if not text:
         return None
-    headers = getattr(resp, "headers", None)
-    if headers is None:
-        return None
-    ra = headers.get("retry-after")
-    if ra is None:
+    match = _RETRY_DELAY_RE.search(text) or _RETRY_IN_RE.search(text)
+    if not match:
         return None
     try:
-        return float(ra)
-    except (ValueError, TypeError):
+        value = float(match.group(1))
+    except (TypeError, ValueError):
         return None
+    unit = (match.group(2) or "").lower()
+    if unit == "ms":
+        return value / 1000.0
+    if unit == "m":
+        return value * 60.0
+    if unit == "h":
+        return value * 3600.0
+    return value
+
+
+def _extract_retry_after(exc: Exception) -> float | None:
+    resp = getattr(exc, "response", None)
+    headers = getattr(resp, "headers", None) if resp is not None else None
+    if headers:
+        ra = headers.get("retry-after")
+        if ra is not None:
+            try:
+                return float(ra)
+            except (TypeError, ValueError):
+                pass
+    # The HTTP header is the common case; Google only surfaces the delay in the
+    # body, so scan str(exc) and any response payload for a retryDelay hint.
+    body_parts = [_strip_ansi(str(exc))]
+    if resp is not None:
+        for attr in ("content", "body", "text"):
+            raw = getattr(resp, attr, None)
+            if raw is None:
+                continue
+            if isinstance(raw, bytes):
+                try:
+                    raw = raw.decode("utf-8", errors="replace")
+                except Exception:  # pragma: no cover - defensive
+                    continue
+            body_parts.append(str(raw))
+    for text in body_parts:
+        parsed = _parse_retry_delay(text)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderError:
     msg = _strip_ansi(str(exc)).lower()
     clean = _extract_clean_message(exc)
     retry_after = _extract_retry_after(exc)
-    is_quota_exhausted = any(
-        q in msg
-        for q in (
-            "free-models-per-day",
-            "insufficient_quota",
-            "credit_balance",
-            "payment_required",
-            "quota_exceeded",
-            "add 10 credits",
-        )
-    )
+    is_quota_exhausted = any(q in msg for q in _QUOTA_EXHAUSTED_KEYWORDS)
     try:
         import litellm
 
@@ -152,7 +269,7 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
             f"Authentication failed for provider '{provider_name}': {clean}\nTip: Check your API key is set correctly in settings.",
             provider=provider_name,
         )
-    if "429" in msg or "rate limit" in msg:
+    if "429" in msg or "rate limit" in msg or is_quota_exhausted:
         return RateLimitError(
             f"Rate limited by provider '{provider_name}': {clean}",
             provider=provider_name,
@@ -224,6 +341,7 @@ def _get_model_config(name: str, model_id: str) -> dict:
                     "default_temperature": m.get(
                         "default_temperature", 0.0 if caps.get("reasoning") else 0.7
                     ),
+                    "supports_temperature": caps.get("supports_temperature", True),
                     "enable_thinking": caps.get("thinking", False),
                     "supports_tools": caps.get("function_calling", True),
                     "use_system_prompt": m.get("use_system_prompt", True),
@@ -239,6 +357,7 @@ def _get_model_config(name: str, model_id: str) -> dict:
         "context_window": DEFAULT_CONTEXT_WINDOW,
         "max_output_tokens": 4096,
         "default_temperature": 0.7,
+        "supports_temperature": True,
         "enable_thinking": False,
         "supports_tools": True,
         "use_system_prompt": True,
@@ -246,6 +365,57 @@ def _get_model_config(name: str, model_id: str) -> dict:
         "extra_params": None,
         "edit_format": "tool",
     }
+
+
+def _resolve_min_request_interval(provider_name: str) -> float:
+    """Per-provider request pacing: catalog ``rate_limit`` beats the env default.
+
+    ``ZENITH_MIN_REQUEST_INTERVAL`` is the global default (disabled unless set);
+    a catalog ``rate_limit`` entry (e.g. ``{"requests_per_minute": 15}`` for
+    Google AI Studio free tier) overrides it for that provider.
+    """
+    try:
+        entry = _get_catalog().get("providers", {}).get(provider_name) or {}
+        rate_limit = entry.get("rate_limit") or {}
+        rpm = rate_limit.get("requests_per_minute")
+        if isinstance(rpm, (int, float)) and rpm > 0:
+            return 60.0 / float(rpm)
+        catalog_interval = rate_limit.get("min_request_interval")
+        if isinstance(catalog_interval, (int, float)) and catalog_interval >= 0:
+            return float(catalog_interval)
+    except Exception:
+        pass
+    return _MIN_REQUEST_INTERVAL_DEFAULT
+
+
+class _RequestThrottle:
+    """Paces independent API calls so a turn cannot outrun a provider quota.
+
+    ``min_interval`` is the minimum wall-clock gap between call starts (~4 s
+    for a 15 req/min free tier). ``wait()`` sleeps only as long as needed to
+    restore that gap, plus a little jitter so bursts from concurrent sessions
+    don't all land on the same second.
+    """
+
+    def __init__(self, min_interval: float, jitter: float = REQUEST_THROTTLE_JITTER):
+        self.min_interval = max(0.0, min_interval)
+        self.jitter = jitter
+        self._last_start: float | None = None
+
+    async def wait(self) -> float:
+        """Sleep until the next call start is allowed; returns seconds waited."""
+        if self.min_interval <= 0:
+            return 0.0
+        now = time.monotonic()
+        if self._last_start is not None:
+            needed = self.min_interval - (now - self._last_start)
+            if needed > 0:
+                delay = needed + random.uniform(0, self.jitter)
+                await asyncio.sleep(delay)
+                self._last_start = time.monotonic()
+                return delay
+        self._last_start = now
+        return 0.0
 
 
 class LLMProvider(BaseProvider):
@@ -297,6 +467,7 @@ class LLMProvider(BaseProvider):
             streaming if streaming is not None else model_cfg.get("streaming", True)
         )
         self.edit_format = model_cfg.get("edit_format", "tool")
+        self.supports_temperature = model_cfg.get("supports_temperature", True)
         self.weak_model = weak_model
         self._model_config = model_cfg
         self._last_native_tool_calls: list[dict] = []
@@ -304,6 +475,7 @@ class LLMProvider(BaseProvider):
         self._cumulative_usage: dict = {}
         self._last_finish_reason: FinishReason = FinishReason.STOP
         self._token_counter = TokenCounter()
+        self._throttle = _RequestThrottle(_resolve_min_request_interval(name))
         _set_api_key(name, self.api_key)
         import litellm
 
@@ -377,10 +549,10 @@ class LLMProvider(BaseProvider):
             "model": litellm_model,
             "messages": messages,
             "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
             "stream": stream and self.streaming_enabled,
-            "num_retries": 1,
         }
+        if self.supports_temperature:
+            kwargs["temperature"] = self.temperature
         if stream and self.streaming_enabled:
             kwargs["stream_options"] = {"include_usage": True}
         if self.base_url and self._base_url_style != "gemini":
@@ -406,8 +578,10 @@ class LLMProvider(BaseProvider):
     async def complete(
         self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None
     ) -> str:
+        # A single attempt: no silent retries/backoff. Provider failures are
+        # classified and surfaced to the caller as explicit errors.
         try:
-            return await retry_with_backoff(self._complete_impl, messages, tools, model)
+            return await self._complete_impl(messages, tools, model)
         except ProviderError:
             raise
         except Exception as e:
@@ -430,6 +604,7 @@ class LLMProvider(BaseProvider):
             self._litellm_model,
             json.dumps(safe_kwargs, default=str, ensure_ascii=False),
         )
+        await self._throttle.wait()
         t0 = time.monotonic()
         try:
             response = await litellm.acompletion(**kwargs)
@@ -547,6 +722,7 @@ class LLMProvider(BaseProvider):
             self._litellm_model,
             json.dumps(safe_kwargs, default=str, ensure_ascii=False),
         )
+        await self._throttle.wait()
         t0 = time.monotonic()
         stream = await litellm.acompletion(**kwargs)
         logger.info(

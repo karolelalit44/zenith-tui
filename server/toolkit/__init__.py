@@ -28,7 +28,6 @@ from .tools.lsp_diagnostics import LspDiagnosticsTool
 from .tools.lsp_rename import LspRenameTool
 from .tools.mcp_tool import McpToolWrapper
 from .tools.multi_edit import MultiEditTool
-from .tools.question import QuestionTool
 from .tools.todo import TodoTool
 from .tools.webfetch import WebfetchTool
 from .tools.websearch import WebsearchTool
@@ -56,7 +55,6 @@ __all__ = [
     "LspRenameTool",
     "McpToolWrapper",
     "MultiEditTool",
-    "QuestionTool",
     "SchemaResolver",
     "SubAgentTool",
     "TodoTool",
@@ -98,7 +96,6 @@ def create_default_registry(
     registry.register(JobOutputTool())
     registry.register(JobKillTool())
     registry.register(MultiEditTool())
-    registry.register(QuestionTool())
     registry.register(TodoTool())
     registry.register(LspDiagnosticsTool())
     registry.register(LspDefinitionTool())

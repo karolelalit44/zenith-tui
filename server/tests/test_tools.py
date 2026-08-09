@@ -110,7 +110,17 @@ class TestToolRegistry:
         assert "not available" in result.error
 
 
-BUILD_ONLY_TOOLS = ["bash", "agent", "todo", "job_kill", "file_write", "file_edit", "file_delete", "multi_edit", "lsp_rename"]
+BUILD_ONLY_TOOLS = [
+    "bash",
+    "agent",
+    "todo",
+    "job_kill",
+    "file_write",
+    "file_edit",
+    "file_delete",
+    "multi_edit",
+    "lsp_rename",
+]
 
 
 class TestModeGating:
@@ -133,7 +143,6 @@ class TestModeGating:
             result = await reg.execute(name, {"command": "echo hi"}, ".", mode="plan")
             assert not result.success
             assert "not available" in result.error
-
 
 
 class TestBashTool:
@@ -425,7 +434,6 @@ class TestDefaultRegistry:
         assert "job_output" in tools
         assert "job_kill" in tools
         assert "multi_edit" in tools
-        assert "question" in tools
         assert "todo" in tools
         assert "lsp_diagnostics" in tools
         assert "lsp_definition" in tools
@@ -433,4 +441,4 @@ class TestDefaultRegistry:
         assert "agent" in tools
         assert "discover_capabilities" in tools
         assert "get_tool_definition" in tools
-        assert len(tools) == 20
+        assert len(tools) == 19

@@ -56,6 +56,7 @@ class EventKind(StrEnum):
     PLAN_READY = "plan_ready"
     PLAN_APPROVED = "plan_approved"
     PLAN_REJECTED = "plan_rejected"
+    TURN_MANIFEST = "turn_manifest"
     MODE_SWITCH = "mode_switch"
     PROVIDER_SWITCHED = "provider_switched"
     PROVIDER_ERROR = "provider_error"

@@ -389,6 +389,7 @@ def read_catalog(db_path: str | None = None) -> dict[str, Any]:
                     "supports_prompt_caching": bool(r.supports_prompt_caching),
                     "supports_thinking_headers": bool(r.supports_thinking_headers),
                     "custom_flow": bool(r.custom_flow),
+                    "rate_limit": json.loads(r.rate_limit_json or "{}"),
                     "models": models,
                 }
             return {"version": 1, "providers": providers}

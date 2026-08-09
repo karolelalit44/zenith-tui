@@ -79,6 +79,20 @@ class ProviderListResponse(BaseModel):
     all: list[ProviderInfo] = Field(default_factory=list)
     active: str = ""
     connected: list[str] = Field(default_factory=list)
+    max_context_tokens: int = 0
+
+
+class ProviderCatalogItem(BaseModel):
+    id: str
+    name: str
+    type: str = "default"  # "default" | "custom"
+
+
+class ProviderModelListResponse(BaseModel):
+    models: list[ProviderModelInfo] = Field(default_factory=list)
+    total: int = 0
+    offset: int = 0
+    limit: int = 0
 
 
 class ProviderModelRequest(BaseModel):
