@@ -29,10 +29,15 @@ A simple Python CLI application that reads temperature data from a JSON file and
    python weather.py --json
    ```
 
-   Or specify a custom JSON file and JSON output:
-   ```bash
-   python weather.py --file temps.json --json
-   ```
+    Or specify a custom JSON file:
+    ```bash
+    python weather.py --file temps.json
+    ```
+
+3. Output results in JSON format:
+    ```bash
+    python weather.py --json
+    ```
 
 ## How to Run Tests
 

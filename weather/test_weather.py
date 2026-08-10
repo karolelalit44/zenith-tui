@@ -45,5 +45,15 @@ class TestWeatherCLI(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             load_data("non_existent_file_12345.json")
 
+    def test_json_output(self):
+        # Test that calculate_stats returns expected keys and types for JSON serialization
+        data = [{"temp": 15.0}, {"temp": 25.0}]
+        stats = calculate_stats(data)
+        self.assertIn("min", stats)
+        self.assertIn("max", stats)
+        self.assertIn("avg", stats)
+        json_str = json.dumps(stats)
+        self.assertTrue(isinstance(json_str, str))
+
 if __name__ == "__main__":
     unittest.main()
