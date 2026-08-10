@@ -305,6 +305,12 @@ class TestAutoApprovalGates:
 
     @pytest.mark.asyncio
     async def test_auto_overwrite_false_rejects_existing_file(self, test_config):
+        # This test shares the "s1" session with other integration tests; clear the
+        # durable write registry so a prior test's identical write to out.txt is not
+        # mistaken for a replay and preempts the overwrite-denied gate under test.
+        from server.agents.session_workspace import reset_session
+
+        reset_session("s1")
         target = Path(test_config.workspace_root) / "out.txt"
         target.write_text("old", encoding="utf-8")
         test_config.auto_overwrite = False

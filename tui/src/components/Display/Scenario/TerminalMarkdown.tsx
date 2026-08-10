@@ -52,7 +52,7 @@ const FormattedInlineText: React.FC<{ text: string }> = ({ text }) => {
       {tokens.map((t, i) => {
         if (t.code) {
           return (
-            <Text key={i} color={theme.colors.status.warning} backgroundColor={theme.colors.bg.modal}>
+            <Text key={i} color={theme.colors.status.warning} bold>
               {t.text}
             </Text>
           );
@@ -77,6 +77,21 @@ const FormattedInlineText: React.FC<{ text: string }> = ({ text }) => {
           </Text>
         );
       })}
+    </Text>
+  );
+};
+
+/** Renders a highlighted code line using the theme-driven segment API. */
+const CodeText: React.FC<{ text: string; lang?: string }> = ({ text, lang }) => {
+  const { theme } = useTheme();
+  const segments = highlightCode(text, theme, lang?.trim() ? lang.toLowerCase() : undefined);
+  return (
+    <Text>
+      {segments.map((seg, i) => (
+        <Text key={i} color={seg.color}>
+          {seg.text}
+        </Text>
+      ))}
     </Text>
   );
 };
@@ -129,7 +144,7 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   const bottomBorder = `└─${colWidths.map((w) => '─'.repeat(w)).join('─┴─')}─┘`;
 
   return (
-    <Box flexDirection="column" marginY={1}>
+    <Box flexDirection="column" marginTop={1}>
       <Text color={theme.colors.border.muted}>{topBorder}</Text>
       <Box flexDirection="row">
         <Text color={theme.colors.text.bright} bold>
@@ -172,7 +187,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       const gutterWidth = Math.max(2, String(fileCodeLines.length).length);
 
       blocks.push(
-        <Box key={`filewrite_${idx}`} flexDirection="column" marginY={1} width="100%">
+        <Box key={`filewrite_${idx}`} flexDirection="column" marginTop={1} width="100%">
           {}
           <Box flexDirection="row" alignItems="center" marginBottom={0}>
             <Text color={theme.colors.status.success} bold>
@@ -196,7 +211,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
               return (
                 <Box key={cIdx} width="100%">
                   <Text color={theme.colors.text.dim}>{numStr} </Text>
-                  <Text>{highlightCode(cL, ext)}</Text>
+                  <CodeText text={cL} lang={ext} />
                 </Box>
               );
             })}
@@ -247,7 +262,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       let lineCounter = 1;
 
       blocks.push(
-        <Box key={`code_${idx}`} flexDirection="column" marginY={1} width="100%">
+        <Box key={`code_${idx}`} flexDirection="column" marginTop={1} width="100%">
           <Box flexDirection="row" alignItems="center" marginBottom={0}>
             {lang === 'DIFF' ? (
               <>
@@ -323,7 +338,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
               return (
                 <Box key={cIdx} width="100%">
                   <Text color={theme.colors.text.dim}>{numStr} </Text>
-                  <Text>{highlightCode(cL, lang)}</Text>
+                  <CodeText text={cL} lang={lang} />
                 </Box>
               );
             })}
@@ -354,7 +369,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     if (line.startsWith('# ')) {
       const title = line.slice(2).trim();
       blocks.push(
-        <Box key={`h1_${idx}`} flexDirection="column" marginTop={1} marginBottom={0}>
+        <Box key={`h1_${idx}`} flexDirection="column" marginBottom={1}>
           <Text color="#C77DBB" bold>
             {title}
           </Text>
@@ -367,7 +382,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     if (line.startsWith('## ')) {
       const title = line.slice(3).trim();
       blocks.push(
-        <Box key={`h2_${idx}`} flexDirection="row" alignItems="center" marginTop={1} marginBottom={0}>
+        <Box key={`h2_${idx}`} flexDirection="row" alignItems="center" marginBottom={1}>
           <Text color="#C77DBB" bold>
             {title}
           </Text>
@@ -380,7 +395,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     if (line.startsWith('### ')) {
       const title = line.slice(4).trim();
       blocks.push(
-        <Box key={`h3_${idx}`} flexDirection="row" alignItems="center" marginTop={1} marginBottom={0}>
+        <Box key={`h3_${idx}`} flexDirection="row" alignItems="center" marginBottom={1}>
           <Text color={theme.colors.text.bright} bold>
             {title}
           </Text>
@@ -466,7 +481,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     }
 
     if (!line.trim()) {
-      blocks.push(<Box key={`blank_${idx}`} height={0} />);
+      blocks.push(<Box key={`blank_${idx}`} height={1} />);
       idx++;
       continue;
     }

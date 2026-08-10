@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { SPINNER_FRAMES } from '../../constants/animation';
 import { useAnimationTick } from '../../context/AnimationContext';
 import { useTheme } from '../../theme/ThemeContext';
 import { formatDuration } from '../../utils/text';
@@ -10,8 +11,10 @@ interface ProcessingWaveBarProps {
   startTime?: number;
 }
 
-const WAVE_CHARS = ['░', '▒', '▓', '█', '▓', '▒', '░', ' '];
-const WAVE_COLORS = ['#00F2FE', '#38EF7D', '#11998E', '#50C878', '#5DADE2', '#7CA87C'];
+/** Animated waveform characters for the equalizer bars. */
+const WAVE_FRAMES = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂'] as const;
+const DOTS = ['   ', '•  ', '•• ', '•••'] as const;
+const EQUALIZER_BARS = 8;
 
 export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
   ({ isRunning, actionLabel, startTime }) => {
@@ -25,30 +28,56 @@ export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
     const elapsedMs = startTime ? Math.max(0, Date.now() - startTime) : tick * 100;
     const elapsedStr = formatDuration(elapsedMs);
 
-    const waveWidth = 10;
-    const waveElements = Array.from({ length: waveWidth }).map((_, i) => {
-      const charIdx = (tick + i) % WAVE_CHARS.length;
-      const colorIdx = (tick + i) % WAVE_COLORS.length;
+    // Theme-derived gradient used for every animation accent (no hardcoded colors).
+    const gradient = [
+      theme.colors.status.accent,
+      theme.colors.text.emerald,
+      theme.colors.status.success,
+      theme.colors.status.info,
+      theme.colors.status.accent,
+    ];
+
+    // Flowing gradient across the activity label (sweeps with the tick).
+    const label = actionLabel?.trim() || 'Thinking';
+    const labelEl = label.split('').map((ch, index) => (
+      <Text key={index} color={gradient[(tick + index * 2) % gradient.length]} bold>
+        {ch}
+      </Text>
+    ));
+
+    // Animated sine equalizer bars tinted by the theme gradient.
+    const bars = Array.from({ length: EQUALIZER_BARS }).map((_, index) => {
+      const phase = (Math.sin(tick / 3 + index * 0.85) + 1) / 2;
+      const frameIndex = Math.max(0, Math.min(WAVE_FRAMES.length - 1, Math.floor(phase * (WAVE_FRAMES.length - 1))));
+      const color = gradient[(index + Math.floor(tick / 3)) % gradient.length];
       return (
-        <Text key={i} color={WAVE_COLORS[colorIdx]} bold>
-          {WAVE_CHARS[charIdx]}
-        </Text>
+        <Box key={index} width={1}>
+          <Text color={color}>{WAVE_FRAMES[frameIndex]}</Text>
+        </Box>
       );
     });
 
-    const displayLabel = actionLabel || 'Processing request...';
+    const dots = DOTS[Math.floor(tick / 2) % DOTS.length];
 
     return (
-      <Box flexDirection="row" alignItems="center" width="100%" marginBottom={0} paddingX={1}>
+      <Box flexDirection="row" alignItems="center" width="100%" paddingX={1}>
         <Box flexDirection="row" marginRight={1}>
-          {waveElements}
+          <Text color={theme.colors.status.info} bold>
+            {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}
+          </Text>
         </Box>
-        <Text color={theme.colors.text.bright} bold>
-          {displayLabel}
-        </Text>
-        <Text color={theme.colors.text.dim}> · </Text>
-        <Text color={theme.colors.text.muted}>{elapsedStr}</Text>
+
+        <Box flexDirection="row" marginRight={1} alignItems="flex-end">
+          {bars}
+        </Box>
+
+        {labelEl}
+        <Text color={theme.colors.text.dim}>{dots}</Text>
+
         <Box flexGrow={1} />
+
+        <Text color={theme.colors.text.muted}>{elapsedStr}</Text>
+        <Text color={theme.colors.text.dim}> · </Text>
         <Text color={theme.colors.status.warning}>Esc to cancel</Text>
       </Box>
     );

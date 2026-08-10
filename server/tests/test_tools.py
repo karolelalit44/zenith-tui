@@ -2,6 +2,7 @@ import asyncio
 import platform
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -204,6 +205,24 @@ class TestBashTool:
         result = await tool.execute({"command": "exit 1"}, str(temp_dir))
         assert not result.success
         assert result.metadata.get("exit_code") == 1
+
+    @pytest.mark.asyncio
+    async def test_success_surfaces_stderr(self, temp_dir):
+        """Task 13 RC2: a command that exits 0 but writes its report to stderr
+        (e.g. `python -m unittest`) must still surface those bytes to the model.
+        Before this change, stderr was dropped on exit 0 and the model saw a
+        bare SUCCESS with zero evidence."""
+        tool = BashTool()
+        script = "import sys; sys.stderr.write('boom-on-stderr\\n')"
+        script_path = Path(temp_dir) / "_stderr_probe.py"
+        script_path.write_text(script, encoding="utf-8")
+        result = await tool.execute(
+            {"command": f"{_python_cmd()} \"{script_path}\""}, str(temp_dir)
+        )
+        assert result.success
+        assert result.metadata.get("exit_code") == 0
+        assert "boom-on-stderr" in result.output
+        assert result.metadata.get("stderr_len", 0) > 0
 
     def test_schema(self):
         tool = BashTool()

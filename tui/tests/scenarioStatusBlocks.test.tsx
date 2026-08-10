@@ -5,6 +5,7 @@ import { ProgressBar } from '../src/components/Display/Scenario/ProgressBar';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
 import { SuccessCard } from '../src/components/Display/Scenario/SuccessCard';
 import { ThinkingBlock } from '../src/components/Display/Scenario/ThinkingBlock';
+import { UserMessageBlock } from '../src/components/Display/Scenario/UserMessageBlock';
 import { modelStore } from '../src/services/providers/ModelStore';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type {
@@ -102,12 +103,11 @@ describe('MessageBlock turn indicator', () => {
     expect(lastFrame()).not.toContain('turn');
   });
 
-  it('shows the active model name when one is selected', () => {
+  it('shows the active model name in UserMessageBlock when one is selected', () => {
     vi.spyOn(modelStore, 'current', 'get').mockReturnValue({ providerID: 'openai', modelID: 'gpt-4o-mini' });
-    const event: MessageEvent = { kind: 'message', id: 'm1', text: 'hello' };
     const { lastFrame } = render(
       <ThemeProvider>
-        <MessageBlock event={event} />
+        <UserMessageBlock prompt="hello" />
       </ThemeProvider>,
     );
     expect(lastFrame()).toContain('openai/gpt-4o-mini');
@@ -127,13 +127,13 @@ describe('SuccessCard manifest enrichment', () => {
     files: [{ path: 'src/a.ts', exists: true, size: 10 }],
   };
 
-  it('appends the created-file count when a manifest is provided', () => {
+  it('does not duplicate the file count when a manifest is provided', () => {
     const { lastFrame } = render(
       <ThemeProvider>
         <SuccessCard event={success} manifest={manifest} />
       </ThemeProvider>,
     );
-    expect(lastFrame()).toContain('2 files created');
+    expect(lastFrame()).not.toContain('files created');
     expect(lastFrame()).toContain('5 iters');
   });
 
@@ -153,7 +153,6 @@ describe('SuccessCard manifest enrichment', () => {
         <ScenarioRenderer events={[manifest, success]} isRunning={false} isHistorical thinkingCollapsed={false} />
       </ThemeProvider>,
     );
-    expect(lastFrame()).toContain('2 files created');
     expect(lastFrame()).toContain('✓ Turn complete');
   });
 });

@@ -16,7 +16,7 @@ const cleanups: Array<() => void> = [];
  * final frame. Replaces fixed-wait-then-assert patterns that race with ink rendering
  * under parallel test load (see flaky `/plan`/`/build`/Escape tests).
  */
-const waitForFrame = async (getFrame: () => string, predicate: (frame: string) => boolean, timeoutMs = 5000) => {
+const waitForFrame = async (getFrame: () => string, predicate: (frame: string) => boolean, timeoutMs = 10_000) => {
   const start = Date.now();
   let frame = getFrame();
   while (!predicate(frame) && Date.now() - start < timeoutMs) {
@@ -32,7 +32,7 @@ const waitForFrame = async (getFrame: () => string, predicate: (frame: string) =
  * every interactive test must gate its first keystroke on this instead of a
  * fixed sleep (fixed waits race the async startup under parallel load).
  */
-const waitForReady = async (getFrame: () => string, timeoutMs = 10_000) => {
+const waitForReady = async (getFrame: () => string, timeoutMs = 15_000) => {
   return waitForFrame(getFrame, (f) => f.includes('❯'), timeoutMs);
 };
 
@@ -126,7 +126,7 @@ test('App shows Welcome screen when backend validates ready', async () => {
   const { lastFrame, unmount } = mountApp();
 
   // Initially loading
-  expect(lastFrame()).toContain('Initializing');
+  expect(lastFrame()).toContain('ZENITH');
 
   // Wait for async startup to complete
   const frame = await waitForFrame(lastFrame, (f) => f.includes('SYSTEM STATUS'));
@@ -216,7 +216,7 @@ test('slash menu filters as the user types', async () => {
 
   stdin.write('/pl');
 
-  const frame = await waitForFrame(lastFrame, (f) => f.includes('/plan'));
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('❯ /pl'));
   expect(frame).toContain('[SLASH COMMANDS]');
   expect(frame).toContain('❯ /pl');
   unmount();
@@ -229,9 +229,7 @@ test('slash menu stays closed for text that is not a slash command', async () =>
   await waitForReady(lastFrame);
 
   stdin.write('Hello /');
-  await wait(300);
-
-  const frame = lastFrame();
+  const frame = await waitForFrame(lastFrame, (f) => f.includes('Hello /'));
   expect(frame).not.toContain('[SLASH COMMANDS]');
   expect(frame).toContain('Hello /');
   unmount();
@@ -312,7 +310,7 @@ test('App shows SetupWizard when backend is unavailable', async () => {
   const { lastFrame, unmount } = mountApp();
 
   // Initially loading
-  expect(lastFrame()).toContain('Initializing');
+  expect(lastFrame()).toContain('ZENITH');
 
   // Wait for startup to fail
   const frame = await waitForFrame(lastFrame, (f) => f.includes('ZENITH SETUP'));

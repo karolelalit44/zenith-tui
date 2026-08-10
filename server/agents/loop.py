@@ -45,6 +45,7 @@ from .context import ContextManager, _adaptive_reserve, _get_model_context_windo
 from .llm_stream import StreamState, stream_completion
 from .loop_detection import LoopDetector
 from .prompts import build_plan_system_prompt, build_system_prompt
+from .session_workspace import is_identical_replay, known_files, record_edit, record_write
 from .validation import reflection_error_limit, schemas_to_openai_tools
 
 _format_tool_result = format_tool_result
@@ -125,16 +126,26 @@ def _build_manifest(
         text = (last_text or "").strip()
         if text:
             remaining = [text]
+        elif created_files:
+            remaining = ["Files were written but no verification evidence was produced."]
+        elif files_edited:
+            remaining = ["Files were modified but no verification evidence was produced."]
         else:
-            remaining = ["The model stopped before completing all work."]
+            remaining = ["The turn ended without completing any work."]
+    changed = bool(created_files or files_edited)
     payload: dict = {
         "created": created,
         "modified": modified,
         "remaining": remaining,
         "completed": completed,
         "stalled": bool(stall_finalized),
-        "verified": True if not created_files else bool(verification),
-        "checks": verification or [],
+        # verified is evidence-gated: a change is only "verified" when a
+        # post-change tool result carried observable output bytes. Nothing to
+        # verify when no files changed.
+        "verified": True if not changed else _has_verification_evidence(verification),
+        "checks": [
+            {k: v for k, v in (c or {}).items() if k != "seq"} for c in (verification or [])
+        ],
     }
     files: list[dict] = []
     if created_files:
@@ -176,6 +187,22 @@ def _most_common_count(items: list[str]) -> int:
     if not items:
         return 0
     return Counter(items).most_common(1)[0][1]
+
+
+def _has_verification_evidence(checks: list[dict], after_seq: int | None = None) -> bool:
+    """True when a post-change tool result carries observable output bytes.
+
+    ``verified`` must be grounded in evidence the model could actually see, not
+    in "a tool happened to run". A bash call that produced no output (e.g. a
+    bare ``mkdir``) is not evidence either way. When ``after_seq`` is given,
+    only checks recorded at or after that change sequence count, so a check
+    that ran *before* the last file change is not treated as verifying it.
+    """
+    for check in checks or []:
+        if (check.get("output_len") or 0) > 0:
+            if after_seq is None or (check.get("seq") or 0) >= after_seq:
+                return True
+    return False
 
 
 def _pending_background_completions() -> list:
@@ -366,6 +393,7 @@ class AgentLoop:
             use_system_prompt=model_use_system_prompt,
             repo_map=repo_map,
         )
+        self._inject_session_state(messages, session_id)
         base_len = len(messages)
         logger.info(
             "Context built: %d messages, system_prompt=%d chars", len(messages), len(system_prompt)
@@ -400,7 +428,10 @@ class AgentLoop:
         for i, msg in enumerate(messages):
             role = msg.get("role", "?")
             content = str(msg.get("content", ""))
-            logger.info("--- MSG [%d] role=%s (len=%d) ---\n%s", i, role, len(content), content)
+            preview = content[:160].replace("\n", "\\n") if role != "system" and content else ""
+            logger.info("--- MSG [%d] role=%s (len=%d) ---", i, role, len(content))
+            if preview:
+                logger.info("    preview=%s", preview)
         iteration = 0
         # REFLECTION_LIMIT counts CONSECUTIVE tool failures (no successful
         # execution between them). A scattered cosmetic failure such as
@@ -432,10 +463,23 @@ class AgentLoop:
         # completed) call does not spam the same warning every iteration.
         warned_rejects: set[tuple[str, str]] = set()
         warned_skips: set[str] = set()
+        # Skipped duplicate calls surfaced this turn. Buffered instead of emitted
+        # immediately so a successful turn (file work + real summary) can complete
+        # quietly; flushed as a warning only when the turn did NOT end legitimately.
+        pending_skips: list[str] = []
         # Successful tool results that ran after at least one file was written this
         # turn. Surfaced as `verification` evidence in the turn manifest; empty
         # means the writes were never checked (unverified completion).
         post_write_checks: list[dict] = []
+        # Monotonic counter of successful file changes (write/edit) this turn, and
+        # the change-sequence at which the most recent evidence check ran. A check
+        # only "verifies" a change when it ran after that change, so a test that
+        # ran before the last edit is not proof the last edit works.
+        change_seq = 0
+        last_evidence_seq = 0
+        # file_write calls blocked because this session already wrote the exact
+        # same content for that path in an earlier turn (durable replay guard).
+        prior_replay_blocks = 0
         _total_completion_chars = 0
 
         def _with_manifest(ev: Event) -> Event:
@@ -681,9 +725,15 @@ class AgentLoop:
                             )
                     new_active = resolver.active_names()
                     if set(new_active) != registered_tools:
+                        prev_names = set(registered_tools)
                         registered_tools = set(new_active)
                         openai_tools = resolver.openai_tools(mode, allowed_mcp=allowed_mcp)
                         self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
+                        logger.info(
+                            "Tool set changed mid-turn: added=%s removed=%s",
+                            sorted(registered_tools - prev_names),
+                            sorted(prev_names - registered_tools),
+                        )
                 valid_calls, invalid_calls = validate_tool_calls(tool_calls, registered_tools)
                 invalid_names = [str(tc.get("tool") or tc) for tc in invalid_calls]
                 if invalid_names:
@@ -704,9 +754,25 @@ class AgentLoop:
                     continue
                 messages.append({"role": "assistant", "content": response_text or "[tool calls]"})
                 if _all_calls_repeat(valid_calls, executed_calls):
-                    # The model re-issued calls that already ran. No regex guesses
-                    # intent here: fall through so the per-call loop skips them and
-                    # the stall handler injects targeted feedback, letting the model
+                    # The model re-issued calls that already ran. When the response is
+                    # a substantive summary alongside real file work that was already
+                    # verified, this is a legitimate completion: finalize immediately
+                    # instead of a stall-guidance round-trip.
+                    _repeat_text = (clean_response or "").strip()
+                    if (
+                        _repeat_text
+                        and len(_repeat_text) >= _SUMMARY_MIN_CHARS
+                        and (created_files or files_edited)
+                    ):
+                        task_completed = True
+                        logger.info(
+                            "Turn finalized at repeat-detection: summary + only repeated calls "
+                            "after file work (%d file(s)).",
+                            len(created_files),
+                        )
+                        break
+                    # Otherwise fall through so the per-call loop skips them and the
+                    # stall handler injects targeted feedback, letting the model
                     # self-correct (write the final summary or call something new).
                     logger.info(
                         "All requested calls already executed this turn; falling through so the "
@@ -766,7 +832,28 @@ class AgentLoop:
                         if target:
                             path_write_attempts.append(target)
                             resolved = validate_path(target, ws)
-                            if resolved is not None and resolved.exists():
+                            if (
+                                resolved is not None
+                                and resolved.exists()
+                                and is_identical_replay(
+                                    session_id, target, tool_params.get("content", "")
+                                )
+                            ):
+                                # Durable cross-turn guard: this session already wrote
+                                # this exact content for this path, so the file already
+                                # holds it. A byte-identical re-write is a replay of the
+                                # model's own prior work, not a change — block it so a
+                                # follow-up prompt cannot silently "rebuild" a project.
+                                blocked_write = True
+                                prior_replay_blocks += 1
+                                reject_msg = (
+                                    f"File re-write blocked: '{target}' was already written in "
+                                    "an earlier turn of this session with identical content. It "
+                                    "already exists with exactly this content, so no change is "
+                                    "needed. If you need to modify it, read it first, then use "
+                                    "file_edit."
+                                )
+                            elif resolved is not None and resolved.exists():
                                 if not self.config.auto_overwrite:
                                     reject_msg = (
                                         f"File overwrite denied: '{target}' already exists. Pass "
@@ -857,6 +944,22 @@ class AgentLoop:
                                 "content": f"[Tool error] {tool_name} failed: {err_msg}. Try a different approach.",
                             }
                         )
+                        if tool_name == FILE_EDIT_TOOL:
+                            # A failed edit means the target text no longer matches the
+                            # file's current content (the file was already changed). Steer
+                            # the model to ground itself in the real file instead of
+                            # re-attempting the stale edit with guessed old_content.
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "[Edit guidance] The edit did not apply because the "
+                                        "target text does not match the file's current content. "
+                                        "Read the file with file_read to get its exact current "
+                                        "content, then re-apply the edit."
+                                    ),
+                                }
+                            )
                         if consecutive_failures >= _reflimit:
                             yield _with_manifest(
                                 r.error(
@@ -917,16 +1020,34 @@ class AgentLoop:
                     if result.success:
                         p = tool_params.get("filepath") or tool_params.get("path") or ""
                         if p:
-                            if tool_name == "file_write":
+                            if tool_name == FILE_WRITE_TOOL:
                                 created_files.add(p)
                                 written_paths.add(p)
-                            if tool_name in ("file_edit", "file_write"):
+                                record_write(session_id, p, tool_params.get("content", ""))
+                            elif tool_name == FILE_EDIT_TOOL:
+                                record_edit(session_id, p)
+                            if tool_name in (FILE_EDIT_TOOL, FILE_WRITE_TOOL):
                                 files_edited.append(p)
-                        # A successful non-write tool that runs after files were written
-                        # is evidence the work was executed/checked (verification).
-                        if created_files and tool_name not in (FILE_WRITE_TOOL, FILE_EDIT_TOOL):
-                            if len(post_write_checks) < _MANIFEST_CHECKS_CAP:
-                                post_write_checks.append({"tool": tool_name})
+                            change_seq += 1
+                        # A successful non-write tool that runs after a file change
+                        # is evidence the work was executed/checked. Only recorded
+                        # with the actual observable output bytes and exit code so
+                        # the manifest's `verified` flag is grounded in evidence.
+                        if (
+                            change_seq > 0
+                            and tool_name not in (FILE_WRITE_TOOL, FILE_EDIT_TOOL)
+                            and len(post_write_checks) < _MANIFEST_CHECKS_CAP
+                        ):
+                            post_write_checks.append(
+                                {
+                                    "tool": tool_name,
+                                    "output_len": len(result.output or ""),
+                                    "exit_code": (result.metadata or {}).get("exit_code"),
+                                    "seq": change_seq,
+                                }
+                            )
+                            if (result.output or "") != "":
+                                last_evidence_seq = change_seq
                     for ev in await post_execution_hooks(
                         tool_name, tool_params, result, ws, session_id
                     ):
@@ -959,16 +1080,9 @@ class AgentLoop:
                     new_skips = [s for s in skipped_calls if s not in warned_skips]
                     if new_skips:
                         warned_skips.update(new_skips)
-                        shown = ", ".join(new_skips[:_SKIP_WARNING_CAP])
-                        omitted = len(new_skips) - _SKIP_WARNING_CAP
-                        if omitted > 0:
-                            shown += f", +{omitted} more"
-                        yield r.warning(
-                            "Skipped calls already completed with identical params this turn "
-                            "(or blocked as re-writes): " + shown,
-                            session_id,
-                            code="SKIPPED_CALLS",
-                        )
+                        for s in new_skips:
+                            if s not in pending_skips:
+                                pending_skips.append(s)
                         failed_skips = [s for s in skipped_calls if " [failed]" in s]
                         msg = (
                             "[System] Calls listed below were already completed earlier in this "
@@ -987,19 +1101,38 @@ class AgentLoop:
                         messages.append({"role": "user", "content": msg})
                 if skipped_calls and not newly_executed and not task_completed:
                     stall_count += 1
-                    final_text = (self._last_emitted_message or "").strip()
-                    # The model's own completion signal is its closing text (see the
-                    # text-only break above). When that same response also repeats
-                    # already-completed calls, treat a substantive summary written
-                    # alongside real file work as a legitimate completion instead of
-                    # a stall - otherwise the manifest reports the turn "stalled"
-                    # with the model's success summary listed as "remaining" work.
-                    if final_text and len(final_text) >= _SUMMARY_MIN_CHARS and created_files:
+                    # The model's own completion signal is a closing summary written
+                    # in THIS response, i.e. after the last tool result. A greeting or
+                    # status line emitted in an earlier iteration (alongside calls that
+                    # executed after it) is NOT a completion signal, so only the
+                    # current response text is eligible.
+                    current_text = (clean_response or "").strip()
+                    if (
+                        current_text
+                        and len(current_text) >= _SUMMARY_MIN_CHARS
+                        and (created_files or files_edited)
+                        and _has_verification_evidence(post_write_checks, after_seq=change_seq)
+                    ):
                         task_completed = True
-                        yield r.warning(
-                            "Model produced a final summary with no new tool work; finalizing the turn.",
-                            session_id,
-                            code="STALL",
+                        logger.info(
+                            "Turn finalized: model wrote a final summary after completing "
+                            "file work (%d file(s) changed, verification evidence present).",
+                            len(created_files) + len(files_edited),
+                        )
+                        break
+                    # Evidence-based completion: file changes landed this turn and a
+                    # successful non-write tool produced observable output AFTER the
+                    # last change. Even without closing prose, there is no outstanding
+                    # work, so report completed (not "stalled") with remaining=[].
+                    if (
+                        (created_files or files_edited)
+                        and last_evidence_seq >= change_seq
+                        and last_evidence_seq > 0
+                    ):
+                        task_completed = True
+                        logger.info(
+                            "Turn finalized: file changes implemented and re-verification "
+                            "produced evidence; no outstanding work."
                         )
                         break
                     if stall_count == 1:
@@ -1010,6 +1143,14 @@ class AgentLoop:
                             "work. If the task is complete, write your final summary now and "
                             "stop; otherwise take a different action than before."
                         )
+                        if (created_files or files_edited) and not _has_verification_evidence(
+                            post_write_checks
+                        ):
+                            stall_msg += (
+                                "\nYou changed file(s) this turn but no successful tool ran after "
+                                "those changes to verify them. Run the relevant tests or checks "
+                                "now so the result is confirmed before you finish."
+                            )
                         yield r.warning(stall_msg, session_id, code="STALL")
                         messages.append({"role": "user", "content": stall_msg})
                     else:
@@ -1070,10 +1211,33 @@ class AgentLoop:
                 return
         finally:
             pass
+        # Buffered skip warnings are surfaced only when the turn did NOT end as a
+        # quiet completion. A turn that closed with a substantive summary is the
+        # model's own acknowledgement of the work, so a wall of skipped-call
+        # notices would be noise. Turns that ended tersely ("Done.") after mixed
+        # work still surface the skipped calls so the user knows calls were not
+        # re-run.
+        final_summary = (self._last_emitted_message or "").strip()
+        legit_completion = task_completed and not stall_finalized
+        quiet_completion = legit_completion and len(final_summary) >= _SUMMARY_MIN_CHARS
+        if pending_skips and not quiet_completion:
+            shown = ", ".join(pending_skips[:_SKIP_WARNING_CAP])
+            omitted = len(pending_skips) - _SKIP_WARNING_CAP
+            if omitted > 0:
+                shown += f", +{omitted} more"
+            yield r.warning(
+                "Skipped calls already completed with identical params this turn "
+                "(or blocked as re-writes): " + shown,
+                session_id,
+                code="SKIPPED_CALLS",
+            )
         token_info = self.context_manager.get_token_info(messages, model, self.provider)
-        prompt_tokens = token_info.used
-        estimated_completion = max(1, _total_completion_chars // 4)
         cum_usage: dict = getattr(self.provider, "_cumulative_usage", {})
+        # Prefer real provider usage (per-call) over the heuristic estimate.
+        prompt_tokens = cum_usage.get("prompt_tokens") or token_info.used
+        completion_tokens = cum_usage.get("completion_tokens") or max(
+            1, _total_completion_chars // 4
+        )
         is_estimated = cum_usage.get("total_tokens", 0) == 0
         if mode == BUILD_MODE and tools_used and (not created_files):
             yield r.warning(
@@ -1088,14 +1252,14 @@ class AgentLoop:
                 f"Stopped after {iteration} iterations: the model stopped making progress. "
                 f"Files written: {created}."
             )
-        # Files were written but no non-write tool ran successfully afterwards, so
-        # nothing confirms the result actually works. Surface that honestly instead
-        # of reporting an unverified build as a clean success.
-        if created_files and not post_write_checks:
+        # Files changed but no non-write tool produced observable output afterwards,
+        # so nothing confirms the result actually works. Surface that honestly
+        # instead of reporting an unverified change as a clean success.
+        if (created_files or files_edited) and not _has_verification_evidence(post_write_checks):
             success_message += (
-                " Files written but not verified: no successful tool ran after the writes "
-                "to confirm the result. Use file_read to inspect the files or run the app/"
-                "tests to verify they work."
+                " Files changed but not verified: no successful tool produced output after "
+                "the changes to confirm the result. Use file_read to inspect the files or "
+                "run the app/tests to verify they work."
             )
         manifest = _build_manifest(
             created_files,
@@ -1118,7 +1282,7 @@ class AgentLoop:
                     "total": token_info.total,
                     "percent": round(token_info.percent, 3),
                     "prompt_tokens": prompt_tokens,
-                    "completion_tokens": estimated_completion,
+                    "completion_tokens": completion_tokens,
                     "cached_tokens": cum_usage.get("cached_tokens", 0),
                     "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
                     "estimated": is_estimated,
@@ -1310,6 +1474,10 @@ class AgentLoop:
         catalog = self._catalog_for_provider(provider_name)
         if not catalog.get("supports_prompt_caching", False):
             return messages
+        if catalog.get("adapter") == "gemini":
+            # Gemini caches the stable conversation prefix implicitly; injecting
+            # Anthropic-style cache_control into messages breaks the request.
+            return messages
         cached = [dict(msg) for msg in messages]
         for i in range(min(2, len(cached))):
             cached[i]["cache_control"] = {"type": "ephemeral"}
@@ -1325,3 +1493,32 @@ class AgentLoop:
             return load_catalog().get("providers", {}).get(provider_name) or {}
         except Exception:
             return {}
+
+    @staticmethod
+    def _inject_session_state(messages: list[dict], session_id: str) -> None:
+        """Tell the model which files this session already wrote this session.
+
+        Data-driven from the durable write registry (real write/edit events), so
+        a follow-up turn does not replay prior work "to make the task real". The
+        message is inserted after the leading system messages, before history.
+        """
+        existing = known_files(session_id)
+        if not existing:
+            return
+        lines = [
+            "[Session state] Files you already created or modified earlier in this session "
+            "(they exist on disk; do not re-create or re-write them unless you are changing "
+            "them):"
+        ]
+        for path in sorted(existing):
+            rec = existing[path]
+            lines.append(f"- {path} ({rec.size} bytes, content hash {rec.content_hash[:10]})")
+        lines.append(
+            "If you need to modify one of these, read it first (file_read), then use "
+            "file_edit for a targeted change."
+        )
+        state_msg = {"role": "system", "content": "\n".join(lines)}
+        idx = 1
+        while idx < len(messages) and messages[idx].get("role") == "system":
+            idx += 1
+        messages.insert(idx, state_msg)

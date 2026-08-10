@@ -24,9 +24,3 @@ export const getRecentSessions = async (limit: number = 10): Promise<SessionItem
     return [];
   }
 };
-
-export const addSession = async (title: string): Promise<void> => {
-  try {
-    await wsClient.createSession(title);
-  } catch {}
-};

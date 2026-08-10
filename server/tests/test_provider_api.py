@@ -423,3 +423,59 @@ async def test_validate_stream_emits_step_events(tmp_path):
     assert "result" in types
     result = next(e for e in events if e["type"] == "result")
     assert result["valid"] is False
+
+
+class TestExtractCachedTokens:
+    """Task 13 RC7: cached_tokens must come from real provider-reported data."""
+
+    def _extract(self):
+        from server.providers.llm_provider import _extract_cached_tokens
+
+        return _extract_cached_tokens
+
+    def test_none_returns_zero(self):
+        assert self._extract()(None) == 0
+
+    def test_empty_and_unrelated_usage_returns_zero(self):
+        f = self._extract()
+        assert f({}) == 0
+        assert f({"prompt_tokens": 100}) == 0
+
+    def test_openai_prompt_tokens_details_dict(self):
+        f = self._extract()
+        assert f({"prompt_tokens_details": {"cached_tokens": 42}}) == 42
+
+    def test_openai_prompt_tokens_details_object(self):
+        f = self._extract()
+
+        class _Details:
+            cached_tokens = 7
+
+        class _Usage:
+            prompt_tokens_details = _Details()
+
+        assert f(_Usage()) == 7
+
+    def test_gemini_snake_and_camel_top_level(self):
+        f = self._extract()
+        assert f({"cached_content_token_count": 99}) == 99
+
+        class _Usage:
+            cachedContentTokenCount = 88
+
+        assert f(_Usage()) == 88
+
+    def test_does_not_misread_cache_creation_tokens(self):
+        # cache_creation_input_tokens is the cost of building a cache, never a
+        # cached-read hit; scanning every attribute for "cached" would misread it.
+        f = self._extract()
+        assert f({"cache_creation_input_tokens": 500}) == 0
+
+        class _Usage:
+            cache_creation_input_tokens = 500
+
+        assert f(_Usage()) == 0
+
+    def test_zero_reported_hits_returns_zero(self):
+        f = self._extract()
+        assert f({"prompt_tokens_details": {"cached_tokens": 0}}) == 0

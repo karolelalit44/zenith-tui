@@ -238,7 +238,17 @@ class BashTool(BaseTool):
                         ),
                         metadata={"exit_code": exit_code, "false_success": false_sig},
                     )
-                return ToolResult(success=True, output=output, metadata={"exit_code": exit_code})
+                # Surface stderr on success too: tools like `python -m unittest`
+                # write their entire report to stderr, so dropping it on exit 0
+                # leaves the model with a SUCCESS and zero evidence bytes.
+                combined = output
+                if error:
+                    combined = output + ("\n" if output else "") + error
+                return ToolResult(
+                    success=True,
+                    output=combined,
+                    metadata={"exit_code": exit_code, "stderr_len": len(error)},
+                )
             else:
                 return ToolResult(
                     success=False, output=output, error=error, metadata={"exit_code": exit_code}

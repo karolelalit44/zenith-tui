@@ -59,6 +59,65 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def _normalize_count(value) -> int:
+    """Coerce a provider-reported usage counter to a non-negative int."""
+    if value is None:
+        return 0
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extract_cached_tokens(usage) -> int:
+    """Return the number of *cached input tokens* the provider actually reports.
+
+    Handles two families: OpenAI/Anthropic-style ``prompt_tokens_details``
+    with a ``cached_tokens`` field, and Gemini's ``cached_content_token_count``
+    / ``cachedContentTokenCount`` (litellm may surface it either camelCased or
+    snake_cased, at the top level of the usage object). Returns ``0`` when no
+    provider reported cache hits so observability stays honest (task 12/13: do
+    not claim caching for providers/turns that produced no measurable hit).
+    """
+    if usage is None:
+        return 0
+
+    details = getattr(usage, "prompt_tokens_details", None)
+    if isinstance(details, dict):
+        for key in ("cached_tokens", "cached_content_token_count", "cachedContentTokenCount"):
+            value = details.get(key)
+            if value:
+                return _normalize_count(value)
+    elif details is not None:
+        for attr in ("cached_tokens", "cached_content_token_count", "cachedContentTokenCount"):
+            value = getattr(details, attr, None)
+            if value:
+                return _normalize_count(value)
+
+    if isinstance(usage, dict):
+        for key in ("cached_tokens", "cached_content_token_count", "cachedContentTokenCount"):
+            value = usage.get(key)
+            if value:
+                return _normalize_count(value)
+        details = usage.get("prompt_tokens_details") or usage.get("promptTokensDetails")
+        if isinstance(details, dict):
+            for key in ("cached_tokens", "cached_content_token_count", "cachedContentTokenCount"):
+                value = details.get(key)
+                if value:
+                    return _normalize_count(value)
+        elif details is not None:
+            for attr in ("cached_tokens", "cached_content_token_count", "cachedContentTokenCount"):
+                value = getattr(details, attr, None)
+                if value:
+                    return _normalize_count(value)
+    else:
+        for attr in ("cached_content_token_count", "cachedContentTokenCount", "cached_tokens"):
+            value = getattr(usage, attr, None)
+            if value:
+                return _normalize_count(value)
+    return 0
+
+
 def _get_catalog() -> dict:
     global _catalog
     if _catalog is None:
@@ -594,15 +653,24 @@ class LLMProvider(BaseProvider):
         import litellm
 
         self._reset_cumulative_usage()
-        kwargs = self._build_completion_kwargs(messages, tools, stream=False, model_override=model)
-        safe_kwargs = {k: v for k, v in kwargs.items() if k != "api_key"}
-        safe_kwargs["messages_count"] = len(messages)
-        if tools:
-            safe_kwargs["tools_count"] = len(tools)
+        kwargs = self._build_completion_kwargs(
+            messages, tools, stream=False, model_override=model
+        )
+        messages_chars = sum(
+            len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in messages
+        )
+        tools_chars = len(json.dumps(tools, default=str, ensure_ascii=False)) if tools else 0
         logger.info(
-            "API CALL (complete) model=%s kwargs=%s",
+            "API CALL (complete) model=%s provider=%s messages=%d messages_chars=%d "
+            "tools=%d tools_chars=%d temperature=%s max_tokens=%s",
             self._litellm_model,
-            json.dumps(safe_kwargs, default=str, ensure_ascii=False),
+            self.name,
+            len(messages),
+            messages_chars,
+            len(tools) if tools else 0,
+            tools_chars,
+            kwargs.get("temperature"),
+            kwargs.get("max_tokens"),
         )
         await self._throttle.wait()
         t0 = time.monotonic()
@@ -622,7 +690,6 @@ class LLMProvider(BaseProvider):
                 if usage
                 else "none",
             )
-            logger.info("API RESPONSE CONTENT: %r", content)
             usage = getattr(response, "usage", None)
             if usage:
                 self._last_usage = {
@@ -630,11 +697,7 @@ class LLMProvider(BaseProvider):
                     "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
                     "total_tokens": getattr(usage, "total_tokens", 0) or 0,
                 }
-                details = getattr(usage, "prompt_tokens_details", None) or {}
-                if isinstance(details, dict):
-                    self._last_usage["cached_tokens"] = details.get("cached_tokens", 0)
-                else:
-                    self._last_usage["cached_tokens"] = getattr(details, "cached_tokens", 0)
+                self._last_usage["cached_tokens"] = _extract_cached_tokens(usage)
                 cache_creation = getattr(usage, "cache_creation_input_tokens", None)
                 if cache_creation is not None:
                     self._last_usage["cache_creation_tokens"] = cache_creation
@@ -713,14 +776,21 @@ class LLMProvider(BaseProvider):
         kwargs = self._build_completion_kwargs(
             messages, tools, stream=True, tool_choice=tool_choice, response_format=response_format
         )
-        safe_kwargs = {k: v for k, v in kwargs.items() if k != "api_key"}
-        safe_kwargs["messages_count"] = len(messages)
-        if tools:
-            safe_kwargs["tools_count"] = len(tools)
+        messages_chars = sum(
+            len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in messages
+        )
+        tools_chars = len(json.dumps(tools, default=str, ensure_ascii=False)) if tools else 0
         logger.info(
-            "API CALL (stream) model=%s kwargs=%s",
+            "API CALL (stream) model=%s provider=%s messages=%d messages_chars=%d "
+            "tools=%d tools_chars=%d temperature=%s max_tokens=%s",
             self._litellm_model,
-            json.dumps(safe_kwargs, default=str, ensure_ascii=False),
+            self.name,
+            len(messages),
+            messages_chars,
+            len(tools) if tools else 0,
+            tools_chars,
+            kwargs.get("temperature"),
+            kwargs.get("max_tokens"),
         )
         await self._throttle.wait()
         t0 = time.monotonic()
@@ -753,15 +823,7 @@ class LLMProvider(BaseProvider):
                     "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
                     "total_tokens": getattr(u, "total_tokens", 0) or 0,
                 }
-                details = getattr(u, "prompt_tokens_details", None) or {}
-                if isinstance(details, dict):
-                    stream_usage["cached_tokens"] = details.get("cached_tokens", 0)
-                else:
-                    stream_usage["cached_tokens"] = (
-                        getattr(details, "cached_tokens", 0)
-                        if hasattr(details, "cached_tokens")
-                        else 0
-                    )
+                stream_usage["cached_tokens"] = _extract_cached_tokens(u)
                 cc = getattr(u, "cache_creation_input_tokens", None) or 0
                 if cc:
                     stream_usage["cache_creation_tokens"] = cc

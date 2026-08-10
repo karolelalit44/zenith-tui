@@ -46,10 +46,11 @@ describe('TurnManifestCard', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('2 created');
-    expect(frame).toContain('2 files');
-    expect(frame).toContain('src/a.ts');
+    expect(frame).toContain('2 created · complete');
+    expect(frame).toContain('src/');
+    expect(frame).toContain('a.ts');
     expect(frame).toContain('2.0 KB');
-    expect(frame).toContain('src/b.ts');
+    expect(frame).toContain('b.ts');
     expect(frame).toContain('512 B');
   });
 
@@ -74,7 +75,7 @@ describe('TurnManifestCard', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('1 created');
-    expect(frame).toContain('src/a.ts');
+    expect(frame).toContain('a.ts');
     expect(frame).toContain('2.0 KB');
     expect(frame).toContain('1 modified');
     expect(frame).toContain('README.md');
@@ -113,6 +114,18 @@ describe('TurnManifestCard', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('● Turn stalled');
+  });
+
+  it('keeps the file size visible alongside a very long path', () => {
+    const longPath = `src/features/deeply/nested/directory/tree/with/many/segments/${'x'.repeat(60)}.ts`;
+    const { lastFrame } = renderManifest(
+      makeManifest({
+        created: [longPath],
+        files: [{ path: longPath, exists: true, size: 4096 }],
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('4.0 KB');
   });
 });
 

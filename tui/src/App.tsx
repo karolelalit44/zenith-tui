@@ -1,5 +1,6 @@
 import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BootLoading } from './components/BootLoading';
 import { ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScrollIndicator } from './components/Display/ScrollIndicator';
@@ -8,7 +9,6 @@ import { CommandInput } from './components/Input/CommandInput';
 import { CommandPalette } from './components/Input/CommandPalette';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
 import { OptionBanner } from './components/ui/OptionBanner';
-import { ASCII_SPINNER_FRAMES } from './constants/animation';
 import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
@@ -17,20 +17,19 @@ import { useProvider } from './hooks/useProvider';
 import { useScenario } from './hooks/useScenario';
 import { useScrollState } from './hooks/useScrollState';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
-import { useTickAnimation } from './hooks/useTickAnimation';
 import { OverlayRouter } from './routes/OverlayRouter';
 import { ExitScreen } from './screens/Exit/ExitScreen';
 import { SetupWizard } from './screens/SetupWizard';
 import { WelcomeScreen } from './screens/Welcome';
 import type { CommandRunContext } from './services/api/CommandRegistry';
 import { dispatchCommand } from './services/api/CommandRegistry';
-import { addSession } from './services/api/SessionRepository';
 import { startupService } from './services/api/StartupService';
 import type { TokenUsageStats } from './services/api/TokenUsageService';
 import { tokenUsageService } from './services/api/TokenUsageService';
 import { estimateTokensForEvents } from './services/api/tokenEstimationService';
 import { loadUserProfile } from './services/api/userProfileService';
 import { savePlanToFile } from './services/export/markdownExport';
+import { getActiveGitBranch } from './services/git';
 import { modelStore } from './services/providers/ModelStore';
 import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
@@ -50,7 +49,6 @@ export interface RetryTarget {
 export const App: React.FC = () => {
   const { theme } = useTheme();
   const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
-  const tick = useTickAnimation(150, startupState.phase === 'loading');
   const [workspace, setWorkspace] = useState(() => process.cwd());
   useEffect(() => {
     setWorkspace(process.cwd());
@@ -145,6 +143,7 @@ export const App: React.FC = () => {
     continueFromManifest,
   } = useScenario();
   const { activeProvider } = useProvider();
+  const activeGitBranch = useMemo(() => getActiveGitBranch(workspace), [workspace]);
   const [continueTarget, setContinueTarget] = useState<{ prompt: string; manifest: TurnManifestEvent } | null>(null);
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
@@ -353,7 +352,6 @@ export const App: React.FC = () => {
         }
       }
       completeActiveTurn(eventsRef.current);
-      addSession(activeTurn.prompt).catch(() => {});
       refreshStats();
     }
   }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats, lastManifest]);
@@ -432,21 +430,7 @@ export const App: React.FC = () => {
   const showScrollIndicator = scrollState.isUserScrolled && (isRunning || completedTurns.length > 0);
 
   if (startupState.phase === 'loading') {
-    return (
-      <Box
-        flexDirection="column"
-        paddingX={1}
-        paddingTop={1}
-        width="100%"
-        justifyContent="center"
-        alignItems="center"
-        minHeight={5}
-      >
-        <Text color={theme.colors.text.muted}>
-          {ASCII_SPINNER_FRAMES[tick % ASCII_SPINNER_FRAMES.length]} Initializing Zenith...
-        </Text>
-      </Box>
-    );
+    return <BootLoading />;
   }
 
   if (startupState.phase === 'setup' || startupState.phase === 'error') {
@@ -495,13 +479,15 @@ export const App: React.FC = () => {
                 </Box>
               )}
               <Box marginTop={1} flexDirection="column" width="100%">
-                <UserMessageBlock prompt={turn.prompt} />
+                <UserMessageBlock prompt={turn.prompt} model={turn.model} />
                 {turn.events.length > 0 && (
                   <ScenarioRenderer
                     events={turn.events}
                     isRunning={false}
                     isHistorical={true}
                     thinkingCollapsed={thinkingCollapsed}
+                    workspaceName={workspace}
+                    gitBranch={activeGitBranch}
                   />
                 )}
               </Box>
@@ -511,13 +497,15 @@ export const App: React.FC = () => {
 
         {isRunning && (
           <Box flexDirection="column" marginTop={1} width="100%">
-            {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} />}
+            {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} model={activeTurn.model} />}
             <ScenarioRenderer
               events={events}
               isRunning={isRunning}
               isHistorical={false}
               thinkingCollapsed={thinkingCollapsed}
               historyExpanded={historyExpanded}
+              workspaceName={workspace}
+              gitBranch={activeGitBranch}
             />
             {scrollState.isUserScrolled && (
               <Box paddingX={1} marginTop={0}>

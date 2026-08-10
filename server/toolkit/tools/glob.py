@@ -21,9 +21,9 @@ _GLOB_MAX_OUTPUT_CHARS = 40000
 class GlobTool(BaseTool):
     name = "glob"
     description = (
-        "Search files by glob pattern. Scope the pattern to a subdirectory "
-        "(e.g. 'app/**/*.py') instead of '**/*' from the repo root - an "
-        "unscoped recursive glob returns a huge list and wastes context."
+        "Find files by glob pattern. Scope the pattern to a subdirectory "
+        "(e.g. 'app/**/*.py'); an unscoped '**/*' from the repo root matches "
+        "node_modules/.git and wastes context."
     )
     requires_mode = None
     capability_id = "workspace_discovery"

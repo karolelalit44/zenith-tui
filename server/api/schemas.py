@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from server.config.constants import DEFAULT_CONTEXT_WINDOW
 
@@ -38,6 +38,8 @@ class ProviderModelInfo(BaseModel):
     description: str = ""
     is_default: bool = False
     status: str = "active"
+
+    model_config = ConfigDict(protected_namespaces=())
     parameters: Any = None
     architecture: Any = None
     input_modalities: Any = None

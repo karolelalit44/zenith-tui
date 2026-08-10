@@ -7,7 +7,6 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 _CONTEXT_FILE_NAMES = [
     "zenith.md",
-    "zenith.local.md",
     "AGENTS.md",
     "CLAUDE.md",
     "GEMINI.md",

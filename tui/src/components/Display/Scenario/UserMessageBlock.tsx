@@ -1,12 +1,14 @@
 import { Box, Text } from 'ink';
 import React, { useEffect, useState } from 'react';
+import { modelStore } from '../../../services/providers/ModelStore';
 import { useTheme } from '../../../theme/ThemeContext';
 
 interface UserMessageBlockProps {
   prompt: string;
+  model?: string;
 }
 
-export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ prompt }) => {
+export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ prompt, model }) => {
   const { theme } = useTheme();
   const [columns, setColumns] = useState(() => process.stdout.columns ?? 80);
 
@@ -28,6 +30,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
     : `${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
   const boxWidth = Math.max(0, columns - 2);
+  const modelLabel = model || (modelStore.current ? modelStore.toDisplayString(modelStore.current) : '');
 
   return (
     <Box flexDirection="column" width={boxWidth} marginBottom={1} paddingX={1}>
@@ -44,7 +47,14 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
           {prompt}
         </Text>
       </Box>
-      <Box flexDirection="row" justifyContent="flex-end" width="100%" marginTop={0} paddingRight={1}>
+      <Box flexDirection="row" justifyContent="space-between" width="100%" marginTop={0} paddingX={1}>
+        {modelLabel ? (
+          <Text color={theme.colors.text.muted}>
+            ◇ <Text color={theme.colors.text.dim}>{modelLabel}</Text>
+          </Text>
+        ) : (
+          <Box />
+        )}
         <Text color={theme.colors.text.dim}>{timeStr}</Text>
       </Box>
     </Box>

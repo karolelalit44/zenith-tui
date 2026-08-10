@@ -30,9 +30,11 @@ from server.agents.loop import (
     _find_compaction_cut,
     _find_compaction_cut_budgeted,
     _group_start,
+    _has_verification_evidence,
     _most_common_count,
     _params_label,
 )
+from server.agents.session_workspace import reset_session
 from server.agents.validation import reflection_error_limit, schemas_to_openai_tools
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
@@ -175,12 +177,18 @@ async def _run(
     mode: str = "build",
     prompt: str = "Do the work",
     cancel_after: int | None = None,
+    session_id: str = "s1",
+    reset_registry: bool = True,
 ) -> list[Event]:
     agent = AgentLoop(config, provider, tool_registry=create_default_registry())
     events: list[Event] = []
+    # The durable session registry is keyed by session_id; every scenario here
+    # reuses "s1", so clear any state an earlier scenario may have recorded.
+    if reset_registry:
+        reset_session(session_id)
 
     async def collect() -> None:
-        async for ev in agent.process_prompt(prompt, "s1", [], mode):
+        async for ev in agent.process_prompt(prompt, session_id, [], mode):
             events.append(ev)
             if cancel_after is not None and len(events) == cancel_after:
                 agent.cancel()
@@ -501,7 +509,7 @@ SCENARIOS: list[dict] = [
             "Done.",
         ],
         "checks": [
-            ("unverified note in success", lambda e, p, c: _require(e, "unverified", any(x.kind == EventKind.SUCCESS and "Files written but not verified" in (x.data.get("message") or "") for x in e))),
+            ("unverified note in success", lambda e, p, c: _require(e, "unverified", any(x.kind == EventKind.SUCCESS and "Files changed but not verified" in (x.data.get("message") or "") for x in e))),
             ("manifest verified false", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is False)),
             ("manifest checks empty", lambda e, p, c: _require(e, "checks", _manifests(e)[-1].get("checks") == [])),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
@@ -510,7 +518,7 @@ SCENARIOS: list[dict] = [
     },
     {
         "name": "S22_write_then_read_verified",
-        "desc": "A successful read after a write marks the manifest verified and drops the unverified note.",
+        "desc": "A successful read with output after a write marks the manifest verified and drops the unverified note.",
         "scripts": [
             '```tool\n{"tool": "file_write", "params": {"path": "good.py", "content": "print(\\"hi\\")\\n"}}\n{"tool": "file_read", "params": {"path": "good.py"}}\n```',
             "Verified it.",
@@ -518,7 +526,25 @@ SCENARIOS: list[dict] = [
         "checks": [
             ("manifest verified true", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is True)),
             ("read recorded as check", lambda e, p, c: _require(e, "check", any(c.get("tool") == "file_read" for c in _manifests(e)[-1].get("checks", [])))),
-            ("no unverified note", lambda e, p, c: _require(e, "no-unverified", not any(x.kind == EventKind.SUCCESS and "Files written but not verified" in (x.data.get("message") or "") for x in e))),
+            ("no unverified note", lambda e, p, c: _require(e, "no-unverified", not any(x.kind == EventKind.SUCCESS and "Files changed but not verified" in (x.data.get("message") or "") for x in e))),
+            ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
+            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+        ],
+    },
+    {
+        "name": "S24_edit_then_verify_completes_without_stall",
+        "desc": "Task 13 A3/RC5: file changes that landed AND a successful tool that produced observable output AFTER the last change are a legitimate completion — the turn must report completed=True, stalled=False, remaining=[] even though the model wrote no closing prose and then repeated a call.",
+        "scripts": [
+            '```tool\n{"tool": "file_write", "params": {"path": "good.py", "content": "x = 1\\n"}}\n{"tool": "file_edit", "params": {"path": "good.py", "old_content": "x = 1", "new_content": "x = 2"}}\n{"tool": "bash", "params": {"command": "echo verified"}}\n```',
+            '```tool\n{"tool": "bash", "params": {"command": "echo verified"}}\n```',
+            "All done.",
+        ],
+        "checks": [
+            ("manifest completed", lambda e, p, c: _require(e, "completed", _manifests(e)[-1].get("completed") is True)),
+            ("manifest not stalled", lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is False)),
+            ("no remaining work", lambda e, p, c: _require(e, "remaining", _manifests(e)[-1].get("remaining") == [])),
+            ("verified via evidence", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is True)),
+            ("created file reflects the edit", lambda e, p, c: _require(e, "content", "good.py" in _manifests(e)[-1].get("created", []) and (Path(c.workspace_root) / "good.py").read_text(encoding="utf-8") == "x = 2\n")),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
             ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
         ],
@@ -658,19 +684,45 @@ class TestLoopHelperDryRun:
     def test_build_manifest_verification_flag(self, temp_dir):
         ws = str(temp_dir)
         (temp_dir / "a.txt").write_text("a", encoding="utf-8")
-        # No files created: verified defaults to True (nothing to verify).
+        # No files changed: verified defaults to True (nothing to verify).
         empty = _build_manifest(set(), [], True, False, "done", ws)
         assert empty["verified"] is True and empty["checks"] == []
         # Files created but nothing ran after them: not verified.
         unverified = _build_manifest({"a.txt"}, ["a.txt"], True, False, "done", ws)
         assert unverified["verified"] is False and unverified["checks"] == []
-        # A successful post-write tool run marks the turn verified.
+        # A post-change tool that produced observable output marks the turn verified.
         verified = _build_manifest(
             {"a.txt"}, ["a.txt"], True, False, "done", ws,
-            verification=[{"tool": "file_read"}],
+            verification=[{"tool": "file_read", "output_len": 12}],
         )
         assert verified["verified"] is True
-        assert verified["checks"] == [{"tool": "file_read"}]
+        assert verified["checks"] == [{"tool": "file_read", "output_len": 12}]
+        # A successful tool with NO output bytes is not evidence of a working change.
+        silent = _build_manifest(
+            {"a.txt"}, ["a.txt"], True, False, "done", ws,
+            verification=[{"tool": "bash", "output_len": 0, "exit_code": 0}],
+        )
+        assert silent["verified"] is False
+        assert silent["checks"] == [{"tool": "bash", "output_len": 0, "exit_code": 0}]
+        # Internal sequence keys never leak into the manifest checks list.
+        stripped = _build_manifest(
+            {"a.txt"}, ["a.txt"], True, False, "done", ws,
+            verification=[{"tool": "bash", "output_len": 5, "seq": 3}],
+        )
+        assert stripped["checks"] == [{"tool": "bash", "output_len": 5}]
+
+    def test_has_verification_evidence(self):
+        # Empty or no checks: never evidence.
+        assert _has_verification_evidence([]) is False
+        assert _has_verification_evidence(None) is False
+        # Output bytes are evidence.
+        assert _has_verification_evidence([{"tool": "bash", "output_len": 12}]) is True
+        # Zero-output success is not evidence.
+        assert _has_verification_evidence([{"tool": "bash", "output_len": 0, "exit_code": 0}]) is False
+        # after_seq: a check recorded before the last change does not verify it.
+        checks = [{"tool": "bash", "output_len": 12, "seq": 1}, {"tool": "bash", "output_len": 3, "seq": 2}]
+        assert _has_verification_evidence(checks, after_seq=2) is True
+        assert _has_verification_evidence([{"tool": "bash", "output_len": 12, "seq": 1}], after_seq=2) is False
 
     def test_find_compaction_cut_and_group(self):
         def m(role, content=""):
@@ -776,3 +828,73 @@ class TestParserDryRun:
         schemas = [{"name": "file_read", "description": "d", "schema": {"type": "object"}}]
         tools = schemas_to_openai_tools(schemas)
         assert tools[0]["function"]["name"] == "file_read"
+
+
+class TestDurableReplayAcrossTurns:
+    """Task 13 A2: byte-identical writes re-emitted in a LATER turn of the same
+    session are blocked; a build must never run twice and a manifest must never
+    claim a re-creation."""
+
+    async def test_repeated_prompt_does_not_rebuild(self, temp_dir):
+        session_id = "s-replay-1"
+        reset_session(session_id)
+        config = _config(temp_dir)
+
+        # Turn 1: the model writes a.py, reads it back (evidence), and reports done.
+        first = _DryRunProvider(
+            [
+                '```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
+                '{"tool": "file_read", "params": {"path": "a.py"}}\n```',
+                "Done.",
+            ]
+        )
+        evs1 = await _run(first, config, prompt="Build a thing", session_id=session_id)
+        m1 = _manifests(evs1)[-1]
+        assert m1["created"] == ["a.py"]
+        assert (temp_dir / "a.py").read_text(encoding="utf-8") == "x = 1\n"
+        first_writes = _tool_runs(evs1, "file_write")
+
+        # Turn 2 (same session): the model "rebuilds" by re-emitting the exact
+        # same write. The durable guard must block it, so a.py stays untouched and
+        # the manifest reports no creation.
+        second = _DryRunProvider(
+            [
+                '```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
+                '{"tool": "file_read", "params": {"path": "a.py"}}\n```',
+                "Done.",
+            ]
+        )
+        evs2 = await _run(
+            second, config, prompt="Rebuild it", session_id=session_id, reset_registry=False
+        )
+        m2 = _manifests(evs2)[-1]
+        assert m2["created"] == []
+        assert m2["modified"] == []
+        second_writes = _tool_runs(evs2, "file_write")
+        assert second_writes == 0
+        assert first_writes == 1
+        assert (temp_dir / "a.py").read_text(encoding="utf-8") == "x = 1\n"
+        # The block is surfaced so the model knows why nothing happened.
+        assert any("re-write blocked" in (x.data.get("message") or "").lower() for x in evs2 if x.kind == EventKind.WARNING)
+
+    async def test_new_session_is_not_blocked(self, temp_dir):
+        session_id = "s-replay-2"
+        reset_session(session_id)
+        provider = _DryRunProvider(
+            [
+                '```tool\n{"tool": "file_write", "params": {"path": "b.py", "content": "y = 2\\n"}}\n```',
+                "Done.",
+            ]
+        )
+        evs = await _run(provider, _config(temp_dir), prompt="Build b", session_id=session_id)
+        assert _manifests(evs)[-1]["created"] == ["b.py"]
+        assert (temp_dir / "b.py").read_text(encoding="utf-8") == "y = 2\n"
+
+
+def _tool_runs(events, tool_name) -> int:
+    # Blocked/rejected calls never emit a TOOL_CALL, so counting TOOL_CALL
+    # events equals actual executions.
+    return sum(
+        1 for ev in events if ev.kind == EventKind.TOOL_CALL and ev.data.get("tool") == tool_name
+    )
+

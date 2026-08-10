@@ -1,40 +1,42 @@
 from __future__ import annotations
 
+import logging
 import platform
-from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
-from server.config.constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
+from server.config.constants import (
+    BUILD_MODE,
+    DEFAULT_CONTEXT_WINDOW,
+    PLAN_MODE,
+    TOOL_GUIDELINES_DIR,
+    TOOL_GUIDELINES_FILE_NAME,
+)
 from server.workspace.context import format_context_files, load_context_files
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_GUIDELINES = (
     "<guidelines>\n"
-    "- Code Actions: Use available tools to inspect, analyze, write, or modify code as needed for the user's request.\n"
-    "- Tool Choice: Prefer the dedicated tool for each job - file_write/file_edit to create or modify "
-    "files, file_read/glob/grep to inspect code, websearch/webfetch for web research. Use bash only for "
-    "operations with no dedicated tool (running tests, builds, installs, git commands).\n"
-    "- Workspace Scoping: Never list the whole repository. Scope globs to the subdirectory you "
-    "are working in (e.g. glob pattern='<target>/**/*' or 'src/**/*.py'); never run glob '**/*' "
-    "from the repo root and never run a recursive shell listing (Get-ChildItem -Recurse / "
-    "find .). Whole-repo listings match node_modules and .git, return thousands of files, and "
-    "blow the context.\n"
-    "- Inspect Before Writing: before creating files in a folder, inspect what is already there "
-    "with a scoped glob or file_read so you do not overwrite or duplicate existing work.\n"
-    "- Write Discipline: file_write requires path and content - always pass both. After file_write "
-    "confirms a file was created, do not re-write it; to change an existing file, read it first "
-    "(file_read) then edit it (file_edit).\n"
-    "- Batching: You may emit several independent tool calls in a single response (e.g. multiple "
-    "file_write calls to scaffold a project). Only batch calls that do not depend on each other.\n"
-    "- Verify Generated Projects: after generating a new project, install its dependencies and "
-    "run its tests to confirm it actually works before finishing.\n"
-    "- Environment Limits: if a verification step (install, test, build, compose) cannot run in "
-    "this environment (no network, missing runtime), report that explicitly instead of claiming "
-    "it succeeded.\n"
-    "- External Products: If the request is about an external product, tool, framework, or service, "
-    "research it with websearch to find sources, then webfetch specific pages to read them; for long "
-    "pages, pass an 'extract' question to webfetch to get just the relevant answer. Do not "
-    "substitute this local codebase for the real product.\n"
+    "- Use dedicated tools: file_write/file_edit to create/modify files, file_read/glob/grep to inspect "
+    "code, websearch/webfetch for web research. Use bash only when no dedicated tool fits (tests, builds, "
+    "installs, git).\n"
+    "- Workspace Scoping: scope globs to a subdirectory (e.g. glob pattern='src/**/*.py'); never glob "
+    "'**/*' from the repo root or run a recursive shell listing - it matches node_modules/.git and blows "
+    "context.\n"
+    "- Inspect Before Writing: before creating files in a folder, scoped glob or file_read what is already "
+    "there so you do not overwrite or duplicate work.\n"
+    "- Write Discipline: file_write requires path and content. After it confirms a file was created, do not "
+    "re-write it; to change an existing file, read it first (file_read) then edit it (file_edit).\n"
+    "- Batching: you may emit several independent tool calls in a single response (e.g. multiple file_write "
+    "calls to scaffold a project); only batch calls that do not depend on each other.\n"
+    "- Verify Generated Projects: after generating a new project, install its dependencies and run its tests "
+    "to confirm it actually works before finishing.\n"
+    "- Environment Limits: if a verification step cannot run here (no network, missing runtime), report that "
+    "explicitly instead of claiming it succeeded.\n"
+    "- External Products: research them with websearch then webfetch specific pages; pass an 'extract' "
+    "question for long pages. Do not substitute this codebase for the real product.\n"
     "- General Queries: Answer directly in markdown text without tool calls.\n"
     "</guidelines>\n"
 )
@@ -49,12 +51,107 @@ PLAN_MODE_INSTRUCTIONS = (
 )
 TOOL_DISCOVERY_HINT = (
     "<tool_discovery>\n"
-    "A lean set of tool schemas is always available. To use a tool outside that "
-    "set, call get_tool_definition('<tool_name>') once to load it, or "
-    "discover_capabilities to list what exists. Loaded schemas persist, so never "
-    "load a tool you already have.\n"
+    "A lean set of tool schemas is always available. To use any other tool, load "
+    "it once via get_tool_definition('<tool_name>'); loaded tools persist.\n"
     "</tool_discovery>\n"
 )
+TOOL_GUIDELINES_HINT = (
+    "<tool_reference>\n"
+    "Tool definitions and usage guidelines are available at '{path}'. Use file_read "
+    "to load them only when you need details beyond a tool's schema (inputs, outputs, "
+    "do's and don'ts).\n"
+    "</tool_reference>\n"
+)
+
+TOOL_GUIDELINES_CONTENT = """# Tool Guidelines
+
+Read this file with `file_read` only when you need details beyond a tool's schema:
+what a tool expects, what it returns, and the rules for using it correctly. For
+general queries and simple reads the schema you already have is enough.
+
+## General rules
+
+- Scope every glob to a subdirectory; never `**/*` from the repo root (it matches
+  node_modules and .git and floods context).
+- Inspect a folder before writing into it so you do not overwrite or duplicate work.
+- After creating a file, do not write it again; to change it, file_read then file_edit.
+- Batch independent tool calls into a single response; never batch dependent ones.
+- After generating a project, install its dependencies and run its tests.
+- If a verification step cannot run here (no network, missing runtime), say so
+  explicitly; never claim it succeeded.
+- Answer general queries directly in markdown; do not call tools for them.
+
+## Tool reference
+
+### file_read
+- Purpose: read a file (or a slice) from the workspace.
+- Input: `path` (required), `offset` (0-indexed start line), `limit` (max lines).
+- Output: numbered lines `N: content`; metadata includes `total_lines`/`showing`.
+- Guidelines: read small slices, not whole files; use offset/limit to page through
+  large files. Path must stay inside the workspace.
+
+### file_edit
+- Purpose: change an existing file via exact search-and-replace.
+- Input: `path`, `old_content` (exact text to replace), `new_content`.
+- Output: confirmation of the applied edit.
+- Guidelines: read the file first so `old_content` matches exactly.
+
+### file_write
+- Purpose: create a new file or overwrite an existing one.
+- Input: `path`, `content` (full file body), `overwrite` (bool, default false).
+- Output: `Created <path> (<bytes> bytes)`.
+- Guidelines: missing parent directories are created automatically - do not run
+  mkdir first. Do not include placeholders; write the full intended content once.
+
+### bash
+- Purpose: run a command in the workspace (tests, builds, installs, git).
+- Input: `command`, `timeout`, `run_in_background`, `auto_background_after`.
+- Output: stdout + exit code; long output is head/tail-trimmed with a marker.
+- Guidelines: use PowerShell syntax on Windows, bash on Unix (see the env section).
+  Use it only when no dedicated tool fits. Long commands are moved to a background
+  job; poll with job_output / terminate with job_kill.
+
+### glob
+- Purpose: find files by glob pattern.
+- Input: `pattern` (required, e.g. 'app/**/*.py'), `path`.
+- Output: matched paths, capped at 500 results.
+- Guidelines: always scope the pattern to a subdirectory; never `**/*` from the root.
+
+### grep
+- Purpose: search file contents by regex.
+- Input: `pattern` (required), `path`, `include` (file filter).
+- Output: `path:line: content` matches, or "No matches found".
+- Guidelines: scope `path` so results stay small.
+
+### discover_capabilities
+- Purpose: list every capability and the tools that provide it.
+- Input: none.
+- Output: capability list with read-only/mutating flags and tool names.
+
+### get_tool_definition
+- Purpose: load the full schema + metadata for a tool not in the always-on set.
+- Input: `tool_name` (required).
+- Output: JSON with the tool's function schema and metadata.
+- Guidelines: call once per tool; loaded tools persist for the session. Never load
+  a tool you already have.
+"""
+
+
+def ensure_tool_guidelines_file(workspace_root: str) -> str:
+    """Write the tool-guidelines reference file if missing; return its absolute path.
+
+    Best-effort: failures to write are logged and never raised so prompt building
+    and tests are unaffected when the target directory is read-only.
+    """
+    root = Path(workspace_root).resolve()
+    path = root / TOOL_GUIDELINES_DIR / TOOL_GUIDELINES_FILE_NAME
+    try:
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(TOOL_GUIDELINES_CONTENT, encoding="utf-8")
+    except OSError as e:
+        logger.warning("Could not write tool guidelines file %s: %s", path, e)
+    return str(path)
 
 
 def build_system_prompt(
@@ -76,6 +173,7 @@ def build_system_prompt(
     sections.append(PLAN_MODE_INSTRUCTIONS if mode == PLAN_MODE else BUILD_MODE_INSTRUCTIONS)
     sections.append(SYSTEM_GUIDELINES)
     sections.append(TOOL_DISCOVERY_HINT)
+    sections.append(TOOL_GUIDELINES_HINT.format(path=ensure_tool_guidelines_file(workspace_root)))
     if skills_section:
         sections.append(skills_section)
     context_files = load_context_files(workspace_root)
@@ -97,7 +195,6 @@ def build_plan_system_prompt(
 def _build_env_section(workspace_root: str, mode: str) -> str:
     os_name = platform.system()
     shell_name = "powershell" if os_name == "Windows" else "bash"
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
     if os_name == "Windows":
         constraint = (
             "The bash tool runs in PowerShell on Windows. Use PowerShell commands and "
@@ -110,6 +207,6 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
             "Windows PowerShell cmdlets. Write commands for bash."
         )
     return (
-        f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root} | "
-        f"Date: {today}\n{constraint}"
+        f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root}\n"
+        f"{constraint}"
     )

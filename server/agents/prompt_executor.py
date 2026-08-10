@@ -415,20 +415,21 @@ class PromptExecutor:
                 elif event.kind == EventKind.THINKING:
                     logger.info("  [THINKING]: %s", event.data.get("text", ""))
                 elif event.kind == EventKind.TOOL_CALL:
+                    from server.toolkit.executor import redact_tool_params
+
                     logger.info(
                         " [TOOL CALL]: tool=%s params=%s",
                         event.data.get("tool", ""),
-                        str(event.data.get("params", {})),
+                        redact_tool_params(event.data.get("params", {}) or {}),
                     )
                 elif event.kind == EventKind.TOOL_RESULT:
                     out = str(event.data.get("output", ""))
                     logger.info(
-                        " [TOOL RESULT]: tool=%s success=%s output_len=%d error=%s\n%s",
+                        " [TOOL RESULT]: tool=%s success=%s output_len=%d error=%s",
                         event.data.get("tool", ""),
                         event.data.get("success"),
                         len(out),
                         event.data.get("error", ""),
-                        out,
                     )
                 elif event.kind == EventKind.ERROR:
                     logger.info(

@@ -10,6 +10,8 @@ interface ScenarioRendererProps {
   isHistorical?: boolean;
   thinkingCollapsed?: boolean;
   historyExpanded?: boolean;
+  workspaceName?: string;
+  gitBranch?: string;
 }
 
 export interface LiveBannerState {
@@ -116,7 +118,15 @@ function countHiddenEvents(hidden: ScenarioEvent[]): string | null {
 }
 
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
-  ({ events, isRunning, isHistorical = false, thinkingCollapsed = false, historyExpanded = false }) => {
+  ({
+    events,
+    isRunning,
+    isHistorical = false,
+    thinkingCollapsed = false,
+    historyExpanded = false,
+    workspaceName,
+    gitBranch,
+  }) => {
     const { theme } = useTheme();
 
     const renderContext = useMemo(
@@ -124,8 +134,10 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         thinkingCollapsed,
         isHistorical,
         isRunning,
+        workspaceName,
+        gitBranch,
       }),
-      [thinkingCollapsed, isHistorical, isRunning],
+      [thinkingCollapsed, isHistorical, isRunning, workspaceName, gitBranch],
     );
 
     const dynamicLimit = 20;

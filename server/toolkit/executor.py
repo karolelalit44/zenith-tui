@@ -27,6 +27,20 @@ from server.workspace.git import GitOps
 logger = logging.getLogger(__name__)
 
 
+def redact_tool_params(tool_params: dict) -> dict:
+    """Return a log-safe view of tool params: file contents are replaced with
+    length markers so source code never leaks into logs."""
+    redacted: dict = {}
+    for key, value in tool_params.items():
+        if key in ("content", "old_content", "new_content") and isinstance(value, str):
+            redacted[key] = f"<redacted, {len(value)} chars>"
+        elif isinstance(value, str) and len(value) > 500:
+            redacted[key] = f"{value[:500]}... (+{len(value) - 500} more)"
+        else:
+            redacted[key] = value
+    return redacted
+
+
 def validate_tool_calls(
     tool_calls: list[dict], registered_tools: set[str]
 ) -> tuple[list[dict], list[str]]:
@@ -183,7 +197,12 @@ async def execute_tool(
     mode: str,
     allowed_mcp: dict[str, list[str]] | None = None,
 ) -> tuple[ToolResult, int]:
-    logger.info("TOOL EXECUTE: name=%s mode=%s params=%s", tool_name, mode, str(tool_params))
+    logger.info(
+        "TOOL EXECUTE: name=%s mode=%s params=%s",
+        tool_name,
+        mode,
+        redact_tool_params(tool_params),
+    )
     start = _time.monotonic()
     result = await tool_registry.execute(
         tool_name, tool_params, workspace_root, mode, allowed_mcp=allowed_mcp
@@ -207,7 +226,18 @@ async def post_execution_hooks(
     edited_path = tool_params.get("filepath") or tool_params.get("path") or ""
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:
-            from server.toolkit.auto_lint import format_lint_result, run_lint
+            from server.toolkit.auto_lint import (
+                detect_security_pitfall,
+                format_lint_result,
+                run_lint,
+            )
+
+            written_content = str(tool_params.get("content", ""))
+            if tool_name == "file_edit":
+                written_content = str(tool_params.get("new_content", ""))
+            pitfall = detect_security_pitfall(edited_path, written_content)
+            if pitfall:
+                events.append(r.warning(pitfall, session_id, code="SECURITY"))
 
             lint_result = await run_lint(
                 edited_path, workspace_root, fix=AUTO_LINT_FIX_ENABLED

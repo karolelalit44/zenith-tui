@@ -17,6 +17,8 @@ export interface EventRenderContext {
   thinkingCollapsed?: boolean;
   isHistorical?: boolean;
   isRunning?: boolean;
+  workspaceName?: string;
+  gitBranch?: string;
 }
 
 export type EventComponentType = React.ComponentType<{

@@ -34,9 +34,9 @@ def serialize_tool_definition(tool: BaseTool) -> dict[str, Any]:
 class DiscoverCapabilitiesTool(BaseTool):
     name = DISCOVER_CAPABILITIES_TOOL
     description = (
-        "List every capability available to you, the tools that provide each capability, "
-        "and each capability's risk and read-only status. Use this first to discover what "
-        "you can do; then call get_tool_definition for any tool you want to use."
+        "List every capability and the tools that provide each, with risk and "
+        "read-only status. Use it to discover what you can do, then "
+        "get_tool_definition for any tool you want to use."
     )
     capability_id = CAPABILITY_TOOL_DISCOVERY
     read_only = True
@@ -85,9 +85,8 @@ class DiscoverCapabilitiesTool(BaseTool):
 class GetToolDefinitionTool(BaseTool):
     name = GET_TOOL_DEFINITION_TOOL
     description = (
-        "Load the full schema and metadata for a specific tool so it can be called. "
-        "Returns the tool's JSON parameters, description, risk level, read-only status, "
-        "and mode availability. The tool becomes callable in the next step."
+        "Load the full schema and metadata for a tool so it can be called. Returns "
+        "its JSON parameters, description, risk, read-only status, and mode availability."
     )
     capability_id = CAPABILITY_TOOL_DISCOVERY
     read_only = True

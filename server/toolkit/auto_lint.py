@@ -2,10 +2,45 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Conservative heuristic: only flags writes whose path or leading content clearly
+# involves password/credential handling, to avoid noise on ordinary code.
+_SECURITY_NAME_HINT = re.compile(
+    r"passwd|password|credential|secret|auth|login|signin|hash", re.IGNORECASE
+)
+_SCRIPT_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rb", ".php", ".java"}
+_FAST_HASH_HINTS = ("sha1", "sha256", "md5", "hashlib.")
+
+
+def detect_security_pitfall(file_path: str, content: str) -> str | None:
+    """Flag fast-hash password handling so the model can switch to a salted KDF.
+
+    Returns a human-readable warning or None. Conservative by design: a match
+    requires both a sensitive name/content AND a fast-hash usage.
+    """
+    path = Path(file_path)
+    if path.suffix.lower() not in _SCRIPT_SUFFIXES:
+        return None
+    name = path.name
+    head = content[:2000]
+    if not _SECURITY_NAME_HINT.search(name) and not _SECURITY_NAME_HINT.search(head):
+        return None
+    lower = head.lower()
+    if "password" not in lower and "passwd" not in lower:
+        return None
+    fast_hash = next((h for h in _FAST_HASH_HINTS if h in lower), None)
+    if not fast_hash:
+        return None
+    return (
+        f"{name} handles passwords but uses '{fast_hash}' (a fast hash, not a password "
+        "KDF). Use a salted KDF such as hashlib.pbkdf2_hmac / scrypt (or bcrypt/argon2) "
+        "with a random per-user salt instead."
+    )
 
 
 @dataclass

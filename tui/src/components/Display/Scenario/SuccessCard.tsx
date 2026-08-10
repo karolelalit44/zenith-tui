@@ -10,13 +10,10 @@ interface SuccessCardProps {
   manifest?: TurnManifestEvent;
 }
 
-export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, manifest }) => {
+export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, manifest: _manifest }) => {
   const { theme } = useTheme();
 
   const parts: string[] = [];
-  if (manifest && manifest.created.length > 0) {
-    parts.push(`${manifest.created.length} file${manifest.created.length === 1 ? '' : 's'} created`);
-  }
   if (event.iterations !== undefined) {
     parts.push(`${event.iterations} iter${event.iterations === 1 ? '' : 's'}`);
   }

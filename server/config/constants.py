@@ -9,6 +9,12 @@ DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
 PLAN_MODE = "plan"
 
+# On-demand tool-guidelines reference file. Written to the workspace root on
+# first prompt build; the system prompt points the model at it so detailed tool
+# guidance is read lazily instead of being re-sent on every call.
+TOOL_GUIDELINES_DIR = ".zenith"
+TOOL_GUIDELINES_FILE_NAME = "tool-guidelines.md"
+
 # Tool metadata bounds
 MAX_TOOL_NAME_LENGTH = 64
 MAX_TOOL_DESCRIPTION_LENGTH = 400
@@ -108,17 +114,15 @@ AUTO_LINT_FIX_ENABLED = True
 
 # Bash tool descriptions (OS-specific commands only)
 BASH_TOOL_DESCRIPTION_WINDOWS = (
-    "Execute a Windows PowerShell command in the workspace. Only use PowerShell commands "
-    "and PowerShell syntax (e.g. New-Item, Get-ChildItem, Get-Content, Set-Content, "
-    "Remove-Item, Select-String, Start-Process). Do NOT use Unix shell commands "
-    "(mkdir -p, ls, grep, touch, rm) or bash syntax. Commands run from the workspace "
-    "root; to act inside a subfolder, start the command with 'Set-Location <folder>;'."
+    "Execute a PowerShell command in the workspace (Windows PowerShell syntax only, "
+    "e.g. New-Item, Get-ChildItem, Get-Content, Set-Content, Remove-Item, Select-String). "
+    "Never use Unix shell commands (mkdir -p, ls, grep, touch, rm). To act inside a "
+    "subfolder, start with 'Set-Location <folder>;'."
 )
 BASH_TOOL_DESCRIPTION_UNIX = (
-    "Execute a shell command in the workspace. Only use Unix/Linux shell commands and bash "
-    "syntax (e.g. mkdir -p, ls, grep, touch, rm, cat). Do NOT use Windows PowerShell cmdlets. "
-    "Commands run from the workspace root; to act inside a subfolder, start the command with "
-    "'cd <folder> &&'."
+    "Execute a shell command in the workspace. Use Unix/Linux shell commands and bash "
+    "syntax only (mkdir -p, ls, grep, touch, rm, cat). Never use Windows PowerShell "
+    "cmdlets. To act inside a subfolder, start the command with 'cd <folder> &&'."
 )
 
 # Bash tool command parameter descriptions (OS-specific)

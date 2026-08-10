@@ -24,8 +24,7 @@ _PLACEHOLDER_RE = re.compile(
 class FileWriteTool(BaseTool):
     name = "file_write"
     description = (
-        "Create or overwrite a file. Missing parent directories are created "
-        "automatically - do not run mkdir/New-Item first, just write the file."
+        "Create or overwrite a file; missing parent directories are created automatically."
     )
     requires_mode = BUILD_MODE
     capability_id = "file_write"

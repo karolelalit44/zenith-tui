@@ -215,11 +215,11 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
     let content: React.ReactNode;
     if (value.length === 0) {
       content = (
-        <Text>
+        <Text wrap="truncate-end">
           <Text inverse color={theme.colors.text.bright}>
-            {placeholder ? placeholder[0] : ' '}
+            {' '}
           </Text>
-          <Text color={theme.colors.text.dim}>{placeholder ? placeholder.slice(1) : ''}</Text>
+          <Text color={theme.colors.text.dim}>{placeholder}</Text>
         </Text>
       );
     } else {
