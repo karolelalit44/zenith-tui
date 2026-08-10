@@ -25,15 +25,19 @@ def calculate_stats(data):
 def main():
     parser = argparse.ArgumentParser(description="Weather CLI - Calculate min, max, and average temperatures.")
     parser.add_argument("--file", default="temps.json", help="Path to JSON data file")
+    parser.add_argument("--json", action="store_true", help="Output results in JSON format")
     args = parser.parse_args()
 
     try:
         data = load_data(args.file)
         stats = calculate_stats(data)
-        print(f"Temperature Statistics (from {args.file}):")
-        print(f"  Minimum: {stats['min']}°C")
-        print(f"  Average: {stats['avg']:.2f}°C")
-        print(f"  Maximum: {stats['max']}°C")
+        if args.json:
+            print(json.dumps(stats, indent=2))
+        else:
+            print(f"Temperature Statistics (from {args.file}):")
+            print(f"  Minimum: {stats['min']}°C")
+            print(f"  Average: {stats['avg']:.2f}°C")
+            print(f"  Maximum: {stats['max']}°C")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
