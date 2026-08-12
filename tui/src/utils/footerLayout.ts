@@ -79,7 +79,7 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
 
   const cleanBranch = input.branch ? input.branch.replace(/^\(+|\)+$/g, '').trim() : '';
 
-  let rawDir = input.dir ? input.dir.replace(/\\/g, '/').split('/').filter(Boolean).slice(-2).join('/') : '';
+  let rawDir = input.dir ? input.dir.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '' : '';
   if (!rawDir) rawDir = input.dir || '';
 
   const runningWidth = input.running ? 11 : 0;

@@ -266,6 +266,44 @@ export function parseDiffOrContent(
   return { lines: result, isUnifiedDiff: true };
 }
 
+export function detectLanguageFromFilename(filename?: string): string | undefined {
+  if (!filename) return undefined;
+  const base = filename.replace(/\\/g, '/').split('/').pop() || '';
+  if (base === 'Dockerfile' || base.startsWith('Dockerfile.')) return 'dockerfile';
+  if (base === 'Makefile') return 'makefile';
+  const ext = base.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'py':
+      return 'python';
+    case 'ts':
+    case 'tsx':
+      return 'typescript';
+    case 'js':
+    case 'jsx':
+      return 'javascript';
+    case 'json':
+      return 'json';
+    case 'yml':
+    case 'yaml':
+      return 'yaml';
+    case 'md':
+      return 'markdown';
+    case 'sh':
+    case 'bash':
+      return 'bash';
+    case 'css':
+      return 'css';
+    case 'html':
+      return 'html';
+    case 'sql':
+      return 'sql';
+    case 'toml':
+      return 'toml';
+    default:
+      return ext;
+  }
+}
+
 export interface FileDiffBlockProps {
   diffOrContent: string;
   maxLines?: number;
@@ -284,13 +322,8 @@ function renderLine(
   isUnifiedDiff: boolean,
 ): React.ReactNode {
   if (line.type === 'hunk') {
-    return (
-      <Box key={index} flexDirection="row" width="100%" marginY={0}>
-        <Text color={theme.colors.status.warning} wrap="truncate-end">
-          {line.content}
-        </Text>
-      </Box>
-    );
+    // Hide @@ -14,15 +12,12 @@ hunk headers; colored diff and line numbers display changes cleanly
+    return null;
   }
 
   const isAdd = line.type === 'add';
@@ -350,6 +383,7 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
 
     if (lines.length === 0) return null;
 
+    const effectiveLang = language || detectLanguageFromFilename(title);
     const hasBoth = lines.some((l) => l.oldLineNumber !== undefined && l.newLineNumber !== undefined);
 
     const changedMasks = new Map<number, boolean[]>();
@@ -370,20 +404,11 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
     };
 
     return (
-      <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1}>
-        {/* Title Header: Clean file path in info text */}
-        {title ? (
-          <Box flexDirection="row" alignItems="center" width="100%" marginBottom={1}>
-            <Text color={theme.colors.status.info} bold wrap="truncate-end">
-              {title}
-            </Text>
-          </Box>
-        ) : null}
-
+      <Box flexDirection="column" width="100%" marginTop={0} marginBottom={1}>
         {/* Git Native Diff Container */}
         <Box flexDirection="column" width="100%">
           {lines.map((line, index) =>
-            renderLine(line, index, theme, language, maskFor, hasBoth, isUnifiedDiff),
+            renderLine(line, index, theme, effectiveLang, maskFor, hasBoth, isUnifiedDiff),
           )}
         </Box>
       </Box>

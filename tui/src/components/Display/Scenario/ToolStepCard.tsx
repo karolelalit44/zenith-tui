@@ -18,9 +18,15 @@ function stripAnsi(text: string): string {
   return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
 }
 
-/** Format raw command output: strip ANSI codes, normalize line endings, trim trailing blanks, and cap to size. */
+/** Format raw command output: strip ANSI codes, boilerplate headers, normalize line endings, trim trailing blanks, and cap to size. */
 function formatCommandOutput(output: string, maxLines = MAX_OUTPUT_LINES): string {
-  const sanitized = stripAnsi(output).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\s+$/, '');
+  const sanitized = stripAnsi(output)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter((line) => !/^\[Tool:\s*[^\]]+\|\s*Status:\s*[^\]]+\]/i.test(line.trim()))
+    .join('\n')
+    .replace(/\s+$/, '');
   const lines = sanitized.split('\n');
   if (lines.length <= maxLines) return sanitized;
   const kept = lines.slice(0, maxLines).join('\n');
@@ -106,12 +112,17 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   if (isShellCommand) {
     const meta = event.metadata ?? {};
     const durMs = typeof meta.duration_ms === 'number' ? meta.duration_ms : undefined;
-    const duration = durMs !== undefined ? `${(durMs / 1000).toFixed(1)}s` : '';
+    const duration = durMs !== undefined ? `${(durMs / 1000).toFixed(1)}s` : isPending ? `${(elapsed / 10).toFixed(0)}s` : '';
 
-    const tabName = truncateLabel(cmdString.split('\n')[0].trim(), MAX_TAB_NAME_LENGTH);
     const promptLine = collapseFirstLine(cmdString);
     const cwdBase = context?.workspaceName?.replace(/\\/g, '/').split('/').filter(Boolean).pop();
-    const pathText = cwdBase ? `~/${cwdBase}` : '';
+    const folderName = cwdBase || 'workspace';
+
+    const cmdOutputText =
+      event.output ||
+      (typeof event.metadata?.output === 'string' ? event.metadata.output : '') ||
+      (typeof event.metadata?.result === 'string' ? event.metadata.result : '') ||
+      '';
 
     return (
       <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
@@ -123,41 +134,33 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           paddingX={1}
           paddingY={0}
         >
-          {/* Header bar: TERMINAL · path · branch + timing */}
+          {/* Terminal Window Header Bar: Window Dots + Relative Folder:Branch + Duration */}
           <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
             <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
-              <Text color={theme.colors.text.bright} bold wrap="truncate-end">
-                TERMINAL
+              <Text color="#FF5F56">● </Text>
+              <Text color="#FFBD2E">● </Text>
+              <Text color="#27C93F">● </Text>
+              <Text color={theme.colors.status.info} bold wrap="truncate-end">
+                {folderName}
               </Text>
-              {pathText ? (
-                <>
-                  <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
-                  <Text color={theme.colors.status.info} wrap="truncate-end">{pathText}</Text>
-                </>
-              ) : null}
               {context?.gitBranch ? (
                 <>
-                  <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
-                  <Text color={theme.colors.status.warning} wrap="truncate-end">⚡ {context.gitBranch}</Text>
-                </>
-              ) : null}
-              {tabName ? (
-                <>
-                  <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
-                  <Text color={theme.colors.text.muted} wrap="truncate-end">
-                    {tabName}
+                  <Text color={theme.colors.text.dim}>:</Text>
+                  <Text color={theme.colors.status.warning} wrap="truncate-end">
+                    {context.gitBranch}
                   </Text>
                 </>
               ) : null}
             </Box>
+
             {duration ? (
               <Box flexGrow={0} flexShrink={0} marginLeft={1}>
-                <Text color={theme.colors.text.dim} wrap="truncate-end">~ took {duration}</Text>
+                <Text color={theme.colors.text.dim}>~ {duration}</Text>
               </Box>
             ) : null}
           </Box>
 
-          {/* Prompt line */}
+          {/* Terminal Body Prompt Line: Status Icon ❯❯ Command String */}
           <Box flexDirection="row" alignItems="center">
             {isPending ? (
               <Text color={theme.colors.status.info} bold>
@@ -165,40 +168,33 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
               </Text>
             ) : (
               <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-                ❯{' '}
+                {isSuccess ? '✓ ' : '✗ '}
               </Text>
             )}
+
+            <Text color={theme.colors.text.bright} bold>
+              ❯❯{' '}
+            </Text>
+
             <Text color={theme.colors.text.bright} bold wrap="truncate-end">
               {promptLine || headerText}
             </Text>
-            {isPending && <Text color={theme.colors.text.muted}> ({(elapsed / 10).toFixed(0)}s)</Text>}
           </Box>
 
-          {/* Failure reason */}
+          {/* Failure Error Context */}
           {!isPending && !isSuccess && event.error ? (
-            <Box flexDirection="row" width="100%">
-              <Box flexGrow={1} flexShrink={1}>
-                <Text color={theme.colors.status.error} bold wrap="wrap">
-                  {event.error}
-                </Text>
-              </Box>
-            </Box>
-          ) : null}
-
-          {/* Execution output */}
-          {!isPending && event.output && event.output.trim().length > 0 ? (
-            <Box flexDirection="column" backgroundColor={theme.colors.code.background} paddingX={0} paddingY={0}>
-              <Text color={theme.colors.code.output} wrap="wrap">
-                {formatCommandOutput(event.output, isSuccess ? MAX_OUTPUT_LINES : MAX_FAILED_OUTPUT_LINES)}
+            <Box flexDirection="column" paddingLeft={2} marginTop={0}>
+              <Text color={theme.colors.status.error} wrap="truncate-end">
+                └─ Error: {event.error}
               </Text>
             </Box>
           ) : null}
 
-          {/* Execution status footer inside padding */}
-          {!isPending ? (
-            <Box flexDirection="row" justifyContent="flex-end" width="100%">
-              <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error}>
-                {isSuccess ? '✓' : '✗'} Ran command{duration ? ` (${duration})` : ''}
+          {/* Command execution response text on second line (height-truncated) */}
+          {!isPending && cmdOutputText.trim().length > 0 ? (
+            <Box flexDirection="column" paddingLeft={2} marginTop={0} marginBottom={0}>
+              <Text color={theme.colors.code.output} wrap="truncate-end">
+                {formatCommandOutput(cmdOutputText, isSuccess ? 6 : 4)}
               </Text>
             </Box>
           ) : null}
