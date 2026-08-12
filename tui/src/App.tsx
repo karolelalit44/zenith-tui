@@ -245,9 +245,9 @@ export const App: React.FC = () => {
 
   const handleCancel = useCallback(() => {
     abort();
-    abortActiveTurn();
+    abortActiveTurn(eventsRef.current);
     setRetryTarget(null);
-  }, [abort, abortActiveTurn]);
+  }, [abort, abortActiveTurn, eventsRef]);
 
   const commandCtx = useMemo<CommandRunContext>(
     () => ({
@@ -315,6 +315,7 @@ export const App: React.FC = () => {
     turns,
     isRunning,
     events,
+    eventsRef,
     overlay,
     openOverlay,
     closeOverlay,

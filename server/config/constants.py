@@ -4,6 +4,12 @@ HOST_ENV_VAR = "ZENITH_HOST"
 PORT_ENV_VAR = "ZENITH_PORT"
 WS_PATH = "/ws"
 HEALTH_PATH = "/health"
+
+# Static test simulation backend: a second WebSocket endpoint (/ws/test) that
+# plays back scripted responses from data/simulation/*.json. No DB, no provider.
+TEST_WS_PATH = "/ws/test"
+TEST_SIMULATION_DIR = "data/simulation"
+TEST_SIMULATION_DIR_ENV = "ZENITH_SIMULATION_DIR"
 CONTEXT_SUMMARY_THRESHOLD = 0.85
 DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
@@ -99,9 +105,7 @@ BASH_WORKDIR_PARAM = "workdir"
 # proves it did not actually run (e.g. the Windows Store `python` alias prints
 # "Unable to initialize device PRN" and does nothing). A match upgrades the tool
 # result to a failure so the agent is told the command did not execute.
-BASH_FALSE_SUCCESS_PATTERNS = (
-    "Unable to initialize device PRN",
-)
+BASH_FALSE_SUCCESS_PATTERNS = ("Unable to initialize device PRN",)
 
 # Read-only tools that may legitimately be re-invoked with identical parameters.
 # They are exempt from the identical-param skip guard so polling loops (e.g.

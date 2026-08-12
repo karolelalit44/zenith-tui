@@ -10,6 +10,7 @@ interface UseTerminalKeyboardOptions {
   turns: ConversationTurn[];
   isRunning: boolean;
   events: ScenarioEvent[];
+  eventsRef?: { current: ScenarioEvent[] };
   overlay: OverlayType;
   openOverlay?: (type: OverlayType) => void;
   closeOverlay?: () => void;
@@ -36,6 +37,7 @@ export function useTerminalKeyboard({
   turns,
   isRunning,
   events,
+  eventsRef,
   overlay,
   openOverlay,
   closeOverlay,
@@ -60,6 +62,7 @@ export function useTerminalKeyboard({
     turns,
     isRunning,
     events,
+    eventsRef,
     overlay,
     openOverlay,
     closeOverlay,
@@ -86,6 +89,7 @@ export function useTerminalKeyboard({
       turns,
       isRunning,
       events,
+      eventsRef,
       overlay,
       openOverlay,
       closeOverlay,
@@ -137,7 +141,7 @@ export function useTerminalKeyboard({
         }
         if (opts.isRunning || opts.composerRunning) {
           opts.abort();
-          opts.abortActiveTurn(opts.events);
+          opts.abortActiveTurn(opts.eventsRef?.current ?? opts.events);
         }
         return;
       }
@@ -180,7 +184,7 @@ export function useTerminalKeyboard({
       if (pressed.includes('clear_input')) {
         if (opts.isRunning || opts.composerRunning) {
           opts.abort();
-          opts.abortActiveTurn(opts.events);
+          opts.abortActiveTurn(opts.eventsRef?.current ?? opts.events);
         }
         return;
       }

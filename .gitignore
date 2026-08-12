@@ -26,6 +26,11 @@ ref_repo/
 .mypy_cache
 data
 
+# Simulation scripts are source (track them despite ignoring runtime data/)
+!data/
+!data/simulation/
+!data/simulation/*
+
 # Local audit scratch (may carry restrictive ACLs; not source)
 .audit_tmp/
 
@@ -33,3 +38,6 @@ data
 *todo
 *plan*
 *todo*
+
+# Track the simulation-endpoint todo (the *todo* rule is legacy)
+!todo/12-test-simulation-endpoint.md

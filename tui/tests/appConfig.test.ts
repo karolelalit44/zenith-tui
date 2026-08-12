@@ -14,8 +14,8 @@ describe('appConfig', () => {
     expect(appConfig.buildUrl('startup/validate')).toBe('http://localhost:8765/startup/validate');
   });
 
-  it('buildWsUrl maps http -> ws and appends /ws', () => {
-    expect(appConfig.buildWsUrl()).toBe('ws://localhost:8765/ws');
+  it('buildWsUrl maps http -> ws and appends /ws/test (simulation backend)', () => {
+    expect(appConfig.buildWsUrl()).toBe('ws://localhost:8765/ws/test');
   });
 
   it('exposes timeout and retry defaults', () => {

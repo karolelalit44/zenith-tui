@@ -22,7 +22,7 @@ export interface UseConversationReturn {
   staticKey: number;
   addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
-  abortActiveTurn: () => void;
+  abortActiveTurn: (events?: ScenarioEvent[]) => void;
   markTurnSaved: (turnId: string) => void;
   clearTurns: () => void;
   compactTurns: () => void;

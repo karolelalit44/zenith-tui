@@ -48,7 +48,7 @@ export const appConfig = Object.freeze({
   buildWsUrl(): string {
     const base = BACKEND_BASE.replace(/\/+$/, '');
     const ws = base.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
-    return /\/ws$/.test(ws) ? ws : `${ws}/ws`;
+    return `${ws}/ws/test`;
   },
 });
 

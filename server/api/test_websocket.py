@@ -553,11 +553,9 @@ class TestSimulationHandler:
             return
         chunk_size = int(entry.get("chunk_size", 3) or 3)
         delay = float(entry.get("delay_ms", 25) or 25) / 1000.0
-        accumulated = ""
         for i in range(0, len(content), chunk_size):
-            accumulated += content[i : i + chunk_size]
             await self._send(
-                ws, r.message_event(accumulated, session.id, partial=True, iteration=0)
+                ws, r.message_event(content[i : i + chunk_size], session.id, partial=True, iteration=0)
             )
             await asyncio.sleep(delay)
         await self._send(ws, r.message_event(content, session.id, partial=False, iteration=0))

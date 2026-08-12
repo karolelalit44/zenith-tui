@@ -46,6 +46,7 @@ export function useScenario(): UseScenarioReturn {
   );
   const runnerRef = useRef<ScenarioRunner | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const abortRequestedRef = useRef(false);
 
   useEffect(() => {
     wsClient.connect().catch(() => {});
@@ -58,20 +59,41 @@ export function useScenario(): UseScenarioReturn {
   >(new Map());
   const lastWarningRef = useRef<string | null>(null);
 
+  const applyQueueTo = useCallback(
+    (base: ScenarioEvent[], queue: { event: ScenarioEvent; index: number }[]): ScenarioEvent[] => {
+      let next = [...base];
+      for (const { event, index } of queue) {
+        next = upsertEvent(next, event, index);
+      }
+      return next;
+    },
+    [],
+  );
+
   const flushBatch = useCallback(() => {
     if (batchQueueRef.current.length === 0) return;
     const queue = [...batchQueueRef.current];
     batchQueueRef.current = [];
 
     setEvents((prev) => {
-      let next = [...prev];
-      for (const { event, index } of queue) {
-        next = upsertEvent(next, event, index);
-      }
+      const next = applyQueueTo(prev, queue);
       eventsRef.current = next;
       return next;
     });
-  }, []);
+  }, [applyQueueTo]);
+
+  const commitPendingEvents = useCallback(() => {
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+    if (batchQueueRef.current.length === 0) return;
+    const queue = [...batchQueueRef.current];
+    batchQueueRef.current = [];
+    const next = applyQueueTo(eventsRef.current, queue);
+    eventsRef.current = next;
+    setEvents(next);
+  }, [applyQueueTo]);
 
   const handleEvent = useCallback(
     (event: ScenarioEvent, index: number) => {
@@ -238,6 +260,7 @@ export function useScenario(): UseScenarioReturn {
       setEvents([]);
       eventsRef.current = [];
       setIsRunning(true);
+      abortRequestedRef.current = false;
 
       try {
         await connectToBackend();
@@ -282,6 +305,14 @@ export function useScenario(): UseScenarioReturn {
       };
       runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
 
+      if (abortRequestedRef.current) {
+        runnerRef.current.abort();
+        if (sessionIdRef.current) {
+          wsClient.cancelPrompt(sessionIdRef.current).catch(() => {});
+        }
+        return;
+      }
+
       const promptAttachments =
         attachments && attachments.length > 0 ? attachments.map((a) => ({ path: a.path, name: a.name })) : undefined;
 
@@ -299,12 +330,14 @@ export function useScenario(): UseScenarioReturn {
   );
 
   const abort = useCallback(() => {
+    abortRequestedRef.current = true;
+    commitPendingEvents();
     runnerRef.current?.abort();
     if (sessionIdRef.current) {
       wsClient.cancelPrompt(sessionIdRef.current).catch(() => {});
     }
     setIsRunning(false);
-  }, []);
+  }, [commitPendingEvents]);
 
   const setActiveSessionId = useCallback((id: string | null) => {
     sessionIdRef.current = id;
@@ -321,6 +354,7 @@ export function useScenario(): UseScenarioReturn {
     ) => {
       setLastManifest(null);
       setIsRunning(true);
+      abortRequestedRef.current = false;
 
       try {
         await connectToBackend();
@@ -334,6 +368,14 @@ export function useScenario(): UseScenarioReturn {
         sessionId: sessionIdRef.current ?? undefined,
       };
       runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
+
+      if (abortRequestedRef.current) {
+        runnerRef.current.abort();
+        if (sessionIdRef.current) {
+          wsClient.cancelPrompt(sessionIdRef.current).catch(() => {});
+        }
+        return;
+      }
 
       wsClient
         .continuePrompt(
