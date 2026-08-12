@@ -13,11 +13,16 @@ const MAX_OUTPUT_LINES = 50;
 const MAX_FAILED_OUTPUT_LINES = 20;
 const MAX_TAB_NAME_LENGTH = 60;
 
-/** Format raw command output: trim trailing blanks and cap to a sane size. */
+/** Strip ANSI escape sequences from command output strings to prevent Ink rendering glitches. */
+function stripAnsi(text: string): string {
+  return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+}
+
+/** Format raw command output: strip ANSI codes, normalize line endings, trim trailing blanks, and cap to size. */
 function formatCommandOutput(output: string, maxLines = MAX_OUTPUT_LINES): string {
-  const trimmed = output.replace(/\s+$/, '');
-  const lines = trimmed.split('\n');
-  if (lines.length <= maxLines) return trimmed;
+  const sanitized = stripAnsi(output).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\s+$/, '');
+  const lines = sanitized.split('\n');
+  if (lines.length <= maxLines) return sanitized;
   const kept = lines.slice(0, maxLines).join('\n');
   return `${kept}\n… ${lines.length - maxLines} more lines`;
 }
@@ -82,20 +87,29 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         <Box
           flexDirection="column"
           backgroundColor={theme.colors.code.background}
-          borderStyle="round"
-          borderColor={isSuccess ? theme.colors.border.active : theme.colors.status.error}
+          borderStyle="single"
+          borderColor={theme.colors.border.muted}
           paddingX={1}
           paddingY={0}
         >
-          {/* macOS-style titlebar: traffic lights + window title + tab name + timing */}
+          {/* Header bar: TERMINAL · path · branch + timing */}
           <Box flexDirection="row" alignItems="center" width="100%">
-            <Box flexDirection="row" alignItems="center" flexGrow={0} flexShrink={1}>
-              <Text color={theme.colors.status.error}>● </Text>
-              <Text color={theme.colors.status.warning}>● </Text>
-              <Text color={theme.colors.status.success}>● </Text>
+            <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1}>
               <Text color={theme.colors.text.bright} bold>
-                {'  TERMINAL'}
+                TERMINAL
               </Text>
+              {pathText ? (
+                <>
+                  <Text color={theme.colors.text.dim}> · </Text>
+                  <Text color={theme.colors.status.info}>{pathText}</Text>
+                </>
+              ) : null}
+              {context?.gitBranch ? (
+                <>
+                  <Text color={theme.colors.text.dim}> · </Text>
+                  <Text color={theme.colors.status.warning}>⚡ {context.gitBranch}</Text>
+                </>
+              ) : null}
               {tabName ? (
                 <>
                   <Text color={theme.colors.text.dim}> · </Text>
@@ -105,39 +119,23 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                 </>
               ) : null}
             </Box>
-            <Box flexGrow={1} flexShrink={1} />
             {duration ? (
               <Box flexGrow={0} flexShrink={0}>
-                <Text color={theme.colors.text.warning} bold>
-                  ~ took {duration}
-                </Text>
+                <Text color={theme.colors.text.dim}>~ took {duration}</Text>
               </Box>
             ) : null}
           </Box>
 
-          {/* Path + git branch */}
-          {pathText || context?.gitBranch ? (
-            <Box flexDirection="row" alignItems="center">
-              {pathText ? <Text color={theme.colors.status.info}>{pathText}</Text> : null}
-              {context?.gitBranch ? <Text color={theme.colors.status.warning}> ⚡ {context.gitBranch}</Text> : null}
-            </Box>
-          ) : null}
-
-          {/* Prompt: status dot + `❯ <command>` */}
+          {/* Prompt line */}
           <Box flexDirection="row" alignItems="center">
             {isPending ? (
               <Text color={theme.colors.status.info} bold>
                 {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
               </Text>
             ) : (
-              <>
-                <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-                  ●{' '}
-                </Text>
-                <Text color={theme.colors.status.info} bold>
-                  ❯{' '}
-                </Text>
-              </>
+              <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
+                ❯{' '}
+              </Text>
             )}
             <Text color={theme.colors.text.bright} bold wrap="truncate-end">
               {promptLine || headerText}
@@ -145,9 +143,9 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             {isPending && <Text color={theme.colors.text.muted}> ({(elapsed / 10).toFixed(0)}s)</Text>}
           </Box>
 
-          {/* Failure reason first: full wrapped error */}
+          {/* Failure reason */}
           {!isPending && !isSuccess && event.error ? (
-            <Box flexDirection="row" width="100%" marginTop={1}>
+            <Box flexDirection="row" width="100%">
               <Box flexGrow={1} flexShrink={1}>
                 <Text color={theme.colors.status.error} bold wrap="wrap">
                   {event.error}
@@ -158,17 +156,17 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
           {/* Execution output */}
           {!isPending && event.output && event.output.trim().length > 0 ? (
-            <Box flexDirection="column" backgroundColor={theme.colors.code.background} paddingX={1} paddingY={0}>
+            <Box flexDirection="column" backgroundColor={theme.colors.code.background} paddingX={0} paddingY={0}>
               <Text color={theme.colors.code.output} wrap="wrap">
                 {formatCommandOutput(event.output, isSuccess ? MAX_OUTPUT_LINES : MAX_FAILED_OUTPUT_LINES)}
               </Text>
             </Box>
           ) : null}
 
-          {/* Execution status footer */}
+          {/* Execution status footer inside padding */}
           {!isPending ? (
             <Box flexDirection="row" justifyContent="flex-end" width="100%">
-              <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
+              <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error}>
                 {isSuccess ? '✓' : '✗'} Ran command{duration ? ` (${duration})` : ''}
               </Text>
             </Box>

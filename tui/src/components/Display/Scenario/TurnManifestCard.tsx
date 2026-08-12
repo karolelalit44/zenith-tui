@@ -90,19 +90,14 @@ function renderChildren(
     } else {
       const style = KIND_ICON[child.file?.kind ?? 'modified'];
       out.push(
-        <Box key={`file-${child.name}`} flexDirection="row" width="100%">
-          <Box flexGrow={0} flexShrink={1}>
-            <Text color={style.color(theme)} wrap="truncate-end">
-              {line}
-              {style.icon}
-              {child.name}
-            </Text>
-          </Box>
-          <Box flexGrow={1} flexShrink={1} />
+        <Box key={`file-${child.name}`} flexDirection="row" justifyContent="space-between" width="100%">
+          <Text color={style.color(theme)} wrap="truncate-end">
+            {line}
+            {style.icon}
+            {child.name}
+          </Text>
           {typeof child.file?.size === 'number' && child.file.size >= 0 ? (
-            <Box flexGrow={0} flexShrink={0}>
-              <Text color={theme.colors.text.dim}>{formatBytes(child.file.size)}</Text>
-            </Box>
+            <Text color={theme.colors.text.dim}> {formatBytes(child.file.size)}</Text>
           ) : null}
         </Box>,
       );

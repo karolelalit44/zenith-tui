@@ -29,17 +29,16 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(({ p
     ? now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
     : `${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
-  const boxWidth = Math.max(0, columns - 2);
   const modelLabel = model || (modelStore.current ? modelStore.toDisplayString(modelStore.current) : '');
 
   return (
-    <Box flexDirection="column" width={boxWidth} marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box
         flexDirection="row"
         width="100%"
-        backgroundColor={theme.colors.bg.modal}
-        borderStyle="round"
-        borderColor={theme.colors.bg.modal}
+        backgroundColor={theme.colors.code.background}
+        borderStyle="single"
+        borderColor={theme.colors.border.muted}
         paddingX={1}
         paddingY={0}
       >

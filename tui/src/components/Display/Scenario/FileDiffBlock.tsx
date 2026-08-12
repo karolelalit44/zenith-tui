@@ -122,7 +122,7 @@ function renderGutter(line: DiffLine, theme: Theme, changedFg: string, isAdd: bo
   return (
     <>
       {fill(line.oldLineNumber, isDelete ? changedFg : theme.colors.code.lineNum)}
-      <Text color={theme.colors.text.dim}>⋮</Text>
+      <Text color={theme.colors.text.dim}>|</Text>
       {fill(line.newLineNumber, isAdd ? changedFg : theme.colors.code.lineNum)}
       <Text color={theme.colors.border.default}>│</Text>
       <Text color={changedFg}>{(isAdd ? '+' : isDelete ? '-' : ' ').padEnd(2)}</Text>
@@ -271,7 +271,7 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
       return changedMasks.get(index);
     };
 
-    const ruleWidth = Math.max(16, (process.stdout.columns ?? 80) - 8);
+    const ruleWidth = Math.max(16, Math.min(70, (process.stdout.columns ?? 80) - 14));
 
     return (
       <Box flexDirection="column" width="100%" paddingLeft={2}>
