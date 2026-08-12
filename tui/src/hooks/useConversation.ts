@@ -101,17 +101,39 @@ export function useConversation(): UseConversationReturn {
       const lastIdx = prev.length - 1;
       const last = prev[lastIdx];
       if (last && !last.isComplete) {
-        const abortEvent: ScenarioEvent = {
-          kind: 'warning',
-          id: `evt_abort_${Date.now()}`,
-          message: 'Generation interrupted by user (ESC)',
-          code: 'USER_ABORT',
-        };
-        const elapsedMs = Date.now() - last.startedAt;
+        const elapsedMs = Math.max(1000, Date.now() - last.startedAt);
         const sourceEvents = currentEvents && currentEvents.length > 0 ? currentEvents : last.events;
-        const stampedEvents = sourceEvents.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e));
+
+        // Preserve all generated content and resolve pending tool steps cleanly
+        const stampedEvents = sourceEvents.map((e) => {
+          let updated = { ...e };
+          if (updated.kind === 'tool_step' && updated.pending) {
+            updated.pending = false;
+            updated.success = updated.success ?? true;
+          }
+          if (updated.kind === 'success') {
+            updated.elapsedMs = updated.elapsedMs ?? elapsedMs;
+          }
+          return updated;
+        });
+
+        // Ensure a success metrics event exists so the frozen status row stays visible
+        const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
+        const finalEvents = hasSuccess
+          ? stampedEvents
+          : [
+              ...stampedEvents,
+              {
+                kind: 'success',
+                id: `evt_success_abort_${Date.now()}`,
+                message: 'Turn stopped',
+                elapsedMs,
+              } as ScenarioEvent,
+            ];
+
+        // Mark turn complete — the unified SuccessCard row freezes its timer in place
         return prev.map((t, i) =>
-          i === lastIdx ? { ...t, events: [...stampedEvents, abortEvent], isComplete: true } : t,
+          i === lastIdx ? { ...t, events: finalEvents, isComplete: true } : t,
         );
       }
       return prev;

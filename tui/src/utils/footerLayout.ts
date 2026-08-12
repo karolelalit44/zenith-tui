@@ -1,5 +1,6 @@
 import type { ScenarioMode } from '../types/scenario';
 import { truncateEnd, truncateStart } from './text';
+import { getWorkspaceFolderName } from './workspacePath';
 
 export const FOOTER_EDGE_PAD = 4;
 export const FOOTER_MIN_CHIP_LEN = 8;
@@ -79,8 +80,7 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
 
   const cleanBranch = input.branch ? input.branch.replace(/^\(+|\)+$/g, '').trim() : '';
 
-  let rawDir = input.dir ? input.dir.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '' : '';
-  if (!rawDir) rawDir = input.dir || '';
+  const rawDir = getWorkspaceFolderName(input.dir);
 
   const runningWidth = input.running ? 11 : 0;
   const tokenWidth = tokenUsage.length + 1;

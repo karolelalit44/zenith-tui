@@ -5,6 +5,8 @@ import { getToolStepPrimaryParam, getToolStepStatusText, getToolVerbLabel } from
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
+import { formatDuration } from '../../../utils/text';
+import { getWorkspaceFolderName } from '../../../utils/workspacePath';
 import type { EventRenderContext } from './componentRegistry';
 import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
 
@@ -112,11 +114,11 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   if (isShellCommand) {
     const meta = event.metadata ?? {};
     const durMs = typeof meta.duration_ms === 'number' ? meta.duration_ms : undefined;
-    const duration = durMs !== undefined ? `${(durMs / 1000).toFixed(1)}s` : isPending ? `${(elapsed / 10).toFixed(0)}s` : '';
+    const durSec = durMs !== undefined ? Math.max(1, Math.floor(durMs / 1000)) : isPending ? Math.max(1, Math.floor(elapsed / 10)) : 0;
+    const duration = durSec > 0 ? formatDuration(durSec * 1000) : '';
 
     const promptLine = collapseFirstLine(cmdString);
-    const cwdBase = context?.workspaceName?.replace(/\\/g, '/').split('/').filter(Boolean).pop();
-    const folderName = cwdBase || 'workspace';
+    const folderName = getWorkspaceFolderName(context?.workspaceName);
 
     const cmdOutputText =
       event.output ||

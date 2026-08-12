@@ -127,7 +127,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
-        <ProcessingWaveBar isRunning={running} actionLabel={actionLabel} tokenCount={liveTurnTokens} />
         <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
         <Box

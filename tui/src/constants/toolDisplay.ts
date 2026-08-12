@@ -1,3 +1,5 @@
+import { formatDuration } from '../utils/text';
+
 export const FILE_WRITE_TOOL = 'file_write';
 export const FILE_EDIT_TOOL = 'file_edit';
 export const MULTI_EDIT_TOOL = 'multi_edit';
@@ -206,10 +208,11 @@ function formatWebfetchStatus(source: StatusSource): string {
 }
 
 function formatBashStatus(source: StatusSource): string {
-  const duration =
+  const durSec =
     typeof source.metadata.duration_ms === 'number'
-      ? ` (${(source.metadata.duration_ms / 1000).toFixed(1)}s)`
-      : '';
+      ? Math.max(1, Math.floor(source.metadata.duration_ms / 1000))
+      : 0;
+  const duration = durSec > 0 ? ` (${formatDuration(durSec * 1000)})` : '';
   return `✓ Ran command${duration}`;
 }
 

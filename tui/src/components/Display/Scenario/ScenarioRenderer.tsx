@@ -92,8 +92,21 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     }, [events, hasOverflow, expanded, dynamicLimit]);
 
     const visibleEvents = useMemo(() => {
+      if (isRunning && !isHistorical) {
+        const hasSuccess = events.some((e) => e.kind === 'success');
+        if (!hasSuccess) {
+          return [
+            ...events,
+            {
+              kind: 'success',
+              id: 'evt_live_status_row',
+              elapsedMs: 0,
+            } as ScenarioEvent,
+          ];
+        }
+      }
       return events;
-    }, [events]);
+    }, [events, isRunning, isHistorical]);
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.
