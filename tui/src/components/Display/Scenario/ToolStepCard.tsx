@@ -202,7 +202,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             {event.tool === 'get_tool_definition'
               ? statusText
               : !isSuccess
-                ? statusText || '✗ Failed'
+                ? statusText || `✗ ${headerText} failed${event.error ? `: ${event.error}` : ''}`
                 : `● ${headerText}`}
           </Text>
         )}

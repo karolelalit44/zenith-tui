@@ -154,14 +154,11 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
 
     const liveMaxLimit = Math.max(15, rows - 6);
     const visibleEvents = useMemo(() => {
-      if (isHistorical) return events;
-      if (!hasOverflow) return events;
-      if (expanded) return events.slice(-liveMaxLimit);
-      return events.slice(-dynamicLimit);
-    }, [isHistorical, hasOverflow, expanded, events, liveMaxLimit, dynamicLimit]);
+      return events;
+    }, [events]);
 
-    const hiddenEvents = isHistorical ? [] : events.filter((e) => !visibleEvents.includes(e));
-    const hiddenSummary = useMemo(() => countHiddenEvents(hiddenEvents), [hiddenEvents]);
+    const hiddenEvents: ScenarioEvent[] = [];
+    const hiddenSummary = null;
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.
