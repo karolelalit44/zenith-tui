@@ -176,6 +176,13 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     );
   }
 
+  const outputText =
+    event.output ||
+    (typeof event.metadata?.output === 'string' ? event.metadata.output : '') ||
+    (typeof event.metadata?.content === 'string' ? event.metadata.content : '') ||
+    (typeof event.metadata?.result === 'string' ? event.metadata.result : '') ||
+    '';
+
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       <Box flexDirection="row" alignItems="center">
@@ -195,7 +202,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           </Text>
         ) : isGrepSearch ? (
           <Text color={isSuccess ? theme.colors.status.warning : theme.colors.status.error}>
-            {isSuccess ? '✓' : '✗'} Grep &quot;{primary?.value || ''}&quot;
+            {isSuccess ? '✓' : '✗'} {event.tool === 'glob' ? 'Glob' : 'Grep'} &quot;{primary?.value || ''}&quot;
           </Text>
         ) : (
           <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
@@ -208,9 +215,18 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         )}
       </Box>
 
-      {/* File Diff / Patch Box */}
+      {/* File Diff / Patch Box (for file_write) */}
       {isFileWrite && !isPending && diffOrContent ? (
-        <FileDiffBlock diffOrContent={diffOrContent} title={primary?.value || undefined} />
+        <FileDiffBlock diffOrContent={diffOrContent} />
+      ) : null}
+
+      {/* Truncated / Minimized Output Snippet (for read / grep / glob / commands) */}
+      {!isFileWrite && !isPending && outputText.trim().length > 0 ? (
+        <Box flexDirection="column" paddingLeft={2} marginTop={0}>
+          <Text color={theme.colors.text.dim} wrap="truncate-end">
+            {formatCommandOutput(outputText, 4)}
+          </Text>
+        </Box>
       ) : null}
     </Box>
   );

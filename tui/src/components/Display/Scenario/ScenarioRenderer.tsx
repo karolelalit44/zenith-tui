@@ -222,16 +222,8 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         )}
 
         {visibleEvents.map((event) => {
-          const phaseLabel = phaseLabels.get(event.id);
           return (
             <Box key={event.id} flexDirection="column" width="100%">
-              {phaseLabel && (
-                <Box paddingX={1} marginTop={0} marginBottom={1} width="100%">
-                  <Text color={theme.colors.status.info} bold>
-                    ◈ {phaseLabel}
-                  </Text>
-                </Box>
-              )}
               {renderEvent(event)}
             </Box>
           );
