@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+from typing import Any, ClassVar
+
+from ..base import ToolContext, ToolMiddleware, ToolResult
+
+
+class ValidationMiddleware(ToolMiddleware):
+    _REQUIRED: ClassVar[dict[str, list[str]]] = {
+        "bash": ["command"],
+        "file_write": ["path", "content"],
+        "file_edit": ["path", "old", "new"],
+        "file_read": ["path"],
+        "file_delete": ["path"],
+        "glob": ["pattern"],
+        "grep": ["pattern"],
+    }
+
+    async def before_execute(
+        self, name: str, params: dict[str, Any], ctx: ToolContext
+    ) -> bool | ToolResult:
+        required = self._REQUIRED.get(name)
+        if not required:
+            return True
+        missing = [k for k in required if not params.get(k)]
+        if missing:
+            return ToolResult(
+                success=False,
+                error=f"Missing required parameters for '{name}': {', '.join(missing)}",
+            )
+        return True

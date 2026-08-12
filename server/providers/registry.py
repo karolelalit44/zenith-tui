@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import logging
+
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.providers import ProviderConfig
+from server.domain.errors import ConfigError
+from server.persistence.repositories import load_catalog
+
+from .base import BaseProvider
+from .llm_provider import LLMProvider
+
+logger = logging.getLogger(__name__)
+
+
+def _get_model_info(provider_name: str, model_id: str) -> dict:
+    try:
+        catalog = load_catalog()
+        models = catalog.get("providers", {}).get(provider_name, {}).get("models", [])
+        for m in models:
+            if m.get("id") == model_id:
+                return m
+    except Exception:
+        pass
+    return {}
+
+
+def _model_supports_thinking(provider_name: str, model_id: str) -> bool:
+    info = _get_model_info(provider_name, model_id)
+    caps = info.get("model_capabilities", {})
+    return bool(caps.get("thinking", False))
+
+
+def _resolve_model_defaults(provider_name: str, model_id: str) -> dict[str, float | int]:
+    info = _get_model_info(provider_name, model_id)
+    ctx = info.get("context_window", DEFAULT_CONTEXT_WINDOW)
+    max_tokens = info.get("max_output_tokens")
+    if max_tokens is None:
+        max_tokens = max(4096, min(ctx // 2, 32768))
+    temperature = info.get("default_temperature", 0.7)
+    return {"max_tokens": int(max_tokens), "temperature": float(temperature)}
+
+
+class ProviderRegistry:
+    def __init__(self):
+        self._providers: dict[str, BaseProvider] = {}
+
+    def register(self, name: str, provider: BaseProvider) -> None:
+        self._providers[name] = provider
+
+    def get(self, name: str) -> BaseProvider | None:
+        return self._providers.get(name)
+
+    def require(self, name: str) -> BaseProvider:
+        provider = self.get(name)
+        if provider is None:
+            raise ConfigError(
+                f"Provider '{name}' not registered. Available: {list(self._providers.keys()) or 'none'}"
+            )
+        return provider
+
+    def list_providers(self) -> list[str]:
+        return list(self._providers.keys())
+
+    @classmethod
+    def from_config(
+        cls, providers_config: dict[str, ProviderConfig], active_provider: str
+    ) -> ProviderRegistry:
+        registry = cls()
+        for name, config in providers_config.items():
+            if not config.model or not config.model.strip():
+                continue
+            try:
+                catalog_thinking = _model_supports_thinking(name, config.model)
+                model_defaults = _resolve_model_defaults(name, config.model)
+                provider = LLMProvider(
+                    name=name,
+                    api_key=config.api_key,
+                    base_url=config.base_url,
+                    model=config.model,
+                    max_tokens=model_defaults["max_tokens"],
+                    temperature=model_defaults["temperature"],
+                    enable_thinking=getattr(config, "enable_thinking", False) or catalog_thinking,
+                    reasoning_budget=getattr(config, "reasoning_budget", None),
+                )
+                registry.register(name, provider)
+            except Exception as e:
+                logger.warning("Skipping provider '%s' in registry: %s", name, e)
+        return registry

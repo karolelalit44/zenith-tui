@@ -3,7 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent", "config", "core", "db", "lsp", "mcp", "permission", "providers", "session", "skills", "tools", "transport", "workspace"]
+packages = ["server"]
+
+[tool.hatch.build]
+exclude = ["server/tests"]
 
 [project]
 name = "zenith"
@@ -14,12 +17,22 @@ dependencies = [
     "fastapi>=0.110,<1.0",
     "uvicorn[standard]>=0.27,<1.0",
     "aiosqlite>=0.20,<1.0",
+    "sqlalchemy>=2.0,<3.0",
     "pydantic>=2.0,<3.0",
     "click>=8.1,<9.0",
     "httpx>=0.27,<1.0",
     "python-dotenv>=1.0,<2.0",
     "websockets>=12.0,<14.0",
     "json_repair>=0.61,<1.0",
+    "tree-sitter>=0.24,<0.26",
+    "tree-sitter-python>=0.25,<1.0",
+    "tree-sitter-javascript>=0.25,<1.0",
+    "tree-sitter-typescript>=0.23,<1.0",
+    "tree-sitter-go>=0.25,<1.0",
+    "tree-sitter-rust>=0.24,<1.0",
+    "tree-sitter-java>=0.23,<1.0",
+    "tree-sitter-ruby>=0.23,<1.0",
+    "tree-sitter-c>=0.24,<1.0",
 ]
 
 [project.optional-dependencies]
@@ -39,24 +52,39 @@ dev = [
 ]
 
 [project.scripts]
-zenith = "main:cli"
+zenith = "server.main:cli"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["server/tests"]
+pythonpath = ["."]
 markers = [
     "slow: tests that require a live server subprocess (use: pytest -m slow)",
 ]
-addopts = "--ignore=tests/e2e_real.py --ignore=tests/test_e2e_websocket.py --ignore=tests/test_e2e_integration.py"
+addopts = "--ignore=server/tests/e2e_real.py --ignore=server/tests/test_e2e_websocket.py --ignore=server/tests/test_e2e_integration.py"
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["ref_repo"]
+
+[tool.ruff.lint]
+# Repository-wide lint conventions — intentional patterns, enforced by review/tests:
+#   BLE001  Broad `except Exception` is deliberate across the agent/tool/workspace
+#           layers so every failure is surfaced as a recoverable error/message.
+#   DTZ005  Storage timestamps are naive datetimes; keeping them tz-naive is a
+#           deliberate schema choice (avoids a silent format switch).
+#   S110    Silent exception swallowing during best-effort / cleanup paths.
+#   S112    Silent `continue` during best-effort per-item iteration.
+ignore = ["BLE001", "DTZ005", "S110", "S112"]
+
+[tool.ruff.lint.per-file-ignores]
+"server/tests/conftest.py" = ["E402"]  # env vars must be set before zenith imports
+"server/tests/test_workspace.py" = ["PLW1510"]  # git init/config setup runs: exit code not asserted
 
 [tool.mypy]
 python_version = "3.12"
 exclude = [
     "ref_repo/",
-    "scripts/",
     "test_api\\.py$",
     "\\.venv/",
 ]

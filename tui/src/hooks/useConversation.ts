@@ -1,0 +1,157 @@
+import { useCallback, useMemo, useState } from 'react';
+import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
+import type { ScenarioEvent, ScenarioMode, SuccessEvent } from '../types/scenario';
+
+export interface ConversationTurn {
+  id: string;
+  prompt: string;
+  mode: ScenarioMode;
+  model?: string;
+  events: ScenarioEvent[];
+  isComplete: boolean;
+  isSaved?: boolean;
+  timestamp: string;
+  startedAt: number;
+}
+
+export interface UseConversationReturn {
+  turns: ConversationTurn[];
+  completedTurns: ConversationTurn[];
+  activeTurn: ConversationTurn | null;
+  totalTokens: number;
+  staticKey: number;
+  addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
+  completeActiveTurn: (events: ScenarioEvent[]) => void;
+  abortActiveTurn: () => void;
+  markTurnSaved: (turnId: string) => void;
+  clearTurns: () => void;
+  compactTurns: () => void;
+}
+
+export function useConversation(): UseConversationReturn {
+  const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  const [staticKey, setStaticKey] = useState(0);
+
+  const activeTurn = turns.length > 0 && !turns[turns.length - 1].isComplete ? turns[turns.length - 1] : null;
+  const completedTurns = activeTurn ? turns.filter((t) => t.isComplete) : turns;
+
+  const totalTokens = useMemo(() => {
+    return turns.reduce((sum, t) => {
+      if (!t.isComplete) return sum;
+
+      const successEvent = t.events.find(
+        (e): e is SuccessEvent => e.kind === 'success' && 'tokenInfo' in e && Boolean((e as SuccessEvent).tokenInfo),
+      );
+      if (successEvent?.tokenInfo) {
+        return sum + successEvent.tokenInfo.used;
+      }
+
+      return sum + estimateTokensForEvents(t.events);
+    }, 0);
+  }, [turns]);
+
+  const addTurn = useCallback((prompt: string, mode: ScenarioMode, model?: string): string => {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const turnId = `turn_${Date.now()}`;
+
+    setTurns((prev) => [
+      ...prev,
+      {
+        id: turnId,
+        prompt,
+        mode,
+        model,
+        events: [],
+        isComplete: false,
+        timestamp: timeStr,
+        startedAt: Date.now(),
+      },
+    ]);
+
+    return turnId;
+  }, []);
+
+  const completeActiveTurn = useCallback((events: ScenarioEvent[]) => {
+    setTurns((prev) => {
+      const lastIdx = prev.length - 1;
+      const last = prev[lastIdx];
+      const elapsedMs = last ? Date.now() - last.startedAt : undefined;
+
+      const stampedEvents =
+        elapsedMs !== undefined ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e)) : events;
+      return prev.map((t, i) => (i === lastIdx ? { ...t, events: [...stampedEvents], isComplete: true } : t));
+    });
+  }, []);
+
+  const abortActiveTurn = useCallback((currentEvents: ScenarioEvent[] = []) => {
+    setTurns((prev) => {
+      const lastIdx = prev.length - 1;
+      const last = prev[lastIdx];
+      if (last && !last.isComplete) {
+        const abortEvent: ScenarioEvent = {
+          kind: 'warning',
+          id: `evt_abort_${Date.now()}`,
+          message: 'Generation interrupted by user (ESC)',
+          code: 'USER_ABORT',
+        };
+        const elapsedMs = Date.now() - last.startedAt;
+        const stampedEvents = currentEvents.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e));
+        return prev.map((t, i) =>
+          i === lastIdx ? { ...t, events: [...stampedEvents, abortEvent], isComplete: true } : t,
+        );
+      }
+      return prev;
+    });
+  }, []);
+
+  const markTurnSaved = useCallback((turnId: string) => {
+    setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, isSaved: true } : t)));
+  }, []);
+
+  const clearTurns = useCallback(() => {
+    setTurns([]);
+    setStaticKey((k) => k + 1);
+    process.stdout.write('\x1B[2J\x1B[H');
+  }, []);
+
+  const compactTurns = useCallback(() => {
+    setTurns((prev) => {
+      if (prev.length === 0) return prev;
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const summaryTurn: ConversationTurn = {
+        id: `turn_compact_${Date.now()}`,
+        prompt: `Compact Context (${prev.length} previous turns compressed)`,
+        mode: prev[prev.length - 1].mode,
+        isComplete: true,
+        timestamp: timeStr,
+        startedAt: Date.now(),
+        events: [
+          {
+            kind: 'message',
+            id: `evt_summary_${Date.now()}`,
+            text: `Context Compacted: Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
+            partial: false,
+          } as ScenarioEvent,
+        ],
+      };
+      return [summaryTurn];
+    });
+    setStaticKey((k) => k + 1);
+  }, []);
+
+  return {
+    turns,
+    completedTurns,
+    activeTurn,
+    totalTokens,
+    staticKey,
+    addTurn,
+    completeActiveTurn,
+    abortActiveTurn,
+    markTurnSaved,
+    clearTurns,
+    compactTurns,
+  };
+}

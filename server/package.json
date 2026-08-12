@@ -1,0 +1,12 @@
+{
+  "name": "@zenith/server",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd .. && python -m server.main serve",
+    "start": "cd .. && python -m server.main serve",
+    "lint": "cd .. && python -m ruff check server",
+    "test": "cd .. && python -m pytest",
+    "mypy": "cd .. && python -m mypy server"
+  }
+}

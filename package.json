@@ -1,39 +1,15 @@
 {
-  "name": "zenith-frontend-tui",
+  "name": "zenith",
   "version": "1.0.0",
-  "main": "index.js",
-  "type": "module",
+  "private": true,
+  "packageManager": "npm@10.0.0",
+  "workspaces": ["tui", "server"],
   "scripts": {
-    "start": "tsx src/index.tsx",
-    "build": "tsc",
-    "preview": "node dist-tsc/index.js",
-    "clean": "node -e \"require('fs').rmSync('dist-tsc',{recursive:true,force:true})\"",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --write src/",
-    "format": "biome format --write src/",
-    "typecheck": "tsc --noEmit"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "cli-highlight": "^2.1.11",
-    "ink": "^6.8.0",
-    "ink-text-input": "^6.0.0",
-    "react": "^19.2.7",
-    "ws": "^8.21.1"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
-    "@types/ink-testing-library": "^1.0.4",
-    "@types/node": "^26.1.1",
-    "@types/react": "^19.2.17",
-    "ink-testing-library": "^4.0.0",
-    "tsx": "^4.23.1",
-    "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "dev:backend": "npm run start --workspace server",
+    "dev:frontend": "npm run dev --workspace tui",
+    "run": "npm run dev:backend & npm run dev:frontend",
+    "lint": "npm run lint --workspace tui && npm run lint --workspace server",
+    "build": "npm run build --workspace tui",
+    "test": "npm run test --workspace tui && npm run test --workspace server"
   }
 }
