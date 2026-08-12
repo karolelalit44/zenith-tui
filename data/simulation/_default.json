@@ -1,0 +1,19 @@
+{
+  "name": "default",
+  "match": {},
+  "mode": "round_robin",
+  "responses": [
+    {
+      "reasoning": "No simulation file matched this prompt. The most useful fallback isn't a vague apology — it should explain how the static backend works, enumerate the scenarios that ARE scripted, and show how to add a new scripted file, so the user can self-serve.",
+      "content": "This prompt didn't match any scripted scenario, so I'm responding with the default simulation.\n\nI'm the **static test backend** at `/ws/test`: no database, no provider, no model. Each prompt is matched against the JSON files in `data/simulation/`, and the first matching file's scripted response is played back — with thinking blocks, streamed content, and (when scripted) real tool execution against the workspace.\n\n### Scripted scenarios available right now\n\n| Try typing | What happens |\n|---|---|\n| `hello` | Friendly greeting + scenario map |\n| `create a fastapi app` | **build** → full project scaffold; **plan** → build plan, no files |\n| `design an api` | Complete REST API spec written to `docs/api.md` |\n| `refactor this` | **build** → messy module analyzed, rewritten, verified; **plan** → refactoring plan |\n| `make a plan` | Phased implementation plan saved to `PLAN.md` |\n| `analyze this file` | Structured code review with severity ratings and fixes |\n\n### How to script a new response\n\nAdd a file to `data/simulation/`, e.g. `data/simulation/my-topic.json`:\n\n```json\n{\n  \"name\": \"my-topic\",\n  \"match\": { \"contains\": \"my topic\" },\n  \"mode\": \"round_robin\",\n  \"responses\": [\n    {\n      \"reasoning\": \"A short reasoning block shown as a thinking event.\",\n      \"content\": \"The streamed reply.\",\n      \"chunk_size\": 3,\n      \"delay_ms\": 20,\n      \"tool_calls\": [\n        { \"tool\": \"file_write\", \"params\": { \"path\": \"out.txt\", \"content\": \"hi\" } }\n      ]\n    }\n  ]\n}\n```\n\n`match` supports `exact` (case-insensitive equality), `contains` (substring), and an optional `mode` (`build`/`plan`) that restricts the file to one session mode; `mode` at the top level sets the response picker (`round_robin`, `sequence`, or `random`). Simulation files reload on every prompt, so edits apply immediately.\n\nWhat would you like to do?",
+      "chunk_size": 5,
+      "delay_ms": 18
+    },
+    {
+      "reasoning": "Second unmatched prompt. Reuse the same structure but keep it tighter, and explicitly name the fallback chain so the user understands why they got the default.",
+      "content": "Still no scripted match, so this is the default response again (from `data/simulation/_default.json`).\n\nThe fallback chain is: each prompt is checked against the `match` rules of every file in `data/simulation/` in filename order; the first file that matches wins; if none match, `_default.json` answers.\n\n### Currently scripted prompts\n\n- `hello`\n- `create a fastapi app`\n- `design an api`\n- `refactor this`\n- `make a plan`\n- `analyze this file`\n\n### Add your own\n\nDrop a JSON file like the example in the previous response into `data/simulation/` and it takes effect on the very next prompt — no server restart needed.\n\nGive one of the scripted prompts a try, or tell me what scenario you want and I'll walk you through scripting it.",
+      "chunk_size": 5,
+      "delay_ms": 18
+    }
+  ]
+}

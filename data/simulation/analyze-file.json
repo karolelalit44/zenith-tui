@@ -1,0 +1,31 @@
+{
+  "name": "analyze-file",
+  "match": { "contains": "analyze" },
+  "mode": "round_robin",
+  "responses": [
+    {
+      "reasoning": "The user wants a file analyzed. A real analysis needs a concrete target and a rigorous method: read the file in full, enumerate findings by severity, quote the offending lines, explain the impact, and give actionable fixes. I'll create a small sample module in the workspace (so the scenario is grounded), read it back exactly, then deliver a structured review.",
+      "content": "I'll analyze a module in the workspace. Method: **(1)** write a small sample file, **(2)** read it in full so the review reflects what's really on disk, **(3)** report every issue with severity, the exact line, the impact, and a fix.",
+      "chunk_size": 4,
+      "delay_ms": 20,
+      "tool_calls": [
+        { "tool": "file_write", "params": { "path": "analysis_target.py", "content": "\"\"\"Sample module for analysis.\"\"\"\n\nimport os\nimport json\n\nDEFAULT_CONFIG_PATH = \"config.json\"\nDEFAULT_PORT = 8000\n\n\ndef load_config(path=DEFAULT_CONFIG_PATH):\n    if not os.path.exists(path):\n        return {}\n    with open(path) as f:\n        return json.load(f)\n\n\ndef get_port():\n    config = load_config()\n    return config.get(\"port\", DEFAULT_PORT)\n\n\ndef save_config(config):\n    with open(DEFAULT_CONFIG_PATH, \"w\") as f:\n        json.dump(config, f)\n    return True\n" } }
+      ]
+    },
+    {
+      "reasoning": "analysis_target.py now exists. Read it in full — the review must quote real lines, not a paraphrase.",
+      "content": "Created `analysis_target.py`. Reading it now for a line-accurate review.",
+      "chunk_size": 5,
+      "delay_ms": 20,
+      "tool_calls": [
+        { "tool": "file_read", "params": { "path": "analysis_target.py" } }
+      ]
+    },
+    {
+      "reasoning": "I've read the whole file. Findings: (1) load_config has no encoding specified — non-UTF-8 config files raise UnicodeDecodeError; (2) json.load/json.dump swallow nothing but raise raw exceptions with no context, making failures hard to debug; (3) config values are untyped — config.get('port', 8000) can return a string or float with no validation; (4) save_config writes atomically nowhere — a crash mid-write corrupts the file; (5) module has no __all__ and functions lack type hints; (6) get_port has no type annotation for the return. Also the success marker from load_config for missing file returning {} is implicit. Each finding gets a severity, the line reference, impact, and concrete fix.",
+      "content": "I've analyzed `analysis_target.py` in full. Here is the structured review.\n\n### Overview\n\nA small config helper module (54 lines). It loads/saves a JSON config file and exposes a `get_port()` convenience. The code is readable and reasonably factored, but has several correctness and robustness issues.\n\n### Findings by severity\n\n#### High — `UnicodeDecodeError` on non-UTF-8 configs\n\n- **Location**: `load_config`, line `open(path)`.\n- **Issue**: no `encoding=\"utf-8\"` on either `open()` call, so a config written by other tools (e.g. Windows `notepad` default) crashes the app with a raw traceback.\n- **Impact**: total failure on load for a legitimate file.\n- **Fix**: `open(path, encoding=\"utf-8\")` and `open(..., \"w\", encoding=\"utf-8\")`.\n\n#### High — non-atomic writes can corrupt the config\n\n- **Location**: `save_config`, `open(..., \"w\")`.\n- **Issue**: a crash or power loss between open and flush leaves a truncated/empty config.\n- **Impact**: next boot reads a corrupt JSON and either crashes or silently resets.\n- **Fix**: write to a temp file (`path + \".tmp\"`) then `os.replace()`, which is atomic on POSIX and Windows.\n\n#### Medium — unvalidated, untyped config values\n\n- **Location**: `get_port`, `config.get(\"port\", 8000)`.\n- **Issue**: `port` could be `\"8080\"` (string) or `9000.5` (float) from a hand-edited file; `get_port` returns it as-is.\n- **Impact**: `uvicorn` binding a string port raises at runtime; the bug is deferred and confusing.\n- **Fix**: coerce with `int(config.get(\"port\", DEFAULT_PORT))` inside a `try` and fall back to the default on `TypeError`/`ValueError`.\n\n#### Low — raw exceptions escape without context\n\n- **Location**: both `open`/`json.load` sites.\n- **Issue**: a missing file raises `FileNotFoundError`, corrupt JSON raises `JSONDecodeError` — callers get no context about which path failed.\n- **Fix**: wrap and re-raise as a module-specific `ConfigError(path=...)` (also helps logging/monitoring).\n\n#### Low — missing type hints and `__all__`\n\n- **Location**: module level.\n- **Issue**: `load_config`/`save_config`/`get_port` lack annotations; `get_port` returns `Any` from `config.get`.\n- **Impact**: no static checking; library users can't rely on the return type.\n- **Fix**: annotate `dict[str, Any]`/`int`/`bool` returns and parameter types.\n\n### Recommendations\n\n1. Apply the high findings immediately (encoding + atomic write).\n2. Add a small `pytest` suite covering: missing file → `{}`, valid file → parsed dict, corrupt file → `ConfigError`, `port` coercion edge cases.\n3. Add type hints and run `ruff` to catch the remaining nits.\n\n### Verdict\n\nReadable and well-factored at a glance, but the encoding and non-atomic write issues are production-critical. After the two high fixes plus a coercion guard, this module is solid. I can apply all of these changes now — want me to?",
+      "chunk_size": 5,
+      "delay_ms": 18
+    }
+  ]
+}

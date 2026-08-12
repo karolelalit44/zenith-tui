@@ -1,0 +1,49 @@
+{
+  "name": "refactor",
+  "match": { "contains": "refactor", "mode": "build" },
+  "mode": "sequence",
+  "responses": [
+    {
+      "reasoning": "The user asked for a refactor. A real refactor has three stages: reproduce the problem, analyze the code, and apply improvements with verification. Since the workspace has no target yet, I'll create a deliberately messy demo module, read it back in full, then rewrite it with clean naming, type hints, docstrings, and defensive defaults — and finally prove the result compiles.",
+      "content": "I'll run a complete refactor on a demo module. Three stages: **(1)** create the messy target, **(2)** analyze it and name every problem, **(3)** rewrite it cleanly and verify the result.",
+      "chunk_size": 4,
+      "delay_ms": 20,
+      "tool_calls": [
+        { "tool": "file_write", "params": { "path": "demo.py", "content": "def calc(a,b):\n    # TODO: this function is a mess\n    if a is None:\n        a=0\n    if b is None:\n        b=0\n    s=a+b\n    m=a*b\n    return {'sum':s,'product':m}\n\ndef print_calc(x,y):\n    r=calc(x,y)\n    print('sum:',r['sum'])\n    print('product:',r['product'])\n    return r\n" } }
+      ]
+    },
+    {
+      "reasoning": "The messy demo.py is in place. Before touching it I need to read the exact current content — a refactor must be based on what is actually on disk, not what I remember writing.",
+      "content": "The target is in place. Reading `demo.py` in full so the refactor is grounded in the real file.",
+      "chunk_size": 5,
+      "delay_ms": 20,
+      "tool_calls": [
+        { "tool": "file_read", "params": { "path": "demo.py" } }
+      ]
+    },
+    {
+      "reasoning": "I now have the exact source. Analysis of demo.py: (1) function name `calc` is too generic; (2) no type hints; (3) missing docstrings; (4) None-check duplicated and imperative; (5) mixed single/multi space around operators; (6) `print_calc` mixes computation with presentation and re-derives values instead of taking a result; (7) dictionary literal keys are magic strings. The cleanest fix is a full rewrite: rename to `calculate_sum_and_product` with Optional[int] defaults, extract the None-coalescing, add a module docstring, and split reporting from computation with a typed `report`. I'll replace the file with file_write since the change spans the whole file.",
+      "content": "I analyzed the file. Here is what's wrong with the current `demo.py`:\n\n1. **Unhelpful name** — `calc` could mean anything; nothing signals sum/product.\n2. **No type hints** — callers get no static guarantees.\n3. **No docstrings** — intent is undocumented.\n4. **Duplicated imperative None-handling** — `if a is None: a=0` twice, easy to get wrong.\n5. **Inconsistent formatting** — `s=a+b` next to `m=a*b` vs `r=calc(x,y)`; violates PEP 8 spacing.\n6. **Computation fused with I/O** — `print_calc` both computes and prints, so it's untestable without capturing stdout.\n7. **Magic dict keys** — `'sum'`/`'product'` typed by hand, no constants or model.\n\nApplying the rewrite now.",
+      "chunk_size": 4,
+      "delay_ms": 20,
+      "tool_calls": [
+        { "tool": "file_write", "params": { "path": "demo.py", "content": "\"\"\"Arithmetic helpers demonstrating a clean module style.\n\nExposes a single pure function for sum/product calculation plus a thin\nreporting wrapper. Pure computation is separated from I/O so it can be unit\ntested without stdout capture.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom typing import Optional\n\n\ndef calculate_sum_and_product(a: Optional[int] = 0, b: Optional[int] = 0) -> dict[str, int]:\n    \"\"\"Return the sum and product of two integers, treating None as zero.\n\n    Args:\n        a: First operand; ``None`` is treated as 0.\n        b: Second operand; ``None`` is treated as 0.\n\n    Returns:\n        ``{\"sum\": a + b, \"product\": a * b}``.\n\n    Examples:\n        >>> calculate_sum_and_product(3, 4)\n        {'sum': 7, 'product': 12}\n        >>> calculate_sum_and_product(None, 4)\n        {'sum': 4, 'product': 0}\n    \"\"\"\n    left = a or 0\n    right = b or 0\n    return {\"sum\": left + right, \"product\": left * right}\n\n\ndef report(a: int, b: int) -> dict[str, int]:\n    \"\"\"Compute the result and print a human-readable summary.\n\n    Args:\n        a: First operand.\n        b: Second operand.\n\n    Returns:\n        The computed result, for callers that want to reuse it.\n    \"\"\"\n    result = calculate_sum_and_product(a, b)\n    print(f\"sum: {result['sum']}\")\n    print(f\"product: {result['product']}\")\n    return result\n" } }
+      ]
+    },
+    {
+      "reasoning": "The rewrite is applied. Now verify: run a real syntax check with py_compile and a doctest run to confirm the documented examples actually hold — proof the refactor is not just prettier but correct.",
+      "content": "Rewrite applied. Verifying both syntax and the documented examples now.",
+      "chunk_size": 5,
+      "delay_ms": 20,
+      "tool_calls": [
+        { "tool": "bash", "params": { "command": "python -m py_compile demo.py; if ($?) { Write-Output 'syntax-ok' }; python -m doctest demo.py -v 2>&1 | Select-Object -Last 3" } }
+      ]
+    },
+    {
+      "reasoning": "py_compile passed and doctest ran the two documented examples (Trying/ok shown, no failures). The refactor is verified. Time to deliver a comprehensive before/after summary with the rationale for each change.",
+      "content": "Refactor complete and verified — `py_compile` passes and the doctests in the docstrings pass, so the documented behavior is proven.\n\n### Before → after\n\n| Concern | Before | After |\n|---|---|---|\n| Name | `calc(a, b)` | `calculate_sum_and_product(a, b)` |\n| Types | none | `Optional[int] -> dict[str, int]` |\n| Docs | one `# TODO` | module docstring + per-function docstrings with examples |\n| None handling | two imperative `if x is None` blocks | `a or 0` / `b or 0` coercion with defaults |\n| I/O vs compute | `print_calc` prints and computes | pure `calculate_sum_and_product` + thin `report` wrapper |\n| Formatting | `s=a+b` mixed styles | PEP 8 spacing, f-strings |\n\n### Why each change matters\n\n1. **Renaming** makes the intent discoverable — a reader can grep the name instead of reading the body.\n2. **Type hints** turn runtime mistakes into static errors and give editors autocomplete.\n3. **Docstrings with doctests** turn documentation into executable tests — the examples can't drift from behavior.\n4. **`a or 0` coercion** removes the duplicated branches; the default-argument version documents the intent in the signature itself.\n5. **Splitting computation from I/O** means `calculate_sum_and_product` is unit-testable without mocking stdout, and `report` becomes a trivially thin adapter.\n6. **Consistent formatting** matches the ecosystem and linters, so `ruff`/`black` stay quiet.\n\n### What else could be done\n\n- Extract the result into a `@dataclass` (or `TypedDict`) instead of a raw dict.\n- Add `pytest` unit tests covering the `None` and negative-number edge cases.\n- Run `ruff check demo.py` to confirm zero lint findings.\n\nWant me to add the unit tests, or point the refactor at a different file next?",
+      "chunk_size": 4,
+      "delay_ms": 18
+    }
+  ]
+}
