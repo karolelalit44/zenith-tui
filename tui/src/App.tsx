@@ -183,6 +183,11 @@ export const App: React.FC = () => {
   const lastTokenUpdateRef = useRef(0);
   const [liveTotalTokens, setLiveTotalTokens] = useState(totalTokens);
 
+  const liveTurnTokens = useMemo(() => {
+    if (!isRunning || events.length === 0) return 0;
+    return estimateTokensForEvents(events);
+  }, [isRunning, events]);
+
   useEffect(() => {
     if (!isRunning) {
       setLiveTotalTokens(totalTokens);
@@ -591,6 +596,7 @@ export const App: React.FC = () => {
               onInputChange={handleInputChange}
               onSubmit={handleSubmit}
               running={isRunning}
+              liveTurnTokens={liveTurnTokens}
               disabled={!!retryTarget || !!continueTarget}
               disabledMessage={
                 retryTarget ? 'Choose an action above…' : continueTarget ? 'Choose an action above…' : undefined

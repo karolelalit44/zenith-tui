@@ -23,6 +23,7 @@ interface CommandInputProps {
   disabledMessage?: string;
   running?: boolean;
   actionLabel?: string | null;
+  liveTurnTokens?: number;
   attachments?: FileAttachment[];
   onRemoveAttachment?: (index: number) => void;
   historyUp?: () => string | undefined;
@@ -49,6 +50,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     disabledMessage = 'Input disabled',
     running = false,
     actionLabel,
+    liveTurnTokens = 0,
     attachments = [],
     onRemoveAttachment,
     historyUp,
@@ -125,7 +127,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
-        <ProcessingWaveBar isRunning={running} actionLabel={actionLabel} />
+        <ProcessingWaveBar isRunning={running} actionLabel={actionLabel} tokenCount={liveTurnTokens} />
         <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
         <Box
