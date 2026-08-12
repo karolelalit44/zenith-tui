@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import type { ScenarioEvent, TurnManifestEvent } from '../../../types/scenario';
+import type { AgentOrchestrationEvent, CrewmateAgent, ScenarioEvent, TimelineEntry, TurnManifestEvent } from '../../../types/scenario';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -92,11 +92,59 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     }, [events, hasOverflow, expanded, dynamicLimit]);
 
     const visibleEvents = useMemo(() => {
+      // Consolidate multiple agent_orchestration events into a single stable card
+      const orchEvents = events.filter((e): e is AgentOrchestrationEvent => e.kind === 'agent_orchestration');
+      let consolidatedOrch: AgentOrchestrationEvent | null = null;
+      if (orchEvents.length > 0) {
+        const latest = orchEvents[orchEvents.length - 1];
+        const crewmatesMap = new Map<string, CrewmateAgent>();
+        const timelineEntries: TimelineEntry[] = [];
+
+        for (const oe of orchEvents) {
+          if (oe.crewmates) {
+            for (const cm of oe.crewmates) {
+              crewmatesMap.set(cm.id, cm);
+            }
+          }
+          if (oe.timeline) {
+            for (const tl of oe.timeline) {
+              if (!timelineEntries.some((existing) => existing.timestamp === tl.timestamp && existing.message === tl.message)) {
+                timelineEntries.push(tl);
+              }
+            }
+          }
+        }
+
+        consolidatedOrch = {
+          kind: 'agent_orchestration',
+          id: orchEvents[0].id,
+          stage: latest.stage,
+          captainMessage: latest.captainMessage,
+          plan: latest.plan,
+          crewmates: crewmatesMap.size > 0 ? Array.from(crewmatesMap.values()) : undefined,
+          timeline: timelineEntries.length > 0 ? timelineEntries : undefined,
+          activeStep: latest.activeStep,
+        };
+      }
+
+      const result: ScenarioEvent[] = [];
+      let orchInserted = false;
+      for (const e of events) {
+        if (e.kind === 'agent_orchestration') {
+          if (!orchInserted && consolidatedOrch) {
+            result.push(consolidatedOrch);
+            orchInserted = true;
+          }
+        } else {
+          result.push(e);
+        }
+      }
+
       if (isRunning && !isHistorical) {
-        const hasSuccess = events.some((e) => e.kind === 'success');
+        const hasSuccess = result.some((e) => e.kind === 'success');
         if (!hasSuccess) {
           return [
-            ...events,
+            ...result,
             {
               kind: 'success',
               id: 'evt_live_status_row',
@@ -105,7 +153,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           ];
         }
       }
-      return events;
+      return result;
     }, [events, isRunning, isHistorical]);
 
     // The server emits turn_manifest immediately before the success event, so

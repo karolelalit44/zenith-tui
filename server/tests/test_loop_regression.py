@@ -9,12 +9,12 @@ Covers:
 import pytest
 
 from server.agents.loop import AgentLoop, _params_label
+from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.errors import RateLimitError
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
 from server.toolkit import create_default_registry
-from server.config.providers import ProviderConfig
 
 
 class _StallProvider(BaseProvider):

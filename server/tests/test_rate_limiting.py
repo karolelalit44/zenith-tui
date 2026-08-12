@@ -15,10 +15,11 @@ Covers:
 """
 
 import asyncio
+
 import pytest
 
-from server.agents.loop import AgentLoop
 from server.agents.llm_stream import stream_completion
+from server.agents.loop import AgentLoop
 from server.domain.errors import RateLimitError
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
@@ -28,7 +29,6 @@ from server.providers.llm_provider import (
     _parse_retry_delay,
 )
 from server.toolkit import create_default_registry
-
 
 # ---------------------------------------------------------------------------
 # _extract_retry_after / _parse_retry_delay
@@ -137,7 +137,7 @@ class _StreamProvider(BaseProvider):
 
 
 def _run_stream(provider, monkeypatch):
-    import server.agents.llm_stream as llm_stream
+    from server.agents import llm_stream
 
     sleeps: list[float] = []
 
@@ -222,7 +222,7 @@ class _AlwaysRateLimitProvider(BaseProvider):
 async def test_rate_limited_turn_ends_after_single_error(config, monkeypatch):
     """A rate limit is surfaced as ONE explicit error; the loop must not pause
     and re-attempt the turn."""
-    import server.agents.llm_stream as llm_stream
+    from server.agents import llm_stream
 
     sleeps: list[float] = []
 

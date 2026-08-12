@@ -462,9 +462,7 @@ class TestSimulationHandler:
             return False
         if exact and text != exact:
             return False
-        if contains and contains not in text:
-            return False
-        return True
+        return not (contains and contains not in text)
 
     def _pick_response(self, session: Session, sim: dict) -> dict:
         responses = sim.get("responses") or []
@@ -531,20 +529,76 @@ class TestSimulationHandler:
             if turns > 12:
                 logger.warning("Simulation %s exceeded turn limit", sim.get("_file"))
                 break
+
+            events = entry.get("events") or []
+            if events:
+                for evt in events:
+                    kind = evt.get("kind", "message")
+                    if kind == "thinking":
+                        await self._send(ws, r.thinking(evt.get("text", ""), session.id))
+                        await asyncio.sleep(0.05)
+                    elif kind == "message":
+                        content = evt.get("text", "")
+                        await self._stream_content(ws, session, entry, content)
+                    elif kind == "tool_step":
+                        tool_name = evt.get("tool", "")
+                        params = evt.get("params") or {}
+                        output = evt.get("output", "")
+                        success = evt.get("success", True)
+                        await self._send(ws, r.tool_call(tool_name, params, session.id))
+                        await asyncio.sleep(0.05)
+                        await self._send(ws, r.tool_result(tool_name, success, session.id, output=output, error=""))
+                    elif kind == "agent_orchestration":
+                        evt_data = {k: v for k, v in evt.items() if k != "kind"}
+                        await self._send(
+                            ws,
+                            r.event(
+                                EventKind.AGENT_ORCHESTRATION,
+                                evt_data,
+                                session.id,
+                            ),
+                        )
+                        await asyncio.sleep(0.2)
+                    else:
+                        evt_data = {k: v for k, v in evt.items() if k != "kind"}
+                        try:
+                            ek = EventKind(kind)
+                        except ValueError:
+                            ek = EventKind.MESSAGE
+                        await self._send(
+                            ws,
+                            r.event(
+                                ek,
+                                evt_data,
+                                session.id,
+                            ),
+                        )
+                        await asyncio.sleep(0.05)
+
             reasoning = entry.get("reasoning")
-            if reasoning:
+            if reasoning and not events:
                 await self._send(ws, r.thinking(reasoning, session.id))
                 await asyncio.sleep(0.05)
+
             content = entry.get("content", "")
-            await self._stream_content(ws, session, entry, content)
+            if content and not events:
+                await self._stream_content(ws, session, entry, content)
+
             tool_calls = entry.get("tool_calls") or []
-            if not tool_calls:
+            if tool_calls:
+                for call in tool_calls:
+                    tool_name = call.get("tool", "")
+                    params = call.get("params") or {}
+                    await self._execute_tool_call(ws, session, tool_name, params)
+
+            if not tool_calls and not events:
                 break
-            for call in tool_calls:
-                tool_name = call.get("tool", "")
-                params = call.get("params") or {}
-                await self._execute_tool_call(ws, session, tool_name, params)
-            entry = self._pick_response(session, sim)
+
+            responses = sim.get("responses") or []
+            if len(responses) > turns:
+                entry = self._pick_response(session, sim)
+            else:
+                break
 
     async def _stream_content(
         self, ws: WebSocket, session: Session, entry: dict, content: str

@@ -27,6 +27,7 @@ class EventKind(StrEnum):
     AGENT_SPAWNED = "agent_spawned"
     AGENT_COMPLETE = "agent_complete"
     AGENT_FAILED = "agent_failed"
+    AGENT_ORCHESTRATION = "agent_orchestration"
     SESSION_CREATED = "session_created"
     SESSION_INITIALIZED = "session_initialized"
     SESSION_RESUMED = "session_resumed"

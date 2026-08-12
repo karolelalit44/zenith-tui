@@ -429,6 +429,18 @@ function mapRawEvent(
         sessionId: String(d.session_id || ''),
       };
 
+    case 'agent_orchestration':
+      return {
+        kind: 'agent_orchestration',
+        id,
+        stage: (d.stage as any) || 'working',
+        captainMessage: String(d.captainMessage || d.message || ''),
+        plan: Array.isArray(d.plan) ? (d.plan as any) : undefined,
+        crewmates: Array.isArray(d.crewmates) ? (d.crewmates as any) : undefined,
+        timeline: Array.isArray(d.timeline) ? (d.timeline as any) : undefined,
+        activeStep: d.activeStep ? String(d.activeStep) : undefined,
+      };
+
     case 'context_compacted':
       return {
         kind: 'context_compacted',

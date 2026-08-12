@@ -160,12 +160,12 @@ def _require(events: list[Event], desc: str, cond: bool) -> None:
 
 
 def _config(temp_dir: Path, **overrides) -> AppSettings:
-    base = dict(
-        providers={"test": ProviderConfig(model="test-model", is_active=True)},
-        active_provider="test",
-        db_path=str(temp_dir / "test.db"),
-        workspace_root=str(temp_dir),
-    )
+    base = {
+        "providers": {"test": ProviderConfig(model="test-model", is_active=True)},
+        "active_provider": "test",
+        "db_path": str(temp_dir / "test.db"),
+        "workspace_root": str(temp_dir),
+    }
     base.update(overrides)
     return AppSettings(**base)
 
@@ -332,8 +332,8 @@ SCENARIOS: list[dict] = [
         "name": "S09_stall_finalize",
         "desc": "Repeated identical call: executes once, warns once each, finalizes with stalled manifest.",
         "scripts": [
-            "Done. The file has been created successfully.\n```tool\n"
-            '{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
+            ("Done. The file has been created successfully.\n```tool\n"
+            '{"tool": "file_read", "params": {"path": "test.txt"}}\n```')
         ],
         "checks": [
             ("bounded calls", lambda e, p, c: _require(e, "calls", p.call_count <= 3)),
@@ -843,8 +843,8 @@ class TestDurableReplayAcrossTurns:
         # Turn 1: the model writes a.py, reads it back (evidence), and reports done.
         first = _DryRunProvider(
             [
-                '```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
-                '{"tool": "file_read", "params": {"path": "a.py"}}\n```',
+                ('```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
+                '{"tool": "file_read", "params": {"path": "a.py"}}\n```'),
                 "Done.",
             ]
         )
@@ -859,8 +859,8 @@ class TestDurableReplayAcrossTurns:
         # the manifest reports no creation.
         second = _DryRunProvider(
             [
-                '```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
-                '{"tool": "file_read", "params": {"path": "a.py"}}\n```',
+                ('```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
+                '{"tool": "file_read", "params": {"path": "a.py"}}\n```'),
                 "Done.",
             ]
         )

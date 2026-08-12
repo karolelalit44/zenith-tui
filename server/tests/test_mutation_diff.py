@@ -5,8 +5,8 @@ Git diff viewer (write / edit), plus ``GitOps.diff_path`` handling of brand-new
 untracked files via intent-to-add.
 """
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from server.toolkit.base import ToolResult
 from server.toolkit.executor import build_tool_metadata

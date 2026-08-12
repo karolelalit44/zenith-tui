@@ -200,7 +200,7 @@ def _parse_ddg_results(page: str) -> list[dict[str, str]]:
         return re.sub(r"\s+", " ", _html.unescape(s).strip())
 
     results: list[dict[str, str]] = []
-    for m in re.finditer(r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, re.S):
+    for m in re.finditer(r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, re.DOTALL):
         href = m.group(1)
         if href.startswith("//duckduckgo.com/l/?uddg="):
             encoded = href.split("uddg=", 1)[1].split("&", 1)[0]
@@ -208,7 +208,7 @@ def _parse_ddg_results(page: str) -> list[dict[str, str]]:
         elif not href.startswith("http"):
             continue
         results.append({"title": _clean(m.group(2)), "url": href, "snippet": ""})
-    snips = list(re.finditer(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', page, re.S))
+    snips = list(re.finditer(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', page, re.DOTALL))
     for i, sm in enumerate(snips):
         if i < len(results):
             results[i]["snippet"] = _clean(sm.group(1))

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import StreamingResponse
 
-from server.config.constants import HEALTH_PATH, WS_PATH,TEST_WS_PATH
+from server.config.constants import HEALTH_PATH, TEST_WS_PATH, WS_PATH
 from server.config.loader import load_config
 from server.persistence.connection import Database, resolve_db_path
 from server.persistence.logging import db_log

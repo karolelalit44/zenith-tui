@@ -11,7 +11,8 @@ export type EventKind =
   | 'plan_ready'
   | 'context_compacted'
   | 'context_compaction_started'
-  | 'context_compaction_ended';
+  | 'context_compaction_ended'
+  | 'agent_orchestration';
 
 export interface ThinkingThought {
   text: string;
@@ -157,6 +158,63 @@ export interface TurnManifestEvent {
   files: { path: string; exists: boolean; size: number }[];
 }
 
+export type CrewmateStatus =
+  | 'spawned'
+  | 'assigned'
+  | 'working'
+  | 'completed'
+  | 'needs_review'
+  | 'failed'
+  | 'reassigned'
+  | 'returning'
+  | 'reviewed'
+  | 'retired';
+
+export interface CrewmateAgent {
+  id: string;
+  name: string;
+  role: string;
+  task: string;
+  activity?: string;
+  status: CrewmateStatus;
+  progress?: number;
+  resultSummary?: string;
+  error?: string;
+}
+
+export type PlanItemStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'completed'
+  | 'needs_review'
+  | 'failed'
+  | 'reassigned';
+
+export interface PlanItem {
+  id: string;
+  title: string;
+  assignedAgent?: string;
+  status: PlanItemStatus;
+  details?: string;
+}
+
+export interface TimelineEntry {
+  timestamp: string;
+  message: string;
+  type?: 'info' | 'success' | 'warning' | 'error' | 'reassign';
+}
+
+export interface AgentOrchestrationEvent {
+  kind: 'agent_orchestration';
+  id: string;
+  stage: 'thinking' | 'planning' | 'delegating' | 'working' | 'reviewing' | 'reassigning' | 'synthesizing' | 'complete';
+  captainMessage: string;
+  plan?: PlanItem[];
+  crewmates?: CrewmateAgent[];
+  timeline?: TimelineEntry[];
+  activeStep?: string;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | MessageEvent
@@ -171,7 +229,8 @@ export type ScenarioEvent =
   | ContextCompactedEvent
   | ContextCompactionStartedEvent
   | ContextCompactionEndedEvent
-  | TurnManifestEvent;
+  | TurnManifestEvent
+  | AgentOrchestrationEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 
