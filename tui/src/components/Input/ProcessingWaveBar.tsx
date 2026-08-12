@@ -60,25 +60,29 @@ export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
     const dots = DOTS[Math.floor(tick / 2) % DOTS.length];
 
     return (
-      <Box flexDirection="row" alignItems="center" width="100%" paddingX={1}>
-        <Box flexDirection="row" marginRight={1}>
-          <Text color={theme.colors.status.info} bold>
+      <Box flexDirection="row" alignItems="center" width="100%" paddingX={1} flexWrap="nowrap" overflow="hidden">
+        <Box flexDirection="row" marginRight={1} flexShrink={0}>
+          <Text color={theme.colors.status.info} bold wrap="truncate-end">
             {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}
           </Text>
         </Box>
 
-        <Box flexDirection="row" marginRight={1} alignItems="flex-end">
+        <Box flexDirection="row" marginRight={1} alignItems="flex-end" flexShrink={0}>
           {bars}
         </Box>
 
-        {labelEl}
-        <Text color={theme.colors.text.dim}>{dots}</Text>
+        <Box flexDirection="row" flexShrink={1} overflow="hidden">
+          {labelEl}
+          <Text color={theme.colors.text.dim} wrap="truncate-end">{dots}</Text>
+        </Box>
 
         <Box flexGrow={1} />
 
-        <Text color={theme.colors.text.muted}>{elapsedStr}</Text>
-        <Text color={theme.colors.text.dim}> · </Text>
-        <Text color={theme.colors.status.warning}>Esc to cancel</Text>
+        <Box flexDirection="row" alignItems="center" flexShrink={0} marginLeft={1}>
+          <Text color={theme.colors.text.muted} wrap="truncate-end">{elapsedStr}</Text>
+          <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
+          <Text color={theme.colors.status.warning} wrap="truncate-end">Esc to cancel</Text>
+        </Box>
       </Box>
     );
   },

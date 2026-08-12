@@ -140,7 +140,8 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       [thinkingCollapsed, isHistorical, isRunning, workspaceName, gitBranch],
     );
 
-    const dynamicLimit = 20;
+    const rows = process.stdout.rows ?? 24;
+    const dynamicLimit = Math.max(10, Math.min(20, rows - 8));
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const expanded = hasOverflow && historyExpanded;
 
@@ -149,11 +150,17 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const firstAssistantMessage = events.find((e) => e.kind === 'message');
       if (!firstAssistantMessage) return null;
       return events.slice(-dynamicLimit).includes(firstAssistantMessage) ? null : firstAssistantMessage;
-    }, [events, hasOverflow, expanded]);
+    }, [events, hasOverflow, expanded, dynamicLimit]);
 
-    const visibleEvents = hasOverflow && !expanded ? events.slice(-dynamicLimit) : events;
+    const liveMaxLimit = Math.max(15, rows - 6);
+    const visibleEvents = useMemo(() => {
+      if (isHistorical) return events;
+      if (!hasOverflow) return events;
+      if (expanded) return events.slice(-liveMaxLimit);
+      return events.slice(-dynamicLimit);
+    }, [isHistorical, hasOverflow, expanded, events, liveMaxLimit, dynamicLimit]);
 
-    const hiddenEvents = hasOverflow && !expanded ? events.slice(0, -dynamicLimit) : [];
+    const hiddenEvents = isHistorical ? [] : events.filter((e) => !visibleEvents.includes(e));
     const hiddenSummary = useMemo(() => countHiddenEvents(hiddenEvents), [hiddenEvents]);
 
     // The server emits turn_manifest immediately before the success event, so

@@ -10,7 +10,10 @@ export interface ConversationTurn {
   events: ScenarioEvent[];
   isComplete: boolean;
   isSaved?: boolean;
+  /** Short timestamp frozen at turn creation: "HH:MM" (e.g. "12:08") */
   timestamp: string;
+  /** Long timestamp frozen at turn creation: "HH:MM, DD Mon" (e.g. "12:08, 12 Aug") */
+  timestampLong: string;
   startedAt: number;
 }
 
@@ -26,11 +29,16 @@ export interface UseConversationReturn {
   markTurnSaved: (turnId: string) => void;
   clearTurns: () => void;
   compactTurns: () => void;
+  remountStatic: () => void;
 }
 
 export function useConversation(): UseConversationReturn {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [staticKey, setStaticKey] = useState(0);
+
+  const remountStatic = useCallback(() => {
+    setStaticKey((k) => k + 1);
+  }, []);
 
   const activeTurn = turns.length > 0 && !turns[turns.length - 1].isComplete ? turns[turns.length - 1] : null;
   const completedTurns = activeTurn ? turns.filter((t) => t.isComplete) : turns;
@@ -51,8 +59,11 @@ export function useConversation(): UseConversationReturn {
   }, [turns]);
 
   const addTurn = useCallback((prompt: string, mode: ScenarioMode, model?: string): string => {
+    // Freeze both formats at the exact moment the turn is created.
+    // The display component must never call new Date() — these values are immutable.
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
     const turnId = `turn_${Date.now()}`;
 
     setTurns((prev) => [
@@ -64,7 +75,8 @@ export function useConversation(): UseConversationReturn {
         model,
         events: [],
         isComplete: false,
-        timestamp: timeStr,
+        timestamp: timeShort,
+        timestampLong: timeLong,
         startedAt: Date.now(),
       },
     ]);
@@ -96,7 +108,8 @@ export function useConversation(): UseConversationReturn {
           code: 'USER_ABORT',
         };
         const elapsedMs = Date.now() - last.startedAt;
-        const stampedEvents = currentEvents.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e));
+        const sourceEvents = currentEvents && currentEvents.length > 0 ? currentEvents : last.events;
+        const stampedEvents = sourceEvents.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e));
         return prev.map((t, i) =>
           i === lastIdx ? { ...t, events: [...stampedEvents, abortEvent], isComplete: true } : t,
         );
@@ -119,13 +132,15 @@ export function useConversation(): UseConversationReturn {
     setTurns((prev) => {
       if (prev.length === 0) return prev;
       const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
       const summaryTurn: ConversationTurn = {
         id: `turn_compact_${Date.now()}`,
         prompt: `Compact Context (${prev.length} previous turns compressed)`,
         mode: prev[prev.length - 1].mode,
         isComplete: true,
-        timestamp: timeStr,
+        timestamp: timeShort,
+        timestampLong: timeLong,
         startedAt: Date.now(),
         events: [
           {
@@ -153,5 +168,6 @@ export function useConversation(): UseConversationReturn {
     markTurnSaved,
     clearTurns,
     compactTurns,
+    remountStatic,
   };
 }

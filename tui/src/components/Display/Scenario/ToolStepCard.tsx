@@ -93,26 +93,26 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           paddingY={0}
         >
           {/* Header bar: TERMINAL · path · branch + timing */}
-          <Box flexDirection="row" alignItems="center" width="100%">
-            <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1}>
-              <Text color={theme.colors.text.bright} bold>
+          <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
+            <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
+              <Text color={theme.colors.text.bright} bold wrap="truncate-end">
                 TERMINAL
               </Text>
               {pathText ? (
                 <>
-                  <Text color={theme.colors.text.dim}> · </Text>
-                  <Text color={theme.colors.status.info}>{pathText}</Text>
+                  <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
+                  <Text color={theme.colors.status.info} wrap="truncate-end">{pathText}</Text>
                 </>
               ) : null}
               {context?.gitBranch ? (
                 <>
-                  <Text color={theme.colors.text.dim}> · </Text>
-                  <Text color={theme.colors.status.warning}>⚡ {context.gitBranch}</Text>
+                  <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
+                  <Text color={theme.colors.status.warning} wrap="truncate-end">⚡ {context.gitBranch}</Text>
                 </>
               ) : null}
               {tabName ? (
                 <>
-                  <Text color={theme.colors.text.dim}> · </Text>
+                  <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
                   <Text color={theme.colors.text.muted} wrap="truncate-end">
                     {tabName}
                   </Text>
@@ -120,8 +120,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
               ) : null}
             </Box>
             {duration ? (
-              <Box flexGrow={0} flexShrink={0}>
-                <Text color={theme.colors.text.dim}>~ took {duration}</Text>
+              <Box flexGrow={0} flexShrink={0} marginLeft={1}>
+                <Text color={theme.colors.text.dim} wrap="truncate-end">~ took {duration}</Text>
               </Box>
             ) : null}
           </Box>

@@ -139,6 +139,7 @@ test('Input is ready after startup', async () => {
   const { lastFrame, stdin, unmount } = mountApp();
 
   await waitForReady(lastFrame);
+  await new Promise((r) => setTimeout(r, 50));
 
   stdin.write('hello');
   const frame = await waitForFrame(lastFrame, (f) => f.includes('hello'));
@@ -213,6 +214,7 @@ test('slash menu filters as the user types', async () => {
   const { lastFrame, stdin, unmount } = mountApp();
 
   await waitForReady(lastFrame);
+  await new Promise((r) => setTimeout(r, 50));
 
   stdin.write('/pl');
 

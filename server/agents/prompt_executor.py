@@ -545,6 +545,13 @@ class PromptExecutor:
             logger.info(
                 "_execute COMPLETE: events=%d response_text_len=%d", event_count, len(response_text)
             )
+        except asyncio.CancelledError:
+            logger.info("PromptExecutor._execute CANCELLED for session %s", session_id)
+            cancel_event = r.warning("Generation interrupted by user (ESC)", session_id)
+            if manager:
+                await manager.send_event(session_id, cancel_event)
+            collected_events.append(cancel_event)
+            raise
         except Exception as e:
             logger.exception(
                 "PromptExecutor._execute FAILED for session %s after %d events",
@@ -564,4 +571,4 @@ class PromptExecutor:
                 self._provider.temperature = _original_temperature
             if _original_max_tokens is not None:
                 self._provider.max_tokens = _original_max_tokens
-        await self._persist_assistant_message(session_id, response_text, collected_events)
+            await self._persist_assistant_message(session_id, response_text, collected_events)

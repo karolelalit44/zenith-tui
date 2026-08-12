@@ -2,6 +2,7 @@ import { Box, type Key, Text } from 'ink';
 import React, { useCallback } from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
+import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
 import { getActiveGitBranch } from '../../services/git';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
@@ -70,7 +71,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const providerName = activeProvider.meta.name || 'Unknown';
     const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
-    const columns = process.stdout.columns ?? 80;
+    const { columns } = useTerminalDimensions();
     const dividerWidth = Math.max(0, columns - 6);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
