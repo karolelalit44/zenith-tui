@@ -504,7 +504,7 @@ export const App: React.FC = () => {
                   {item.turnIndex > 0 ? (
                     <Box marginTop={1} marginBottom={0} width="100%">
                       <Text color={theme.colors.border.muted} wrap="truncate-end">
-                        {'─'.repeat(Math.max(10, Math.min((process.stdout.columns ?? 80) - 4, 76)))}
+                        {'─'.repeat(Math.max(10, (process.stdout.columns ?? 80) - 2))}
                       </Text>
                     </Box>
                   ) : null}
