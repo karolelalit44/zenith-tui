@@ -1,31 +1,142 @@
 {
   "name": "design-api",
-  "match": { "contains": "design an api" },
-  "mode": "sequence",
+  "match": { "contains": "design api", "mode": "plan" },
+  "mode": "round_robin",
   "responses": [
     {
-      "reasoning": "The user asked me to design an API. This deserves a real design document, not a bullet list. I'll produce a complete spec covering goals and non-functional requirements, the resource model, every endpoint with concrete request/response examples, authentication, rate limiting, pagination, versioning, error contract, and security considerations — then persist it to docs/api.md and verify the docs tree.",
-      "content": "I'll design a full REST API for a multi-user task management service and capture the complete spec in `docs/api.md`. The design covers the resource model, every endpoint with real examples, authentication, pagination, versioning, the error contract, and security considerations.",
-      "chunk_size": 4,
-      "delay_ms": 20,
-      "tool_calls": [
-        { "tool": "file_write", "params": { "path": "docs/api.md", "content": "# Task Management API — Design Specification\n\n## 1. Overview\n\nRESTful HTTP API for a multi-user task tracker. JSON over HTTPS, Bearer-token\nauth, resource-scoped access. The API is **versioned under `/api/v1`**.\n\n## 2. Goals & non-functional requirements\n\n| Concern            | Requirement                                                               |\n|--------------------|---------------------------------------------------------------------------|\n| Correctness        | Strong validation; single consistent error envelope                       |\n| Latency            | p95 < 300 ms for list/create; all reads cacheable with ETag               |\n| Availability       | Stateless API nodes; retries safe (idempotency keys on writes)            |\n| Evolvability       | Semantic versioning; additive changes only within a version               |\n| Observability      | `X-Request-Id` on every request and echoed in every error                 |\n\n## 3. Authentication\n\n- **Scheme**: `Authorization: Bearer <token>` (OAuth2, opaque JWT).\n- **Scopes**: `tasks:read`, `tasks:write`, `admin`.\n- Missing/invalid token -> `401`; authenticated-but-not-allowed -> `403`.\n- Tokens expire (default 1h); refresh via the token endpoint (out of scope here).\n\n## 4. Resource model\n\n### Task\n\n| Field        | Type      | Constraints                | Notes                    |\n|--------------|-----------|----------------------------|--------------------------|\n| `id`         | uuid      | server-assigned            | stable, never reused     |\n| `title`      | string    | 1..120 chars, required     | trimmed, not blank       |\n| `description`| string    | 0..2000 chars              | optional                 |\n| `status`     | enum      | `todo`/`in_progress`/`done`| default `todo`           |\n| `priority`   | enum      | `low`/`normal`/`high`      | default `normal`         |\n| `assignee_id`| uuid?     | nullable user id           | must reference a user    |\n| `due_at`     | iso8601?  | nullable                   | UTC; `>= now` on create  |\n| `created_at` | iso8601   | server-set                 | immutable                |\n| `updated_at` | iso8601   | server-set                 | bumped on every write    |\n\n### Transitions\n\n```\ntodo --(start)--> in_progress --(complete)--> done\ntodo --(complete)--> done\ndone --(reopen)--> todo\n```\nAny other transition -> `409 conflict` with a machine-readable `code`.\n\n## 5. Endpoints\n\n### 5.1 List tasks — `GET /api/v1/tasks`\n\nQuery params: `status`, `priority`, `assignee_id`, `due_before`, `cursor`, `limit` (1..100, default 25).\n\nResponse `200`:\n\n```json\n{\n  \"data\": [ { \"id\": \"...\", \"title\": \"Ship docs\", \"status\": \"in_progress\" } ],\n  \"next\": \"cursor-value-or-null\",\n  \"count\": 25\n}\n```\n\n### 5.2 Create task — `POST /api/v1/tasks`\n\nRequest:\n\n```json\n{ \"title\": \"Write spec\", \"description\": \"...\", \"priority\": \"high\", \"due_at\": \"2026-01-15T12:00:00Z\" }\n```\n\nResponse `201` with `Location: /api/v1/tasks/{id}`.\nInvalid body -> `400` with `details[]` naming each field.\n\n### 5.3 Get task — `GET /api/v1/tasks/{id}`\n\n`200` full representation, `404` with `{ \"error\": { \"code\": \"not_found\", ... } }`.\nSupports `If-None-Match` -> `304`.\n\n### 5.4 Update task — `PATCH /api/v1/tasks/{id}`\n\nPartial update; only supplied fields change. `updated_at` always bumped.\nIllegal status transition -> `409`.\n\n### 5.5 Delete task — `DELETE /api/v1/tasks/{id}`\n\n`204` on success; `404` if missing. Idempotent: repeated delete of a deleted\nresource returns `404` (not `204`), so clients use the response to detect races.\n\n## 6. Error contract\n\nSingle envelope, every error:\n\n```json\n{\n  \"error\": {\n    \"code\": \"validation_failed\",\n    \"message\": \"2 validation errors\",\n    \"details\": [ { \"field\": \"due_at\", \"reason\": \"must be in the future\" } ],\n    \"request_id\": \"req_9f8a...\"\n  }\n}\n```\n\n| Code                  | HTTP  | Meaning                                    |\n|-----------------------|-------|--------------------------------------------|\n| `validation_failed`   | 400   | Malformed body or query                    |\n| `unauthorized`        | 401   | Missing/invalid token                      |\n| `forbidden`           | 403   | Valid token, insufficient scope            |\n| `not_found`           | 404   | Resource absent                            |\n| `conflict`            | 409   | State/version conflict                     |\n| `rate_limited`        | 429   | Quota exceeded, honor `Retry-After`        |\n| `internal_error`      | 500   | Unexpected; never leak stack traces        |\n\n## 7. Pagination\n\nCursor-based. `next` is an opaque token; clients must never construct it.\n`limit` caps page size; cursor pages are stable under concurrent writes.\n\n## 8. Versioning\n\nPath-based (`/api/v1`). Backwards-incompatible changes require `v2`. New fields\nmay be added within a version; clients must ignore unknown fields.\n\n## 9. Rate limiting\n\n- Per token: 120 req/min, burst 20. Headers: `X-RateLimit-Limit`,\n  `X-RateLimit-Remaining`, `X-RateLimit-Reset`. Exceeding -> `429` +\n  `Retry-After`.\n\n## 10. Security & operational notes\n\n- TLS everywhere; HSTS header set.\n- `X-Request-Id` generated upstream, echoed on all responses/errors.\n- Audit log records every write: actor id, resource, before/after.\n- Logs redact tokens and personal data.\n", "overwrite": true } }
+      "reasoning": "User prompt received: 'design an api' in PLAN mode. Initializing Captain Orchestrator, creating API design plan, and spawning specialized REST Crewmates.",
+      "content": "",
+      "chunk_size": 1,
+      "delay_ms": 15,
+      "events": [
+        {
+          "kind": "thinking",
+          "text": "Captain Orchestrator analyzing REST API specification requirements in PLAN mode..."
+        },
+        {
+          "kind": "agent_orchestration",
+          "stage": "planning",
+          "captainMessage": "REST API requirements analyzed. Structuring specification plan and spawning Crewmate design sub-agents.",
+          "plan": [
+            { "id": "p1", "title": "1. Resource Path & Verb Hierarchy", "status": "in_progress", "assignedAgent": "Captain" },
+            { "id": "p2", "title": "2. Schema Definition & Error Envelopes", "status": "queued", "assignedAgent": "Crewmate Alpha" },
+            { "id": "p3", "title": "3. Authentication & Rate-Limit Policies", "status": "queued", "assignedAgent": "Crewmate Beta" }
+          ],
+          "timeline": [
+            { "timestamp": "19:52:01", "message": "API design prompt received", "type": "info" },
+            { "timestamp": "19:52:02", "message": "Captain created REST API specification plan", "type": "info" }
+          ]
+        },
+        {
+          "kind": "agent_orchestration",
+          "stage": "delegating",
+          "captainMessage": "Spawning 3 specialized API Design Crewmate sub-agents.",
+          "plan": [
+            { "id": "p1", "title": "1. Resource Path & Verb Hierarchy", "status": "completed", "assignedAgent": "Captain" },
+            { "id": "p2", "title": "2. Schema Definition & Error Envelopes", "status": "in_progress", "assignedAgent": "Crewmate Alpha" },
+            { "id": "p3", "title": "3. Authentication & Rate-Limit Policies", "status": "in_progress", "assignedAgent": "Crewmate Beta" }
+          ],
+          "crewmates": [
+            {
+              "id": "cm_api_alpha",
+              "name": "CREWMATE ALPHA",
+              "role": "REST-Designer",
+              "task": "Design RESTful endpoints, resource URLs, and CRUD status codes",
+              "activity": "Drafting OpenAPI 3.1 endpoints & status codes...",
+              "status": "working"
+            },
+            {
+              "id": "cm_api_beta",
+              "name": "CREWMATE BETA",
+              "role": "Schema-Validator",
+              "task": "Specify Pydantic request/response payload schemas & error envelopes",
+              "activity": "Designing error payload standard & validation rules...",
+              "status": "working"
+            },
+            {
+              "id": "cm_api_gamma",
+              "name": "CREWMATE GAMMA",
+              "role": "Docs-Generator",
+              "task": "Format OpenAPI spec & generate copy-paste curl examples",
+              "activity": "Generating Swagger UI metadata & curl snippets...",
+              "status": "working"
+            }
+          ],
+          "timeline": [
+            { "timestamp": "19:52:01", "message": "API design prompt received", "type": "info" },
+            { "timestamp": "19:52:02", "message": "Captain created REST API specification plan", "type": "info" },
+            { "timestamp": "19:52:03", "message": "Delegated tasks to Alpha, Beta, and Gamma", "type": "info" }
+          ]
+        },
+        {
+          "kind": "agent_orchestration",
+          "stage": "synthesizing",
+          "captainMessage": "API design sub-agents completed workstreams. Synthesizing OpenAPI 3.1 specification.",
+          "plan": [
+            { "id": "p1", "title": "1. Resource Path & Verb Hierarchy", "status": "completed", "assignedAgent": "Captain" },
+            { "id": "p2", "title": "2. Schema Definition & Error Envelopes", "status": "completed", "assignedAgent": "Crewmate Alpha" },
+            { "id": "p3", "title": "3. Authentication & Rate-Limit Policies", "status": "completed", "assignedAgent": "Crewmate Beta" }
+          ],
+          "crewmates": [
+            {
+              "id": "cm_api_alpha",
+              "name": "CREWMATE ALPHA",
+              "role": "REST-Designer",
+              "task": "Design RESTful endpoints, resource URLs, and CRUD status codes",
+              "status": "completed",
+              "resultSummary": "Designed /items CRUD endpoints with 200/201/204 status codes."
+            },
+            {
+              "id": "cm_api_beta",
+              "name": "CREWMATE BETA",
+              "role": "Schema-Validator",
+              "task": "Specify Pydantic request/response payload schemas & error envelopes",
+              "status": "completed",
+              "resultSummary": "Defined RFC-7807 problem details error format & Pydantic schemas."
+            },
+            {
+              "id": "cm_api_gamma",
+              "name": "CREWMATE GAMMA",
+              "role": "Docs-Generator",
+              "task": "Format OpenAPI spec & generate copy-paste curl examples",
+              "status": "completed",
+              "resultSummary": "Generated copy-paste curl examples for GET, POST, PATCH, DELETE."
+            }
+          ],
+          "timeline": [
+            { "timestamp": "19:52:01", "message": "API design prompt received", "type": "info" },
+            { "timestamp": "19:52:02", "message": "Captain created REST API specification plan", "type": "info" },
+            { "timestamp": "19:52:03", "message": "Delegated tasks to Alpha, Beta, and Gamma", "type": "info" },
+            { "timestamp": "19:52:06", "message": "Alpha completed RESTful endpoint hierarchy", "type": "success" },
+            { "timestamp": "19:52:08", "message": "Beta specified RFC-7807 error envelopes", "type": "success" },
+            { "timestamp": "19:52:10", "message": "Gamma generated complete curl examples", "type": "success" },
+            { "timestamp": "19:52:11", "message": "Captain synthesizing OpenAPI specification", "type": "info" }
+          ]
+        },
+        {
+          "kind": "message",
+          "text": "## 📐 REST API Specification: Enterprise Resource Model\n\n> **Orchestrator Notice**: Mode is set to `PLAN`. The Captain and Crewmate sub-agents completed OpenAPI specification design without mutating workspace files.\n\n---\n\n### 🌐 Endpoint Matrix\n\n| Verb | Resource Path | Description | Status Code |\n| :--- | :--- | :--- | :--- |\n| `POST` | `/api/v1/items` | Create new item resource | `201 Created` |\n| `GET` | `/api/v1/items` | List items with cursor pagination | `200 OK` |\n| `GET` | `/api/v1/items/{id}` | Fetch item by ID | `200 OK` |\n| `PATCH` | `/api/v1/items/{id}` | Partial item update | `200 OK` |\n| `DELETE` | `/api/v1/items/{id}` | Delete item resource | `204 No Content` |\n\n---\n\n### 📦 RFC-7807 Standard Error Envelope\n\n```json\n{\n  \"type\": \"https://api.example.com/errors/not-found\",\n  \"title\": \"Resource Not Found\",\n  \"status\": 404,\n  \"detail\": \"Item with ID 42 was not found in the workspace repository.\",\n  \"instance\": \"/api/v1/items/42\"\n}\n```\n\n---\n\n*Switch mode to **BUILD** (`Shift+M` or `/mode build`) to generate router implementation files!*"
+        },
+        {
+          "kind": "agent_orchestration",
+          "stage": "complete",
+          "captainMessage": "API Specification delivered. Orchestration complete.",
+          "plan": [
+            { "id": "p1", "title": "1. Resource Path & Verb Hierarchy", "status": "completed", "assignedAgent": "Captain" },
+            { "id": "p2", "title": "2. Schema Definition & Error Envelopes", "status": "completed", "assignedAgent": "Crewmate Alpha" },
+            { "id": "p3", "title": "3. Authentication & Rate-Limit Policies", "status": "completed", "assignedAgent": "Crewmate Beta" }
+          ],
+          "timeline": [
+            { "timestamp": "19:52:01", "message": "API design prompt received", "type": "info" },
+            { "timestamp": "19:52:02", "message": "Captain created REST API specification plan", "type": "info" },
+            { "timestamp": "19:52:03", "message": "Delegated tasks to Alpha, Beta, and Gamma", "type": "info" },
+            { "timestamp": "19:52:06", "message": "Alpha completed RESTful endpoint hierarchy", "type": "success" },
+            { "timestamp": "19:52:08", "message": "Beta specified RFC-7807 error envelopes", "type": "success" },
+            { "timestamp": "19:52:10", "message": "Gamma generated complete curl examples", "type": "success" },
+            { "timestamp": "19:52:12", "message": "API Specification delivered — Orchestration complete", "type": "success" }
+          ]
+        }
       ]
-    },
-    {
-      "reasoning": "The spec is written. Let me confirm it exists on disk and show the docs tree so the user can see the artifact, then summarize the design decisions.",
-      "content": "`docs/api.md` is written. Let me confirm the artifact on disk.",
-      "chunk_size": 5,
-      "delay_ms": 20,
-      "tool_calls": [
-        { "tool": "glob", "params": { "pattern": "docs/**" }, "output": "docs/api.md" }
-      ]
-    },
-    {
-      "reasoning": "The docs tree contains api.md as expected. Time to summarize the key design decisions and surface the trade-offs for the user to review.",
-      "content": "The full API design is in `docs/api.md`. Here is a condensed summary of the decisions and the reasoning behind them:\n\n### Key decisions\n\n1. **Path-based versioning (`/api/v1`)** — simplest to route and cache; version negotiation via headers adds complexity with no benefit for this API.\n2. **Cursor pagination over offset** — stable pages under concurrent writes and no deep-offset performance cliff; the opaque token keeps clients honest.\n3. **Single error envelope with machine-readable `code` + `request_id`** — lets the frontend map errors to actions instead of parsing prose, and makes debugging across logs trivial.\n4. **PATCH for partial updates** — `exclude_unset` semantics; only supplied fields change, which is what mobile clients need over a chatty full PUT.\n5. **Explicit status-transition graph** — `todo → in_progress → done` with legal `done → todo` reopen; anything else is a `409`. This turns domain rules into explicit API behavior instead of silent no-ops.\n6. **Idempotency keys on writes** — `POST /tasks` accepts an optional `Idempotency-Key` header so retries after timeouts cannot create duplicates.\n\n### Trade-offs worth a second look\n\n- **In-memory vs DB**: this is a contract spec; the store is deliberately unspecified.\n- **`204` vs `404` on repeated delete**: idempotency purists prefer `204`; I chose `404` to surface races — revisit if a client complains.\n- **Rate limit scope**: per-token today; consider per-IP for anonymous/health endpoints.\n\n### What I can build next\n\n- Implement this as the FastAPI app (typed schemas + routers mirroring the spec).\n- Add OpenAPI generation and a contract test that validates responses against this spec.\n- Write a threat-model / auth design if `admin` scopes are needed.",
-      "chunk_size": 4,
-      "delay_ms": 18
     }
   ]
 }

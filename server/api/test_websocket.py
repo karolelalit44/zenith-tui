@@ -536,7 +536,7 @@ class TestSimulationHandler:
                     kind = evt.get("kind", "message")
                     if kind == "thinking":
                         await self._send(ws, r.thinking(evt.get("text", ""), session.id))
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(0.15)
                     elif kind == "message":
                         content = evt.get("text", "")
                         await self._stream_content(ws, session, entry, content)
@@ -546,7 +546,7 @@ class TestSimulationHandler:
                         output = evt.get("output", "")
                         success = evt.get("success", True)
                         await self._send(ws, r.tool_call(tool_name, params, session.id))
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(0.15)
                         await self._send(ws, r.tool_result(tool_name, success, session.id, output=output, error=""))
                     elif kind == "agent_orchestration":
                         evt_data = {k: v for k, v in evt.items() if k != "kind"}
@@ -558,7 +558,7 @@ class TestSimulationHandler:
                                 session.id,
                             ),
                         )
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(0.6)
                     else:
                         evt_data = {k: v for k, v in evt.items() if k != "kind"}
                         try:
@@ -573,7 +573,7 @@ class TestSimulationHandler:
                                 session.id,
                             ),
                         )
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(0.15)
 
             reasoning = entry.get("reasoning")
             if reasoning and not events:

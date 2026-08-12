@@ -105,7 +105,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
   }
 
   return (
-    <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1}>
       <Box
         flexDirection="column"
         backgroundColor={theme.colors.code.background}
@@ -121,7 +121,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
             <Text color="#FFBD2E">● </Text>
             <Text color="#27C93F">● </Text>
             <Text color={theme.colors.text.bright} bold wrap="truncate-end">
-              ⚡ CAPTAIN COMMAND CENTER
+              ⚡ CAPTAIN ZENITH COMMAND CENTER
             </Text>
             <Text color={theme.colors.text.dim}> · </Text>
             <Text color={stageColor} bold wrap="truncate-end">
@@ -130,11 +130,11 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
           </Box>
         </Box>
 
-        {/* Captain Message Banner */}
+        {/* Captain Zenith Message Banner */}
         {event.captainMessage ? (
           <Box flexDirection="row" marginTop={0} marginBottom={1}>
             <Text color={theme.colors.status.info} bold>
-              Captain ❯{' '}
+              Captain Zenith ❯{' '}
             </Text>
             <Text color={theme.colors.text.bright}>{event.captainMessage}</Text>
           </Box>
