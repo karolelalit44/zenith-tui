@@ -79,8 +79,45 @@ def format_tool_result(
     return "\n".join(lines)
 
 
+MUTATION_DIFF_TOOLS = (FILE_WRITE_TOOL, FILE_EDIT_TOOL, FILE_DELETE_TOOL, "multi_edit")
+MAX_DIFF_CAPTURE_CHARS = 50_000
+
+
+def capture_mutation_diff(workspace_root: str, tool_params: dict, result: ToolResult) -> str:
+    """Capture a git-native unified diff for a successful file mutation.
+
+    Uses ``git diff`` (with intent-to-add for brand-new files) so the UI can
+    render accurate hunks and line numbers. Falls back to any diff the tool
+    itself reported (e.g. a ``difflib`` patch in ``result.metadata``) when the
+    workspace is not a git repository.
+    """
+    if not result.success:
+        return ""
+    target = str(tool_params.get("filepath") or tool_params.get("path") or "")
+    if not target:
+        return ""
+    resolved = _resolve_workdir(workspace_root, target)
+    if resolved is None or not resolved.is_file():
+        return ""
+    diff = ""
+    try:
+        git = GitOps(workspace_root)
+        diff = git.diff_path(target)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug("git diff capture failed for %s: %s", target, e)
+    if not diff:
+        diff = str((result.metadata or {}).get("diff") or "")
+    if len(diff) > MAX_DIFF_CAPTURE_CHARS:
+        diff = diff[:MAX_DIFF_CAPTURE_CHARS] + "\n... (diff truncated)"
+    return diff
+
+
 def build_tool_metadata(
-    tool_name: str, tool_params: dict, result: ToolResult, duration_ms: int
+    tool_name: str,
+    tool_params: dict,
+    result: ToolResult,
+    duration_ms: int,
+    workspace_root: str = "",
 ) -> dict:
     if tool_name in (BASH_TOOL, TERMINAL_TOOL):
         cmd = str(tool_params.get("command") or "")
@@ -93,21 +130,36 @@ def build_tool_metadata(
             "exit_code": exit_code,
         }
     elif tool_name == FILE_WRITE_TOOL:
-        return {
+        meta: dict = {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
             "content": tool_params.get("content", ""),
             "match": "exact",
         }
     elif tool_name == FILE_EDIT_TOOL:
-        return {
+        meta = {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
             "old_content": tool_params.get("old_content", ""),
             "new_content": tool_params.get("new_content", ""),
             "match": "exact",
         }
     elif tool_name in (FILE_DELETE_TOOL, FILE_READ_TOOL):
-        return {"path": tool_params.get("filepath") or tool_params.get("path") or ""}
-    return {}
+        meta = {"path": tool_params.get("filepath") or tool_params.get("path") or ""}
+    else:
+        meta = {}
+
+    # Tool-reported metadata (e.g. resolved path, edit count, difflib patch)
+    # is merged on top of the params-derived view so nothing is lost.
+    if result.metadata:
+        merged = dict(result.metadata)
+        merged.update(meta)
+        meta = merged
+
+    if tool_name in MUTATION_DIFF_TOOLS:
+        diff = capture_mutation_diff(workspace_root, tool_params, result)
+        if diff:
+            meta["diff"] = diff
+
+    return meta
 
 
 def _resolve_workdir(workspace_root: str, target: str) -> Path | None:

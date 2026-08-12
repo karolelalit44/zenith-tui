@@ -1,1 +1,1 @@
-"""FastAPI demo application package."""
+"""FastAPI production application package."""

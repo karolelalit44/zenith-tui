@@ -22,7 +22,7 @@ from server.domain.message import Message, ToolCall
 from server.domain.session import Session
 from server.providers import responder as r
 from server.toolkit import create_default_registry
-from server.toolkit.executor import execute_tool, format_tool_result
+from server.toolkit.executor import build_tool_metadata, execute_tool, format_tool_result
 from server.toolkit.registry import ToolRegistry
 
 from .protocol import JsonRpcRequest, make_error_response, make_response, serialize_event
@@ -579,7 +579,9 @@ class TestSimulationHandler:
                 session.id,
                 output=text[:_MAX_TOOL_OUTPUT],
                 error=result.error,
-                metadata={"duration_ms": duration_ms},
+                metadata=build_tool_metadata(
+                    tool_name, params, result, duration_ms, session.workspace_root
+                ),
             ),
         )
         self._messages.setdefault(session.id, []).append(

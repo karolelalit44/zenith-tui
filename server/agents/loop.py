@@ -930,7 +930,9 @@ class AgentLoop:
                         session_id,
                         output=result.output or "",
                         error=result.error or "",
-                        metadata=build_tool_metadata(tool_name, tool_params, result, duration_ms),
+                        metadata=build_tool_metadata(
+                            tool_name, tool_params, result, duration_ms, ws
+                        ),
                     )
                     if result.stop_turn:
                         logger.info("Tool '%s' requested stop_turn", tool_name)

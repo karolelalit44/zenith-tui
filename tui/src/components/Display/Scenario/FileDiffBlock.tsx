@@ -150,6 +150,57 @@ function renderGutter(
   );
 }
 
+/** Build a compact hunk-only unified diff string from before/after content.
+ *
+ * Used as a frontend fallback when a file_edit event carries no server-recorded
+ * diff (e.g. legacy replay). Line numbers are hunk-local since the full file is
+ * unavailable at render time.
+ */
+export function buildUnifiedDiff(oldContent: string, newContent: string): string {
+  const split = (text: string) => {
+    const lines = text.replace(/\r\n/g, '\n').split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    return lines;
+  };
+  const a = split(oldContent);
+  const b = split(newContent);
+  if (a.length === 0 && b.length === 0) return '';
+
+  const n = a.length;
+  const m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const ops: { kind: 'del' | 'add'; text: string }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ kind: 'del', text: a[i++] });
+    } else {
+      ops.push({ kind: 'add', text: b[j++] });
+    }
+  }
+  while (i < n) ops.push({ kind: 'del', text: a[i++] });
+  while (j < m) ops.push({ kind: 'add', text: b[j++] });
+
+  let delCount = 0;
+  let addCount = 0;
+  for (const op of ops) {
+    if (op.kind === 'del') delCount++;
+    else addCount++;
+  }
+  const header = `@@ -1${delCount > 1 ? `,${delCount}` : ''} +1${addCount > 1 ? `,${addCount}` : ''} @@`;
+  const body = ops.map((op) => (op.kind === 'del' ? `-${op.text}` : `+${op.text}`));
+  return [header, ...body, ''].join('\n');
+}
+
 export function parseDiffOrContent(
   text: string,
   maxLines = 30,
@@ -203,16 +254,16 @@ export function parseDiffOrContent(
         });
       }
     } else {
-      // Raw content for newly written files (Plain Code View)
+      // Raw content for newly written files (Git Diff Addition View)
       result.push({
-        type: 'normal',
+        type: 'add',
         newLineNumber: curNew++,
         content: line,
       });
     }
   }
 
-  return { lines: result, isUnifiedDiff };
+  return { lines: result, isUnifiedDiff: true };
 }
 
 export interface FileDiffBlockProps {
@@ -329,7 +380,7 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
           </Box>
         ) : null}
 
-        {/* Clean Code / Git Diff Container */}
+        {/* Git Native Diff Container */}
         <Box flexDirection="column" width="100%">
           {lines.map((line, index) =>
             renderLine(line, index, theme, language, maskFor, hasBoth, isUnifiedDiff),

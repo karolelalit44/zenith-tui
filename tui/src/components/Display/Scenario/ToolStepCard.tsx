@@ -6,7 +6,7 @@ import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import type { EventRenderContext } from './componentRegistry';
-import { FileDiffBlock } from './FileDiffBlock';
+import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
 
 /** Cap on how many stdout lines are rendered inside the terminal window. */
 const MAX_OUTPUT_LINES = 50;
@@ -60,15 +60,46 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const isShellCommand = ['bash', 'run_command', 'execute'].includes(event.tool.toLowerCase());
   const isGrepSearch = ['grep', 'grep_search', 'glob'].includes(event.tool.toLowerCase());
   const isFileRead = ['file_read', 'read_file'].includes(event.tool.toLowerCase());
-  const isFileWrite = ['file_write', 'write_file', 'edit_file', 'create_file'].includes(event.tool.toLowerCase());
+  const isFileMutation = [
+    'file_write',
+    'write_file',
+    'edit_file',
+    'create_file',
+    'file_edit',
+    'multi_edit',
+  ].includes(event.tool.toLowerCase());
 
   const cmdString = primary?.value ?? (event.params.command as string) ?? '';
-  const diffOrContent =
-    (event.params.diff as string) ||
-    (event.params.content as string) ||
-    (event.params.code as string) ||
-    (event.params.patch as string) ||
-    '';
+
+  // Resolve the diff/content to render underneath the header. Prefer a
+  // server-captured unified diff (params.diff or metadata.diff), then raw file
+  // content for brand-new files, and finally build a hunk-only diff on the
+  // client for legacy file_edit events that carry no server-side diff.
+  const diffOrContent = (() => {
+    const fromParams =
+      (event.params.diff as string) ||
+      (event.params.content as string) ||
+      (event.params.code as string) ||
+      (event.params.patch as string) ||
+      '';
+    if (fromParams) return fromParams;
+    if (typeof event.metadata?.diff === 'string' && event.metadata.diff) return event.metadata.diff;
+    const lower = event.tool.toLowerCase();
+    if (('file_edit' === lower || 'multi_edit' === lower || 'edit_file' === lower || 'replace_file_content' === lower) && event.params) {
+      const oldContent =
+        (event.params.old_content as string) ??
+        (event.params.target_content as string) ??
+        (event.params.TargetContent as string) ??
+        '';
+      const newContent =
+        (event.params.new_content as string) ??
+        (event.params.replacement_content as string) ??
+        (event.params.ReplacementContent as string) ??
+        '';
+      if (oldContent || newContent) return buildUnifiedDiff(oldContent, newContent);
+    }
+    return '';
+  })();
 
   const isSuccess = event.success !== false;
 
@@ -176,6 +207,9 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     );
   }
 
+  const isFileDelete = ['file_delete', 'delete_file'].includes(event.tool.toLowerCase());
+  const isLsp = ['lsp_definition', 'lsp_diagnostics', 'lsp_rename'].includes(event.tool.toLowerCase());
+
   const outputText =
     event.output ||
     (typeof event.metadata?.output === 'string' ? event.metadata.output : '') ||
@@ -185,6 +219,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+      {/* Tool Header Row */}
       <Box flexDirection="row" alignItems="center">
         {isPending ? (
           <>
@@ -196,6 +231,10 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             </Text>
             <Text color={theme.colors.text.muted}> ({(elapsed / 10).toFixed(0)}s)</Text>
           </>
+        ) : isFileDelete ? (
+          <Text color={isSuccess ? theme.colors.status.warning : theme.colors.status.error} bold>
+            {statusText}
+          </Text>
         ) : isFileRead ? (
           <Text color={isSuccess ? theme.colors.status.info : theme.colors.status.error}>
             {isSuccess ? '✓' : '✗'} Read {primary?.value || headerText}
@@ -204,24 +243,42 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           <Text color={isSuccess ? theme.colors.status.warning : theme.colors.status.error}>
             {isSuccess ? '✓' : '✗'} {event.tool === 'glob' ? 'Glob' : 'Grep'} &quot;{primary?.value || ''}&quot;
           </Text>
+        ) : isLsp ? (
+          <Text color={isSuccess ? theme.colors.status.info : theme.colors.status.error}>
+            {isSuccess ? '✓' : '✗'} {verb} {primary?.value || ''}
+          </Text>
         ) : (
           <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-            {event.tool === 'get_tool_definition'
-              ? statusText
-              : !isSuccess
-                ? statusText || `✗ ${headerText} failed${event.error ? `: ${event.error}` : ''}`
-                : `● ${headerText}`}
+            {!isSuccess
+              ? statusText || `✗ ${headerText} failed`
+              : hasTextHeader && event.tool !== 'get_tool_definition' && event.tool !== 'discover_capabilities'
+                ? headerText
+                : statusText}
           </Text>
         )}
       </Box>
 
-      {/* File Diff / Patch Box (for file_write) */}
-      {isFileWrite && !isPending && diffOrContent ? (
-        <FileDiffBlock diffOrContent={diffOrContent} />
+      {/* Failure Error Context Box */}
+      {!isPending && !isSuccess && event.error ? (
+        <Box
+          flexDirection="column"
+          paddingLeft={2}
+          marginTop={0}
+          marginBottom={0}
+        >
+          <Text color={theme.colors.status.error} wrap="truncate-end">
+            └─ Error: {event.error}
+          </Text>
+        </Box>
       ) : null}
 
-      {/* Truncated / Minimized Output Snippet (for read / grep / glob / commands) */}
-      {!isFileWrite && !isPending && outputText.trim().length > 0 ? (
+      {/* Unified Git Native Diff / Plain Code Box (file_write, file_edit, multi_edit) */}
+      {isFileMutation && !isPending && isSuccess && diffOrContent ? (
+        <FileDiffBlock diffOrContent={diffOrContent} title={primary?.value || undefined} />
+      ) : null}
+
+      {/* Truncated Minimized Output Snippet (for read / grep / glob / lsp / command outputs) */}
+      {!isFileMutation && !isPending && isSuccess && outputText.trim().length > 0 ? (
         <Box flexDirection="column" paddingLeft={2} marginTop={0}>
           <Text color={theme.colors.text.dim} wrap="truncate-end">
             {formatCommandOutput(outputText, 4)}

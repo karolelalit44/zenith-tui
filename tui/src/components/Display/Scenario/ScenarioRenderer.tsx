@@ -56,67 +56,6 @@ class EventErrorBoundary extends Component<
   }
 }
 
-const EXPLORATORY_TOOLS = new Set([
-  'file_read',
-  'list_dir',
-  'glob',
-  'grep',
-  'grep_search',
-  'get_tool_definition',
-  'discover_capabilities',
-  'lsp_definition',
-  'lsp_diagnostics',
-  'webfetch',
-  'websearch',
-  'todo',
-  'job_output',
-]);
-
-const MUTATING_TOOLS = new Set([
-  'file_write',
-  'file_edit',
-  'multi_edit',
-  'file_delete',
-  'bash',
-  'execute',
-  'run_command',
-  'job_kill',
-  'lsp_rename',
-  'agent',
-]);
-
-const TOOL_EVENT_KINDS = new Set(['tool_step', 'tool_call', 'tool_result']);
-
-function isToolEvent(event: ScenarioEvent): boolean {
-  return TOOL_EVENT_KINDS.has(event.kind);
-}
-
-function phaseLabelFor(tools: string[]): string | null {
-  if (tools.some((t) => MUTATING_TOOLS.has(t))) return 'Executing plan…';
-  if (tools.length > 0 && tools.some((t) => EXPLORATORY_TOOLS.has(t))) return 'Exploring codebase…';
-  return null;
-}
-
-function countHiddenEvents(hidden: ScenarioEvent[]): string | null {
-  const counts = { reads: 0, writes: 0, searches: 0, commands: 0, other: 0 };
-  for (const e of hidden) {
-    if (e.kind !== 'tool_step') continue;
-    const tool = e.tool;
-    if (['file_read', 'list_dir', 'job_output', 'lsp_definition', 'lsp_diagnostics'].includes(tool)) counts.reads++;
-    else if (['file_write', 'file_edit', 'multi_edit', 'file_delete', 'lsp_rename'].includes(tool)) counts.writes++;
-    else if (['glob', 'grep', 'grep_search', 'websearch'].includes(tool)) counts.searches++;
-    else if (['bash', 'execute', 'run_command', 'job_kill'].includes(tool)) counts.commands++;
-    else counts.other++;
-  }
-  const parts: string[] = [];
-  if (counts.reads) parts.push(`${counts.reads} read${counts.reads === 1 ? '' : 's'}`);
-  if (counts.writes) parts.push(`${counts.writes} write${counts.writes === 1 ? '' : 's'}`);
-  if (counts.searches) parts.push(`${counts.searches} search${counts.searches === 1 ? '' : 'es'}`);
-  if (counts.commands) parts.push(`${counts.commands} command${counts.commands === 1 ? '' : 's'}`);
-  if (counts.other) parts.push(`${counts.other} other`);
-  return parts.length > 0 ? parts.join(', ') : null;
-}
-
 export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
   ({
     events,
@@ -152,13 +91,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       return events.slice(-dynamicLimit).includes(firstAssistantMessage) ? null : firstAssistantMessage;
     }, [events, hasOverflow, expanded, dynamicLimit]);
 
-    const liveMaxLimit = Math.max(15, rows - 6);
     const visibleEvents = useMemo(() => {
       return events;
     }, [events]);
-
-    const hiddenEvents: ScenarioEvent[] = [];
-    const hiddenSummary = null;
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.
@@ -170,32 +105,6 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         else if (e.kind === 'success' && lastManifest) map.set(e.id, lastManifest);
       }
       return map;
-    }, [visibleEvents]);
-
-    const phaseLabels = useMemo(() => {
-      const labels = new Map<string, string | null>();
-      let lastLabel: string | null = null;
-      let i = 0;
-      const n = visibleEvents.length;
-      while (i < n) {
-        if (!isToolEvent(visibleEvents[i])) {
-          i++;
-          continue;
-        }
-        const start = i;
-        const tools: string[] = [];
-        while (i < n && isToolEvent(visibleEvents[i])) {
-          const ev = visibleEvents[i];
-          if (ev.kind === 'tool_step' || ev.kind === 'tool_call') tools.push(ev.tool);
-          i++;
-        }
-        const label = phaseLabelFor(tools);
-        if (label && label !== lastLabel) {
-          labels.set(visibleEvents[start].id, label);
-        }
-        if (label) lastLabel = label;
-      }
-      return labels;
     }, [visibleEvents]);
 
     const renderEvent = (event: ScenarioEvent) => {
@@ -215,8 +124,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         {hasOverflow && !expanded && (
           <Box paddingX={1} marginBottom={1}>
             <Text color={theme.colors.text.muted} italic>
-              ... {events.length - dynamicLimit} earlier events hidden
-              {hiddenSummary ? ` (${hiddenSummary})` : ''} — shift+e to show all
+              ... {events.length - dynamicLimit} earlier events hidden — shift+e to show all
             </Text>
           </Box>
         )}

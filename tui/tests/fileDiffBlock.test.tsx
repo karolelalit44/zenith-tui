@@ -19,14 +19,14 @@ function renderDiff(diffOrContent: string, title?: string) {
 
 describe('parseDiffOrContent', () => {
   it('treats raw content as a brand-new file (all additions)', () => {
-    const lines = parseDiffOrContent('alpha\nbeta\n');
+    const { lines } = parseDiffOrContent('alpha\nbeta\n');
     expect(lines.map((l) => l.type)).toEqual(['add', 'add']);
     expect(lines[0].newLineNumber).toBe(1);
     expect(lines[1].newLineNumber).toBe(2);
   });
 
   it('parses a unified diff into hunk, delete, add and context lines', () => {
-    const lines = parseDiffOrContent('@@ -1,2 +1,2 @@\n-old\n+new\n context\n');
+    const { lines } = parseDiffOrContent('@@ -1,2 +1,2 @@\n-old\n+new\n context\n');
     expect(lines.map((l) => l.type)).toEqual(['hunk', 'delete', 'add', 'normal']);
     expect(lines[1].oldLineNumber).toBe(1);
     expect(lines[2].newLineNumber).toBe(1);
@@ -34,31 +34,31 @@ describe('parseDiffOrContent', () => {
 });
 
 describe('FileDiffBlock', () => {
-  it('renders a brand-new file with the +lines badge and content, without word-level hot-spot fills', () => {
+  it('renders a brand-new file as numbered green addition rows with the content', () => {
     const frame = renderDiff('line one\nline two\nline three', 'src/foo.ts');
     const clean = stripAnsi(frame);
     expect(clean).toContain('src/foo.ts');
-    expect(clean).toContain('+3 lines');
+    expect(clean).toContain('1 |');
     expect(clean).toContain('line one');
     expect(clean).toContain('line two');
     expect(clean).toContain('line three');
   });
 
-  it('renders a unified diff hunk in a scope frame with the +/- badge inline', () => {
+  it('renders a unified diff hunk with delete, add and context lines', () => {
     const diff = '@@ -1,3 +1,3 @@\n-old alpha\n+new alpha\n same\n';
     const frame = renderDiff(diff, 'src/bar.ts');
     const clean = stripAnsi(frame);
     expect(clean).toContain('@@ -1,3 +1,3 @@');
-    expect(clean).toContain('+1 -1 lines');
     expect(clean).toContain('old alpha');
     expect(clean).toContain('new alpha');
     expect(clean).toContain('same');
+    expect(clean).toContain('src/bar.ts');
   });
 
   it('shows only the deletion side when a line is removed without a replacement', () => {
     const frame = renderDiff('@@ -1 +1 @@\n-only\n', 'src/drop.ts');
     const clean = stripAnsi(frame);
-    expect(clean).toContain('-1 lines');
+    expect(clean).toContain('@@ -1 +1 @@');
     expect(clean).toContain('only');
   });
 

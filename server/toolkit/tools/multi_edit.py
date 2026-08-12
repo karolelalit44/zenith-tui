@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from difflib import unified_diff
 from pathlib import Path
 from typing import Any
 
@@ -110,5 +111,16 @@ class MultiEditTool(BaseTool):
         return ToolResult(
             success=True,
             output=f"Applied {applied_count} edit(s) to {filepath}",
-            metadata={"filepath": str(path), "edits_applied": applied_count},
+            metadata={
+                "filepath": str(path),
+                "edits_applied": applied_count,
+                "diff": "".join(
+                    unified_diff(
+                        original_content.splitlines(keepends=True),
+                        current_content.splitlines(keepends=True),
+                        fromfile=f"a/{filepath}",
+                        tofile=f"b/{filepath}",
+                    )
+                ),
+            },
         )

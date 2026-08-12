@@ -1,9 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Literal
 
-
 ItemStatus = Literal["available", "reserved", "sold"]
-
 
 class Item(BaseModel):
     id: int
