@@ -206,7 +206,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const manifest = event.kind === 'success' ? successManifests.get(event.id) : undefined;
       return (
         <EventErrorBoundary key={event.id} eventKind={event.kind} errorColor={theme.colors.status.warning}>
-          <Component event={event} context={renderContext} manifest={manifest} />
+          <Component event={event} context={renderContext} manifest={manifest} turnEvents={events} />
         </EventErrorBoundary>
       );
     };

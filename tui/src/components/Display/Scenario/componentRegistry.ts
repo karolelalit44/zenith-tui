@@ -25,6 +25,7 @@ export type EventComponentType = React.ComponentType<{
   event: ScenarioEvent;
   context?: EventRenderContext;
   manifest?: TurnManifestEvent;
+  turnEvents?: ScenarioEvent[];
 }>;
 
 class ComponentRegistry {

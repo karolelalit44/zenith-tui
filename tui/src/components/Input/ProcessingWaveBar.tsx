@@ -30,7 +30,7 @@ export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
     const elapsedMs = startTime ? Math.max(0, Date.now() - startTime) : tick * 100;
     const elapsedStr = formatDuration(elapsedMs);
 
-    // Theme-derived gradient used for every animation accent.
+    // Theme-derived gradient used for animation accents.
     const gradient = [
       theme.colors.status.accent,
       theme.colors.text.emerald,
@@ -39,13 +39,16 @@ export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
       theme.colors.status.accent,
     ];
 
-    // Flowing gradient across the activity label.
-    const label = actionLabel?.trim() || 'Thinking';
-    const labelEl = label.split('').map((ch, index) => (
-      <Text key={index} color={gradient[(tick + index * 2) % gradient.length]} bold>
-        {ch}
-      </Text>
-    ));
+    // Filter out redundant default "Thinking" labels since thinking has its own dedicated section
+    const labelText =
+      actionLabel?.trim() && actionLabel.trim().toLowerCase() !== 'thinking' ? actionLabel.trim() : null;
+    const labelEl = labelText
+      ? labelText.split('').map((ch, index) => (
+          <Text key={index} color={gradient[(tick + index * 2) % gradient.length]} bold>
+            {ch}
+          </Text>
+        ))
+      : null;
 
     // Animated sine equalizer bars tinted by theme gradient.
     const bars = Array.from({ length: EQUALIZER_BARS }).map((_, index) => {
@@ -75,15 +78,16 @@ export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
           {bars}
         </Box>
 
-        {/* Action label (e.g. Thinking...) */}
-        <Box flexDirection="row" flexShrink={1} overflow="hidden">
-          {labelEl}
-          <Text color={theme.colors.text.dim} wrap="truncate-end">{dots}</Text>
-        </Box>
+        {/* Custom action label (if provided and not default "Thinking") */}
+        {labelEl && (
+          <Box flexDirection="row" flexShrink={1} overflow="hidden" marginRight={1}>
+            {labelEl}
+            <Text color={theme.colors.text.dim} wrap="truncate-end">{dots}</Text>
+          </Box>
+        )}
 
         {/* Elapsed duration (on left) */}
-        <Box flexDirection="row" alignItems="center" flexShrink={0} marginLeft={1}>
-          <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
+        <Box flexDirection="row" alignItems="center" flexShrink={0}>
           <Text color={theme.colors.text.muted} wrap="truncate-end">{elapsedStr}</Text>
         </Box>
 
