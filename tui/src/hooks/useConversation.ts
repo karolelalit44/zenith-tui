@@ -88,11 +88,26 @@ export function useConversation(): UseConversationReturn {
     setTurns((prev) => {
       const lastIdx = prev.length - 1;
       const last = prev[lastIdx];
-      const elapsedMs = last ? Date.now() - last.startedAt : undefined;
+      const elapsedMs = last ? Math.max(1000, Date.now() - last.startedAt) : undefined;
 
       const stampedEvents =
         elapsedMs !== undefined ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e)) : events;
-      return prev.map((t, i) => (i === lastIdx ? { ...t, events: [...stampedEvents], isComplete: true } : t));
+
+      // Ensure a success event always exists so the unified status row renders
+      const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
+      const finalEvents = hasSuccess
+        ? stampedEvents
+        : [
+            ...stampedEvents,
+            {
+              kind: 'success',
+              id: `evt_success_complete_${Date.now()}`,
+              message: 'done',
+              elapsedMs: elapsedMs ?? 0,
+            } as ScenarioEvent,
+          ];
+
+      return prev.map((t, i) => (i === lastIdx ? { ...t, events: finalEvents, isComplete: true } : t));
     });
   }, []);
 

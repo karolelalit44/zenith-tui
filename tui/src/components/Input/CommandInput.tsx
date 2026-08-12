@@ -132,7 +132,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
         <Box
           flexDirection="column"
           width="100%"
-          borderStyle="single"
+          borderStyle="round"
           borderColor={focused ? theme.colors.border.active : theme.colors.border.muted}
           paddingX={1}
           paddingY={0}

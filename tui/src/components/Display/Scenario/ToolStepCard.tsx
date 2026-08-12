@@ -131,7 +131,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         <Box
           flexDirection="column"
           backgroundColor={theme.colors.code.background}
-          borderStyle="single"
+          borderStyle="round"
           borderColor={theme.colors.border.muted}
           paddingX={1}
           paddingY={0}

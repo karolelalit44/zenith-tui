@@ -276,91 +276,99 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       let lineCounter = 1;
 
       blocks.push(
-        <Box key={`code_${idx}`} flexDirection="column" marginTop={1} width="100%">
-          <Box flexDirection="row" alignItems="center" marginBottom={0}>
-            {lang === 'DIFF' ? (
-              <>
-                <Text color={theme.colors.status.accent} bold>
-                  *{' '}
+        <Box key={`code_${idx}`} flexDirection="column" marginTop={1} marginBottom={1} width="100%" paddingX={1}>
+          <Box
+            flexDirection="column"
+            backgroundColor={theme.colors.code.background}
+            borderStyle="round"
+            borderColor={theme.colors.border.muted}
+            paddingX={1}
+            paddingY={0}
+          >
+            {/* Designer Terminal Window Header Bar */}
+            <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
+              <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
+                <Text color="#FF5F56">● </Text>
+                <Text color="#FFBD2E">● </Text>
+                <Text color="#27C93F">● </Text>
+                <Text color={theme.colors.status.info} bold wrap="truncate-end">
+                  {lang === 'DIFF' ? 'diff' : lang.toLowerCase()}
                 </Text>
-                <Text color={theme.colors.status.accent} bold>
-                  editor(chat.py)
-                </Text>
-              </>
-            ) : (
-              <Text color={theme.colors.status.accent} bold>
-                [{lang}]
-              </Text>
-            )}
-          </Box>
-          <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
-            <Text color={theme.colors.text.dim}>
-              {lang === 'DIFF'
-                ? `${diffStatsStr} | python`
-                : `${codeLines.length} ${codeLines.length === 1 ? 'line' : 'lines'}`}
-              {isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
-            </Text>
-          </Box>
-          <Box flexDirection="column" paddingLeft={0} marginTop={0}>
-            {visibleLines.map((cL, cIdx) => {
-              if (lang === 'DIFF') {
-                const hunkMatch = cL.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-                if (hunkMatch) {
-                  lineCounter = parseInt(hunkMatch[1], 10);
-                  return (
-                    <Box key={cIdx} width="100%">
-                      <Text color={theme.colors.text.dim}>{cL}</Text>
-                    </Box>
-                  );
-                }
+                {lang === 'DIFF' && diffStatsStr ? (
+                  <>
+                    <Text color={theme.colors.text.dim}> · </Text>
+                    <Text color={theme.colors.text.muted} wrap="truncate-end">
+                      {diffStatsStr}
+                    </Text>
+                  </>
+                ) : null}
+              </Box>
+            </Box>
 
-                if (cL.startsWith('-') && !cL.startsWith('---')) {
-                  const numStr = String(lineCounter).padStart(gutterWidth, ' ');
-                  const cleanContent = cL.startsWith('- ') ? cL.slice(2) : cL.slice(1);
-                  return (
-                    <Box key={cIdx} backgroundColor={theme.colors.diff.removeBg} width="100%">
-                      <Text color={theme.colors.diff.removeFg}>{numStr} - </Text>
-                      <Text color={theme.colors.diff.removeFg}>{cleanContent}</Text>
-                    </Box>
-                  );
-                }
+            {/* Code Body with Line Numbers & Syntax Highlighting */}
+            <Box flexDirection="column" marginTop={0}>
+              {visibleLines.map((cL, cIdx) => {
+                if (lang === 'DIFF') {
+                  const hunkMatch = cL.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                  if (hunkMatch) {
+                    lineCounter = parseInt(hunkMatch[1], 10);
+                    return (
+                      <Box key={cIdx} width="100%">
+                        <Text color={theme.colors.text.dim}>{cL}</Text>
+                      </Box>
+                    );
+                  }
 
-                if (cL.startsWith('+') && !cL.startsWith('+++')) {
+                  if (cL.startsWith('-') && !cL.startsWith('---')) {
+                    const numStr = String(lineCounter).padStart(gutterWidth, ' ');
+                    const cleanContent = cL.startsWith('- ') ? cL.slice(2) : cL.slice(1);
+                    return (
+                      <Box key={cIdx} backgroundColor={theme.colors.diff.removeBg} width="100%">
+                        <Text color={theme.colors.diff.removeFg}>{numStr} - </Text>
+                        <Text color={theme.colors.diff.removeFg}>{cleanContent}</Text>
+                      </Box>
+                    );
+                  }
+
+                  if (cL.startsWith('+') && !cL.startsWith('+++')) {
+                    const numStr = String(lineCounter).padStart(gutterWidth, ' ');
+                    const cleanContent = cL.startsWith('+ ') ? cL.slice(2) : cL.slice(1);
+                    lineCounter++;
+                    return (
+                      <Box key={cIdx} backgroundColor={theme.colors.diff.addBg} width="100%">
+                        <Text color={theme.colors.diff.addFg}>{numStr} + </Text>
+                        <Text color={theme.colors.diff.addFg}>{cleanContent}</Text>
+                      </Box>
+                    );
+                  }
+
                   const numStr = String(lineCounter).padStart(gutterWidth, ' ');
-                  const cleanContent = cL.startsWith('+ ') ? cL.slice(2) : cL.slice(1);
+                  const cleanContent = cL.startsWith(' ') ? cL.slice(1) : cL;
                   lineCounter++;
                   return (
-                    <Box key={cIdx} backgroundColor={theme.colors.diff.addBg} width="100%">
-                      <Text color={theme.colors.diff.addFg}>{numStr} + </Text>
-                      <Text color={theme.colors.diff.addFg}>{cleanContent}</Text>
+                    <Box key={cIdx} width="100%">
+                      <Text color={theme.colors.text.dim}>{numStr} │ </Text>
+                      <Text color={theme.colors.text.bright}>{cleanContent}</Text>
                     </Box>
                   );
                 }
 
-                const numStr = String(lineCounter).padStart(gutterWidth, ' ');
-                const cleanContent = cL.startsWith(' ') ? cL.slice(1) : cL;
-                lineCounter++;
+                const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
                 return (
                   <Box key={cIdx} width="100%">
-                    <Text color={theme.colors.text.dim}>{numStr} </Text>
-                    <Text color={theme.colors.text.bright}>{cleanContent}</Text>
+                    <Text color={theme.colors.text.dim}>{numStr} │ </Text>
+                    <CodeText text={cL} lang={lang.toLowerCase()} />
                   </Box>
                 );
-              }
-
-              const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
-              return (
-                <Box key={cIdx} width="100%">
-                  <Text color={theme.colors.text.dim}>{numStr} </Text>
-                  <CodeText text={cL} lang={lang} />
+              })}
+              {isTruncated && (
+                <Box width="100%" marginTop={0}>
+                  <Text color={theme.colors.text.dim} italic>
+                    … [{codeLines.length - MAX_CODE_LINES} more lines]
+                  </Text>
                 </Box>
-              );
-            })}
-            {isTruncated && (
-              <Text color={theme.colors.text.dim} italic>
-                ... [{codeLines.length - MAX_CODE_LINES} more lines]
-              </Text>
-            )}
+              )}
+            </Box>
           </Box>
         </Box>,
       );
