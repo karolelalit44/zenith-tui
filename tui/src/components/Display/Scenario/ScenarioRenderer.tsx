@@ -165,7 +165,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         }
       }
 
-      if (isRunning && !isHistorical) {
+      if (!isHistorical) {
         const hasSuccess = result.some((e) => e.kind === 'success');
         if (!hasSuccess) {
           return [

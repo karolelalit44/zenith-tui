@@ -494,7 +494,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       blocks.push(
         <Box key={`bullet_${idx}`} flexDirection="row" paddingLeft={1} width="100%">
           <Text color={theme.colors.status.accent}>▸ </Text>
-          <Box flexShrink={1}>
+          <Box flexShrink={1} flexGrow={1}>
             <FormattedInlineText text={itemText} />
           </Box>
         </Box>,
@@ -512,7 +512,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
           <Text color={theme.colors.status.info} bold>
             {numStr}{' '}
           </Text>
-          <Box flexShrink={1}>
+          <Box flexShrink={1} flexGrow={1}>
             <FormattedInlineText text={itemText} />
           </Box>
         </Box>,

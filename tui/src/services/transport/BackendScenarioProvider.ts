@@ -307,6 +307,62 @@ export class BackendScenarioProvider implements ScenarioProvider {
       },
     };
   }
+
+  executeCompaction(sessionId: string, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
+    const COMPACTION_EVENT_KINDS = new Set([
+      'context_compaction_started',
+      'context_compaction_phase',
+      'context_compacted',
+      'context_compaction_ended',
+    ]);
+
+    let eventIndex = 0;
+    let completed = false;
+
+    const unsubscribe = wsClient.onEvent((rpcEvent) => {
+      if (completed) return;
+      const { kind, data, id: rpcId } = rpcEvent.params;
+      if (COMPACTION_EVENT_KINDS.has(kind)) {
+        onEvent(mapRawEvent(kind, data, rpcId), eventIndex++);
+        if (kind === 'context_compaction_ended') {
+          completed = true;
+          unsubscribe();
+          onComplete();
+        }
+      }
+    });
+
+    wsClient.contextCompact(sessionId).then(
+      () => {
+        if (!completed) {
+          completed = true;
+          unsubscribe();
+          onComplete();
+        }
+      },
+      (err) => {
+        if (completed) return;
+        completed = true;
+        unsubscribe();
+        onEvent(
+          {
+            kind: 'error',
+            id: uid(),
+            message: err instanceof Error ? err.message : String(err),
+          },
+          eventIndex++,
+        );
+        onComplete();
+      },
+    );
+
+    return {
+      abort: () => {
+        completed = true;
+        unsubscribe();
+      },
+    };
+  }
 }
 
 function formatContextEventMessage(kind: string, d: Record<string, unknown>): string {

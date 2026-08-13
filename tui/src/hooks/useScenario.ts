@@ -31,6 +31,7 @@ export interface UseScenarioReturn {
     model?: string,
   ) => void;
   abort: () => void;
+  startCompaction: () => void;
   lastSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
   lastManifest: { manifest: TurnManifestEvent; originalPrompt: string } | null;
@@ -339,6 +340,50 @@ export function useScenario(): UseScenarioReturn {
     setIsRunning(false);
   }, [commitPendingEvents]);
 
+  const startCompaction = useCallback(async () => {
+    setEvents([]);
+    eventsRef.current = [];
+    setIsRunning(true);
+    abortRequestedRef.current = false;
+
+    try {
+      await connectToBackend();
+    } catch {
+      reportError('conn', 'Cannot connect to backend. Run: zenith serve');
+      return;
+    }
+
+    try {
+      if (!sessionIdRef.current) {
+        try {
+          const session = await wsClient.createSession('context-compaction');
+          sessionIdRef.current = session.id;
+          setLastSessionId(session.id);
+        } catch {
+          await connectToBackend();
+          const session = await wsClient.createSession('context-compaction');
+          sessionIdRef.current = session.id;
+          setLastSessionId(session.id);
+        }
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      reportError('sess', `Failed to create session: ${message}`);
+      return;
+    }
+
+    runnerRef.current = backendScenarioProvider.executeCompaction(
+      sessionIdRef.current ?? '',
+      handleEvent,
+      handleComplete,
+    );
+
+    if (abortRequestedRef.current) {
+      runnerRef.current.abort();
+      return;
+    }
+  }, [connectToBackend, handleEvent, handleComplete, reportError]);
+
   const setActiveSessionId = useCallback((id: string | null) => {
     sessionIdRef.current = id;
     setLastSessionId(id);
@@ -403,6 +448,7 @@ export function useScenario(): UseScenarioReturn {
     startScenario,
     continueFromManifest,
     abort,
+    startCompaction,
     lastSessionId,
     setActiveSessionId,
     lastManifest,

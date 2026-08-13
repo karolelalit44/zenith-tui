@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { appConfig } from '../src/config/appConfig';
 
 describe('appConfig', () => {
@@ -16,6 +16,14 @@ describe('appConfig', () => {
 
   it('buildWsUrl maps http -> ws and appends /ws/test (simulation backend)', () => {
     expect(appConfig.buildWsUrl()).toBe('ws://localhost:8765/ws/test');
+  });
+
+  it('buildWsUrl honors ZENITH_WS_PATH so the backend can be swapped by URL alone', async () => {
+    vi.stubEnv('ZENITH_WS_PATH', '/ws');
+    vi.resetModules();
+    const mod = await import('../src/config/appConfig');
+    expect(mod.appConfig.buildWsUrl()).toBe('ws://localhost:8765/ws');
+    vi.unstubAllEnvs();
   });
 
   it('exposes timeout and retry defaults', () => {

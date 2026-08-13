@@ -63,7 +63,7 @@ const READY_RESPONSE = {
 };
 
 test('Esc during real /ws/test streaming: streamed data must survive and streaming must stop', async () => {
-  process.env.ZENITH_BACKEND_URL = 'http://127.0.0.1:8799';
+  process.env.ZENITH_BACKEND_URL = process.env.ZENITH_BACKEND_URL || 'http://127.0.0.1:8765';
 
   const { App } = await import('../src/App');
   const startup = await import('../src/services/api/StartupService');

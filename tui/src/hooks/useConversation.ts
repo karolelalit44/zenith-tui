@@ -28,7 +28,6 @@ export interface UseConversationReturn {
   abortActiveTurn: (events?: ScenarioEvent[]) => void;
   markTurnSaved: (turnId: string) => void;
   clearTurns: () => void;
-  compactTurns: () => void;
   remountStatic: () => void;
 }
 
@@ -163,49 +162,6 @@ export function useConversation(): UseConversationReturn {
     process.stdout.write('\x1B[2J\x1B[H');
   }, []);
 
-  const compactTurns = useCallback(() => {
-    setTurns((prev) => {
-      if (prev.length === 0) return prev;
-      const now = new Date();
-      const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-      const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
-
-      // Preserve the latest compaction state from the just-completed turn (if any)
-      // so the consolidated CompactionFlowBlock reflects real backend numbers
-      // rather than fabricating a summary. We look through the previous turn's
-      // events for the most recent compaction terminal event.
-      const latestEnded = [...prev[0].events].reverse().find((e) => e.kind === 'context_compaction_ended');
-      const latestPhase = [...prev[0].events]
-        .reverse()
-        .find((e) => e.kind === 'context_compaction_phase' && e.phase !== 'ready' && e.phase !== 'failed');
-
-      const compactionTurn: ConversationTurn = {
-        id: `turn_compact_${Date.now()}`,
-        prompt: `Compact Context (${prev.length} previous turns compressed)`,
-        mode: prev[prev.length - 1].mode,
-        isComplete: true,
-        timestamp: timeShort,
-        timestampLong: timeLong,
-        startedAt: Date.now(),
-        events: [
-          {
-            kind: 'context_compaction_flow',
-            id: `evt_compact_${Date.now()}`,
-            phase: (latestEnded && !latestEnded.failed) || latestPhase ? 'ready' : 'failed',
-            afterTokens: latestEnded?.used,
-            tokensSaved: latestEnded?.tokensSaved,
-            summaryChars: latestEnded?.summaryChars,
-            preserved: latestEnded?.preserved,
-            failed: latestEnded?.failed ?? false,
-            notes: [],
-          },
-        ],
-      };
-      return [compactionTurn];
-    });
-    setStaticKey((k) => k + 1);
-  }, []);
-
   return {
     turns,
     completedTurns,
@@ -217,7 +173,6 @@ export function useConversation(): UseConversationReturn {
     abortActiveTurn,
     markTurnSaved,
     clearTurns,
-    compactTurns,
     remountStatic,
   };
 }

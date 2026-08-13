@@ -97,7 +97,6 @@ export const App: React.FC = () => {
     abortActiveTurn,
     markTurnSaved,
     clearTurns,
-    compactTurns,
     remountStatic,
   } = useConversation();
 
@@ -156,6 +155,7 @@ export const App: React.FC = () => {
     isRunning,
     startScenario,
     abort,
+    startCompaction,
     eventsRef,
     lastSessionId,
     setActiveSessionId,
@@ -223,11 +223,10 @@ export const App: React.FC = () => {
   }, [isRunning, activeTurn?.isComplete, resetScroll]);
 
   const handleCompact = useCallback(() => {
-    compactTurns();
-    if (lastSessionId) {
-      wsClient.contextCompact(lastSessionId).catch(() => {});
-    }
-  }, [compactTurns, lastSessionId]);
+    if (!lastSessionId) return;
+    addTurn('/compact', selectedMode);
+    startCompaction();
+  }, [lastSessionId, addTurn, selectedMode, startCompaction]);
 
   const handleClearTools = useCallback(() => {
     if (!lastSessionId) return;
