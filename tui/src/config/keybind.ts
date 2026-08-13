@@ -14,7 +14,8 @@ export type KeybindId =
   | 'clear_input'
   | 'interrupt'
   | 'model_picker'
-  | 'expand_history';
+  | 'expand_history'
+  | 'compaction';
 
 export interface Keybinding {
   keys: string[];
@@ -38,6 +39,7 @@ export const KEYBINDINGS: KeybindingMap = {
   interrupt: { keys: ['escape'], description: 'Cancel running / close' },
   model_picker: { keys: ['ctrl+e'], description: 'Switch provider/model' },
   expand_history: { keys: ['shift+e'], description: 'Show all hidden events during a run' },
+  compaction: { keys: ['ctrl+shift+k'], description: 'Open context compaction' },
 };
 
 export type InkKeyLike = Pick<

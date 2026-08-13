@@ -2,6 +2,14 @@ import { envInt } from './env';
 
 const BACKEND_BASE = process.env.ZENITH_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8765';
 
+/**
+ * WebSocket route for the current backend. Defaults to the simulation
+ * backend (`/ws/test`). Point this at `/ws` (and ZENITH_BACKEND_URL at the
+ * production server) when swapping from the test route to the real backend —
+ * no other change required.
+ */
+const WS_PATH = process.env.ZENITH_WS_PATH || process.env.VITE_WS_PATH || '/ws/test';
+
 function parseFloatOrDefault(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback;
   const n = Number.parseFloat(raw.trim());
@@ -48,7 +56,8 @@ export const appConfig = Object.freeze({
   buildWsUrl(): string {
     const base = BACKEND_BASE.replace(/\/+$/, '');
     const ws = base.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
-    return /\/ws$/.test(ws) ? ws : `${ws}/ws`;
+    const path = WS_PATH.startsWith('/') ? WS_PATH : `/${WS_PATH}`;
+    return `${ws}${path}`;
   },
 });
 

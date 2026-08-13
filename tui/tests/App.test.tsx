@@ -139,6 +139,7 @@ test('Input is ready after startup', async () => {
   const { lastFrame, stdin, unmount } = mountApp();
 
   await waitForReady(lastFrame);
+  await new Promise((r) => setTimeout(r, 50));
 
   stdin.write('hello');
   const frame = await waitForFrame(lastFrame, (f) => f.includes('hello'));
@@ -213,6 +214,7 @@ test('slash menu filters as the user types', async () => {
   const { lastFrame, stdin, unmount } = mountApp();
 
   await waitForReady(lastFrame);
+  await new Promise((r) => setTimeout(r, 50));
 
   stdin.write('/pl');
 
@@ -248,6 +250,25 @@ test('Esc closes the slash menu but keeps the input', async () => {
 
   const frame = await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]') && f.includes('/plan'));
   expect(frame).toContain('/plan');
+  unmount();
+});
+
+test('slash menu scrolls to reveal commands beyond the first page', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = mountApp();
+
+  await waitForReady(lastFrame);
+
+  stdin.write('/');
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
+
+  let frame = lastFrame();
+  expect(frame).toMatch(/\d+ more — keep scrolling/);
+
+  stdin.write('\x1B[B'.repeat(20));
+
+  frame = await waitForFrame(lastFrame, (f) => f.includes('/exit'));
+  expect(frame).toContain('▸ /exit');
   unmount();
 });
 

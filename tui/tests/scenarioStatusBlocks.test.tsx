@@ -35,7 +35,7 @@ describe('ThinkingBlock', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame();
-    expect(frame).toContain('Thought for 3.2s');
+    expect(frame).toContain('Thought for 3 s');
     expect(frame).toContain('Let me first understand the project structure');
   });
 
@@ -81,20 +81,19 @@ describe('ProgressBar step icons', () => {
   });
 });
 
-describe('MessageBlock turn indicator', () => {
-  it('shows the turn number when the server provides it', () => {
+describe('MessageBlock content rendering', () => {
+  it('renders the assistant message text', () => {
     const event: MessageEvent = { kind: 'message', id: 'm1', text: 'hello', iteration: 3 };
     const { lastFrame } = render(
       <ThemeProvider>
         <MessageBlock event={event} />
       </ThemeProvider>,
     );
-    expect(lastFrame()).toContain('Assistant');
-    expect(lastFrame()).toContain('turn 3');
+    expect(lastFrame()).toContain('hello');
   });
 
-  it('omits the turn number when absent', () => {
-    const event: MessageEvent = { kind: 'message', id: 'm1', text: 'hello' };
+  it('does not render a turn indicator', () => {
+    const event: MessageEvent = { kind: 'message', id: 'm1', text: 'hello', iteration: 3 };
     const { lastFrame } = render(
       <ThemeProvider>
         <MessageBlock event={event} />
@@ -157,7 +156,7 @@ describe('SuccessCard manifest enrichment', () => {
   });
 });
 
-describe('ScenarioRenderer tool-name classification', () => {
+describe('ScenarioRenderer tool rendering', () => {
   const step = (tool: string): ToolStepEvent => ({
     kind: 'tool_step',
     id: tool,
@@ -170,21 +169,13 @@ describe('ScenarioRenderer tool-name classification', () => {
     pending: false,
   });
 
-  it('classifies grep_search as exploratory and shows the phase label', () => {
+  it('does not emit exploratory or mutating phase labels', () => {
     const { lastFrame } = render(
       <ThemeProvider>
         <ScenarioRenderer events={[step('grep_search')]} isRunning={false} thinkingCollapsed={false} />
       </ThemeProvider>,
     );
-    expect(lastFrame()).toContain('Exploring codebase…');
-  });
-
-  it('does not classify grep_search as mutating', () => {
-    const { lastFrame } = render(
-      <ThemeProvider>
-        <ScenarioRenderer events={[step('grep_search')]} isRunning={false} thinkingCollapsed={false} />
-      </ThemeProvider>,
-    );
+    expect(lastFrame()).not.toContain('Exploring codebase…');
     expect(lastFrame()).not.toContain('Executing plan…');
   });
 });

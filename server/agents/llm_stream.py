@@ -28,7 +28,7 @@ def _friendly_rate_limit_text(e: RateLimitError) -> str:
         )
     if e.retry_after:
         return (
-            f"Rate limit reached ({provider}). Wait about {int(round(e.retry_after))}s "
+            f"Rate limit reached ({provider}). Wait about {round(e.retry_after)}s "
             "for the limit to reset, then retry — this request was not completed."
         )
     return (

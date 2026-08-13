@@ -7,7 +7,6 @@ export type CommandCategory = 'Session' | 'View' | 'Mode' | 'Model' | 'Tools';
 export interface CommandRunContext {
   openOverlay: (target: OverlayType) => void;
   clearTurns: () => void;
-  compactTurns: () => void;
   clearTools: () => void;
   setMode: (mode: ScenarioMode) => void;
   openModelPicker?: () => void;
@@ -15,6 +14,7 @@ export interface CommandRunContext {
   toggleThinking?: () => void;
   savePlan?: () => void;
   triggerExit?: () => void;
+  compactTurns?: () => void;
 }
 
 export interface CommandDef {
@@ -102,20 +102,20 @@ export const commandRegistry: CommandDef[] = [
     run: (ctx) => ctx.clearTurns(),
   },
   {
-    id: 'compact',
-    slash: '/compact',
-    title: '/compact',
-    description: 'Clear conversation history but keep a summary in context',
-    category: 'Session',
-    run: (ctx) => ctx.compactTurns(),
-  },
-  {
     id: 'clear_tools',
     slash: '/clear-tools',
     title: '/clear-tools',
     description: 'Remove tool output from the conversation history',
     category: 'Tools',
     run: (ctx) => ctx.clearTools(),
+  },
+  {
+    id: 'compact',
+    slash: '/compact',
+    title: '/compact',
+    description: 'Clear conversation history but keep a summary in context',
+    category: 'Session',
+    run: (ctx) => ctx.compactTurns?.(),
   },
   {
     id: 'build',
@@ -190,6 +190,15 @@ export const commandRegistry: CommandDef[] = [
     category: 'Session',
     keywords: ['history', 'resume', 'previous', 'conversations'],
     run: (ctx) => ctx.openOverlay('session'),
+  },
+  {
+    id: 'memories',
+    slash: '/memories',
+    title: '/memories',
+    description: 'View project & session memories',
+    category: 'View',
+    keywords: ['memory', 'facts', 'remember', 'knowledge', 'durable'],
+    run: (ctx) => ctx.openOverlay('memories'),
   },
   {
     id: 'exit',

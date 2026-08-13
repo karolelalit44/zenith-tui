@@ -58,9 +58,11 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
           </Text>
           {durationStr ? <Text color={theme.colors.text.muted}>Thought for {durationStr} </Text> : null}
           {preview ? (
-            <Text color={theme.colors.text.dim} italic wrap="truncate-end">
-              {preview}
-            </Text>
+            <Box flexShrink={1}>
+              <Text color={theme.colors.text.dim} italic wrap="truncate-end">
+                {preview}
+              </Text>
+            </Box>
           ) : null}
         </Box>
       ) : (

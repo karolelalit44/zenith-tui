@@ -1,17 +1,21 @@
 /** Collapsed preview length for long event messages (errors/warnings). */
 export const MAX_MESSAGE_PREVIEW_LENGTH = 200;
 
-/** Formats an elapsed duration (ms) as a compact human-readable string. */
+/** Formats Zenith response time in 1-second increments (ignoring milliseconds).
+ *
+ * Rules:
+ * - Whole-second intervals (< 60s): `2 s`, `3 s`, `33 s`
+ * - Minute-based intervals (>= 60s): `1.2 minutes`, `37.40 minutes`
+ * - Milliseconds are ignored completely. Updates only on 1-second interval changes.
+ */
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const totalSec = ms / 1000;
-  if (totalSec < 60) return `${totalSec.toFixed(1)}s`;
-  const mins = Math.floor(totalSec / 60);
-  const secs = Math.round(totalSec % 60);
-  if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+  const totalSec = Math.max(1, Math.floor(ms / 1000));
+  if (totalSec < 60) {
+    return `${totalSec} s`;
+  }
+  const mins = totalSec / 60;
+  const formattedMins = mins % 1 === 0 ? mins.toFixed(1) : mins < 10 ? mins.toFixed(1) : mins.toFixed(2);
+  return `${formattedMins} minutes`;
 }
 
 export function truncateEnd(text: string, maxLength: number): string {

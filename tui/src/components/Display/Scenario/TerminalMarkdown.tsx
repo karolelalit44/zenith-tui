@@ -1,7 +1,9 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import { highlightCode } from '../../../utils/syntaxHighlight';
+import { truncateEnd } from '../../../utils/text';
 
 interface TerminalMarkdownProps {
   content: string;
@@ -47,8 +49,12 @@ const FormattedInlineText: React.FC<{ text: string }> = ({ text }) => {
   const { theme } = useTheme();
   const tokens = parseInlineTokens(text);
 
+  // Render inline tokens as a single flat <Text wrap="wrap"> node.
+  // All children must be plain <Text> siblings — no nesting — so Ink can
+  // compute a single contiguous ANSI string and wrap it cleanly without
+  // emitting partial escape sequences at line boundaries.
   return (
-    <Text>
+    <Text wrap="wrap">
       {tokens.map((t, i) => {
         if (t.code) {
           return (
@@ -86,7 +92,7 @@ const CodeText: React.FC<{ text: string; lang?: string }> = ({ text, lang }) => 
   const { theme } = useTheme();
   const segments = highlightCode(text, theme, lang?.trim() ? lang.toLowerCase() : undefined);
   return (
-    <Text>
+    <Text wrap="wrap">
       {segments.map((seg, i) => (
         <Text key={i} color={seg.color}>
           {seg.text}
@@ -125,6 +131,14 @@ function parseTable(lines: string[]): TableBlock | null {
 
 const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   const { theme } = useTheme();
+  const { columns } = useTerminalDimensions();
+
+  const numCols = table.headers.length || 1;
+  const maxTableWidth = Math.max(24, columns - 6);
+  // Account for table borders: "│ " (2) + " │ " (3 * (numCols - 1)) + " │" (2) = 4 + 3*(numCols - 1)
+  const overhead = 4 + 3 * (numCols - 1);
+  const availCellWidth = Math.max(numCols * 4, maxTableWidth - overhead);
+  const colBudget = Math.max(4, Math.floor(availCellWidth / numCols));
 
   const colWidths = table.headers.map((h, i) => {
     let max = h.length;
@@ -133,31 +147,39 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
         max = r[i].length;
       }
     });
-    return Math.max(max, 6);
+    return Math.max(4, Math.min(max, colBudget));
   });
 
   const makeRowStr = (cells: string[]) =>
-    `│ ${cells.map((cell, i) => (cell || '').padEnd(colWidths[i])).join(' │ ')} │`;
+    `│ ${cells.map((cell, i) => (truncateEnd(cell || '', colWidths[i]) || '').padEnd(colWidths[i])).join(' │ ')} │`;
 
   const topBorder = `┌─${colWidths.map((w) => '─'.repeat(w)).join('─┬─')}─┐`;
   const headerSep = `├─${colWidths.map((w) => '─'.repeat(w)).join('─┼─')}─┤`;
   const bottomBorder = `└─${colWidths.map((w) => '─'.repeat(w)).join('─┴─')}─┘`;
 
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Text color={theme.colors.border.muted}>{topBorder}</Text>
-      <Box flexDirection="row">
-        <Text color={theme.colors.text.bright} bold>
+    <Box flexDirection="column" marginTop={1} width="100%">
+      <Text color={theme.colors.border.muted} wrap="truncate-end">
+        {topBorder}
+      </Text>
+      <Box flexDirection="row" width="100%">
+        <Text color={theme.colors.text.bright} bold wrap="truncate-end">
           {makeRowStr(table.headers)}
         </Text>
       </Box>
-      <Text color={theme.colors.border.muted}>{headerSep}</Text>
+      <Text color={theme.colors.border.muted} wrap="truncate-end">
+        {headerSep}
+      </Text>
       {table.rows.map((r, idx) => (
-        <Box key={idx} flexDirection="row">
-          <Text color={theme.colors.text.ethereal}>{makeRowStr(r)}</Text>
+        <Box key={idx} flexDirection="row" width="100%">
+          <Text color={theme.colors.text.ethereal} wrap="truncate-end">
+            {makeRowStr(r)}
+          </Text>
         </Box>
       ))}
-      <Text color={theme.colors.border.muted}>{bottomBorder}</Text>
+      <Text color={theme.colors.border.muted} wrap="truncate-end">
+        {bottomBorder}
+      </Text>
     </Box>
   );
 };
@@ -262,91 +284,99 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       let lineCounter = 1;
 
       blocks.push(
-        <Box key={`code_${idx}`} flexDirection="column" marginTop={1} width="100%">
-          <Box flexDirection="row" alignItems="center" marginBottom={0}>
-            {lang === 'DIFF' ? (
-              <>
-                <Text color={theme.colors.status.accent} bold>
-                  *{' '}
+        <Box key={`code_${idx}`} flexDirection="column" marginTop={1} marginBottom={1} width="100%" paddingX={1}>
+          <Box
+            flexDirection="column"
+            backgroundColor={theme.colors.code.background}
+            borderStyle="round"
+            borderColor={theme.colors.border.muted}
+            paddingX={1}
+            paddingY={0}
+          >
+            {/* Designer Terminal Window Header Bar */}
+            <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
+              <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
+                <Text color="#FF5F56">● </Text>
+                <Text color="#FFBD2E">● </Text>
+                <Text color="#27C93F">● </Text>
+                <Text color={theme.colors.status.info} bold wrap="truncate-end">
+                  {lang === 'DIFF' ? 'diff' : lang.toLowerCase()}
                 </Text>
-                <Text color={theme.colors.status.accent} bold>
-                  editor(chat.py)
-                </Text>
-              </>
-            ) : (
-              <Text color={theme.colors.status.accent} bold>
-                [{lang}]
-              </Text>
-            )}
-          </Box>
-          <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
-            <Text color={theme.colors.text.dim}>
-              {lang === 'DIFF'
-                ? `${diffStatsStr} | python`
-                : `${codeLines.length} ${codeLines.length === 1 ? 'line' : 'lines'}`}
-              {isTruncated ? ` (showing 1-${MAX_CODE_LINES})` : ''}
-            </Text>
-          </Box>
-          <Box flexDirection="column" paddingLeft={0} marginTop={0}>
-            {visibleLines.map((cL, cIdx) => {
-              if (lang === 'DIFF') {
-                const hunkMatch = cL.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-                if (hunkMatch) {
-                  lineCounter = parseInt(hunkMatch[1], 10);
-                  return (
-                    <Box key={cIdx} width="100%">
-                      <Text color={theme.colors.text.dim}>{cL}</Text>
-                    </Box>
-                  );
-                }
+                {lang === 'DIFF' && diffStatsStr ? (
+                  <>
+                    <Text color={theme.colors.text.dim}> · </Text>
+                    <Text color={theme.colors.text.muted} wrap="truncate-end">
+                      {diffStatsStr}
+                    </Text>
+                  </>
+                ) : null}
+              </Box>
+            </Box>
 
-                if (cL.startsWith('-') && !cL.startsWith('---')) {
-                  const numStr = String(lineCounter).padStart(gutterWidth, ' ');
-                  const cleanContent = cL.startsWith('- ') ? cL.slice(2) : cL.slice(1);
-                  return (
-                    <Box key={cIdx} backgroundColor={theme.colors.diff.removeBg} width="100%">
-                      <Text color={theme.colors.diff.removeFg}>{numStr} - </Text>
-                      <Text color={theme.colors.diff.removeFg}>{cleanContent}</Text>
-                    </Box>
-                  );
-                }
+            {/* Code Body with Line Numbers & Syntax Highlighting */}
+            <Box flexDirection="column" marginTop={0}>
+              {visibleLines.map((cL, cIdx) => {
+                if (lang === 'DIFF') {
+                  const hunkMatch = cL.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                  if (hunkMatch) {
+                    lineCounter = parseInt(hunkMatch[1], 10);
+                    return (
+                      <Box key={cIdx} width="100%">
+                        <Text color={theme.colors.text.dim}>{cL}</Text>
+                      </Box>
+                    );
+                  }
 
-                if (cL.startsWith('+') && !cL.startsWith('+++')) {
+                  if (cL.startsWith('-') && !cL.startsWith('---')) {
+                    const numStr = String(lineCounter).padStart(gutterWidth, ' ');
+                    const cleanContent = cL.startsWith('- ') ? cL.slice(2) : cL.slice(1);
+                    return (
+                      <Box key={cIdx} backgroundColor={theme.colors.diff.removeBg} width="100%">
+                        <Text color={theme.colors.diff.removeFg}>{numStr} - </Text>
+                        <Text color={theme.colors.diff.removeFg}>{cleanContent}</Text>
+                      </Box>
+                    );
+                  }
+
+                  if (cL.startsWith('+') && !cL.startsWith('+++')) {
+                    const numStr = String(lineCounter).padStart(gutterWidth, ' ');
+                    const cleanContent = cL.startsWith('+ ') ? cL.slice(2) : cL.slice(1);
+                    lineCounter++;
+                    return (
+                      <Box key={cIdx} backgroundColor={theme.colors.diff.addBg} width="100%">
+                        <Text color={theme.colors.diff.addFg}>{numStr} + </Text>
+                        <Text color={theme.colors.diff.addFg}>{cleanContent}</Text>
+                      </Box>
+                    );
+                  }
+
                   const numStr = String(lineCounter).padStart(gutterWidth, ' ');
-                  const cleanContent = cL.startsWith('+ ') ? cL.slice(2) : cL.slice(1);
+                  const cleanContent = cL.startsWith(' ') ? cL.slice(1) : cL;
                   lineCounter++;
                   return (
-                    <Box key={cIdx} backgroundColor={theme.colors.diff.addBg} width="100%">
-                      <Text color={theme.colors.diff.addFg}>{numStr} + </Text>
-                      <Text color={theme.colors.diff.addFg}>{cleanContent}</Text>
+                    <Box key={cIdx} width="100%">
+                      <Text color={theme.colors.text.dim}>{numStr} │ </Text>
+                      <Text color={theme.colors.text.bright}>{cleanContent}</Text>
                     </Box>
                   );
                 }
 
-                const numStr = String(lineCounter).padStart(gutterWidth, ' ');
-                const cleanContent = cL.startsWith(' ') ? cL.slice(1) : cL;
-                lineCounter++;
+                const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
                 return (
                   <Box key={cIdx} width="100%">
-                    <Text color={theme.colors.text.dim}>{numStr} </Text>
-                    <Text color={theme.colors.text.bright}>{cleanContent}</Text>
+                    <Text color={theme.colors.text.dim}>{numStr} │ </Text>
+                    <CodeText text={cL} lang={lang.toLowerCase()} />
                   </Box>
                 );
-              }
-
-              const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
-              return (
-                <Box key={cIdx} width="100%">
-                  <Text color={theme.colors.text.dim}>{numStr} </Text>
-                  <CodeText text={cL} lang={lang} />
+              })}
+              {isTruncated && (
+                <Box width="100%" marginTop={0}>
+                  <Text color={theme.colors.text.dim} italic>
+                    … [{codeLines.length - MAX_CODE_LINES} more lines]
+                  </Text>
                 </Box>
-              );
-            })}
-            {isTruncated && (
-              <Text color={theme.colors.text.dim} italic>
-                ... [{codeLines.length - MAX_CODE_LINES} more lines]
-              </Text>
-            )}
+              )}
+            </Box>
           </Box>
         </Box>,
       );
@@ -426,15 +456,20 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
         }
 
         blocks.push(
-          <Box key={`task_${idx}`} flexDirection="row" paddingLeft={1}>
+          <Box key={`task_${idx}`} flexDirection="row" paddingLeft={1} width="100%">
             <Box width={2}>
               <Text color={symbolColor}>{symbol}</Text>
             </Box>
-            <Text
-              color={isDone ? theme.colors.text.bright : isActive ? theme.colors.text.bright : theme.colors.text.muted}
-            >
-              {itemText}
-            </Text>
+            <Box flexShrink={1}>
+              <Text
+                wrap="wrap"
+                color={
+                  isDone ? theme.colors.text.bright : isActive ? theme.colors.text.bright : theme.colors.text.muted
+                }
+              >
+                {itemText}
+              </Text>
+            </Box>
           </Box>,
         );
         idx++;
@@ -444,8 +479,10 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
     if (/^\s*[└├│]/.test(line)) {
       blocks.push(
-        <Box key={`tree_${idx}`} flexDirection="row" paddingLeft={1}>
-          <Text color={theme.colors.text.dim}>{line}</Text>
+        <Box key={`tree_${idx}`} flexDirection="row" paddingLeft={1} width="100%">
+          <Text color={theme.colors.text.dim} wrap="wrap">
+            {line}
+          </Text>
         </Box>,
       );
       idx++;
@@ -455,9 +492,11 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     if (/^\s*[-*+]\s+/.test(line)) {
       const itemText = line.replace(/^\s*[-*+]\s+/, '');
       blocks.push(
-        <Box key={`bullet_${idx}`} flexDirection="row" paddingLeft={1}>
+        <Box key={`bullet_${idx}`} flexDirection="row" paddingLeft={1} width="100%">
           <Text color={theme.colors.status.accent}>▸ </Text>
-          <FormattedInlineText text={itemText} />
+          <Box flexShrink={1} flexGrow={1}>
+            <FormattedInlineText text={itemText} />
+          </Box>
         </Box>,
       );
       idx++;
@@ -469,11 +508,13 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       const numStr = match ? match[1] : '1.';
       const itemText = match ? match[2] : line;
       blocks.push(
-        <Box key={`num_${idx}`} flexDirection="row" paddingLeft={1}>
+        <Box key={`num_${idx}`} flexDirection="row" paddingLeft={1} width="100%">
           <Text color={theme.colors.status.info} bold>
             {numStr}{' '}
           </Text>
-          <FormattedInlineText text={itemText} />
+          <Box flexShrink={1} flexGrow={1}>
+            <FormattedInlineText text={itemText} />
+          </Box>
         </Box>,
       );
       idx++;
@@ -486,9 +527,15 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
+    // Plain paragraph — render with a constrained Box so Ink's yoga layout
+    // correctly accounts for the available width before wrapping the text.
+    // This prevents the ANSI reset + continuation sequence from appearing as
+    // a stray character (e.g. `'` or backtick) at column 0 on the next line.
     blocks.push(
-      <Box key={`p_${idx}`} flexDirection="row" paddingX={0}>
-        <FormattedInlineText text={line} />
+      <Box key={`p_${idx}`} flexDirection="row" width="100%">
+        <Box flexShrink={1} flexGrow={1} overflow="hidden">
+          <FormattedInlineText text={line} />
+        </Box>
       </Box>,
     );
     idx++;

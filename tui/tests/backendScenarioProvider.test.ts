@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backendScenarioProvider } from '../src/services/transport/BackendScenarioProvider';
-import { type JsonRpcEvent, wsClient } from '../src/services/transport/WebSocketClient';
+import { type JsonRpcEvent, type WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
 
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
   return {
@@ -208,10 +208,12 @@ describe('Context compaction events map to typed events (no UNKNOWN_EVENT)', () 
       total: 100000,
       tokensSaved: 60000,
       summaryChars: 1200,
+      summary: 'This session covered the zenith TUI frontend.',
     });
     expect(evt.kind).toBe('context_compaction_ended');
     expect(evt.message).toContain('finished');
     expect(evt.message).toContain('60000');
+    expect(evt.summary).toBe('This session covered the zenith TUI frontend.');
     expect(evt.message).not.toContain('Unknown event');
   });
 
@@ -241,5 +243,147 @@ describe('Context compaction events map to typed events (no UNKNOWN_EVENT)', () 
     const [evt] = runOnce('message', { text: 'done', partial: false, iteration: 3 });
     expect(evt.kind).toBe('message');
     expect(evt).toMatchObject({ text: 'done', partial: false, iteration: 3 });
+  });
+});
+
+describe('executeCompaction (manual /compact pipeline)', () => {
+  const emit = (kind: string, data: Record<string, unknown>) =>
+    (wsClient as unknown as { emitter: { emit: (name: string, data: unknown) => void } }).emitter.emit(
+      'event',
+      makeRpcEvent(kind, data),
+    );
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('streams real compaction events and completes on context_compaction_ended', () => {
+    const compactSpy = vi.spyOn(wsClient, 'contextCompact').mockResolvedValue({ summary: 'ok', cleared: 1 });
+    let completed = false;
+    const kinds: string[] = [];
+
+    const runner = backendScenarioProvider.executeCompaction(
+      'sess-1',
+      (evt) => {
+        kinds.push(evt.kind);
+      },
+      () => {
+        completed = true;
+      },
+    );
+
+    expect(compactSpy).toHaveBeenCalledWith('sess-1');
+
+    emit('context_compaction_started', { used: 90000, total: 100000 });
+    emit('context_compaction_phase', { phase: 'compacting', used: 60000, total: 100000 });
+    emit('context_compacted', { tool: 'glob', charsRemoved: 1234, tokensSaved: 100 });
+    expect(completed).toBe(false);
+
+    emit('context_compaction_ended', { used: 30000, total: 100000, tokensSaved: 60000 });
+
+    expect(completed).toBe(true);
+    expect(kinds).toEqual([
+      'context_compaction_started',
+      'context_compaction_phase',
+      'context_compacted',
+      'context_compaction_ended',
+    ]);
+    runner.abort();
+  });
+
+  it('ignores non-compaction events while the compaction runs', () => {
+    vi.spyOn(wsClient, 'contextCompact').mockResolvedValue({ summary: 'ok', cleared: 1 });
+    let completed = false;
+    const kinds: string[] = [];
+
+    const runner = backendScenarioProvider.executeCompaction(
+      'sess-1',
+      (evt) => {
+        kinds.push(evt.kind);
+      },
+      () => {
+        completed = true;
+      },
+    );
+
+    emit('message', { text: 'unrelated', partial: false });
+    emit('context_compaction_ended', { used: 30000, total: 100000 });
+    expect(completed).toBe(true);
+    expect(kinds).toEqual(['context_compaction_ended']);
+    runner.abort();
+  });
+
+  it('reports an error and completes when the context.compact RPC rejects', async () => {
+    vi.spyOn(wsClient, 'contextCompact').mockRejectedValue(new Error('No active session'));
+    let completed = false;
+    const eventsRecv: Array<{ kind: string; message?: string }> = [];
+
+    const runner = backendScenarioProvider.executeCompaction(
+      'sess-1',
+      (evt) => {
+        eventsRecv.push(evt as { kind: string; message?: string });
+      },
+      () => {
+        completed = true;
+      },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(completed).toBe(true);
+    expect(eventsRecv.some((e) => e.kind === 'error')).toBe(true);
+    expect(eventsRecv.some((e) => e.message?.includes('No active session'))).toBe(true);
+    runner.abort();
+  });
+
+  it('completes when the RPC resolves even if context_compaction_ended was not emitted', async () => {
+    vi.spyOn(wsClient, 'contextCompact').mockResolvedValue({ summary: 'ok', cleared: 1 });
+    let completed = false;
+
+    const runner = backendScenarioProvider.executeCompaction(
+      'sess-1',
+      () => {},
+      () => {
+        completed = true;
+      },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(completed).toBe(true);
+    runner.abort();
+  });
+
+  it('uses the injected client for compaction instead of the shared wsClient', () => {
+    const sharedSpy = vi.spyOn(wsClient, 'contextCompact');
+    const compactSpy = vi.fn().mockResolvedValue({ summary: 'ok', cleared: 1 });
+    const onEventSpy = vi.fn(() => () => {});
+    const client = {
+      onEvent: onEventSpy,
+      contextCompact: compactSpy,
+    };
+    let completed = false;
+    const kinds: string[] = [];
+
+    const runner = backendScenarioProvider.executeCompaction(
+      'test-sim-session',
+      (evt) => {
+        kinds.push(evt.kind);
+      },
+      () => {
+        completed = true;
+      },
+      client as unknown as WebSocketClient,
+    );
+
+    expect(compactSpy).toHaveBeenCalledWith('test-sim-session');
+    expect(onEventSpy).toHaveBeenCalledTimes(1);
+    expect(sharedSpy).not.toHaveBeenCalled();
+
+    const onEventCallback = onEventSpy.mock.calls[0][0] as (rpcEvent: JsonRpcEvent) => void;
+    onEventCallback(makeRpcEvent('context_compaction_started', { used: 118000, total: 128000 }));
+    onEventCallback(makeRpcEvent('context_compaction_ended', { used: 43000, total: 128000 }));
+
+    expect(completed).toBe(true);
+    expect(kinds).toEqual(['context_compaction_started', 'context_compaction_ended']);
+    runner.abort();
   });
 });

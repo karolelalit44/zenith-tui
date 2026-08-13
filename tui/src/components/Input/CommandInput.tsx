@@ -2,6 +2,7 @@ import { Box, type Key, Text } from 'ink';
 import React, { useCallback } from 'react';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
+import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
 import { getActiveGitBranch } from '../../services/git';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
@@ -10,7 +11,6 @@ import { expandPastedMarkers } from '../../utils/pasteTracker';
 import { AttachmentChips } from './AttachmentChips';
 import { ComposerFooter } from './ComposerFooter';
 import { MultiLineTextInput } from './MultiLineTextInput';
-import { ProcessingWaveBar } from './ProcessingWaveBar';
 
 const STATIC_PLACEHOLDER = 'Ask anything...';
 
@@ -22,6 +22,7 @@ interface CommandInputProps {
   disabledMessage?: string;
   running?: boolean;
   actionLabel?: string | null;
+  liveTurnTokens?: number;
   attachments?: FileAttachment[];
   onRemoveAttachment?: (index: number) => void;
   historyUp?: () => string | undefined;
@@ -47,7 +48,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     disabled = false,
     disabledMessage = 'Input disabled',
     running = false,
-    actionLabel,
+    actionLabel: _actionLabel,
+    liveTurnTokens: _liveTurnTokens = 0,
     attachments = [],
     onRemoveAttachment,
     historyUp,
@@ -70,7 +72,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const providerName = activeProvider.meta.name || 'Unknown';
     const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
-    const columns = process.stdout.columns ?? 80;
+    const { columns } = useTerminalDimensions();
     const dividerWidth = Math.max(0, columns - 6);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
@@ -124,13 +126,12 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
-        <ProcessingWaveBar isRunning={running} actionLabel={actionLabel} />
         <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
         <Box
           flexDirection="column"
           width="100%"
-          borderStyle="single"
+          borderStyle="round"
           borderColor={focused ? theme.colors.border.active : theme.colors.border.muted}
           paddingX={1}
           paddingY={0}
@@ -175,10 +176,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             branch={activeBranch}
             totalTokens={totalTokens}
             effectiveMaxTokens={effectiveMaxTokens}
-            running={running}
-            disabled={disabled}
-            inputEmpty={!input.trim()}
-            tokenScope={running ? 'turn' : 'session'}
           />
         </Box>
       </Box>

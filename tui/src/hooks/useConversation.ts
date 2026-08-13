@@ -10,7 +10,10 @@ export interface ConversationTurn {
   events: ScenarioEvent[];
   isComplete: boolean;
   isSaved?: boolean;
+  /** Short timestamp frozen at turn creation: "HH:MM" (e.g. "12:08") */
   timestamp: string;
+  /** Long timestamp frozen at turn creation: "HH:MM, DD Mon" (e.g. "12:08, 12 Aug") */
+  timestampLong: string;
   startedAt: number;
 }
 
@@ -22,15 +25,19 @@ export interface UseConversationReturn {
   staticKey: number;
   addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
-  abortActiveTurn: () => void;
+  abortActiveTurn: (events?: ScenarioEvent[]) => void;
   markTurnSaved: (turnId: string) => void;
   clearTurns: () => void;
-  compactTurns: () => void;
+  remountStatic: () => void;
 }
 
 export function useConversation(): UseConversationReturn {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [staticKey, setStaticKey] = useState(0);
+
+  const remountStatic = useCallback(() => {
+    setStaticKey((k) => k + 1);
+  }, []);
 
   const activeTurn = turns.length > 0 && !turns[turns.length - 1].isComplete ? turns[turns.length - 1] : null;
   const completedTurns = activeTurn ? turns.filter((t) => t.isComplete) : turns;
@@ -51,8 +58,11 @@ export function useConversation(): UseConversationReturn {
   }, [turns]);
 
   const addTurn = useCallback((prompt: string, mode: ScenarioMode, model?: string): string => {
+    // Freeze both formats at the exact moment the turn is created.
+    // The display component must never call new Date() — these values are immutable.
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
     const turnId = `turn_${Date.now()}`;
 
     setTurns((prev) => [
@@ -64,7 +74,8 @@ export function useConversation(): UseConversationReturn {
         model,
         events: [],
         isComplete: false,
-        timestamp: timeStr,
+        timestamp: timeShort,
+        timestampLong: timeLong,
         startedAt: Date.now(),
       },
     ]);
@@ -76,11 +87,26 @@ export function useConversation(): UseConversationReturn {
     setTurns((prev) => {
       const lastIdx = prev.length - 1;
       const last = prev[lastIdx];
-      const elapsedMs = last ? Date.now() - last.startedAt : undefined;
+      const elapsedMs = last ? Math.max(1000, Date.now() - last.startedAt) : undefined;
 
       const stampedEvents =
         elapsedMs !== undefined ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e)) : events;
-      return prev.map((t, i) => (i === lastIdx ? { ...t, events: [...stampedEvents], isComplete: true } : t));
+
+      // Ensure a success event always exists so the unified status row renders
+      const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
+      const finalEvents = hasSuccess
+        ? stampedEvents
+        : [
+            ...stampedEvents,
+            {
+              kind: 'success',
+              id: `evt_success_complete_${Date.now()}`,
+              message: 'done',
+              elapsedMs: elapsedMs ?? 0,
+            } as ScenarioEvent,
+          ];
+
+      return prev.map((t, i) => (i === lastIdx ? { ...t, events: finalEvents, isComplete: true } : t));
     });
   }, []);
 
@@ -89,17 +115,38 @@ export function useConversation(): UseConversationReturn {
       const lastIdx = prev.length - 1;
       const last = prev[lastIdx];
       if (last && !last.isComplete) {
-        const abortEvent: ScenarioEvent = {
-          kind: 'warning',
-          id: `evt_abort_${Date.now()}`,
-          message: 'Generation interrupted by user (ESC)',
-          code: 'USER_ABORT',
-        };
-        const elapsedMs = Date.now() - last.startedAt;
-        const stampedEvents = currentEvents.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e));
-        return prev.map((t, i) =>
-          i === lastIdx ? { ...t, events: [...stampedEvents, abortEvent], isComplete: true } : t,
-        );
+        const elapsedMs = Math.max(1000, Date.now() - last.startedAt);
+        const sourceEvents = currentEvents && currentEvents.length > 0 ? currentEvents : last.events;
+
+        // Preserve all generated content and resolve pending tool steps cleanly
+        const stampedEvents = sourceEvents.map((e) => {
+          const updated = { ...e };
+          if (updated.kind === 'tool_step' && updated.pending) {
+            updated.pending = false;
+            updated.success = updated.success ?? true;
+          }
+          if (updated.kind === 'success') {
+            updated.elapsedMs = updated.elapsedMs ?? elapsedMs;
+          }
+          return updated;
+        });
+
+        // Ensure a success metrics event exists so the frozen status row stays visible
+        const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
+        const finalEvents = hasSuccess
+          ? stampedEvents
+          : [
+              ...stampedEvents,
+              {
+                kind: 'success',
+                id: `evt_success_abort_${Date.now()}`,
+                message: 'Turn stopped',
+                elapsedMs,
+              } as ScenarioEvent,
+            ];
+
+        // Mark turn complete — the unified SuccessCard row freezes its timer in place
+        return prev.map((t, i) => (i === lastIdx ? { ...t, events: finalEvents, isComplete: true } : t));
       }
       return prev;
     });
@@ -115,32 +162,6 @@ export function useConversation(): UseConversationReturn {
     process.stdout.write('\x1B[2J\x1B[H');
   }, []);
 
-  const compactTurns = useCallback(() => {
-    setTurns((prev) => {
-      if (prev.length === 0) return prev;
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-      const summaryTurn: ConversationTurn = {
-        id: `turn_compact_${Date.now()}`,
-        prompt: `Compact Context (${prev.length} previous turns compressed)`,
-        mode: prev[prev.length - 1].mode,
-        isComplete: true,
-        timestamp: timeStr,
-        startedAt: Date.now(),
-        events: [
-          {
-            kind: 'message',
-            id: `evt_summary_${Date.now()}`,
-            text: `Context Compacted: Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
-            partial: false,
-          } as ScenarioEvent,
-        ],
-      };
-      return [summaryTurn];
-    });
-    setStaticKey((k) => k + 1);
-  }, []);
-
   return {
     turns,
     completedTurns,
@@ -152,6 +173,6 @@ export function useConversation(): UseConversationReturn {
     abortActiveTurn,
     markTurnSaved,
     clearTurns,
-    compactTurns,
+    remountStatic,
   };
 }

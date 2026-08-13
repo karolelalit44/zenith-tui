@@ -88,7 +88,7 @@ def _params_label(params: dict) -> str:
     # content)) render as file_write(path=...) instead of an ambiguous
     # file_write(). This keeps the "skipped calls" warning readable.
     for key in ("path", "pattern", "query", "url", "command", "task"):
-        if key in params and params[key]:
+        if params.get(key):
             value = params[key]
             if isinstance(value, str) and len(value) > 48:
                 value = value[:48] + "…"
@@ -930,7 +930,9 @@ class AgentLoop:
                         session_id,
                         output=result.output or "",
                         error=result.error or "",
-                        metadata=build_tool_metadata(tool_name, tool_params, result, duration_ms),
+                        metadata=build_tool_metadata(
+                            tool_name, tool_params, result, duration_ms, ws
+                        ),
                     )
                     if result.stop_turn:
                         logger.info("Tool '%s' requested stop_turn", tool_name)
@@ -1506,9 +1508,9 @@ class AgentLoop:
         if not existing:
             return
         lines = [
-            "[Session state] Files you already created or modified earlier in this session "
+            ("[Session state] Files you already created or modified earlier in this session "
             "(they exist on disk; do not re-create or re-write them unless you are changing "
-            "them):"
+            "them):")
         ]
         for path in sorted(existing):
             rec = existing[path]

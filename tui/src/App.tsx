@@ -16,6 +16,7 @@ import { useOverlayManager } from './hooks/useOverlayManager';
 import { useProvider } from './hooks/useProvider';
 import { useScenario } from './hooks/useScenario';
 import { useScrollState } from './hooks/useScrollState';
+import { useTerminalDimensions } from './hooks/useTerminalDimensions';
 import { useTerminalKeyboard } from './hooks/useTerminalKeyboard';
 import { OverlayRouter } from './routes/OverlayRouter';
 import { ExitScreen } from './screens/Exit/ExitScreen';
@@ -37,8 +38,24 @@ import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
 import type { ScenarioEvent, ScenarioMode, TurnManifestEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
+import { consolidateCompactionEvents } from './utils/compaction';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
-import { computeVisibleTurns } from './utils/turnWindow';
+
+/**
+ * A flat item for the <Static> list. Each conversation turn produces two entries:
+ *   1. 'message' — the UserMessageBlock (committed immediately on submission, never re-rendered)
+ *   2. 'response' — the ScenarioRenderer (committed once the turn completes)
+ *
+ * Ink's <Static> renders each item exactly once when it first appears in the
+ * items array and commits it to the terminal scrollback buffer permanently.
+ */
+interface StaticItem {
+  id: string;
+  type: 'message' | 'response';
+  turn: import('./hooks/useConversation').ConversationTurn;
+  /** Index of this turn in the full turns array (for divider logic). */
+  turnIndex: number;
+}
 
 export interface RetryTarget {
   prompt: string;
@@ -80,8 +97,10 @@ export const App: React.FC = () => {
     abortActiveTurn,
     markTurnSaved,
     clearTurns,
-    compactTurns,
+    remountStatic,
   } = useConversation();
+
+  useTerminalDimensions(remountStatic);
 
   const { scrollState, scrollUp, scrollDown, scrollToTop, scrollToBottom, resetScroll, updateContentHeight } =
     useScrollState();
@@ -136,6 +155,7 @@ export const App: React.FC = () => {
     isRunning,
     startScenario,
     abort,
+    startCompaction,
     eventsRef,
     lastSessionId,
     setActiveSessionId,
@@ -162,6 +182,26 @@ export const App: React.FC = () => {
   const tokenEstimateRef = useRef(0);
   const lastTokenUpdateRef = useRef(0);
   const [liveTotalTokens, setLiveTotalTokens] = useState(totalTokens);
+
+  const liveTurnTokens = useMemo(() => {
+    if (!isRunning || events.length === 0) return 0;
+    return estimateTokensForEvents(events);
+  }, [isRunning, events]);
+
+  // Derive the single consolidated compaction-flow state from the live event
+  // stream so the footer token usage reflects the real, in-progress compaction.
+  const compactionEvent = useMemo(() => consolidateCompactionEvents(events), [events]);
+
+  // Prefer the model-reported context usage (compaction used/total) over the
+  // frontend token estimate so the footer shows the latest session context.
+  const footerContext = useMemo(() => {
+    if (!compactionEvent) return null;
+    const used = compactionEvent.afterTokens ?? compactionEvent.beforeTokens;
+    return {
+      used: typeof used === 'number' ? used : null,
+      total: compactionEvent.totalTokens ?? null,
+    };
+  }, [compactionEvent]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -194,11 +234,9 @@ export const App: React.FC = () => {
   }, [isRunning, activeTurn?.isComplete, resetScroll]);
 
   const handleCompact = useCallback(() => {
-    compactTurns();
-    if (lastSessionId) {
-      wsClient.contextCompact(lastSessionId).catch(() => {});
-    }
-  }, [compactTurns, lastSessionId]);
+    addTurn('/compact', selectedMode);
+    startCompaction();
+  }, [addTurn, selectedMode, startCompaction]);
 
   const handleClearTools = useCallback(() => {
     if (!lastSessionId) return;
@@ -245,15 +283,14 @@ export const App: React.FC = () => {
 
   const handleCancel = useCallback(() => {
     abort();
-    abortActiveTurn();
+    abortActiveTurn(eventsRef.current);
     setRetryTarget(null);
-  }, [abort, abortActiveTurn]);
+  }, [abort, abortActiveTurn, eventsRef]);
 
   const commandCtx = useMemo<CommandRunContext>(
     () => ({
       openOverlay,
       clearTurns,
-      compactTurns: handleCompact,
       clearTools: handleClearTools,
       setMode: handleModeSelect,
       openModelPicker: () => openOverlay('models'),
@@ -261,17 +298,18 @@ export const App: React.FC = () => {
       toggleThinking,
       savePlan: handleSavePlan,
       triggerExit: handleExit,
+      compactTurns: handleCompact,
     }),
     [
       openOverlay,
       clearTurns,
-      handleCompact,
       handleClearTools,
       handleModeSelect,
       handleSetShowPalette,
       toggleThinking,
       handleSavePlan,
       handleExit,
+      handleCompact,
     ],
   );
 
@@ -315,6 +353,7 @@ export const App: React.FC = () => {
     turns,
     isRunning,
     events,
+    eventsRef,
     overlay,
     openOverlay,
     closeOverlay,
@@ -413,20 +452,25 @@ export const App: React.FC = () => {
     setStartupState({ phase: 'ready', result: startupState.result, error: null });
   }, [startupState]);
 
-  const visibleTurns = useMemo(
-    () =>
-      computeVisibleTurns({
-        completedTurns,
-        isUserScrolled: scrollState.isUserScrolled,
-        isRunning,
-        scrollOffset: scrollState.scrollOffset,
-        viewportHeight: scrollState.viewportHeight,
-      }),
-    [completedTurns, scrollState.isUserScrolled, scrollState.scrollOffset, scrollState.viewportHeight, isRunning],
-  );
+  /**
+   * Build the flat static items list from all turns.
+   *
+   * Every turn immediately produces a 'message' item (committed to scrollback
+   * on the first render after addTurn — never re-rendered). Completed turns
+   * also produce a 'response' item (committed once completeActiveTurn runs).
+   */
+  const staticItems: StaticItem[] = useMemo(() => {
+    const items: StaticItem[] = [];
+    for (let i = 0; i < turns.length; i++) {
+      const turn = turns[i];
+      items.push({ id: `msg_${turn.id}`, type: 'message', turn, turnIndex: i });
+      if (turn.isComplete && turn.events.length > 0) {
+        items.push({ id: `resp_${turn.id}`, type: 'response', turn, turnIndex: i });
+      }
+    }
+    return items;
+  }, [turns]);
 
-  const firstVisibleIdx = visibleTurns.length > 0 ? completedTurns.indexOf(visibleTurns[0]) : completedTurns.length;
-  const hiddenAbove = Math.max(0, completedTurns.length - visibleTurns.length - Math.max(0, firstVisibleIdx));
   const showScrollIndicator = scrollState.isUserScrolled && (isRunning || completedTurns.length > 0);
 
   if (startupState.phase === 'loading') {
@@ -460,44 +504,60 @@ export const App: React.FC = () => {
       <Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
         {turns.length === 0 && !isRunning && <WelcomeScreen workspace={workspace} />}
 
-        {scrollState.isUserScrolled && hiddenAbove > 0 && (
+        {scrollState.isUserScrolled && turns.length > 3 && (
           <Box paddingX={1} marginBottom={1}>
             <Text color={theme.colors.text.muted} dimColor>
-              ... {hiddenAbove} earlier turns hidden (scroll up to view)
+              ... earlier turns hidden (scroll up to view)
             </Text>
           </Box>
         )}
 
-        <Static key={staticKey} items={visibleTurns}>
-          {(turn, idx) => (
-            <Box key={turn.id} flexDirection="column" width="100%">
-              {idx > 0 && (
-                <Box marginTop={1} marginBottom={0} paddingX={1} width="100%">
-                  <Text color={theme.colors.border.muted}>
-                    {'─'.repeat(Math.min(process.stdout.columns ?? 80, 80))}
-                  </Text>
+        {/* ── Static items: committed once to scrollback, never re-rendered ── */}
+        <Static key={staticKey} items={staticItems}>
+          {(item) => {
+            if (item.type === 'message') {
+              return (
+                <Box key={item.id} flexDirection="column" width="100%">
+                  {/* Divider between turns */}
+                  {item.turnIndex > 0 ? (
+                    <Box marginTop={1} marginBottom={0} width="100%">
+                      <Text color={theme.colors.border.muted} wrap="truncate-end">
+                        {'─'.repeat(Math.max(10, (process.stdout.columns ?? 80) - 2))}
+                      </Text>
+                    </Box>
+                  ) : null}
+                  <Box marginTop={1} flexDirection="column" width="100%">
+                    <UserMessageBlock
+                      prompt={item.turn.prompt}
+                      model={item.turn.model}
+                      timestamp={item.turn.timestamp}
+                      timestampLong={item.turn.timestampLong}
+                    />
+                  </Box>
                 </Box>
-              )}
-              <Box marginTop={1} flexDirection="column" width="100%">
-                <UserMessageBlock prompt={turn.prompt} model={turn.model} />
-                {turn.events.length > 0 && (
-                  <ScenarioRenderer
-                    events={turn.events}
-                    isRunning={false}
-                    isHistorical={true}
-                    thinkingCollapsed={thinkingCollapsed}
-                    workspaceName={workspace}
-                    gitBranch={activeGitBranch}
-                  />
-                )}
+              );
+            }
+
+            // type === 'response'
+            return (
+              <Box key={item.id} flexDirection="column" width="100%">
+                <ScenarioRenderer
+                  events={item.turn.events}
+                  isRunning={false}
+                  isHistorical={true}
+                  thinkingCollapsed={thinkingCollapsed}
+                  workspaceName={workspace}
+                  gitBranch={activeGitBranch}
+                />
               </Box>
-            </Box>
-          )}
+            );
+          }}
         </Static>
 
-        {isRunning && (
-          <Box flexDirection="column" marginTop={1} width="100%">
-            {activeTurn && <UserMessageBlock prompt={activeTurn.prompt} model={activeTurn.model} />}
+        {/* ── Dynamic area: only the live streaming response ─────────── */}
+        {/* No UserMessageBlock here — it's already committed to Static.  */}
+        {(isRunning || (activeTurn && !activeTurn.isComplete)) && (
+          <Box flexDirection="column" width="100%">
             <ScenarioRenderer
               events={events}
               isRunning={isRunning}
@@ -549,6 +609,7 @@ export const App: React.FC = () => {
               onInputChange={handleInputChange}
               onSubmit={handleSubmit}
               running={isRunning}
+              liveTurnTokens={liveTurnTokens}
               disabled={!!retryTarget || !!continueTarget}
               disabledMessage={
                 retryTarget ? 'Choose an action above…' : continueTarget ? 'Choose an action above…' : undefined
@@ -558,8 +619,8 @@ export const App: React.FC = () => {
               historyUp={historyUp}
               historyDown={historyDown}
               mode={selectedMode}
-              totalTokens={liveTotalTokens}
-              maxTokens={providerRepository.maxContextTokens || undefined}
+              totalTokens={footerContext?.used ?? liveTotalTokens}
+              maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
               workspaceName={workspace}
               onCancel={handleCancel}
               onOpenHelp={handleOpenHelp}
@@ -613,6 +674,7 @@ export const App: React.FC = () => {
           onComplete={handleSetupComplete}
           onOpenProvider={handleOpenProvider}
           onResumeSession={handleSessionResume}
+          onCompactNow={handleCompact}
         />
       </Box>
     </AppProvider>

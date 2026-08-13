@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from difflib import SequenceMatcher
+from difflib import SequenceMatcher, unified_diff
 from typing import Any
 
 from server.config.constants import (
@@ -14,6 +14,18 @@ from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
 FUZZY_THRESHOLD = 0.85
+
+
+def _unified_patch(rel_path: str, before: str, after: str) -> str:
+    """Render a compact unified diff for the edit (used outside git repos)."""
+    return "".join(
+        unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"a/{rel_path}",
+            tofile=f"b/{rel_path}",
+        )
+    )
 
 
 def _fuzzy_find(content: str, old: str) -> tuple[str, float] | None:
@@ -100,7 +112,12 @@ class FileEditTool(BaseTool):
                 return ToolResult(
                     success=True,
                     output=f"Edited {rel_path}",
-                    metadata={"path": str(resolved), "changes": 1, "match": "exact"},
+                    metadata={
+                        "path": str(resolved),
+                        "changes": 1,
+                        "match": "exact",
+                        "diff": _unified_patch(rel_path, content, new_content),
+                    },
                 )
             fuzzy_result = _fuzzy_find(content, old)
             if fuzzy_result is not None:
@@ -115,6 +132,7 @@ class FileEditTool(BaseTool):
                         "changes": 1,
                         "match": "fuzzy",
                         "similarity": round(ratio, 3),
+                        "diff": _unified_patch(rel_path, content, new_content),
                     },
                 )
             preview = old[:80] + ("..." if len(old) > 80 else "")

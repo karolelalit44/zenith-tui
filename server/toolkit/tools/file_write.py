@@ -16,7 +16,7 @@ from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
 _PLACEHOLDER_RE = re.compile(
-    "\\[[\\w\\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\\w\\s]*\\]|\\bYOUR_[\\w_]+_HERE\\b|\\b(?:PLACEHOLDER|TODO|FIXME|XXX|TBD)\\b|\\[HTML\\]|\\[ACTUAL_|\\[Current |\\[UPDATED_",
+    r"\[[\w\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\w\s]*\]|\bYOUR_[\w_]+_HERE\b|\[PLACEHOLDER\]|\[XXX\]|\[TBD\]|\[HTML\]|\[ACTUAL_|\[Current |\[UPDATED_",
     re.IGNORECASE,
 )
 

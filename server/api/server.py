@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import StreamingResponse
 
-from server.config.constants import HEALTH_PATH, WS_PATH
+from server.config.constants import HEALTH_PATH, TEST_WS_PATH, WS_PATH
 from server.config.loader import load_config
 from server.persistence.connection import Database, resolve_db_path
 from server.persistence.logging import db_log
@@ -32,6 +32,7 @@ from .provider_validation import (
 from .schemas import ModelStoreRequest, ProviderModelRequest, ProviderValidationRequest
 from .shutdown import GracefulShutdown
 from .startup import validate_startup
+from .test_websocket import TestSimulationHandler
 from .websocket import ZenithHandler
 
 try:
@@ -44,10 +45,11 @@ _handler: ZenithHandler | None = None
 _shutdown: GracefulShutdown | None = None
 _mcp_manager: McpManager | None = None
 _database: Database | None = None
+_test_handler: TestSimulationHandler | None = None
 
 
 async def _do_startup() -> None:
-    global _handler, _shutdown, _database
+    global _handler, _shutdown, _database, _test_handler
     logger.info("Starting Zenith backend...")
     _shutdown = GracefulShutdown()
     try:
@@ -82,6 +84,8 @@ async def _do_startup() -> None:
         _handler = ZenithHandler(
             config=config, db=db, registry=registry, tool_registry=tool_registry
         )
+        _test_handler = TestSimulationHandler(workspace_root=config.workspace_root)
+        logger.info("Test simulation handler initialized (%s)", TEST_WS_PATH)
         global _mcp_manager
         _mcp_manager = None
         if config.mcp_servers:
@@ -132,13 +136,14 @@ async def _do_startup() -> None:
 
 
 async def _do_shutdown() -> None:
-    global _handler, _shutdown, _mcp_manager
+    global _handler, _shutdown, _mcp_manager, _test_handler
     logger.info("Shutting down Zenith backend...")
     try:
         if _mcp_manager is not None:
             await _mcp_manager.stop()
     finally:
         _mcp_manager = None
+        _test_handler = None
         try:
             if _shutdown:
                 await _shutdown.shutdown()
@@ -410,6 +415,30 @@ async def websocket_endpoint(websocket: WebSocket):
         await _handler.handle(websocket)
     except Exception:
         logger.exception("WebSocket handler error")
+        raise
+
+
+@app.websocket(TEST_WS_PATH)
+async def test_websocket_endpoint(websocket: WebSocket):
+    if _test_handler is None:
+        logger.warning("Test WebSocket rejected: handler not initialized")
+        await websocket.close(code=1011, reason="Server not ready")
+        return
+    origin = websocket.headers.get("origin", "")
+    if origin and "localhost" not in origin and ("127.0.0.1" not in origin):
+        logger.warning("Test WebSocket connection from unexpected origin: %s", origin)
+    if _WS_TOKEN:
+        query_token = websocket.query_params.get("token", "")
+        if query_token != _WS_TOKEN:
+            logger.warning("Test WebSocket rejected: invalid token from %s", websocket.client)
+            await websocket.close(code=4001, reason="Invalid auth token")
+            return
+    logger.info("Test WebSocket connecting from %s", websocket.client)
+    await websocket.accept()
+    try:
+        await _test_handler.handle(websocket)
+    except Exception:
+        logger.exception("Test WebSocket handler error")
         raise
 
 

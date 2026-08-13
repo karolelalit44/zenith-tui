@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { commandRegistry } from '../../../services/api/CommandRegistry';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { AutocompleteDropdownProps } from './types';
@@ -20,6 +21,7 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
   onQueryChange,
 }) => {
   const { theme } = useTheme();
+  const { rows } = useTerminalDimensions();
   const [activeIndex, setActiveIndex] = useState(0);
 
   const query = input.startsWith('/') ? input.slice(1) : input;
@@ -33,6 +35,15 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
     setLastQuery(query);
     setActiveIndex(0);
   }
+
+  const maxVisible = Math.max(3, Math.min(6, rows - 10));
+  const selected = Math.min(activeIndex, Math.max(0, filtered.length - 1));
+  const windowStart = Math.max(
+    0,
+    Math.min(selected - Math.floor(maxVisible / 2), Math.max(0, filtered.length - maxVisible)),
+  );
+  const visibleItems = filtered.slice(windowStart, windowStart + maxVisible);
+  const hiddenCount = filtered.length - visibleItems.length;
 
   useInput((char, key) => {
     if (key.escape) {
@@ -77,35 +88,46 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
       paddingY={1}
     >
       <Box flexDirection="row" alignItems="center" marginBottom={1}>
-        <Text color={theme.colors.status.accent} bold>
+        <Text color={theme.colors.status.accent} bold wrap="truncate-end">
           [SLASH COMMANDS]
         </Text>
-        <Text color={theme.colors.text.muted}>
+        <Text color={theme.colors.text.muted} wrap="truncate-end">
           {' '}
-          — Type to filter · ↑/↓ navigate · Enter select · Tab complete · Esc close
+          — ↑/↓ navigate · Enter select · Tab complete · Esc close
         </Text>
       </Box>
 
-      {filtered.map((cmd, i) => {
-        const isActive = i === activeIndex;
+      {visibleItems.map((cmd, i) => {
+        const isActive = i === activeIndex - windowStart;
         return (
-          <Box key={cmd.command} flexDirection="row" alignItems="center">
+          <Box key={cmd.command} flexDirection="row" alignItems="center" width="100%">
             <Box width={2} flexShrink={0}>
               <Text color={isActive ? theme.colors.status.success : theme.colors.text.muted}>
                 {isActive ? '▸' : ' '}
               </Text>
             </Box>
             <Box width={16} flexShrink={0}>
-              <Text color={isActive ? theme.colors.status.info : theme.colors.text.bright} bold={isActive}>
+              <Text
+                color={isActive ? theme.colors.status.info : theme.colors.text.bright}
+                bold={isActive}
+                wrap="truncate-end"
+              >
                 {cmd.command}
               </Text>
             </Box>
-            <Box flexShrink={1}>
-              <Text color={isActive ? theme.colors.text.bright : theme.colors.text.muted}>{cmd.description}</Text>
+            <Box flexShrink={1} overflow="hidden">
+              <Text color={isActive ? theme.colors.text.bright : theme.colors.text.muted} wrap="truncate-end">
+                {cmd.description}
+              </Text>
             </Box>
           </Box>
         );
       })}
+      {hiddenCount > 0 ? (
+        <Box flexDirection="row" alignItems="center" marginTop={1}>
+          <Text color={theme.colors.text.dim}>▾ {hiddenCount} more — keep scrolling</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 };

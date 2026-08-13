@@ -23,6 +23,7 @@ from .tools.glob import GlobTool
 from .tools.grep import GrepTool
 from .tools.job_kill import JobKillTool
 from .tools.job_output import JobOutputTool
+from .tools.list_dir import ListDirTool
 from .tools.lsp_definition import LspDefinitionTool
 from .tools.lsp_diagnostics import LspDiagnosticsTool
 from .tools.lsp_rename import LspRenameTool
@@ -91,6 +92,7 @@ def create_default_registry(
     registry.register(FileDeleteTool())
     registry.register(GlobTool())
     registry.register(GrepTool())
+    registry.register(ListDirTool())
     registry.register(WebfetchTool(provider=provider))
     registry.register(WebsearchTool())
     registry.register(JobOutputTool())

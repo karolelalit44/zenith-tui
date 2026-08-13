@@ -150,9 +150,8 @@ class _Extractor(HTMLParser):
                 self._skip -= 1
             self._depth -= 1
             return
-        if tag in _CODE_TAGS:
-            if self._pre:
-                self._pre -= 1
+        if tag in _CODE_TAGS and self._pre:
+            self._pre -= 1
         if (
             tag in ("main", "article")
             and self._root_depth is not None
@@ -161,16 +160,13 @@ class _Extractor(HTMLParser):
             self._root_closed = True
         if tag in _HEADING_TAGS or tag in _BLOCK_TAGS:
             self._newline()
-        elif tag == "a":
-            if self._pending_link:
-                self._emit(f" ({self._pending_link})")
-                self._pending_link = None
+        elif tag == "a" and self._pending_link:
+            self._emit(f" ({self._pending_link})")
+            self._pending_link = None
         self._depth -= 1
 
     def handle_data(self, data: str) -> None:
-        if self._pre:
-            self._emit(data)
-        elif data.strip():
+        if self._pre or data.strip():
             self._emit(data)
 
     def result(self) -> str:

@@ -7,10 +7,12 @@ export type OverlayType =
   | 'help'
   | 'settings'
   | 'context'
+  | 'compaction'
   | 'provider'
   | 'models'
   | 'usage'
-  | 'session';
+  | 'session'
+  | 'memories';
 
 export interface UseOverlayManagerReturn {
   selectedMode: ScenarioMode;

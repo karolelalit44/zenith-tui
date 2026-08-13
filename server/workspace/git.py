@@ -118,6 +118,32 @@ class GitOps:
         code, stdout, stderr = self._run(*args)
         return stdout if code == 0 else stderr
 
+    def diff_path(self, file_path: str) -> str:
+        """Unified diff for a working-tree path, including untracked files.
+
+        Untracked files are registered with intent-to-add (``git add -N``) so
+        ``git diff`` reports their full contents as additions without staging
+        anything. Returns an empty string when no diff is available.
+        """
+        if not self.is_git_repo():
+            return ""
+        code, stdout, _ = self._run("diff", "--", file_path)
+        if code != 0:
+            return ""
+        if stdout:
+            return stdout
+        status_code, status_out, _ = self._run("status", "--porcelain", "--", file_path)
+        if status_code != 0:
+            return ""
+        untracked = any(line.startswith("??") for line in status_out.splitlines())
+        if not untracked:
+            return ""
+        add_code, _, _ = self._run("add", "-N", "--", file_path)
+        if add_code != 0:
+            return ""
+        diff_code, diff_out, _ = self._run("diff", "--", file_path)
+        return diff_out if diff_code == 0 else ""
+
     def diff_staged(self) -> str:
         code, stdout, stderr = self._run("diff", "--cached")
         return stdout if code == 0 else stderr

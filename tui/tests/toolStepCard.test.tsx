@@ -100,7 +100,10 @@ describe('ToolStepCard', () => {
       { isRunning: true, isHistorical: true },
     );
     const frame = lastFrame();
-    expect(frame).toContain('✗ Ran command');
+    // Historical replay renders the terminal window frozen (no live spinner),
+    // showing the failed command prompt rather than a "Ran command" verdict.
+    expect(frame).toContain('npm test');
+    expect(frame).toContain('✗');
     expect(frame).not.toContain(SPINNER_FRAMES[0]);
   });
 
@@ -113,7 +116,10 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓ Ran command');
+    expect(frame).toContain('✓');
+    expect(frame).toContain('❯❯');
+    expect(frame).toContain('npm test');
+    expect(frame).toContain('~ 1 s');
   });
 
   it('renders bash stdout between the prompt and the footer', () => {
@@ -129,7 +135,7 @@ describe('ToolStepCard', () => {
     expect(frame).toContain('python -m unittest');
     expect(frame).toContain('Ran 3 tests in 0.004s');
     expect(frame).toContain('OK');
-    expect(frame).toContain('✓ Ran command (5.5s)');
+    expect(frame).toContain('~ 5 s');
   });
 
   it('shows the ~ took timing pill and command tab name in the titlebar', () => {
@@ -141,8 +147,7 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('~ took 5.5s');
-    expect(frame).toContain('TERMINAL');
+    expect(frame).toContain('~ 5 s');
     expect(frame).toContain('npm test');
   });
 
@@ -161,7 +166,7 @@ describe('ToolStepCard', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame();
-    expect(frame).toContain('~/zenith-frontend-tui');
+    expect(frame).toContain('zenith-frontend-tui');
     expect(frame).toContain('main');
   });
 
@@ -177,7 +182,8 @@ describe('ToolStepCard', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('more lines');
-    expect(frame).toContain('line 49');
+    expect(frame).toContain('line 0');
+    expect(frame).not.toContain('line 59');
   });
 
   it('collapses a multi-line bash command to its first line in the prompt', () => {
@@ -208,9 +214,11 @@ describe('ToolStepCard', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('Set-Content : A positional parameter');
-    expect(frame).toContain('out 19');
+    expect(frame).toContain('out 0');
     expect(frame).toContain('more lines');
-    expect(frame).toContain('✗ Ran command (2.2s)');
+    expect(frame).not.toContain('out 19');
+    expect(frame).toContain('✗');
+    expect(frame).toContain('~ 2 s');
   });
 
   it('truncates an over-long tab name in the titlebar', () => {
@@ -224,5 +232,81 @@ describe('ToolStepCard', () => {
     );
     const frame = lastFrame();
     expect(frame).not.toContain('x'.repeat(80));
+  });
+
+  it('renders a file_edit step with its server-captured unified diff', () => {
+    const diff = '@@ -1,2 +1,2 @@\n-old line\n+new line\n';
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_edit',
+        params: { path: 'src/a.ts', old_content: 'old line', new_content: 'new line' },
+        success: true,
+        metadata: { path: 'src/a.ts', diff },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Update');
+    expect(frame).toContain('src/a.ts');
+    expect(frame).toContain('old line');
+    expect(frame).toContain('new line');
+  });
+
+  it('builds a fallback hunk diff for a file_edit with no server diff', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_edit',
+        params: { path: 'src/a.ts', old_content: 'before', new_content: 'after' },
+        success: true,
+        metadata: { path: 'src/a.ts' },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('before');
+    expect(frame).toContain('after');
+  });
+
+  it('renders a multi_edit step with its captured diff', () => {
+    const diff = '@@ -1,2 +1,2 @@\n-alpha\n+beta\n';
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'multi_edit',
+        params: { filepath: 'src/b.ts' },
+        success: true,
+        metadata: { filepath: 'src/b.ts', diff },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Update');
+    expect(frame).toContain('src/b.ts');
+    expect(frame).toContain('alpha');
+    expect(frame).toContain('beta');
+  });
+
+  it('renders a successful file_delete with the destructive icon and muted note', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_delete',
+        params: { path: 'src/gone.ts' },
+        success: true,
+        metadata: { path: 'src/gone.ts' },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('✗ Delete');
+    expect(frame).toContain('src/gone.ts');
+    expect(frame).toContain('removed from workspace');
+  });
+
+  it('renders the rich status label for a successful websearch', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'websearch',
+        params: { query: 'ink components' },
+        metadata: { query: 'ink components' },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('✓ Web search');
+    expect(frame).toContain('ink components');
   });
 });
