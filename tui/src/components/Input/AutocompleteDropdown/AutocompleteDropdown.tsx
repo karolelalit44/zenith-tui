@@ -30,14 +30,20 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
     (c) => c.command.slice(1).toLowerCase().includes(queryLower) || c.description.toLowerCase().includes(queryLower),
   );
 
-  const maxVisible = Math.max(3, Math.min(6, rows - 10));
-  const visibleItems = filtered.slice(0, maxVisible);
-
   const [lastQuery, setLastQuery] = useState(query);
   if (lastQuery !== query) {
     setLastQuery(query);
     setActiveIndex(0);
   }
+
+  const maxVisible = Math.max(3, Math.min(6, rows - 10));
+  const selected = Math.min(activeIndex, Math.max(0, filtered.length - 1));
+  const windowStart = Math.max(
+    0,
+    Math.min(selected - Math.floor(maxVisible / 2), Math.max(0, filtered.length - maxVisible)),
+  );
+  const visibleItems = filtered.slice(windowStart, windowStart + maxVisible);
+  const hiddenCount = filtered.length - visibleItems.length;
 
   useInput((char, key) => {
     if (key.escape) {
@@ -49,16 +55,16 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
       return;
     }
     if (key.downArrow) {
-      setActiveIndex((prev) => Math.min(visibleItems.length - 1, prev + 1));
+      setActiveIndex((prev) => Math.min(filtered.length - 1, prev + 1));
       return;
     }
     if (key.return || char === '\n' || char === '\r') {
-      const entry = visibleItems[activeIndex];
+      const entry = filtered[activeIndex];
       if (entry) onSelect(entry.command);
       return;
     }
     if (key.tab) {
-      const entry = visibleItems[activeIndex] ?? visibleItems[0];
+      const entry = filtered[activeIndex] ?? filtered[0];
       if (entry && onQueryChange) onQueryChange(entry.command);
       return;
     }
@@ -92,7 +98,7 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
       </Box>
 
       {visibleItems.map((cmd, i) => {
-        const isActive = i === activeIndex;
+        const isActive = i === activeIndex - windowStart;
         return (
           <Box key={cmd.command} flexDirection="row" alignItems="center" width="100%">
             <Box width={2} flexShrink={0}>
@@ -117,6 +123,11 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
           </Box>
         );
       })}
+      {hiddenCount > 0 ? (
+        <Box flexDirection="row" alignItems="center" marginTop={1}>
+          <Text color={theme.colors.text.dim}>▾ {hiddenCount} more — keep scrolling</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 };

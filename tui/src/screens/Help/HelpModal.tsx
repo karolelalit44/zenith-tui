@@ -88,7 +88,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
                 <Text color={theme.colors.status.success}>/clear</Text> Reset Conversation
               </Text>
               <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/compact</Text> Compress History
+                <Text color={theme.colors.status.success}>/compact</Text> Compact Context
               </Text>
               <Text color={theme.colors.text.ethereal}>
                 <Text color={theme.colors.status.success}>/model</Text> Open Model Picker

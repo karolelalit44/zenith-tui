@@ -253,6 +253,25 @@ test('Esc closes the slash menu but keeps the input', async () => {
   unmount();
 });
 
+test('slash menu scrolls to reveal commands beyond the first page', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = mountApp();
+
+  await waitForReady(lastFrame);
+
+  stdin.write('/');
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]'));
+
+  let frame = lastFrame();
+  expect(frame).toMatch(/\d+ more — keep scrolling/);
+
+  stdin.write('\x1B[B'.repeat(20));
+
+  frame = await waitForFrame(lastFrame, (f) => f.includes('/exit'));
+  expect(frame).toContain('▸ /exit');
+  unmount();
+});
+
 test('Escape during scenario stops execution', async () => {
   mockBackendReady();
   const { lastFrame, stdin, unmount } = mountApp();

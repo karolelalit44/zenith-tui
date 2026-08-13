@@ -11,7 +11,7 @@ const baseEvent: ContextCompactionFlowEvent = {
 };
 
 describe('CompactionFlowBlock', () => {
-  it('renders a single block for the preparing phase', () => {
+  it('renders a branded card for the preparing phase', () => {
     const event: ContextCompactionFlowEvent = { ...baseEvent, phase: 'preparing' };
     const { lastFrame } = render(
       <ThemeProvider>
@@ -19,6 +19,7 @@ describe('CompactionFlowBlock', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame();
+    expect(frame).toContain('Compaction');
     expect(frame).toContain('Preparing conversation context');
   });
 
@@ -43,7 +44,7 @@ describe('CompactionFlowBlock', () => {
     expect(frame).toContain('trimmed tool traces');
   });
 
-  it('renders the ready state with success checkmark and saved tokens', () => {
+  it('renders the ready state as a compacted summary banner with tokens', () => {
     const event: ContextCompactionFlowEvent = {
       ...baseEvent,
       phase: 'ready',
@@ -57,9 +58,33 @@ describe('CompactionFlowBlock', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame();
-    expect(frame).toContain('Context ready');
-    expect(frame).toContain('43.0k used');
+    expect(frame).toContain('Context compacted (manual)');
+    expect(frame).toContain('128.0k → 43.0k tokens');
     expect(frame).toContain('saved 85.0k');
+  });
+
+  it('renders the human-readable summary and preserved breakdown when ready', () => {
+    const event: ContextCompactionFlowEvent = {
+      ...baseEvent,
+      phase: 'ready',
+      beforeTokens: 128_000,
+      afterTokens: 43_000,
+      tokensSaved: 85_000,
+      summary:
+        'This session covered the zenith TUI frontend. The /compact command now streams the simulated compaction scenario.',
+      preserved: { requirements: 12, decisions: 7, openTasks: 4, agents: 2 },
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <CompactionFlowBlock event={event} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('This session covered the zenith TUI frontend');
+    expect(frame).toContain('Preserved');
+    expect(frame).toContain('12 requirements');
+    expect(frame).toContain('7 decisions');
+    expect(frame).toContain('2 agents');
   });
 
   it('renders the failure state with conversation-unchanged message', () => {

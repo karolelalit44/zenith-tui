@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScenarioRunner } from '../services/scenario/types';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
+import { emitCompactionFixture } from '../services/transport/fixtureEmitter';
 import { wsClient } from '../services/transport/WebSocketClient';
 import type {
   FileAttachment,
@@ -307,7 +308,7 @@ export function useScenario(): UseScenarioReturn {
       runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
 
       if (abortRequestedRef.current) {
-        runnerRef.current.abort();
+        runnerRef.current?.abort();
         if (sessionIdRef.current) {
           wsClient.cancelPrompt(sessionIdRef.current).catch(() => {});
         }
@@ -340,49 +341,21 @@ export function useScenario(): UseScenarioReturn {
     setIsRunning(false);
   }, [commitPendingEvents]);
 
-  const startCompaction = useCallback(async () => {
+  const startCompaction = useCallback(() => {
     setEvents([]);
     eventsRef.current = [];
     setIsRunning(true);
     abortRequestedRef.current = false;
 
-    try {
-      await connectToBackend();
-    } catch {
-      reportError('conn', 'Cannot connect to backend. Run: zenith serve');
-      return;
-    }
-
-    try {
-      if (!sessionIdRef.current) {
-        try {
-          const session = await wsClient.createSession('context-compaction');
-          sessionIdRef.current = session.id;
-          setLastSessionId(session.id);
-        } catch {
-          await connectToBackend();
-          const session = await wsClient.createSession('context-compaction');
-          sessionIdRef.current = session.id;
-          setLastSessionId(session.id);
-        }
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      reportError('sess', `Failed to create session: ${message}`);
-      return;
-    }
-
-    runnerRef.current = backendScenarioProvider.executeCompaction(
-      sessionIdRef.current ?? '',
-      handleEvent,
-      handleComplete,
-    );
+    // Replay the canonical compaction fixture locally — no backend needed.
+    sessionIdRef.current = 'context-compaction';
+    setLastSessionId('context-compaction');
+    runnerRef.current = emitCompactionFixture(handleEvent, handleComplete);
 
     if (abortRequestedRef.current) {
-      runnerRef.current.abort();
-      return;
+      runnerRef.current?.abort();
     }
-  }, [connectToBackend, handleEvent, handleComplete, reportError]);
+  }, [handleEvent, handleComplete]);
 
   const setActiveSessionId = useCallback((id: string | null) => {
     sessionIdRef.current = id;
@@ -415,7 +388,7 @@ export function useScenario(): UseScenarioReturn {
       runnerRef.current = backendScenarioProvider.execute(scenario, handleEvent, handleComplete);
 
       if (abortRequestedRef.current) {
-        runnerRef.current.abort();
+        runnerRef.current?.abort();
         if (sessionIdRef.current) {
           wsClient.cancelPrompt(sessionIdRef.current).catch(() => {});
         }

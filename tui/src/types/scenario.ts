@@ -151,6 +151,8 @@ export interface ContextCompactionEndedEvent {
   total?: number;
   preserved?: ContextPreservation;
   failed?: boolean;
+  /** Human-readable summary of what the compaction pass preserved. */
+  summary?: string;
 }
 
 /**
@@ -199,11 +201,14 @@ export interface ContextCompactionFlowEvent {
   phase: CompactionPhase;
   beforeTokens?: number;
   afterTokens?: number;
+  totalTokens?: number;
   tokensSaved?: number;
   summaryChars?: number;
   preserved?: ContextPreservation;
   /** Short sub-lines captured from tool-level compaction steps (max ~3). */
   notes?: string[];
+  /** Human-readable summary of what the compaction pass preserved. */
+  summary?: string;
   failed?: boolean;
 }
 

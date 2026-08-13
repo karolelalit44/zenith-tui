@@ -35,9 +35,11 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
   let hasPhaseEvent = false;
   let beforeTokens: number | undefined;
   let afterTokens: number | undefined;
+  let totalTokens: number | undefined;
   let tokensSaved: number | undefined;
   let summaryChars: number | undefined;
   let preserved: ContextPreservation | undefined;
+  let summary: string | undefined;
   let failed: boolean | undefined;
   const notes: string[] = [];
 
@@ -46,6 +48,9 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
       sourceId = evt.id;
       if (typeof evt.used === 'number' && beforeTokens === undefined) {
         beforeTokens = evt.used;
+      }
+      if (typeof evt.total === 'number' && totalTokens === undefined) {
+        totalTokens = evt.total;
       }
       if (hasPhaseEvent === false) phase = 'preparing';
     } else if (evt.kind === 'context_compaction_phase') {
@@ -67,11 +72,13 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
       }
     } else if (evt.kind === 'context_compaction_ended') {
       sourceId = evt.id;
-      if (!hasPhaseEvent) phase = failed ? 'failed' : 'ready';
+      phase = failed ? 'failed' : 'ready';
       if (typeof evt.used === 'number') afterTokens = evt.used;
+      if (typeof evt.total === 'number') totalTokens = evt.total;
       if (typeof evt.tokensSaved === 'number') tokensSaved = evt.tokensSaved;
       if (typeof evt.summaryChars === 'number') summaryChars = evt.summaryChars;
       if (evt.preserved) preserved = evt.preserved;
+      if (typeof evt.summary === 'string' && evt.summary.trim().length > 0) summary = evt.summary;
       if (evt.failed === true) {
         failed = true;
         phase = 'failed';
@@ -85,9 +92,11 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
     phase,
     beforeTokens,
     afterTokens,
+    totalTokens,
     tokensSaved,
     summaryChars,
     preserved,
+    summary,
     notes,
     failed,
   };

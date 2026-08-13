@@ -747,6 +747,18 @@ class TestSimulationHandler:
                     "agents": 2,
                 },
                 failed=False,
+                summary=(
+                    "This session covered the zenith TUI frontend (tui/). Completed: the "
+                    "/compact command now always streams the simulated compaction scenario "
+                    "from the /ws/test test backend, running over a dedicated WebSocket "
+                    "client injected into executeCompaction so the shared connection is "
+                    "never disturbed. The compaction lifecycle is consolidated into a single "
+                    "professional Compaction turn card showing before/after token counts, "
+                    "per-tool compaction notes, and preserved context metrics. Validation: "
+                    "vitest (222 tests), tsc, biome, and the build all pass. Open items: "
+                    "none. Key files: useScenario.ts, BackendScenarioProvider.ts, "
+                    "CompactionFlowBlock.tsx, backendScenarioProvider.test.ts."
+                ),
             ),
         )
 

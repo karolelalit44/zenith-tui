@@ -143,6 +143,74 @@ describe('ComposerFooter', () => {
     restore();
   });
 
+  it('shows the live before→after transition while compacting', () => {
+    const restore = stubColumns(120);
+    seedModel();
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        totalTokens={118_000}
+        effectiveMaxTokens={128_000}
+        running
+        disabled={false}
+        inputEmpty
+        tokenScope="session"
+        compaction={{
+          kind: 'context_compaction_flow',
+          id: 'evt_1',
+          phase: 'compacting',
+          beforeTokens: 118_000,
+          afterTokens: 43_000,
+          totalTokens: 128_000,
+        }}
+      />,
+    );
+
+    const frame = app.lastFrame();
+    expect(frame).toContain('Compacting…');
+    expect(frame).toContain('118.0k');
+    expect(frame).toContain('43.0k');
+    restore();
+  });
+
+  it('shows the model-reported after-context once compaction is ready', () => {
+    const restore = stubColumns(120);
+    seedModel();
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        totalTokens={118_000}
+        effectiveMaxTokens={128_000}
+        running={false}
+        disabled={false}
+        inputEmpty
+        tokenScope="session"
+        compaction={{
+          kind: 'context_compaction_flow',
+          id: 'evt_1',
+          phase: 'ready',
+          beforeTokens: 118_000,
+          afterTokens: 43_000,
+          totalTokens: 128_000,
+          tokensSaved: 75_000,
+        }}
+      />,
+    );
+
+    expect(app.lastFrame()).toContain('Context 43.0k');
+    restore();
+  });
+
   it('computeFooterLayout never exceeds the available width', () => {
     for (const columns of [60, 80, 100, 120, 160]) {
       const layout = computeFooterLayout({

@@ -32,7 +32,11 @@ export const ContextIndicator: React.FC<ContextIndicatorProps> = React.memo(
     let text: string;
 
     if (compaction && compaction.phase !== 'ready' && compaction.phase !== 'failed') {
-      text = 'Compacting…';
+      if (typeof compaction.beforeTokens === 'number' && typeof compaction.afterTokens === 'number') {
+        text = `Compacting… ${formatTokenCount(compaction.beforeTokens)} → ${formatTokenCount(compaction.afterTokens)}`;
+      } else {
+        text = 'Compacting…';
+      }
       color = theme.colors.status.warning;
     } else if (compaction && compaction.phase === 'failed') {
       text = 'Compaction failed';

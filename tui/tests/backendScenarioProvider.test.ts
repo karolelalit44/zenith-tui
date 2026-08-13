@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backendScenarioProvider } from '../src/services/transport/BackendScenarioProvider';
-import { type JsonRpcEvent, wsClient } from '../src/services/transport/WebSocketClient';
+import { type JsonRpcEvent, type WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
 
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
   return {
@@ -208,10 +208,12 @@ describe('Context compaction events map to typed events (no UNKNOWN_EVENT)', () 
       total: 100000,
       tokensSaved: 60000,
       summaryChars: 1200,
+      summary: 'This session covered the zenith TUI frontend.',
     });
     expect(evt.kind).toBe('context_compaction_ended');
     expect(evt.message).toContain('finished');
     expect(evt.message).toContain('60000');
+    expect(evt.summary).toBe('This session covered the zenith TUI frontend.');
     expect(evt.message).not.toContain('Unknown event');
   });
 
@@ -347,6 +349,41 @@ describe('executeCompaction (manual /compact pipeline)', () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(completed).toBe(true);
+    runner.abort();
+  });
+
+  it('uses the injected client for compaction instead of the shared wsClient', () => {
+    const sharedSpy = vi.spyOn(wsClient, 'contextCompact');
+    const compactSpy = vi.fn().mockResolvedValue({ summary: 'ok', cleared: 1 });
+    const onEventSpy = vi.fn(() => () => {});
+    const client = {
+      onEvent: onEventSpy,
+      contextCompact: compactSpy,
+    };
+    let completed = false;
+    const kinds: string[] = [];
+
+    const runner = backendScenarioProvider.executeCompaction(
+      'test-sim-session',
+      (evt) => {
+        kinds.push(evt.kind);
+      },
+      () => {
+        completed = true;
+      },
+      client as unknown as WebSocketClient,
+    );
+
+    expect(compactSpy).toHaveBeenCalledWith('test-sim-session');
+    expect(onEventSpy).toHaveBeenCalledTimes(1);
+    expect(sharedSpy).not.toHaveBeenCalled();
+
+    const onEventCallback = onEventSpy.mock.calls[0][0] as (rpcEvent: JsonRpcEvent) => void;
+    onEventCallback(makeRpcEvent('context_compaction_started', { used: 118000, total: 128000 }));
+    onEventCallback(makeRpcEvent('context_compaction_ended', { used: 43000, total: 128000 }));
+
+    expect(completed).toBe(true);
+    expect(kinds).toEqual(['context_compaction_started', 'context_compaction_ended']);
     runner.abort();
   });
 });

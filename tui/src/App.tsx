@@ -192,6 +192,17 @@ export const App: React.FC = () => {
   // stream so the footer indicator reflects the real, in-progress compaction.
   const compactionEvent = useMemo(() => consolidateCompactionEvents(events), [events]);
 
+  // Prefer the model-reported context usage (compaction used/total) over the
+  // frontend token estimate so the footer shows the latest session context.
+  const footerContext = useMemo(() => {
+    if (!compactionEvent) return null;
+    const used = compactionEvent.afterTokens ?? compactionEvent.beforeTokens;
+    return {
+      used: typeof used === 'number' ? used : null,
+      total: compactionEvent.totalTokens ?? null,
+    };
+  }, [compactionEvent]);
+
   useEffect(() => {
     if (!isRunning) {
       setLiveTotalTokens(totalTokens);
@@ -223,10 +234,9 @@ export const App: React.FC = () => {
   }, [isRunning, activeTurn?.isComplete, resetScroll]);
 
   const handleCompact = useCallback(() => {
-    if (!lastSessionId) return;
     addTurn('/compact', selectedMode);
     startCompaction();
-  }, [lastSessionId, addTurn, selectedMode, startCompaction]);
+  }, [addTurn, selectedMode, startCompaction]);
 
   const handleClearTools = useCallback(() => {
     if (!lastSessionId) return;
@@ -281,7 +291,6 @@ export const App: React.FC = () => {
     () => ({
       openOverlay,
       clearTurns,
-      compactTurns: handleCompact,
       clearTools: handleClearTools,
       setMode: handleModeSelect,
       openModelPicker: () => openOverlay('models'),
@@ -289,17 +298,18 @@ export const App: React.FC = () => {
       toggleThinking,
       savePlan: handleSavePlan,
       triggerExit: handleExit,
+      compactTurns: handleCompact,
     }),
     [
       openOverlay,
       clearTurns,
-      handleCompact,
       handleClearTools,
       handleModeSelect,
       handleSetShowPalette,
       toggleThinking,
       handleSavePlan,
       handleExit,
+      handleCompact,
     ],
   );
 
@@ -609,8 +619,8 @@ export const App: React.FC = () => {
               historyUp={historyUp}
               historyDown={historyDown}
               mode={selectedMode}
-              totalTokens={liveTotalTokens}
-              maxTokens={providerRepository.maxContextTokens || undefined}
+              totalTokens={footerContext?.used ?? liveTotalTokens}
+              maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
               workspaceName={workspace}
               onCancel={handleCancel}
               onOpenHelp={handleOpenHelp}

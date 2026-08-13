@@ -146,6 +146,7 @@ def context_compaction_ended(
     summary_chars: int = 0,
     preserved: dict | None = None,
     failed: bool = False,
+    summary: str = "",
 ) -> Event:
     data: dict = {
         "reason": reason,
@@ -154,6 +155,8 @@ def context_compaction_ended(
         "tokensSaved": tokens_saved,
         "summaryChars": summary_chars,
     }
+    if summary:
+        data["summary"] = summary
     if preserved:
         data["preserved"] = preserved
     if failed:
