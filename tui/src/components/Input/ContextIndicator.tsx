@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { type ContextLevel, contextLabel, contextLevelForPercent } from '../../config/context';
+import { type ContextLevel, contextColor, contextLabel, contextLevelForPercent } from '../../config/context';
 import { SPINNER_FRAMES } from '../../constants/animation';
 import { useAnimationTick } from '../../context/AnimationContext';
 import { formatTokenCount } from '../../services/api/tokenEstimationService';
@@ -11,46 +11,52 @@ interface ContextIndicatorProps {
   percent: number;
   totalTokens: number;
   compaction?: ContextCompactionFlowEvent | null;
+  /** Optional handler to open the compaction details overlay (e.g. on activate). */
+  onOpen?: () => void;
 }
 
-export const ContextIndicator: React.FC<ContextIndicatorProps> = React.memo(({ percent, totalTokens, compaction }) => {
-  const { theme } = useTheme();
-  const tick = useAnimationTick();
-  const level: ContextLevel = contextLevelForPercent(percent);
-  const label = contextLabel(level);
+export const ContextIndicator: React.FC<ContextIndicatorProps> = React.memo(
+  ({ percent, totalTokens, compaction, onOpen }) => {
+    const { theme } = useTheme();
+    const tick = useAnimationTick();
+    const level: ContextLevel = contextLevelForPercent(percent);
+    const label = contextLabel(level);
 
-  let color = theme.colors.text.dim;
-  let text: string;
-  if (level === 'required') {
-    color = theme.colors.status.warning;
-  } else if (level === 'preparing') {
-    color = theme.colors.status.info;
-  }
+    const colorToken = contextColor(level);
+    let color =
+      colorToken === 'warning'
+        ? theme.colors.status.warning
+        : colorToken === 'info'
+          ? theme.colors.status.info
+          : theme.colors.text.dim;
+    let text: string;
 
-  if (compaction && compaction.phase !== 'ready' && compaction.phase !== 'failed') {
-    text = 'Compacting…';
-    color = theme.colors.status.warning;
-  } else if (compaction && compaction.phase === 'failed') {
-    text = 'Compaction failed';
-    color = theme.colors.status.warning;
-  } else if (compaction && compaction.phase === 'ready') {
-    text = `Context ${formatTokenCount(compaction.afterTokens ?? totalTokens)}`;
-  } else if (label) {
-    text = `Context ${percent}% · ${label}`;
-  } else {
-    text = `Context ${percent}%`;
-  }
+    if (compaction && compaction.phase !== 'ready' && compaction.phase !== 'failed') {
+      text = 'Compacting…';
+      color = theme.colors.status.warning;
+    } else if (compaction && compaction.phase === 'failed') {
+      text = 'Compaction failed';
+      color = theme.colors.status.warning;
+    } else if (compaction && compaction.phase === 'ready') {
+      text = `Context ${formatTokenCount(compaction.afterTokens ?? totalTokens)}`;
+    } else if (label) {
+      text = `Context ${percent}% · ${label}`;
+    } else {
+      text = `Context ${percent}%`;
+    }
 
-  const showSpinner = compaction && compaction.phase !== 'ready' && compaction.phase !== 'failed';
+    const showSpinner = compaction && compaction.phase !== 'ready' && compaction.phase !== 'failed';
 
-  return (
-    <Box flexDirection="row" alignItems="center" flexShrink={0}>
-      <Text color={color} bold>
-        {showSpinner ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} ` : null}
-        {text}
-      </Text>
-    </Box>
-  );
-});
+    return (
+      <Box flexDirection="row" alignItems="center" flexShrink={0}>
+        <Text color={color} bold>
+          {showSpinner ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} ` : null}
+          {text}
+        </Text>
+        {onOpen ? <Text color={theme.colors.text.dim}> ⏎</Text> : null}
+      </Box>
+    );
+  },
+);
 
 ContextIndicator.displayName = 'ContextIndicator';

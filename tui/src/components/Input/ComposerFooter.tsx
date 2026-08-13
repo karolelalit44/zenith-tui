@@ -19,6 +19,8 @@ interface ComposerFooterProps {
   inputEmpty: boolean;
   tokenScope?: 'turn' | 'session';
   compaction?: ContextCompactionFlowEvent | null;
+  /** Optional handler to open the compaction details overlay from the indicator. */
+  onContextOpen?: () => void;
 }
 
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
@@ -35,6 +37,7 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     inputEmpty,
     tokenScope,
     compaction,
+    onContextOpen,
   }) => {
     const { theme } = useTheme();
     const [, forceUpdate] = useState(0);
@@ -103,6 +106,7 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
             percent={Math.round((totalTokens / effectiveMaxTokens) * 100) || 0}
             totalTokens={totalTokens}
             compaction={compaction}
+            onOpen={onContextOpen}
           />
           <Text color={theme.colors.text.muted} wrap="truncate-end">
             {layout.tokenUsage}

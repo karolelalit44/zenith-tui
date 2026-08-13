@@ -63,3 +63,17 @@ export function contextLabel(level: ContextLevel): string | null {
       return null;
   }
 }
+
+/** Semantic color tokens per context level (mapped to theme colors by the UI). */
+export type ContextColor = 'dim' | 'info' | 'warning';
+
+export function contextColor(level: ContextLevel): ContextColor {
+  switch (level) {
+    case 'required':
+      return 'warning';
+    case 'preparing':
+      return 'info';
+    default:
+      return 'dim';
+  }
+}

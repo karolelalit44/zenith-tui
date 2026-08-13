@@ -40,6 +40,8 @@ interface CommandInputProps {
   slashMenuOpen?: boolean;
   /** Consolidated compaction-flow state (live) shown in the footer indicator. */
   compaction?: import('../../types/scenario').ContextCompactionFlowEvent | null;
+  /** Optional handler to open the compaction details overlay from the footer indicator. */
+  onOpenContext?: () => void;
 }
 
 export const CommandInput: React.FC<CommandInputProps> = React.memo(
@@ -67,6 +69,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onClearInput,
     slashMenuOpen = false,
     compaction,
+    onOpenContext,
   }) => {
     const { theme } = useTheme();
     const { activeProvider } = useProvider();
@@ -184,6 +187,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             inputEmpty={!input.trim()}
             tokenScope={running ? 'turn' : 'session'}
             compaction={compaction}
+            onContextOpen={onOpenContext}
           />
         </Box>
       </Box>

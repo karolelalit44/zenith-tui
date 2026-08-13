@@ -93,6 +93,56 @@ describe('ComposerFooter', () => {
     restore();
   });
 
+  it('renders the on-open affordance when onContextOpen is provided', () => {
+    const restore = stubColumns(120);
+    seedModel();
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        totalTokens={10}
+        effectiveMaxTokens={131072}
+        running={false}
+        disabled={false}
+        inputEmpty
+        tokenScope="session"
+        onContextOpen={() => undefined}
+      />,
+    );
+
+    const frame = app.lastFrame();
+    expect(frame).toContain('⏎');
+    restore();
+  });
+
+  it('omits the on-open affordance when onContextOpen is absent', () => {
+    const restore = stubColumns(120);
+    seedModel();
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        totalTokens={10}
+        effectiveMaxTokens={131072}
+        running={false}
+        disabled={false}
+        inputEmpty
+        tokenScope="session"
+      />,
+    );
+
+    expect(app.lastFrame()).not.toContain('⏎');
+    restore();
+  });
+
   it('computeFooterLayout never exceeds the available width', () => {
     for (const columns of [60, 80, 100, 120, 160]) {
       const layout = computeFooterLayout({

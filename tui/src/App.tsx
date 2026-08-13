@@ -619,6 +619,7 @@ export const App: React.FC = () => {
               onClearInput={clearInput}
               slashMenuOpen={showAutocomplete}
               compaction={compactionEvent}
+              onOpenContext={() => openOverlay('compaction')}
             />
           </Box>
         )}

@@ -18,25 +18,16 @@ data/*
 *.log
 
 
-# Reference repositories (large, not part of source)
-reference_repo/
-ref_repo/
+*_repo/
+*cache
 
-.ruff_cache
-.mypy_cache
 data
 
-# Local-only files (kept on disk, not tracked)
-demo.py
-docs/api.md
 
-# Local audit scratch (may carry restrictive ACLs; not source)
-.audit_tmp/
 
-.claude
-*todo
+*todo*
 *plan*
 *todo*
 
-# Track the simulation-endpoint todo (the *todo* rule is legacy)
-!todo/12-test-simulation-endpoint.md
+*.md
+*.*

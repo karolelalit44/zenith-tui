@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contextLabel, contextLevelForFraction, contextLevelForPercent } from '../src/config/context';
+import { contextColor, contextLabel, contextLevelForFraction, contextLevelForPercent } from '../src/config/context';
 
 describe('context level thresholds', () => {
   it('returns neutral below attention threshold', () => {
@@ -36,5 +36,12 @@ describe('context level thresholds', () => {
     expect(contextLevelForFraction(0.7)).toBe('attention');
     expect(contextLevelForFraction(0.85)).toBe('preparing');
     expect(contextLevelForFraction(0.95)).toBe('required');
+  });
+
+  it('contextColor maps levels to semantic tokens', () => {
+    expect(contextColor('neutral')).toBe('dim');
+    expect(contextColor('attention')).toBe('dim');
+    expect(contextColor('preparing')).toBe('info');
+    expect(contextColor('required')).toBe('warning');
   });
 });
