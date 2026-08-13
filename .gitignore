@@ -26,10 +26,9 @@ ref_repo/
 .mypy_cache
 data
 
-# Simulation scripts are source (track them despite ignoring runtime data/)
-!data/
-!data/simulation/
-!data/simulation/*
+# Local-only files (kept on disk, not tracked)
+demo.py
+docs/api.md
 
 # Local audit scratch (may carry restrictive ACLs; not source)
 .audit_tmp/

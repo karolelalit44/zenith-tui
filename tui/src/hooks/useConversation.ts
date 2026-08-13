@@ -121,7 +121,7 @@ export function useConversation(): UseConversationReturn {
 
         // Preserve all generated content and resolve pending tool steps cleanly
         const stampedEvents = sourceEvents.map((e) => {
-          let updated = { ...e };
+          const updated = { ...e };
           if (updated.kind === 'tool_step' && updated.pending) {
             updated.pending = false;
             updated.success = updated.success ?? true;
@@ -147,9 +147,7 @@ export function useConversation(): UseConversationReturn {
             ];
 
         // Mark turn complete — the unified SuccessCard row freezes its timer in place
-        return prev.map((t, i) =>
-          i === lastIdx ? { ...t, events: finalEvents, isComplete: true } : t,
-        );
+        return prev.map((t, i) => (i === lastIdx ? { ...t, events: finalEvents, isComplete: true } : t));
       }
       return prev;
     });
@@ -171,7 +169,17 @@ export function useConversation(): UseConversationReturn {
       const now = new Date();
       const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
       const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
-      const summaryTurn: ConversationTurn = {
+
+      // Preserve the latest compaction state from the just-completed turn (if any)
+      // so the consolidated CompactionFlowBlock reflects real backend numbers
+      // rather than fabricating a summary. We look through the previous turn's
+      // events for the most recent compaction terminal event.
+      const latestEnded = [...prev[0].events].reverse().find((e) => e.kind === 'context_compaction_ended');
+      const latestPhase = [...prev[0].events]
+        .reverse()
+        .find((e) => e.kind === 'context_compaction_phase' && e.phase !== 'ready' && e.phase !== 'failed');
+
+      const compactionTurn: ConversationTurn = {
         id: `turn_compact_${Date.now()}`,
         prompt: `Compact Context (${prev.length} previous turns compressed)`,
         mode: prev[prev.length - 1].mode,
@@ -181,14 +189,19 @@ export function useConversation(): UseConversationReturn {
         startedAt: Date.now(),
         events: [
           {
-            kind: 'message',
-            id: `evt_summary_${Date.now()}`,
-            text: `Context Compacted: Compressed ${prev.length} turns into high-level architectural memory. Key decisions and modified file structures retained.`,
-            partial: false,
-          } as ScenarioEvent,
+            kind: 'context_compaction_flow',
+            id: `evt_compact_${Date.now()}`,
+            phase: (latestEnded && !latestEnded.failed) || latestPhase ? 'ready' : 'failed',
+            afterTokens: latestEnded?.used,
+            tokensSaved: latestEnded?.tokensSaved,
+            summaryChars: latestEnded?.summaryChars,
+            preserved: latestEnded?.preserved,
+            failed: latestEnded?.failed ?? false,
+            notes: [],
+          },
         ],
       };
-      return [summaryTurn];
+      return [compactionTurn];
     });
     setStaticKey((k) => k + 1);
   }, []);

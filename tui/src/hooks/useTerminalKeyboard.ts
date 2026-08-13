@@ -194,6 +194,11 @@ export function useTerminalKeyboard({
         return;
       }
 
+      if (pressed.includes('compaction')) {
+        if (opts.openOverlay) opts.openOverlay('compaction');
+        return;
+      }
+
       if (key.upArrow && (key.ctrl || key.shift)) {
         if (opts.scrollUp) opts.scrollUp();
         return;

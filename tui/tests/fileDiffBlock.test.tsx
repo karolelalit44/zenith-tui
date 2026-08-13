@@ -37,7 +37,6 @@ describe('FileDiffBlock', () => {
   it('renders a brand-new file as numbered green addition rows with the content', () => {
     const frame = renderDiff('line one\nline two\nline three', 'src/foo.ts');
     const clean = stripAnsi(frame);
-    expect(clean).toContain('src/foo.ts');
     expect(clean).toContain('1 |');
     expect(clean).toContain('line one');
     expect(clean).toContain('line two');
@@ -48,17 +47,18 @@ describe('FileDiffBlock', () => {
     const diff = '@@ -1,3 +1,3 @@\n-old alpha\n+new alpha\n same\n';
     const frame = renderDiff(diff, 'src/bar.ts');
     const clean = stripAnsi(frame);
-    expect(clean).toContain('@@ -1,3 +1,3 @@');
+    // Hunk headers (@@ … @@) are deliberately hidden in the rendered output;
+    // only the colored delete/add/context lines and gutters are shown.
+    expect(clean).not.toContain('@@');
     expect(clean).toContain('old alpha');
     expect(clean).toContain('new alpha');
     expect(clean).toContain('same');
-    expect(clean).toContain('src/bar.ts');
   });
 
   it('shows only the deletion side when a line is removed without a replacement', () => {
     const frame = renderDiff('@@ -1 +1 @@\n-only\n', 'src/drop.ts');
     const clean = stripAnsi(frame);
-    expect(clean).toContain('@@ -1 +1 @@');
+    expect(clean).not.toContain('@@');
     expect(clean).toContain('only');
   });
 

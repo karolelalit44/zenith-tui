@@ -3,7 +3,13 @@ import React from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
-import type { AgentOrchestrationEvent, CrewmateAgent, CrewmateStatus, PlanItem, PlanItemStatus } from '../../../types/scenario';
+import type {
+  AgentOrchestrationEvent,
+  CrewmateAgent,
+  CrewmateStatus,
+  PlanItem,
+  PlanItemStatus,
+} from '../../../types/scenario';
 
 interface CaptainOrchestratorBlockProps {
   event: AgentOrchestrationEvent;
@@ -157,9 +163,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
                   <Text color={item.status === 'completed' ? theme.colors.text.muted : theme.colors.text.bright}>
                     {item.title}
                   </Text>
-                  {item.assignedAgent ? (
-                    <Text color={theme.colors.text.dim}> — {item.assignedAgent}</Text>
-                  ) : null}
+                  {item.assignedAgent ? <Text color={theme.colors.text.dim}> — {item.assignedAgent}</Text> : null}
                 </Box>
               );
             })}
@@ -173,7 +177,10 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
               <Text color={theme.colors.status.warning} bold>
                 👥 CREWMATE SUB-AGENTS DISPATCH
               </Text>
-              <Text color={theme.colors.text.dim}> ({event.crewmates.length} active worker{event.crewmates.length === 1 ? '' : 's'})</Text>
+              <Text color={theme.colors.text.dim}>
+                {' '}
+                ({event.crewmates.length} active worker{event.crewmates.length === 1 ? '' : 's'})
+              </Text>
             </Box>
 
             <Box flexDirection="column" paddingLeft={1}>
@@ -197,7 +204,8 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
                         <Text color={theme.colors.text.dim}> [{cm.role}]</Text>
                       </Box>
                       <Text color={cmSt.color} bold>
-                        {cmSt.icon}{cmSt.label}
+                        {cmSt.icon}
+                        {cmSt.label}
                       </Text>
                     </Box>
 

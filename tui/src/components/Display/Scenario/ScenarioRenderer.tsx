@@ -1,7 +1,14 @@
 import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
-import type { AgentOrchestrationEvent, CrewmateAgent, ScenarioEvent, TimelineEntry, TurnManifestEvent } from '../../../types/scenario';
+import type {
+  AgentOrchestrationEvent,
+  CrewmateAgent,
+  ScenarioEvent,
+  TimelineEntry,
+  TurnManifestEvent,
+} from '../../../types/scenario';
+import { consolidateCompactionEvents } from '../../../utils/compaction';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -108,7 +115,11 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           }
           if (oe.timeline) {
             for (const tl of oe.timeline) {
-              if (!timelineEntries.some((existing) => existing.timestamp === tl.timestamp && existing.message === tl.message)) {
+              if (
+                !timelineEntries.some(
+                  (existing) => existing.timestamp === tl.timestamp && existing.message === tl.message,
+                )
+              ) {
                 timelineEntries.push(tl);
               }
             }
@@ -129,11 +140,25 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
 
       const result: ScenarioEvent[] = [];
       let orchInserted = false;
+      let compactionInserted = false;
+      const consolidatedCompaction = consolidateCompactionEvents(events);
+
       for (const e of events) {
         if (e.kind === 'agent_orchestration') {
           if (!orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
             orchInserted = true;
+          }
+        } else if (
+          e.kind === 'context_compaction_started' ||
+          e.kind === 'context_compaction_phase' ||
+          e.kind === 'context_compacted' ||
+          e.kind === 'context_compaction_ended'
+        ) {
+          // Fold all compaction lifecycle events into ONE continuous card.
+          if (!compactionInserted && consolidatedCompaction) {
+            result.push(consolidatedCompaction);
+            compactionInserted = true;
           }
         } else {
           result.push(e);

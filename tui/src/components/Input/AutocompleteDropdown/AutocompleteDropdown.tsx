@@ -101,12 +101,18 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
               </Text>
             </Box>
             <Box width={16} flexShrink={0}>
-              <Text color={isActive ? theme.colors.status.info : theme.colors.text.bright} bold={isActive} wrap="truncate-end">
+              <Text
+                color={isActive ? theme.colors.status.info : theme.colors.text.bright}
+                bold={isActive}
+                wrap="truncate-end"
+              >
                 {cmd.command}
               </Text>
             </Box>
             <Box flexShrink={1} overflow="hidden">
-              <Text color={isActive ? theme.colors.text.bright : theme.colors.text.muted} wrap="truncate-end">{cmd.description}</Text>
+              <Text color={isActive ? theme.colors.text.bright : theme.colors.text.muted} wrap="truncate-end">
+                {cmd.description}
+              </Text>
             </Box>
           </Box>
         );

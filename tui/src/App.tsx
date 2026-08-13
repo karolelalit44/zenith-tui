@@ -38,8 +38,8 @@ import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
 import type { ScenarioEvent, ScenarioMode, TurnManifestEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
+import { consolidateCompactionEvents } from './utils/compaction';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
-
 
 /**
  * A flat item for the <Static> list. Each conversation turn produces two entries:
@@ -187,6 +187,10 @@ export const App: React.FC = () => {
     if (!isRunning || events.length === 0) return 0;
     return estimateTokensForEvents(events);
   }, [isRunning, events]);
+
+  // Derive the single consolidated compaction-flow state from the live event
+  // stream so the footer indicator reflects the real, in-progress compaction.
+  const compactionEvent = useMemo(() => consolidateCompactionEvents(events), [events]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -614,6 +618,7 @@ export const App: React.FC = () => {
               onOpenMode={handleToggleMode}
               onClearInput={clearInput}
               slashMenuOpen={showAutocomplete}
+              compaction={compactionEvent}
             />
           </Box>
         )}
@@ -661,6 +666,7 @@ export const App: React.FC = () => {
           onComplete={handleSetupComplete}
           onOpenProvider={handleOpenProvider}
           onResumeSession={handleSessionResume}
+          onCompactNow={handleCompact}
         />
       </Box>
     </AppProvider>

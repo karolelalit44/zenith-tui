@@ -15,6 +15,15 @@ DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
 PLAN_MODE = "plan"
 
+# Compaction simulation defaults (used by the /ws/test endpoint and the TUI
+# simulation backend). These keep the dynamic compaction UI grounded in
+# realistic, non-fabricated numbers: the test route emits a lifecycle whose
+# `used`/`total`/`tokensSaved` are derived from these values.
+COMPACTION_SIM_TOTAL_TOKENS = 128_000
+COMPACTION_SIM_USED_TOKENS = 118_000  # ~92% — triggers automatic compaction
+COMPACTION_SIM_AFTER_TOKENS = 43_000
+COMPACTION_SIM_SUMMARY_CHARS = 12_000
+
 # On-demand tool-guidelines reference file. Written to the workspace root on
 # first prompt build; the system prompt points the model at it so detailed tool
 # guidance is read lazily instead of being re-sent on every call.

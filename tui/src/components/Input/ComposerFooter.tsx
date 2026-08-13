@@ -2,8 +2,9 @@ import { Box, Text } from 'ink';
 import React, { useEffect, useState } from 'react';
 import { modelStore } from '../../services/providers/ModelStore';
 import { useTheme } from '../../theme/ThemeContext';
-import type { ScenarioMode } from '../../types/scenario';
+import type { ContextCompactionFlowEvent, ScenarioMode } from '../../types/scenario';
 import { computeFooterLayout } from '../../utils/footerLayout';
+import { ContextIndicator } from './ContextIndicator';
 
 interface ComposerFooterProps {
   mode: ScenarioMode;
@@ -17,6 +18,7 @@ interface ComposerFooterProps {
   disabled: boolean;
   inputEmpty: boolean;
   tokenScope?: 'turn' | 'session';
+  compaction?: ContextCompactionFlowEvent | null;
 }
 
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
@@ -32,6 +34,7 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     disabled,
     inputEmpty,
     tokenScope,
+    compaction,
   }) => {
     const { theme } = useTheme();
     const [, forceUpdate] = useState(0);
@@ -61,24 +64,49 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
       <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center" flexWrap="nowrap">
         {/* Left Section: Mode label + Model chip + Provider */}
         <Box flexDirection="row" flexShrink={1} flexGrow={1} alignItems="center" overflow="hidden">
-          <Text color={theme.colors.text.emerald} wrap="truncate-end">{layout.modeLabel}</Text>
+          <Text color={theme.colors.text.emerald} wrap="truncate-end">
+            {layout.modeLabel}
+          </Text>
           <Text color={theme.colors.status.accent} wrap="truncate-end">
             ◇ <Text color={theme.colors.text.muted}>{layout.chip}</Text>
           </Text>
-          {layout.provider ? <Text color={theme.colors.text.muted} wrap="truncate-end">{layout.provider}</Text> : null}
+          {layout.provider ? (
+            <Text color={theme.colors.text.muted} wrap="truncate-end">
+              {layout.provider}
+            </Text>
+          ) : null}
         </Box>
 
         {/* Right Section: Running status + folder:branch + tokenUsage */}
         <Box flexDirection="row" flexShrink={0} alignItems="center" marginLeft={1}>
-          {running ? <Text color={theme.colors.status.warning} wrap="truncate-end">Esc cancel </Text> : null}
+          {running ? (
+            <Text color={theme.colors.status.warning} wrap="truncate-end">
+              Esc cancel{' '}
+            </Text>
+          ) : null}
           {layout.dirText ? (
             <>
-              <Text color={theme.colors.text.bright} wrap="truncate-end">{layout.dirText}</Text>
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {layout.dirText}
+              </Text>
               {layout.branchText ? <Text color={theme.colors.text.muted}>:</Text> : null}
             </>
           ) : null}
-          {layout.branchText ? <Text color={theme.colors.text.emerald} wrap="truncate-end">{layout.branchText} </Text> : <Text> </Text>}
-          <Text color={theme.colors.text.muted} wrap="truncate-end">{layout.tokenUsage}</Text>
+          {layout.branchText ? (
+            <Text color={theme.colors.text.emerald} wrap="truncate-end">
+              {layout.branchText}{' '}
+            </Text>
+          ) : (
+            <Text> </Text>
+          )}
+          <ContextIndicator
+            percent={Math.round((totalTokens / effectiveMaxTokens) * 100) || 0}
+            totalTokens={totalTokens}
+            compaction={compaction}
+          />
+          <Text color={theme.colors.text.muted} wrap="truncate-end">
+            {layout.tokenUsage}
+          </Text>
         </Box>
       </Box>
     );

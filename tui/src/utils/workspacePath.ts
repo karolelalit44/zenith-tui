@@ -1,4 +1,4 @@
-import path from 'path';
+import path from 'node:path';
 
 /** Normalize file or directory paths to use uniform forward slashes. */
 export function normalizePath(inputPath?: string): string {
@@ -12,7 +12,7 @@ export function normalizePath(inputPath?: string): string {
  * subpackage directories (e.g. `tui`, `server`, `packages`) to return the true root project name.
  */
 export function getWorkspaceFolderName(workspacePath?: string): string {
-  const target = workspacePath && workspacePath.trim() ? path.resolve(workspacePath) : process.cwd();
+  const target = workspacePath?.trim() ? path.resolve(workspacePath) : process.cwd();
   const normalized = normalizePath(target);
   const segments = normalized.split('/').filter(Boolean);
 

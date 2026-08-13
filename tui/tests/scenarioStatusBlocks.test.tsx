@@ -35,7 +35,7 @@ describe('ThinkingBlock', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame();
-    expect(frame).toContain('Thought for 3.2s');
+    expect(frame).toContain('Thought for 3 s');
     expect(frame).toContain('Let me first understand the project structure');
   });
 

@@ -12,6 +12,8 @@ export type EventKind =
   | 'context_compacted'
   | 'context_compaction_started'
   | 'context_compaction_ended'
+  | 'context_compaction_phase'
+  | 'context_compaction_flow'
   | 'agent_orchestration';
 
 export interface ThinkingThought {
@@ -145,6 +147,64 @@ export interface ContextCompactionEndedEvent {
   message: string;
   tokensSaved?: number;
   summaryChars?: number;
+  used?: number;
+  total?: number;
+  preserved?: ContextPreservation;
+  failed?: boolean;
+}
+
+/**
+ * Explicit phase transition emitted by a simulation/driver so the UI can
+ * animate the full compaction lifecycle dynamically. The production backend
+ * emits only started/compacted/ended; this kind lets richer drivers (e.g. the
+ * test-route simulator) drive the intermediate stages too.
+ */
+export interface ContextCompactionPhaseEvent {
+  kind: 'context_compaction_phase';
+  id: string;
+  phase: CompactionPhase;
+  label?: string;
+  beforeTokens?: number;
+  afterTokens?: number;
+}
+
+export type CompactionPhase = 'preparing' | 'preserving' | 'compacting' | 'verifying' | 'ready' | 'failed';
+
+/**
+ * Structured record of what a compaction pass preserved or compressed.
+ * Every field is optional: the UI must never fabricate metrics the backend
+ * did not actually calculate.
+ */
+export interface ContextPreservation {
+  requirements?: number;
+  decisions?: number;
+  openTasks?: number;
+  findings?: number;
+  artifacts?: number;
+  agents?: number;
+  compressedDiscussions?: number;
+  redundantExchanges?: number;
+  obsoleteStates?: number;
+}
+
+/**
+ * Synthetic, consolidated compaction lifecycle event. The ScenarioRenderer
+ * folds `context_compaction_started` / `context_compacted` /
+ * `context_compaction_ended` into a single one of these so the UI renders ONE
+ * continuous status component instead of many duplicate rows.
+ */
+export interface ContextCompactionFlowEvent {
+  kind: 'context_compaction_flow';
+  id: string;
+  phase: CompactionPhase;
+  beforeTokens?: number;
+  afterTokens?: number;
+  tokensSaved?: number;
+  summaryChars?: number;
+  preserved?: ContextPreservation;
+  /** Short sub-lines captured from tool-level compaction steps (max ~3). */
+  notes?: string[];
+  failed?: boolean;
 }
 
 export interface TurnManifestEvent {
@@ -182,13 +242,7 @@ export interface CrewmateAgent {
   error?: string;
 }
 
-export type PlanItemStatus =
-  | 'queued'
-  | 'in_progress'
-  | 'completed'
-  | 'needs_review'
-  | 'failed'
-  | 'reassigned';
+export type PlanItemStatus = 'queued' | 'in_progress' | 'completed' | 'needs_review' | 'failed' | 'reassigned';
 
 export interface PlanItem {
   id: string;
@@ -229,6 +283,8 @@ export type ScenarioEvent =
   | ContextCompactedEvent
   | ContextCompactionStartedEvent
   | ContextCompactionEndedEvent
+  | ContextCompactionPhaseEvent
+  | ContextCompactionFlowEvent
   | TurnManifestEvent
   | AgentOrchestrationEvent;
 

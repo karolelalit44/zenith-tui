@@ -53,14 +53,24 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   const metricsText = metricsParts.length > 0 ? metricsParts.join(' · ') : 'done';
 
   return (
-    <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center" paddingX={1} marginBottom={1}>
+    <Box
+      flexDirection="row"
+      width="100%"
+      justifyContent="space-between"
+      alignItems="center"
+      paddingX={1}
+      marginBottom={1}
+    >
       {/* Left Section: Animated Equalizer Wave (Running) / Checkmark (Completed/Interrupted) + Metrics */}
       <Box flexDirection="row" alignItems="center" flexShrink={1}>
         {isLiveRunning ? (
           <Box flexDirection="row" marginRight={1} alignItems="flex-end">
             {Array.from({ length: 3 }).map((_, idx) => {
               const phase = (Math.sin(tick / 3 + idx * 0.85) + 1) / 2;
-              const frameIdx = Math.max(0, Math.min(WAVE_FRAMES.length - 1, Math.floor(phase * (WAVE_FRAMES.length - 1))));
+              const frameIdx = Math.max(
+                0,
+                Math.min(WAVE_FRAMES.length - 1, Math.floor(phase * (WAVE_FRAMES.length - 1))),
+              );
               const color = gradient[(idx + Math.floor(tick / 3)) % gradient.length];
               return (
                 <Box key={idx} width={1}>

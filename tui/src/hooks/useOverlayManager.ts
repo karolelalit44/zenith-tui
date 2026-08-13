@@ -7,6 +7,7 @@ export type OverlayType =
   | 'help'
   | 'settings'
   | 'context'
+  | 'compaction'
   | 'provider'
   | 'models'
   | 'usage'

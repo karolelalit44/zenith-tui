@@ -12,8 +12,6 @@ import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
 
 /** Cap on how many stdout lines are rendered inside the terminal window. */
 const MAX_OUTPUT_LINES = 50;
-const MAX_FAILED_OUTPUT_LINES = 20;
-const MAX_TAB_NAME_LENGTH = 60;
 
 /** Strip ANSI escape sequences from command output strings to prevent Ink rendering glitches. */
 function stripAnsi(text: string): string {
@@ -41,11 +39,6 @@ function collapseFirstLine(text: string): string {
   return text.includes('\n') ? `${line} …` : line;
 }
 
-/** Hard-truncate a single-line label with an ellipsis. */
-function truncateLabel(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
-}
-
 interface ToolStepCardProps {
   event: ToolStepEvent;
   context?: EventRenderContext;
@@ -68,14 +61,9 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const isShellCommand = ['bash', 'run_command', 'execute'].includes(event.tool.toLowerCase());
   const isGrepSearch = ['grep', 'grep_search', 'glob'].includes(event.tool.toLowerCase());
   const isFileRead = ['file_read', 'read_file'].includes(event.tool.toLowerCase());
-  const isFileMutation = [
-    'file_write',
-    'write_file',
-    'edit_file',
-    'create_file',
-    'file_edit',
-    'multi_edit',
-  ].includes(event.tool.toLowerCase());
+  const isFileMutation = ['file_write', 'write_file', 'edit_file', 'create_file', 'file_edit', 'multi_edit'].includes(
+    event.tool.toLowerCase(),
+  );
 
   const cmdString = primary?.value ?? (event.params.command as string) ?? '';
 
@@ -93,7 +81,10 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     if (fromParams) return fromParams;
     if (typeof event.metadata?.diff === 'string' && event.metadata.diff) return event.metadata.diff;
     const lower = event.tool.toLowerCase();
-    if (('file_edit' === lower || 'multi_edit' === lower || 'edit_file' === lower || 'replace_file_content' === lower) && event.params) {
+    if (
+      ('file_edit' === lower || 'multi_edit' === lower || 'edit_file' === lower || 'replace_file_content' === lower) &&
+      event.params
+    ) {
       const oldContent =
         (event.params.old_content as string) ??
         (event.params.target_content as string) ??
@@ -114,7 +105,12 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   if (isShellCommand) {
     const meta = event.metadata ?? {};
     const durMs = typeof meta.duration_ms === 'number' ? meta.duration_ms : undefined;
-    const durSec = durMs !== undefined ? Math.max(1, Math.floor(durMs / 1000)) : isPending ? Math.max(1, Math.floor(elapsed / 10)) : 0;
+    const durSec =
+      durMs !== undefined
+        ? Math.max(1, Math.floor(durMs / 1000))
+        : isPending
+          ? Math.max(1, Math.floor(elapsed / 10))
+          : 0;
     const duration = durSec > 0 ? formatDuration(durSec * 1000) : '';
 
     const promptLine = collapseFirstLine(cmdString);
@@ -258,12 +254,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
       {/* Failure Error Context Box */}
       {!isPending && !isSuccess && event.error ? (
-        <Box
-          flexDirection="column"
-          paddingLeft={2}
-          marginTop={0}
-          marginBottom={0}
-        >
+        <Box flexDirection="column" paddingLeft={2} marginTop={0} marginBottom={0}>
           <Text color={theme.colors.status.error} wrap="truncate-end">
             └─ Error: {event.error}
           </Text>

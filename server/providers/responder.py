@@ -144,15 +144,43 @@ def context_compaction_ended(
     total: int = 0,
     tokens_saved: int = 0,
     summary_chars: int = 0,
+    preserved: dict | None = None,
+    failed: bool = False,
 ) -> Event:
+    data: dict = {
+        "reason": reason,
+        "used": used,
+        "total": total,
+        "tokensSaved": tokens_saved,
+        "summaryChars": summary_chars,
+    }
+    if preserved:
+        data["preserved"] = preserved
+    if failed:
+        data["failed"] = True
     return event(
         EventKind.CONTEXT_COMPACTION_ENDED,
-        {
-            "reason": reason,
-            "used": used,
-            "total": total,
-            "tokensSaved": tokens_saved,
-            "summaryChars": summary_chars,
-        },
+        data,
+        session_id,
+    )
+
+
+def context_compaction_phase(
+    session_id: str,
+    phase: str,
+    label: str = "",
+    before_tokens: int | None = None,
+    after_tokens: int | None = None,
+) -> Event:
+    data: dict = {"phase": phase}
+    if label:
+        data["label"] = label
+    if before_tokens is not None:
+        data["beforeTokens"] = before_tokens
+    if after_tokens is not None:
+        data["afterTokens"] = after_tokens
+    return event(
+        EventKind.CONTEXT_COMPACTION_PHASE,
+        data,
         session_id,
     )

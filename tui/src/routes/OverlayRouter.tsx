@@ -2,6 +2,7 @@ import { Box } from 'ink';
 import React from 'react';
 import { ModelPickerFlow } from '../components/Model/ModelPickerFlow';
 import type { OverlayType } from '../hooks/useOverlayManager';
+import { CompactionModal } from '../screens/Context/CompactionModal';
 import { ContextModal } from '../screens/Context/ContextModal';
 import { HelpModal } from '../screens/Help/HelpModal';
 import { ModeSelectScreen } from '../screens/ModeSelect';
@@ -25,6 +26,7 @@ interface OverlayRouterProps {
   onComplete: () => void;
   onOpenProvider?: () => void;
   onResumeSession?: (sessionId: string, summary: SessionSummary) => void;
+  onCompactNow?: () => void;
 }
 
 export const OverlayRouter: React.FC<OverlayRouterProps> = ({
@@ -38,6 +40,7 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
   onComplete,
   onOpenProvider,
   onResumeSession,
+  onCompactNow,
 }) => {
   if (!isOverlayOpen) return null;
 
@@ -61,6 +64,16 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
       {overlay === 'context' && (
         <Box flexDirection="column" marginTop={1} width="100%">
           <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={onClose} />
+        </Box>
+      )}
+      {overlay === 'compaction' && (
+        <Box flexDirection="column" marginTop={1} width="100%">
+          <CompactionModal
+            events={events}
+            totalTokens={totalTokens}
+            onCompactNow={onCompactNow ?? (() => {})}
+            onClose={onClose}
+          />
         </Box>
       )}
       {overlay === 'provider' && (

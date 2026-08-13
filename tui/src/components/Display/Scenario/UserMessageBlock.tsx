@@ -42,8 +42,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
     const displayTime = termCols >= 80 ? (timestampLong ?? timestamp ?? '') : (timestamp ?? '');
 
     // Resolve model label
-    const modelLabel =
-      model ?? (modelStore.current ? modelStore.toDisplayString(modelStore.current) : '');
+    const modelLabel = model ?? (modelStore.current ? modelStore.toDisplayString(modelStore.current) : '');
 
     return (
       <Box flexDirection="column" width={contentWidth} marginTop={1} marginBottom={1}>
@@ -68,13 +67,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
         </Box>
 
         {/* ── Metadata row: model on far left, timestamp on far right ── */}
-        <Box
-          flexDirection="row"
-          justifyContent="space-between"
-          width={contentWidth}
-          paddingLeft={2}
-          paddingRight={2}
-        >
+        <Box flexDirection="row" justifyContent="space-between" width={contentWidth} paddingLeft={2} paddingRight={2}>
           {modelLabel ? (
             <Text color={theme.colors.text.muted} wrap="truncate-end">
               ◇ <Text color={theme.colors.text.dim}>{modelLabel}</Text>

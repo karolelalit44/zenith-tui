@@ -47,6 +47,7 @@ EXPECTED_TOOLS = {
     "grep",
     "job_kill",
     "job_output",
+    "list_dir",
     "lsp_definition",
     "lsp_diagnostics",
     "lsp_rename",
@@ -96,7 +97,7 @@ class TestToolInventory:
         inventory = build_inventory(registry)
         names = {entry.name for entry in inventory}
         assert names == EXPECTED_TOOLS
-        assert len(inventory) == 19
+        assert len(inventory) == 20
 
     def test_every_tool_maps_to_known_capability(self):
         catalog = build_catalog()
@@ -130,7 +131,7 @@ class TestToolInventory:
 
     def test_baseline_schema_tokens(self):
         baseline = measure_registry_schema_tokens(create_default_registry())
-        assert baseline["tool_count"] == 19
+        assert baseline["tool_count"] == 20
         assert baseline["total_tokens"] > 0
         assert set(baseline["tools"]) == EXPECTED_TOOLS
 

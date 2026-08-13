@@ -159,19 +159,27 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
 
   return (
     <Box flexDirection="column" marginTop={1} width="100%">
-      <Text color={theme.colors.border.muted} wrap="truncate-end">{topBorder}</Text>
+      <Text color={theme.colors.border.muted} wrap="truncate-end">
+        {topBorder}
+      </Text>
       <Box flexDirection="row" width="100%">
         <Text color={theme.colors.text.bright} bold wrap="truncate-end">
           {makeRowStr(table.headers)}
         </Text>
       </Box>
-      <Text color={theme.colors.border.muted} wrap="truncate-end">{headerSep}</Text>
+      <Text color={theme.colors.border.muted} wrap="truncate-end">
+        {headerSep}
+      </Text>
       {table.rows.map((r, idx) => (
         <Box key={idx} flexDirection="row" width="100%">
-          <Text color={theme.colors.text.ethereal} wrap="truncate-end">{makeRowStr(r)}</Text>
+          <Text color={theme.colors.text.ethereal} wrap="truncate-end">
+            {makeRowStr(r)}
+          </Text>
         </Box>
       ))}
-      <Text color={theme.colors.border.muted} wrap="truncate-end">{bottomBorder}</Text>
+      <Text color={theme.colors.border.muted} wrap="truncate-end">
+        {bottomBorder}
+      </Text>
     </Box>
   );
 };
@@ -455,7 +463,9 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
             <Box flexShrink={1}>
               <Text
                 wrap="wrap"
-                color={isDone ? theme.colors.text.bright : isActive ? theme.colors.text.bright : theme.colors.text.muted}
+                color={
+                  isDone ? theme.colors.text.bright : isActive ? theme.colors.text.bright : theme.colors.text.muted
+                }
               >
                 {itemText}
               </Text>
@@ -470,7 +480,9 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
     if (/^\s*[└├│]/.test(line)) {
       blocks.push(
         <Box key={`tree_${idx}`} flexDirection="row" paddingLeft={1} width="100%">
-          <Text color={theme.colors.text.dim} wrap="wrap">{line}</Text>
+          <Text color={theme.colors.text.dim} wrap="wrap">
+            {line}
+          </Text>
         </Box>,
       );
       idx++;

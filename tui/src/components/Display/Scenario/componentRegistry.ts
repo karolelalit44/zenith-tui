@@ -1,7 +1,7 @@
 import type React from 'react';
 import type { ScenarioEvent, TurnManifestEvent } from '../../../types/scenario';
 import { CaptainOrchestratorBlock } from './CaptainOrchestratorBlock';
-import { ContextStatusBlock } from './ContextStatusBlock';
+import { CompactionFlowBlock } from './CompactionFlowBlock';
 import { ErrorBlock } from './ErrorBlock';
 import { MessageBlock } from './MessageBlock';
 import { PlanReadyBlock } from './PlanReadyBlock';
@@ -49,9 +49,7 @@ class ComponentRegistry {
     this.register('plan_ready', PlanReadyBlock as EventComponentType);
     this.register('turn_manifest', TurnManifestCard as EventComponentType);
     this.register('agent_orchestration', CaptainOrchestratorBlock as EventComponentType);
-    this.register('context_compacted', ContextStatusBlock as EventComponentType);
-    this.register('context_compaction_started', ContextStatusBlock as EventComponentType);
-    this.register('context_compaction_ended', ContextStatusBlock as EventComponentType);
+    this.register('context_compaction_flow', CompactionFlowBlock as EventComponentType);
   }
 
   public register(kind: string, component: EventComponentType): void {

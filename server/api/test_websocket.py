@@ -15,6 +15,10 @@ from server.config.constants import (
     BUILD_MODE,
     TEST_SIMULATION_DIR,
     TEST_SIMULATION_DIR_ENV,
+    COMPACTION_SIM_TOTAL_TOKENS,
+    COMPACTION_SIM_USED_TOKENS,
+    COMPACTION_SIM_AFTER_TOKENS,
+    COMPACTION_SIM_SUMMARY_CHARS,
 )
 from server.domain.domain import ScenarioMode, SessionState
 from server.domain.events import EventKind
@@ -658,12 +662,94 @@ class TestSimulationHandler:
         if not session:
             await ws.send_text(make_error_response(rid, -32602, "No active session"))
             return
+
+        total = COMPACTION_SIM_TOTAL_TOKENS
+        used = COMPACTION_SIM_USED_TOKENS
+
+        # Phase 1 — preparing
         await self._send(
             ws,
-            r.context_compacted(
-                "simulated", chars_removed=0, tokens_saved=0, reason="noop", session_id=session_id
+            r.context_compaction_started(
+                session_id=session_id,
+                reason="context pressure",
+                used=used,
+                total=total,
             ),
         )
+        await asyncio.sleep(0.35)
+
+        # Phase 2 — preserving (explicit phase event)
+        await self._send(
+            ws,
+            r.context_compaction_phase(
+                session_id=session_id,
+                phase="preserving",
+                label="Preserving important context",
+            ),
+        )
+        await asyncio.sleep(0.35)
+
+        # Phase 3 — compacting (with tool-prune sub-steps as compacted events)
+        tool_steps = ["bash_output", "file_read_output", "tool_result_traces"]
+        saved_per_step = 12_000 // len(tool_steps)
+        for tool in tool_steps:
+            await self._send(
+                ws,
+                r.context_compacted(
+                    tool,
+                    chars_removed=30_000,
+                    tokens_saved=saved_per_step,
+                    reason="compaction",
+                    session_id=session_id,
+                ),
+            )
+            await asyncio.sleep(0.25)
+
+        await self._send(
+            ws,
+            r.context_compaction_phase(
+                session_id=session_id,
+                phase="compacting",
+                label="Compacting context",
+                before_tokens=used,
+                after_tokens=COMPACTION_SIM_AFTER_TOKENS,
+            ),
+        )
+        await asyncio.sleep(0.3)
+
+        # Phase 4 — verifying
+        await self._send(
+            ws,
+            r.context_compaction_phase(
+                session_id=session_id,
+                phase="verifying",
+                label="Verifying preserved context",
+            ),
+        )
+        await asyncio.sleep(0.35)
+
+        # Phase 5 — ready (with structured preserved counts + failure=False)
+        await self._send(
+            ws,
+            r.context_compaction_ended(
+                session_id=session_id,
+                reason="completed",
+                used=COMPACTION_SIM_AFTER_TOKENS,
+                total=total,
+                tokens_saved=used - COMPACTION_SIM_AFTER_TOKENS,
+                summary_chars=COMPACTION_SIM_SUMMARY_CHARS,
+                preserved={
+                    "requirements": 12,
+                    "decisions": 7,
+                    "openTasks": 4,
+                    "findings": 3,
+                    "artifacts": 3,
+                    "agents": 2,
+                },
+                failed=False,
+            ),
+        )
+
         await ws.send_text(make_response(rid, {"status": "compacted"}))
 
     async def _context_clear_tools(self, ws, rid, session_id) -> None:

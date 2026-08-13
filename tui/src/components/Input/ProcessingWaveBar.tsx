@@ -82,19 +82,26 @@ export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
         {labelEl && (
           <Box flexDirection="row" flexShrink={1} overflow="hidden" marginRight={1}>
             {labelEl}
-            <Text color={theme.colors.text.dim} wrap="truncate-end">{dots}</Text>
+            <Text color={theme.colors.text.dim} wrap="truncate-end">
+              {dots}
+            </Text>
           </Box>
         )}
 
         {/* Elapsed duration (on left) */}
         <Box flexDirection="row" alignItems="center" flexShrink={0}>
-          <Text color={theme.colors.text.muted} wrap="truncate-end">{elapsedStr}</Text>
+          <Text color={theme.colors.text.muted} wrap="truncate-end">
+            {elapsedStr}
+          </Text>
         </Box>
 
         {/* Live token usage (on left) */}
         {Boolean(tokenCount && tokenCount > 0) && (
           <Box flexDirection="row" alignItems="center" flexShrink={0}>
-            <Text color={theme.colors.text.dim} wrap="truncate-end"> · </Text>
+            <Text color={theme.colors.text.dim} wrap="truncate-end">
+              {' '}
+              ·{' '}
+            </Text>
             <Text color={theme.colors.text.emerald} wrap="truncate-end">
               {formatTokenCount(tokenCount!)} tokens
             </Text>
@@ -106,7 +113,9 @@ export const ProcessingWaveBar: React.FC<ProcessingWaveBarProps> = React.memo(
 
         {/* Right side: Esc to cancel only */}
         <Box flexDirection="row" alignItems="center" flexShrink={0} marginLeft={1}>
-          <Text color={theme.colors.status.warning} wrap="truncate-end">Esc to cancel</Text>
+          <Text color={theme.colors.status.warning} wrap="truncate-end">
+            Esc to cancel
+          </Text>
         </Box>
       </Box>
     );

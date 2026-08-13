@@ -148,11 +148,7 @@ interface StatusSource {
 
 function pathFrom(source: StatusSource): string {
   const { metadata, params } = source;
-  return (
-    String(metadata.path || '') ||
-    String(params?.filepath || '') ||
-    String(params?.path || '')
-  );
+  return String(metadata.path || '') || String(params?.filepath || '') || String(params?.path || '');
 }
 
 function formatFileWriteStatus(source: StatusSource): string {
@@ -209,9 +205,7 @@ function formatWebfetchStatus(source: StatusSource): string {
 
 function formatBashStatus(source: StatusSource): string {
   const durSec =
-    typeof source.metadata.duration_ms === 'number'
-      ? Math.max(1, Math.floor(source.metadata.duration_ms / 1000))
-      : 0;
+    typeof source.metadata.duration_ms === 'number' ? Math.max(1, Math.floor(source.metadata.duration_ms / 1000)) : 0;
   const duration = durSec > 0 ? ` (${formatDuration(durSec * 1000)})` : '';
   return `✓ Ran command${duration}`;
 }
@@ -234,10 +228,7 @@ function formatJobKillStatus(source: StatusSource): string {
 function formatLspDefinitionStatus(source: StatusSource): string {
   const definitions = Array.isArray(source.metadata.definitions) ? source.metadata.definitions : [];
   const first = definitions[0] as Record<string, unknown> | undefined;
-  const loc =
-    first?.file
-      ? `  ${first.file}:${Number(first.line || 0) + 1}:${Number(first.character || 0) + 1}`
-      : '';
+  const loc = first?.file ? `  ${first.file}:${Number(first.line || 0) + 1}:${Number(first.character || 0) + 1}` : '';
   return `✓ Inspect definition${loc}`;
 }
 
@@ -348,11 +339,7 @@ export function getToolStepStatusText(event: {
 }
 
 /** Header shown while a step is pending: `<verb> <target>...`. */
-export function getToolStepPendingText(
-  tool: string,
-  params: Record<string, unknown>,
-  _text?: string,
-): string {
+export function getToolStepPendingText(tool: string, params: Record<string, unknown>, _text?: string): string {
   const primary = getToolStepPrimaryParam(tool, params);
   const verb = getToolVerbLabel(tool);
   return `${verb}${primary ? ` ${primary.value}` : ''}...`;

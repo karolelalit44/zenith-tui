@@ -466,6 +466,23 @@ function mapRawEvent(
         message: formatContextEventMessage('context_compaction_ended', d),
         tokensSaved: typeof d.tokensSaved === 'number' ? d.tokensSaved : undefined,
         summaryChars: typeof d.summaryChars === 'number' ? d.summaryChars : undefined,
+        used: typeof d.used === 'number' ? d.used : undefined,
+        total: typeof d.total === 'number' ? d.total : undefined,
+        preserved:
+          d.preserved && typeof d.preserved === 'object'
+            ? (d.preserved as import('../../types/scenario').ContextPreservation)
+            : undefined,
+        failed: d.failed === true ? true : undefined,
+      };
+
+    case 'context_compaction_phase':
+      return {
+        kind: 'context_compaction_phase',
+        id,
+        phase: String(d.phase || 'preparing') as import('../../types/scenario').CompactionPhase,
+        label: d.label ? String(d.label) : undefined,
+        beforeTokens: typeof d.beforeTokens === 'number' ? d.beforeTokens : undefined,
+        afterTokens: typeof d.afterTokens === 'number' ? d.afterTokens : undefined,
       };
 
     case 'turn_manifest':

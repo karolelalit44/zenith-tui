@@ -62,6 +62,14 @@ export const commandRegistry: CommandDef[] = [
     run: (ctx) => ctx.openOverlay('context'),
   },
   {
+    id: 'compaction',
+    slash: '/compaction',
+    title: '/compaction',
+    description: 'View the latest context compaction (before/after, preserved)',
+    category: 'View',
+    run: (ctx) => ctx.openOverlay('compaction'),
+  },
+  {
     id: 'usage',
     slash: '/usage',
     title: '/usage',

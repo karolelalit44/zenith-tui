@@ -201,10 +201,7 @@ export function buildUnifiedDiff(oldContent: string, newContent: string): string
   return [header, ...body, ''].join('\n');
 }
 
-export function parseDiffOrContent(
-  text: string,
-  maxLines = 30,
-): { lines: DiffLine[]; isUnifiedDiff: boolean } {
+export function parseDiffOrContent(text: string, maxLines = 30): { lines: DiffLine[]; isUnifiedDiff: boolean } {
   if (!text?.trim()) return { lines: [], isUnifiedDiff: false };
 
   const lines = text.split('\n');
@@ -407,9 +404,7 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
       <Box flexDirection="column" width="100%" marginTop={0} marginBottom={1}>
         {/* Git Native Diff Container */}
         <Box flexDirection="column" width="100%">
-          {lines.map((line, index) =>
-            renderLine(line, index, theme, effectiveLang, maskFor, hasBoth, isUnifiedDiff),
-          )}
+          {lines.map((line, index) => renderLine(line, index, theme, effectiveLang, maskFor, hasBoth, isUnifiedDiff))}
         </Box>
       </Box>
     );

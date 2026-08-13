@@ -11,7 +11,6 @@ import { expandPastedMarkers } from '../../utils/pasteTracker';
 import { AttachmentChips } from './AttachmentChips';
 import { ComposerFooter } from './ComposerFooter';
 import { MultiLineTextInput } from './MultiLineTextInput';
-import { ProcessingWaveBar } from './ProcessingWaveBar';
 
 const STATIC_PLACEHOLDER = 'Ask anything...';
 
@@ -39,6 +38,8 @@ interface CommandInputProps {
   onClearInput?: () => void;
 
   slashMenuOpen?: boolean;
+  /** Consolidated compaction-flow state (live) shown in the footer indicator. */
+  compaction?: import('../../types/scenario').ContextCompactionFlowEvent | null;
 }
 
 export const CommandInput: React.FC<CommandInputProps> = React.memo(
@@ -49,8 +50,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     disabled = false,
     disabledMessage = 'Input disabled',
     running = false,
-    actionLabel,
-    liveTurnTokens = 0,
+    actionLabel: _actionLabel,
+    liveTurnTokens: _liveTurnTokens = 0,
     attachments = [],
     onRemoveAttachment,
     historyUp,
@@ -65,6 +66,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onOpenMode,
     onClearInput,
     slashMenuOpen = false,
+    compaction,
   }) => {
     const { theme } = useTheme();
     const { activeProvider } = useProvider();
@@ -181,6 +183,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             disabled={disabled}
             inputEmpty={!input.trim()}
             tokenScope={running ? 'turn' : 'session'}
+            compaction={compaction}
           />
         </Box>
       </Box>
