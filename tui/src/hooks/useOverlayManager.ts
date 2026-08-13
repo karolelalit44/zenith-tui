@@ -11,7 +11,8 @@ export type OverlayType =
   | 'provider'
   | 'models'
   | 'usage'
-  | 'session';
+  | 'session'
+  | 'memories';
 
 export interface UseOverlayManagerReturn {
   selectedMode: ScenarioMode;

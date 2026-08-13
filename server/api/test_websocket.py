@@ -36,6 +36,130 @@ logger = logging.getLogger(__name__)
 _WS_TOKEN = os.environ.get("ZENITH_WS_TOKEN", "")
 _MAX_TOOL_OUTPUT = 5000
 
+# Static memory payload served by the `memory.list` RPC on /ws/test. The real
+# backend will one day source this from the on-disk MemoryStore
+# (server/sessions/memory.py); the simulated route keeps the frontend's
+# MemoriesModal dynamic against a fixed, realistic dataset.
+_MEMORY_SIM_ENTRIES = [
+    {
+        "id": "mem_proj_0001",
+        "scope": "project",
+        "title": "Backend stack choices",
+        "content": "The server is FastAPI + SQLAlchemy with pydantic v2. The TUI is Ink + React on TypeScript. Both live in this monorepo; pytest covers the server and vitest covers the TUI.",
+        "source": "PROJECT.md",
+        "tags": ["stack", "architecture"],
+        "pinned": True,
+        "created_at": "2026-07-01T09:00:00Z",
+        "updated_at": "2026-07-28T14:22:00Z",
+        "size_chars": 196,
+        "sessions": 6,
+    },
+    {
+        "id": "mem_proj_0002",
+        "scope": "project",
+        "title": "WebSocket protocol notes",
+        "content": "All RPC calls use JSON-RPC 2.0. Requests carry `jsonrpc`, `id`, `method` and optional `params`; events are `method: \"event\"` notifications with `kind` and `data`. The test route lives at /ws/test and mirrors the real /ws surface.",
+        "source": "PROJECT.md",
+        "tags": ["protocol", "transport"],
+        "pinned": True,
+        "created_at": "2026-07-03T11:30:00Z",
+        "updated_at": "2026-07-30T10:05:00Z",
+        "size_chars": 247,
+        "sessions": 11,
+    },
+    {
+        "id": "mem_proj_0003",
+        "scope": "project",
+        "title": "Testing conventions",
+        "content": "Server tests never hit the network. TUI tests are pure-logic vitest suites against exported helpers. Keep fixtures next to their consumers.",
+        "source": "PROJECT.md",
+        "tags": ["tests", "conventions"],
+        "pinned": False,
+        "created_at": "2026-07-05T16:45:00Z",
+        "updated_at": "2026-07-05T16:45:00Z",
+        "size_chars": 122,
+        "sessions": 4,
+    },
+    {
+        "id": "mem_proj_0004",
+        "scope": "project",
+        "title": "Deployment target",
+        "content": "Ship as a single Go binary once the Python server is stabilized. CI signs releases for macOS arm64, Linux x86_64, and Windows amd64.",
+        "source": "PROJECT.md",
+        "tags": ["deployment"],
+        "pinned": False,
+        "created_at": "2026-07-12T08:20:00Z",
+        "updated_at": "2026-07-12T08:20:00Z",
+        "size_chars": 131,
+        "sessions": 2,
+    },
+    {
+        "id": "mem_proj_0005",
+        "scope": "project",
+        "title": "Theme token naming",
+        "content": "Theme colors are grouped as bg / border / text / status / diff / code. Never hardcode a hex color in a component; always pull from ThemeContext so custom themes keep working.",
+        "source": "PROJECT.md",
+        "tags": ["ui", "theme"],
+        "pinned": False,
+        "created_at": "2026-07-18T13:10:00Z",
+        "updated_at": "2026-07-18T13:10:00Z",
+        "size_chars": 184,
+        "sessions": 3,
+    },
+    {
+        "id": "mem_sess_0001",
+        "scope": "session",
+        "title": "Compaction fixture agreement",
+        "content": "In the /compact session we agreed the canonical compaction output lives in `tui/src/fixtures/compaction-output.json` and that rawEventMapper is the single mapper shared by the live WebSocket and fixture playback.",
+        "source": "f3b2c9a1-7e1d-4c2a-9f7e-2a6b3c8d9e01.md",
+        "tags": ["compaction"],
+        "pinned": True,
+        "created_at": "2026-08-10T09:40:00Z",
+        "updated_at": "2026-08-10T09:40:00Z",
+        "size_chars": 217,
+        "sessions": 1,
+    },
+    {
+        "id": "mem_sess_0002",
+        "scope": "session",
+        "title": "Overlay routing decision",
+        "content": "We decided every slash-command menu that opens a modal goes through OverlayType + OverlayRouter instead of bespoke state. New overlays must register a case in OverlayRouter and a CommandRegistry entry.",
+        "source": "a7c1d3e5-8f2a-4b9e-9c4d-1b5e6f7a8b90.md",
+        "tags": ["architecture", "ui"],
+        "pinned": False,
+        "created_at": "2026-08-11T15:15:00Z",
+        "updated_at": "2026-08-11T15:15:00Z",
+        "size_chars": 208,
+        "sessions": 1,
+    },
+    {
+        "id": "mem_sess_0003",
+        "scope": "session",
+        "title": "Prefers plans written to disk",
+        "content": "The user likes every plan mode result written to PLAN.md before asking for a next step. Always offer to persist the plan instead of summarizing it inline.",
+        "source": "e5d2b8f0-1c3a-4e7d-8b2f-9a4c5d6e7f80.md",
+        "tags": ["preference"],
+        "pinned": True,
+        "created_at": "2026-08-12T10:02:00Z",
+        "updated_at": "2026-08-12T10:02:00Z",
+        "size_chars": 151,
+        "sessions": 1,
+    },
+    {
+        "id": "mem_sess_0004",
+        "scope": "session",
+        "title": "Bash tool follows OS syntax",
+        "content": "On Windows the bash tool only accepts PowerShell syntax; on Unix it only accepts POSIX. This repo's tests exercise both paths, so keep Windows examples in docs and never suggest `ls`, `rm`, or `touch`.",
+        "source": "c9f4e1a2-3d5b-4c8e-8f6a-1e2f3a4b5c6d.md",
+        "tags": ["bash", "windows"],
+        "pinned": False,
+        "created_at": "2026-08-12T11:47:00Z",
+        "updated_at": "2026-08-12T11:47:00Z",
+        "size_chars": 236,
+        "sessions": 1,
+    },
+]
+
 
 def simulation_dir() -> Path:
     return Path(os.environ.get(TEST_SIMULATION_DIR_ENV, TEST_SIMULATION_DIR))
@@ -123,6 +247,7 @@ class TestSimulationHandler:
             "prompt.cancel": lambda: self._prompt_cancel(ws, rid, params, session_id),
             "context.compact": lambda: self._context_compact(ws, rid, session_id),
             "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id),
+            "memory.list": lambda: self._memory_list(ws, rid),
             "provider.validate": lambda: self._provider_validate(ws, rid),
             "provider.models": lambda: self._provider_models(ws, rid),
             "tools.list": lambda: self._tools_list(ws, rid, params),
@@ -794,6 +919,14 @@ class TestSimulationHandler:
             await ws.send_text(make_error_response(rid, -32602, "No active session"))
             return
         await ws.send_text(make_response(rid, {"status": "tools_cleared"}))
+
+    async def _memory_list(self, ws, rid) -> None:
+        await ws.send_text(
+            make_response(
+                rid,
+                {"memories": _MEMORY_SIM_ENTRIES, "total": len(_MEMORY_SIM_ENTRIES)},
+            )
+        )
 
     async def _provider_validate(self, ws, rid) -> None:
         await ws.send_text(

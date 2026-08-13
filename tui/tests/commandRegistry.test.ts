@@ -30,6 +30,12 @@ describe('dispatchCommand registry dispatch', () => {
     expect(ctx.openOverlay).toHaveBeenCalledWith('models');
   });
 
+  it('dispatches /memories to the memories overlay', () => {
+    const ctx = makeContext();
+    expect(dispatchCommand('/memories', ctx)).toBe(true);
+    expect(ctx.openOverlay).toHaveBeenCalledWith('memories');
+  });
+
   it('dispatches clear and clear-tools dynamically', () => {
     const ctx = makeContext();
     expect(dispatchCommand('/clear', ctx)).toBe(true);

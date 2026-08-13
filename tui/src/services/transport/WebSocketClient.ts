@@ -63,6 +63,27 @@ export interface PromptOptions {
   attachments?: PromptAttachment[];
 }
 
+export type MemoryScope = 'project' | 'session';
+
+export interface MemoryEntry {
+  id: string;
+  scope: MemoryScope;
+  title?: string;
+  content: string;
+  source?: string;
+  tags?: string[];
+  pinned?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  size_chars?: number;
+  sessions?: number;
+}
+
+export interface MemoryListResult {
+  memories: MemoryEntry[];
+  total?: number;
+}
+
 export class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -311,6 +332,10 @@ export class WebSocketClient {
 
   contextClearTools(sessionId: string): Promise<{ removed: number; rows: number; stripped: number }> {
     return this.send('context.clear_tools', { session_id: sessionId });
+  }
+
+  listMemories(params?: { scope?: MemoryScope; search?: string; limit?: number }): Promise<MemoryListResult> {
+    return this.send('memory.list', params || {});
   }
 
   private handleMessage(data: JsonRpcResponse | JsonRpcEvent): void {
