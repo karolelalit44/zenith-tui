@@ -189,7 +189,7 @@ export const App: React.FC = () => {
   }, [isRunning, events]);
 
   // Derive the single consolidated compaction-flow state from the live event
-  // stream so the footer indicator reflects the real, in-progress compaction.
+  // stream so the footer token usage reflects the real, in-progress compaction.
   const compactionEvent = useMemo(() => consolidateCompactionEvents(events), [events]);
 
   // Prefer the model-reported context usage (compaction used/total) over the
@@ -627,8 +627,6 @@ export const App: React.FC = () => {
               onOpenMode={handleToggleMode}
               onClearInput={clearInput}
               slashMenuOpen={showAutocomplete}
-              compaction={compactionEvent}
-              onOpenContext={() => openOverlay('compaction')}
             />
           </Box>
         )}

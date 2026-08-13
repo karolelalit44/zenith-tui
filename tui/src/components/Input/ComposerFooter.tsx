@@ -2,9 +2,8 @@ import { Box, Text } from 'ink';
 import React, { useEffect, useState } from 'react';
 import { modelStore } from '../../services/providers/ModelStore';
 import { useTheme } from '../../theme/ThemeContext';
-import type { ContextCompactionFlowEvent, ScenarioMode } from '../../types/scenario';
+import type { ScenarioMode } from '../../types/scenario';
 import { computeFooterLayout } from '../../utils/footerLayout';
-import { ContextIndicator } from './ContextIndicator';
 
 interface ComposerFooterProps {
   mode: ScenarioMode;
@@ -14,31 +13,10 @@ interface ComposerFooterProps {
   branch: string;
   totalTokens: number;
   effectiveMaxTokens: number;
-  running: boolean;
-  disabled: boolean;
-  inputEmpty: boolean;
-  tokenScope?: 'turn' | 'session';
-  compaction?: ContextCompactionFlowEvent | null;
-  /** Optional handler to open the compaction details overlay from the indicator. */
-  onContextOpen?: () => void;
 }
 
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
-  ({
-    mode,
-    modelFallback,
-    providerName,
-    dir,
-    branch,
-    totalTokens,
-    effectiveMaxTokens,
-    running,
-    disabled,
-    inputEmpty,
-    tokenScope,
-    compaction,
-    onContextOpen,
-  }) => {
+  ({ mode, modelFallback, providerName, dir, branch, totalTokens, effectiveMaxTokens }) => {
     const { theme } = useTheme();
     const [, forceUpdate] = useState(0);
 
@@ -57,10 +35,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
       branch,
       totalTokens,
       effectiveMaxTokens,
-      running,
-      disabled,
-      inputEmpty,
-      tokenScope,
     });
 
     return (
@@ -80,13 +54,8 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
           ) : null}
         </Box>
 
-        {/* Right Section: Running status + folder:branch + tokenUsage */}
+        {/* Right Section: folder:branch */}
         <Box flexDirection="row" flexShrink={0} alignItems="center" marginLeft={1}>
-          {running ? (
-            <Text color={theme.colors.status.warning} wrap="truncate-end">
-              Esc cancel{' '}
-            </Text>
-          ) : null}
           {layout.dirText ? (
             <>
               <Text color={theme.colors.text.bright} wrap="truncate-end">
@@ -102,12 +71,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
           ) : (
             <Text> </Text>
           )}
-          <ContextIndicator
-            percent={Math.round((totalTokens / effectiveMaxTokens) * 100) || 0}
-            totalTokens={totalTokens}
-            compaction={compaction}
-            onOpen={onContextOpen}
-          />
           <Text color={theme.colors.text.muted} wrap="truncate-end">
             {layout.tokenUsage}
           </Text>

@@ -14,12 +14,8 @@ export interface FooterLayoutInput {
   providerName: string;
   dir: string;
   branch: string;
-  totalTokens: number;
-  effectiveMaxTokens: number;
-  running: boolean;
-  disabled: boolean;
-  inputEmpty: boolean;
-  tokenScope?: 'turn' | 'session';
+  totalTokens?: number;
+  effectiveMaxTokens?: number;
 }
 
 export interface FooterLayoutOutput {
@@ -35,7 +31,6 @@ export interface FooterLayoutOutput {
   tokenUsage: string;
   maxTokens: string;
   gauge: string;
-  status: string;
   showGauge: boolean;
   scopeLabel: string;
 }
@@ -60,32 +55,29 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
   const contentWidth = Math.max(24, input.columns - FOOTER_EDGE_PAD);
   const modeLabel = input.mode === 'plan' ? '[PLAN] ' : '[BUILD] ';
 
-  const tokenUsage = formatTokenUsage(input.totalTokens, input.effectiveMaxTokens);
+  const tokenUsage =
+    typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0
+      ? formatTokenUsage(input.totalTokens ?? 0, input.effectiveMaxTokens)
+      : '';
   const tokenCount = tokenUsage;
-  const maxTokens = input.effectiveMaxTokens > 0 ? `${input.effectiveMaxTokens}` : '0';
+  const maxTokens =
+    typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0 ? `${input.effectiveMaxTokens}` : '0';
   const scopeLabel = '';
 
   const percent =
-    input.effectiveMaxTokens > 0 ? Math.min(100, Math.round((input.totalTokens / input.effectiveMaxTokens) * 100)) : 0;
+    typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0
+      ? Math.min(100, Math.round(((input.totalTokens ?? 0) / input.effectiveMaxTokens) * 100))
+      : 0;
   const filled = Math.max(0, Math.min(FOOTER_GAUGE_BLOCKS, Math.round((percent / 100) * FOOTER_GAUGE_BLOCKS)));
   const gauge = `[${'█'.repeat(filled)}${'░'.repeat(FOOTER_GAUGE_BLOCKS - filled)}] ${percent}%`;
-
-  const status = input.running
-    ? '\\ Esc cancel'
-    : input.disabled
-      ? 'Input disabled'
-      : input.inputEmpty
-        ? '↵'
-        : '↵ send';
 
   const cleanBranch = input.branch ? input.branch.replace(/^\(+|\)+$/g, '').trim() : '';
 
   const rawDir = getWorkspaceFolderName(input.dir);
 
-  const runningWidth = input.running ? 11 : 0;
-  const tokenWidth = tokenUsage.length + 1;
+  const tokenWidth = tokenUsage.length + (tokenUsage ? 1 : 0);
   const colonWidth = rawDir && cleanBranch ? 1 : 0;
-  const fixedRight = runningWidth + tokenWidth + colonWidth + 1;
+  const fixedRight = tokenWidth + colonWidth + 1;
   const fixedLeft = modeLabel.length + 2;
 
   let available = contentWidth - fixedLeft - fixedRight;
@@ -128,7 +120,6 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     tokenUsage,
     maxTokens,
     gauge,
-    status,
     showGauge: false,
     scopeLabel,
   };

@@ -9,6 +9,7 @@ import { useTheme } from '../../../theme/ThemeContext';
 import type { CompactionPhase, ContextCompactionFlowEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
 import type { EventRenderContext } from './componentRegistry';
+import { TerminalMarkdown } from './TerminalMarkdown';
 
 interface CompactionFlowBlockProps {
   event: ContextCompactionFlowEvent;
@@ -191,12 +192,10 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
             </Text>
           </Box>
 
-          {/* ── Human-readable summary body ── */}
+          {/* ── Human-readable summary body (structured markdown) ── */}
           {event.summary ? (
-            <Box paddingLeft={2} marginTop={0}>
-              <Text color={theme.colors.text.muted} wrap="wrap">
-                {event.summary}
-              </Text>
+            <Box paddingLeft={2} marginTop={0} flexDirection="column">
+              <TerminalMarkdown content={event.summary} />
             </Box>
           ) : null}
 
