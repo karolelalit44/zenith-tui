@@ -25,9 +25,10 @@ const STATUS_LABEL: Record<TodoStatus, string> = {
 
 interface TodoBoardBlockProps {
   event: ConsolidatedTodoBoard;
+  context?: { isRunning: boolean };
 }
 
-export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event }) => {
+export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
   const colors = theme.colors;
   const { columns } = useTerminalDimensions();
@@ -61,7 +62,7 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
         flexDirection="column"
         backgroundColor={colors.code.background}
         borderStyle="round"
-        borderColor={items.length > 0 ? colors.border.active : colors.border.muted}
+        borderColor={context?.isRunning ? colors.border.active : colors.border.muted}
         paddingX={1}
         paddingY={0}
       >
