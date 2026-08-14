@@ -51,13 +51,13 @@ describe('consolidateTodoTestEvents', () => {
     expect(reportPercent(consolidated!)).toBe(100);
   });
 
-  it('handles a partial stream: latest phase wins for the stepper', () => {
+  it('handles a partial stream: latest phase wins', () => {
     const raw = collect();
-    const slice = applyAll(raw.slice(0, 5));
+    const slice = applyAll(raw.slice(0, 9));
     const consolidated = consolidateTodoTestEvents(slice);
     expect(consolidated).not.toBeNull();
-    // First 5 events → snapshot + create + manage + ... → up to create phase landed.
-    expect(['create', 'manage']).toContain(consolidated?.phase);
+    // The create phase has landed by index 8 (after thinking, plan, crew, tool read).
+    expect(consolidated?.phase).toBe('create');
     expect(consolidated?.totalCount).toBeLessThanOrEqual(30);
   });
 });

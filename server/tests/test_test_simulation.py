@@ -136,16 +136,20 @@ def test_todo_and_hrms_simulations_match_prompts_in_build_mode():
     files = [s["_file"] for s in sims]
     assert "todo-lifecycle.json" in files, files
     assert "hrms-build.json" in files, files
+    assert "full-showcase.json" in files, files
 
     assert (
         handler._match(sims, "simulate todo lifecycle", "build")["_file"] == "todo-lifecycle.json"
     )
     assert handler._match(sims, "build the hrms django app", "build")["_file"] == "hrms-build.json"
+    # Single prompt that drives BOTH simulations in one response.
+    assert handler._match(sims, "run the full showcase", "build")["_file"] == "full-showcase.json"
 
-    # Both simulations are build-mode only: in plan mode they fall back to the
-    # default response rather than hijacking the prompt.
+    # All three simulations are build-mode only: in plan mode they fall back to
+    # the default response rather than hijacking the prompt.
     assert handler._match(sims, "simulate todo lifecycle", "plan")["_file"] == "_default.json"
     assert handler._match(sims, "build the hrms django app", "plan")["_file"] == "_default.json"
+    assert handler._match(sims, "run the full showcase", "plan")["_file"] == "_default.json"
 
 
 def test_new_simulation_event_kinds_are_all_known():
@@ -153,7 +157,7 @@ def test_new_simulation_event_kinds_are_all_known():
 
     handler = _make_handler()
     sims = handler._load_simulations()
-    targets = {"todo-lifecycle.json", "hrms-build.json"}
+    targets = {"todo-lifecycle.json", "hrms-build.json", "full-showcase.json"}
 
     seen = 0
     for sim in sims:
@@ -168,7 +172,7 @@ def test_new_simulation_event_kinds_are_all_known():
             # Unknown kinds silently degrade to MESSAGE in playback, so any kind
             # used here must be a real EventKind value.
             EventKind(kind)
-    assert seen == 2
+    assert seen == 3
 
 
 @pytest.mark.asyncio
@@ -237,4 +241,49 @@ async def test_hrms_playback_streams_orchestration_and_compaction(monkeypatch):
     # Final board reflects every todo_board snapshot that crossed the wire.
     boards = [e["params"]["data"]["board"] for e in events if e["params"]["kind"] == "todo_board"]
     assert len(boards[-1]) == 7
+    assert {i["id"] for i in boards[-1]} == {"H1", "H2", "H3", "H4", "H5", "H6", "H7"}
+
+
+@pytest.mark.asyncio
+async def test_full_showcase_playback_combines_lifecycle_then_hrms(monkeypatch):
+    handler = _make_handler()
+    ws = _FakeWS()
+    sid = handler._make_session({"title": "Showcase Playback"}).id
+
+    async def _noop(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr("server.api.test_websocket.asyncio.sleep", _noop)
+
+    returned = await handler._dispatch(
+        ws, "prompt.send", "showcase_1", {"content": "run the full showcase"}, sid
+    )
+    assert returned == sid
+    await handler._active_tasks[sid]
+
+    events = [m for m in ws.sent if m.get("method") == "event"]
+    kinds = [e["params"]["kind"] for e in events]
+    assert kinds[0] == "thinking", kinds
+    assert kinds.count("todo_test") == 8, kinds
+    assert kinds.count("todo_board") == 26, kinds
+    assert kinds.count("agent_orchestration") == 12, kinds
+    assert kinds.count("context_compaction_started") == 1, kinds
+    assert kinds.count("error") == 1, kinds
+    # Two success cards in the stream plus the trailing success the server
+    # appends after a full playback.
+    assert kinds.count("success") == 3, kinds
+    assert kinds[-1] == "success", kinds
+    for evt in events:
+        assert evt["params"]["session_id"] == sid
+
+    # Lifecycle verification runs first, then the HRMS build: the whole
+    # todo_test report must land before any HRMS-only compaction phase.
+    first_test = kinds.index("todo_test")
+    compaction = kinds.index("context_compaction_started")
+    assert first_test < compaction, kinds
+
+    # Both halves keep their terminal state intact.
+    last_test = [e for e in events if e["params"]["kind"] == "todo_test"][-1]
+    assert last_test["params"]["data"]["phase"] == "persist"
+    boards = [e["params"]["data"]["board"] for e in events if e["params"]["kind"] == "todo_board"]
     assert {i["id"] for i in boards[-1]} == {"H1", "H2", "H3", "H4", "H5", "H6", "H7"}

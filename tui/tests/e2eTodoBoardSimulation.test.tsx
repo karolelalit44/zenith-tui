@@ -8,11 +8,10 @@ import { upsertEvent } from '../src/utils/eventUpsert';
 import { consolidateTodoBoardEvents } from '../src/utils/todoBoard';
 
 /**
- * End-to-end coverage of the todo & subtask board simulation.
- *
- * Runs the fixture emitter path: every lifecycle event replays through the
- * shared upsert/consolidate/render pipeline, and the board card renders the
- * final snapshot.
+ * The todo board data pipeline (fixture → typed events → consolidation) stays
+ * intact, and the rendered todo window is the minimal board table: SN | todo
+ * title | status (max 10 rows). These tests guard both the data pipeline and
+ * the "no assertion report" contract.
  */
 
 afterEach(() => {
@@ -36,8 +35,8 @@ async function replayAllThroughEmitter(): Promise<ScenarioEvent[]> {
   return received;
 }
 
-describe('E2E: todo board full pipeline', () => {
-  it('emits the lifecycle through the shared pipeline and renders the completed board', async () => {
+describe('E2E: todo board data pipeline', () => {
+  it('emits the lifecycle through the shared pipeline and renders the minimal board', async () => {
     const emitted = await replayAllThroughEmitter();
     expect(emitted.length).toBe(collectTodoBoardEvents().length);
 
@@ -57,16 +56,19 @@ describe('E2E: todo board full pipeline', () => {
     );
     const frame = lastFrame();
 
-    // Completed board state
-    expect(frame).toContain('SIMULATION COMPLETE');
-    expect(frame).toContain('Add CI pipeline to the repo');
-    // Slim window: no activity log, counts, or subtasks
-    expect(frame).not.toContain('▶ ACTIVITY LOG');
-    expect(frame).not.toContain('Unblocked #T4');
-    expect(frame).not.toContain('Wire CI status into App dashboard');
+    // Minimal board rows: SN | title | status, top-level only.
+    expect(frame).toMatch(/T1\s+Add todo board simulation pipeline\s+success/);
+    expect(frame).toMatch(/T4\s+Flaky test suite quarantine\s+failure/);
+    expect(frame).toMatch(/T5\s+Add CI pipeline to the repo\s+success/);
+    // Subtasks never render as rows.
+    expect(frame).not.toContain('T1-S1');
+
+    // The internal assertion report is not rendered.
+    expect(frame).not.toContain('✓ ALL SCENARIOS PASSED');
+    expect(frame).not.toContain('☑ TODO BOARD');
   });
 
-  it('renders the live in-progress board mid-simulation', async () => {
+  it('renders the minimal board window mid-simulation too', async () => {
     vi.useFakeTimers();
     const received: ScenarioEvent[] = [];
     emitTodoBoardFixture((event) => {
@@ -86,8 +88,7 @@ describe('E2E: todo board full pipeline', () => {
     );
     const frame = lastFrame();
 
-    expect(frame).toContain('TODO BOARD');
-    expect(frame).toContain('LIVE SIMULATION');
-    expect(frame).toContain('Flaky test suite quarantine');
+    expect(frame).not.toContain('✓ ALL SCENARIOS PASSED');
+    expect(frame).not.toContain('☑ TODO BOARD');
   });
 });

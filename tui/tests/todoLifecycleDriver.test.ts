@@ -36,7 +36,8 @@ describe('runTodoLifecycle', () => {
   it('emits board snapshots interleaved with scenario results ending completed', () => {
     const result = run();
     const boardKinds = result.events.map((e) => e.kind);
-    expect(boardKinds[0]).toBe('todo_board');
+    // The stream opens like a real response (thinking), then the board rides along.
+    expect(boardKinds[0]).toBe('thinking');
 
     const boards = result.events.filter((e): e is TodoBoardEvent => e.kind === 'todo_board');
     expect(boards[0].action).toBe('snapshot');
@@ -93,7 +94,15 @@ describe('runTodoLifecycle', () => {
     expect(kinds[kinds.length - 1]).toBe('success');
     expect(kinds[kinds.length - 2]).toBe('message');
     const ids = result.events.map((e: ScenarioEvent) => e.id);
-    expect(new Set(ids).size).toBe(ids.length);
+    // tool_call/tool_result pairs intentionally share an id so useScenario
+    // pairs them into a single tool_step; every other id must be unique.
+    const nonToolDups = ids.filter(
+      (id, index) =>
+        result.events[index].kind !== 'tool_call' &&
+        result.events[index].kind !== 'tool_result' &&
+        ids.indexOf(id) !== ids.lastIndexOf(id),
+    );
+    expect(nonToolDups).toEqual([]);
     const tests = result.events.filter((e): e is TodoTestEvent => e.kind === 'todo_test');
     for (const t of tests) {
       expect(t.assertions.length).toBeGreaterThan(0);

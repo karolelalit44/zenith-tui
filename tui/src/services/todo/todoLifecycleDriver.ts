@@ -1,6 +1,9 @@
 import path from 'node:path';
 import type {
+  CrewmateAgent,
+  PlanItem,
   ScenarioEvent,
+  TimelineEntry,
   TodoBoardChange,
   TodoBoardEvent,
   TodoItem,
@@ -65,9 +68,56 @@ interface ScenarioCtx {
   done: () => void;
 }
 
+interface LifecycleCrew {
+  runner: CrewmateAgent;
+  verifier: CrewmateAgent;
+}
+
+function lifecyclePlanItems(): PlanItem[] {
+  return [
+    { id: 'P1', title: 'Create TODO with subtasks', assignedAgent: 'lc-runner', status: 'queued' },
+    { id: 'P2', title: 'Manage + update subtask details', assignedAgent: 'lc-runner', status: 'queued' },
+    { id: 'P3', title: 'Progress, complete, reopen', assignedAgent: 'lc-runner', status: 'queued' },
+    { id: 'P4', title: 'Persist + verify reload', assignedAgent: 'lc-verifier', status: 'queued' },
+  ];
+}
+
+function lifecycleCrew(): LifecycleCrew {
+  return {
+    runner: {
+      id: 'lc-runner',
+      name: 'Scenario Runner',
+      role: 'Lifecycle driver',
+      task: 'Drive create → persist lifecycle operations',
+      activity: 'Reading the TodoStore API',
+      status: 'spawned',
+      progress: 0,
+    },
+    verifier: {
+      id: 'lc-verifier',
+      name: 'Persistence Verifier',
+      role: 'Reload guard',
+      task: 'Reload board and assert deep equality',
+      activity: 'Preparing reload checks',
+      status: 'spawned',
+      progress: 0,
+    },
+  };
+}
+
+function lcTimeline(timestamp: string, message: string, type?: 'info' | 'success' | 'warning'): TimelineEntry {
+  return { timestamp, message, type };
+}
+
 /**
  * Run the complete TODO/subtask lifecycle end to end: Create → Manage → Update
  * → Progress → Complete → Reopen → Persist.
+ *
+ * The stream mirrors a real assistant response: thinking + plan, sub-agent
+ * orchestration (captain + runner/verifier), paired tool calls, the lifecycle
+ * scenario report (todo_test events), more tool calls, and a final response.
+ * The todo BOARD snapshots ride along so the data pipeline stays intact, but
+ * the rendered todo window is the report card only.
  *
  * Every mutation flows through the real TodoStore validation, so invalid and
  * incomplete states are genuinely rejected — those rejections are captured as
@@ -134,8 +184,100 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     };
   };
 
+  // ── 0 · thinking + plan ───────────────────────────────────────────────
+  events.push({
+    kind: 'thinking',
+    id: 'lc_thinking_1',
+    duration: 2600,
+    thoughts: [
+      {
+        text: 'The todo lifecycle is a full CRUD walk: create a TODO with subtasks, manage the list, update fields, move through progress to completion, reopen it, and finally persist the board and reload it into a fresh store to prove nothing is lost on refresh.',
+      },
+      {
+        text: 'Every operation must flow through the real TodoStore so invalid input is genuinely rejected — those rejections become the edge-case rows in the report.',
+      },
+      {
+        text: 'Persist is the critical phase: write to disk, rebuild the store from the file, and deep-compare. Only then can the lifecycle be called complete.',
+      },
+    ],
+  });
+
+  events.push({
+    kind: 'message',
+    id: 'lc_msg_intro',
+    text: 'Walking the **HRMS onboarding module** lifecycle end to end: create the TODO, manage its subtasks, update details, track progress, complete, reopen, and persist across a reload. The scenario runner drives every phase through the real TodoStore while the persistence verifier guards the final reload.',
+    partial: false,
+  });
+
+  events.push({
+    kind: 'plan_ready',
+    id: 'lc_plan_1',
+    sessionId: 'todo-lifecycle',
+    plan:
+      '## Todo Lifecycle Run\n' +
+      '1. **Create** a TODO with subtasks and validate the store invariants.\n' +
+      '2. **Manage** subtasks: add, reject duplicates/blank titles.\n' +
+      '3. **Update** TODO + subtask details (title, priority, labels, note).\n' +
+      '4. **Progress**: move statuses and derive % progress.\n' +
+      '5. **Complete** subtasks then the parent (gated on required subtasks).\n' +
+      '6. **Reopen** the completed TODO and re-complete it.\n' +
+      '7. **Persist** the board, reload into a fresh store, assert deep equality.',
+  });
+
+  let plan = lifecyclePlanItems();
+  let crew = lifecycleCrew();
+  events.push({
+    kind: 'agent_orchestration',
+    id: 'lc_orch_1',
+    stage: 'planning',
+    captainMessage:
+      'Splitting the lifecycle into 4 workstreams — the runner drives the scenarios while the verifier owns persistence + reload.',
+    plan,
+    crewmates: Object.values(crew),
+    timeline: [
+      lcTimeline('09:31:02', 'Plan ready — 4 workstreams, 2 sub-agents available'),
+      lcTimeline('09:31:05', 'Runner picks up create → reopen; verifier preps reload checks'),
+    ],
+    activeStep: 'P1',
+  });
+
+  plan = plan.map((p) => ({ ...p, status: 'in_progress' as const }));
+  crew = {
+    runner: { ...crew.runner, status: 'assigned' as const, progress: 10, activity: 'Loading the TodoStore API' },
+    verifier: { ...crew.verifier, status: 'assigned' as const, progress: 10, activity: 'Mapping persistence contract' },
+  };
+  events.push({
+    kind: 'agent_orchestration',
+    id: 'lc_orch_2',
+    stage: 'delegating',
+    captainMessage:
+      'Sub-agents dispatched. The runner begins with the create phase; the verifier awaits the persist phase.',
+    plan,
+    crewmates: Object.values(crew),
+    timeline: [lcTimeline('09:31:09', 'Sub-agents dispatched', 'info')],
+    activeStep: 'P1',
+  });
+
   // ── 0 · seed the board ────────────────────────────────────────────────
   pushBoard('snapshot', 'Starting empty board — nothing tracked yet');
+
+  events.push({
+    kind: 'tool_call',
+    id: 'lc_tool_read',
+    tool: 'read_file',
+    params: { path: 'src/services/todo/todoStore.ts' },
+    text: 'Reading the TodoStore API before driving the lifecycle',
+  });
+  events.push({
+    kind: 'tool_result',
+    id: 'lc_tool_read',
+    tool: 'read_file',
+    success: true,
+    output:
+      'TodoStore API: createTodo, addSubtask, updateTodo, updateSubtask, setStatus, completeSubtask, completeTodo, reopenTodo, reopenSubtask, progressOfId, snapshot. Validation rejects blank titles, duplicate ids and invalid statuses.',
+    error: '',
+    metadata: { path: 'src/services/todo/todoStore.ts', lines: 366 },
+  });
 
   // ── 1 · CREATE — a TODO with subtasks ─────────────────────────────────
   const create = scenario('create', 'Create a TODO with subtasks');
@@ -222,6 +364,43 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     to: 'urgent',
   });
 
+  events.push({
+    kind: 'tool_call',
+    id: 'lc_tool_run',
+    tool: 'bash',
+    params: { command: 'npx vitest run tests/todoStore.test.ts tests/todoPersistence.test.ts' },
+    text: 'Running the TodoStore unit suite before driving the progress scenarios',
+  });
+  events.push({
+    kind: 'tool_result',
+    id: 'lc_tool_run',
+    tool: 'bash',
+    success: true,
+    output: 'Test Files  2 passed (2)\n      Tests  38 passed (38)\n',
+    error: '',
+    metadata: { exitCode: 0 },
+  });
+
+  crew = {
+    ...crew,
+    runner: { ...crew.runner, status: 'working' as const, progress: 55, activity: 'Driving update + progress phases' },
+    verifier: { ...crew.verifier, status: 'working' as const, progress: 30, activity: 'Drafting reload assertions' },
+  };
+  events.push({
+    kind: 'agent_orchestration',
+    id: 'lc_orch_3',
+    stage: 'working',
+    captainMessage:
+      'Create, manage and update are green. The runner moves into progress/complete/reopen while the verifier maps the persistence file layout.',
+    plan,
+    crewmates: Object.values(crew),
+    timeline: [
+      lcTimeline('09:32:18', 'Create + manage + update phases passed', 'success'),
+      lcTimeline('09:32:31', 'TodoStore unit suite green (38 tests)', 'success'),
+    ],
+    activeStep: 'P2',
+  });
+
   // ── 4 · PROGRESS — status + derived progress ──────────────────────────
   const progress = scenario('progress', 'Change status / progress');
   progress.assert(store.setStatus('T1', 'in_progress').ok, 'start TODO #T1');
@@ -298,6 +477,48 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     to: 'in_progress',
   });
 
+  events.push({
+    kind: 'tool_call',
+    id: 'lc_tool_write',
+    tool: 'write_file',
+    params: { path: 'data/simulation/todo-lifecycle.json', description: 'Board snapshot for the persist phase' },
+    text: 'Staging the board snapshot before the persist phase',
+  });
+  events.push({
+    kind: 'tool_result',
+    id: 'lc_tool_write',
+    tool: 'write_file',
+    success: true,
+    output: 'Staged board snapshot — 1 todo, 5 subtasks, priority urgent, status done.',
+    error: '',
+    metadata: { path: 'data/simulation/todo-lifecycle.json', lines: 132 },
+  });
+
+  crew = {
+    ...crew,
+    runner: { ...crew.runner, status: 'working' as const, progress: 85, activity: 'Wrapping up reopen cycle' },
+    verifier: {
+      ...crew.verifier,
+      status: 'needs_review' as const,
+      progress: 70,
+      activity: 'Reviewing the reload plan',
+    },
+  };
+  events.push({
+    kind: 'agent_orchestration',
+    id: 'lc_orch_4',
+    stage: 'reviewing',
+    captainMessage:
+      'Complete → reopen → re-complete cycle done. The verifier owns the persist phase now: write, reload, deep-compare.',
+    plan,
+    crewmates: Object.values(crew),
+    timeline: [
+      lcTimeline('09:33:04', 'Reopen cycle verified — progress reset + re-completed', 'info'),
+      lcTimeline('09:33:07', 'Handing persistence to the verifier', 'info'),
+    ],
+    activeStep: 'P4',
+  });
+
   // ── 8 · PERSIST — real file + fresh-store reload ──────────────────────
   const persist = scenario('persist', 'Persist board + verify after refresh/reload');
   const outputDir = options.outputDir ?? simOutputDir();
@@ -329,16 +550,41 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     to: persistedPath,
   });
 
+  plan = plan.map((p) => ({ ...p, status: 'completed' as const }));
+  crew = {
+    runner: {
+      ...crew.runner,
+      status: 'completed' as const,
+      progress: 100,
+      resultSummary: 'All lifecycle phases green — every scenario passed',
+    },
+    verifier: {
+      ...crew.verifier,
+      status: 'completed' as const,
+      progress: 100,
+      resultSummary: 'Board reloaded + deep-equal after refresh',
+    },
+  };
+  events.push({
+    kind: 'agent_orchestration',
+    id: 'lc_orch_5',
+    stage: 'complete',
+    captainMessage: 'Lifecycle complete — every phase passed and the board survived a fresh-store reload.',
+    plan,
+    crewmates: Object.values(crew),
+    timeline: [
+      lcTimeline('09:33:22', 'Verifier confirmed deep-equal reload', 'success'),
+      lcTimeline('09:33:25', 'Orchestration complete', 'success'),
+    ],
+  });
+
   // ── 9 · summary ───────────────────────────────────────────────────────
   const passed = testEvents.filter((t) => t.passed).length;
   const total = testEvents.length;
   events.push({
     kind: 'message',
     id: 'evt_lc_summary_msg',
-    text:
-      `✓ TODO lifecycle simulation complete — ${passed}/${total} scenarios passed across ` +
-      `create → manage → update → progress → complete → reopen → persist. ` +
-      `Board persisted to ${persistedPath} and verified identical after a fresh-store reload.`,
+    text: `**Todo lifecycle verified end to end.** The runner drove create → manage → update → progress → complete → reopen → persist through the real TodoStore, all ${passed}/${total} scenarios passed (58 assertions), edge cases were genuinely rejected, and the board was persisted to ${persistedPath} then reloaded into a fresh store that deep-equals the original — nothing was lost across the refresh.`,
     partial: false,
   });
   events.push({

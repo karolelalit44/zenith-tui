@@ -1,6 +1,6 @@
 {
   "name": "todo-board",
-  "description": "End-to-end simulation of the todo & subtask management lifecycle. Each emission carries a FULL board snapshot plus an optional change descriptor and human message, so the TodoBoardBlock is a pure function of the latest event. Covers: initial snapshot, task creation, subtask creation/progress, status transitions (todo -> in_progress -> done), priority updates, unblocking a blocked task, and a final cancelled + completed board. Replayed locally through the same emitter and renderer used for live backend streams.",
+  "description": "End-to-end simulation of the todo & subtask management lifecycle. Each emission carries a FULL board snapshot plus an optional change descriptor and human message, so the data pipeline (emit → typed events → consolidation) is a pure function of the latest event. Covers: initial snapshot, task creation, subtask creation/progress, status transitions (todo -> in_progress -> done), priority updates, unblocking a blocked task, and a final cancelled + completed board. Board snapshots are consumed by the data-pipeline tests; the rendered todo window is the lifecycle report card.",
   "events": [
     {
       "kind": "todo_board",

@@ -8,7 +8,6 @@ import { collectTodoLifecycleEvents } from '../src/services/transport/todoLifecy
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { ScenarioEvent } from '../src/types/scenario';
 import { upsertEvent } from '../src/utils/eventUpsert';
-import { consolidateTodoTestEvents } from '../src/utils/todoLifecycle';
 
 let tempDir: string;
 
@@ -29,15 +28,9 @@ const buildState = (events: ScenarioEvent[]): ScenarioEvent[] => {
 };
 
 describe('E2E: todo lifecycle pipeline', () => {
-  it('emits the lifecycle and renders board + report together', () => {
+  it('emits the realistic lifecycle and renders the minimal todo board', () => {
     const emitted = collectTodoLifecycleEvents({ outputDir: tempDir });
     const state = buildState(emitted);
-
-    const report = consolidateTodoTestEvents(state);
-    expect(report).not.toBeNull();
-    expect(report?.passedCount).toBe(report?.totalCount);
-    expect(report?.totalCount).toBeGreaterThanOrEqual(40);
-    expect(report?.rejectedOps).toBeDefined();
 
     const { lastFrame } = render(
       <ThemeProvider>
@@ -46,24 +39,26 @@ describe('E2E: todo lifecycle pipeline', () => {
     );
     const frame = lastFrame();
 
-    // Board card: terminal state
-    expect(frame).toContain('☑ TODO BOARD');
-    expect(frame).toContain('SIMULATION COMPLETE');
-    expect(frame).toContain('Build the HRMS employee onboarding module');
+    // Realistic response framing around the todo work.
+    expect(frame).toContain('TodoStore API');
+    expect(frame).toContain('HRMS onboarding module');
 
-    // Report card: terminal state
-    expect(frame).toContain('🧪 TODO SIMULATION');
-    expect(frame).toContain('✓ ALL SCENARIOS PASSED');
-    expect(frame).toContain('⊘ REJECTED EDGE CASES');
-    expect(frame).toContain('setStatus(todo → done) direct');
+    // Minimal board table: SN | todo title | status, no column header.
+    expect(frame).not.toContain('TODO TITLE');
+    expect(frame).toMatch(/T1\s+Build the HRMS employee onboarding module \(Django\)\s+success/);
+
+    // The internal assertion report is not rendered.
+    expect(frame).not.toContain('✓ ALL SCENARIOS PASSED');
+    expect(frame).not.toContain('REJECTED EDGE CASES');
+    expect(frame).not.toContain('☑ TODO BOARD');
 
     // Persistence was exercised: file must exist under the temp dir.
     expect(() => readFileSync(path.join(tempDir, 'todo-lifecycle.json'), 'utf8')).not.toThrow();
   });
 
-  it('renders the live in-progress report mid-simulation', () => {
+  it('renders the live empty board early in the simulation', () => {
     const emitted = collectTodoLifecycleEvents({ outputDir: tempDir });
-    const state = buildState(emitted.slice(0, 6));
+    const state = buildState(emitted.slice(0, 9));
 
     const { lastFrame } = render(
       <ThemeProvider>
@@ -71,11 +66,8 @@ describe('E2E: todo lifecycle pipeline', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame();
-    expect(frame).toContain('☑ TODO BOARD');
-    expect(frame).toContain('LIVE SIMULATION');
-    expect(frame).toContain('🧪 TODO SIMULATION');
-    expect(frame).toContain('Create');
-    expect(frame).toContain('Persist');
-    expect(frame).toContain('✔ createTodo accepts a valid TODO with subtasks');
+    expect(frame).toContain('TODO');
+    expect(frame).toContain('(no todos yet)');
+    expect(frame).not.toContain('✓ ALL SCENARIOS PASSED');
   });
 });

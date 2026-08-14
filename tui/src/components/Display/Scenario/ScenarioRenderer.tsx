@@ -10,7 +10,6 @@ import type {
 } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
 import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
-import { consolidateTodoTestEvents } from '../../../utils/todoLifecycle';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -143,11 +142,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const result: ScenarioEvent[] = [];
       let orchInserted = false;
       let compactionInserted = false;
-      let todoBoardInserted = false;
-      let todoTestInserted = false;
+      let boardInserted = false;
       const consolidatedCompaction = consolidateCompactionEvents(events);
-      const consolidatedTodoBoard = consolidateTodoBoardEvents(events);
-      const consolidatedTodoTest = consolidateTodoTestEvents(events);
+      const consolidatedBoard = consolidateTodoBoardEvents(events);
 
       for (const e of events) {
         if (e.kind === 'agent_orchestration') {
@@ -156,15 +153,15 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
             orchInserted = true;
           }
         } else if (e.kind === 'todo_board') {
-          if (!todoBoardInserted && consolidatedTodoBoard) {
-            result.push(consolidatedTodoBoard);
-            todoBoardInserted = true;
+          // Fold every board snapshot into ONE minimal window (checkbox + SN +
+          // name, capped at 10 rows).
+          if (!boardInserted && consolidatedBoard) {
+            result.push(consolidatedBoard);
+            boardInserted = true;
           }
         } else if (e.kind === 'todo_test') {
-          if (!todoTestInserted && consolidatedTodoTest) {
-            result.push(consolidatedTodoTest);
-            todoTestInserted = true;
-          }
+          // The assertion/edge-case report is an internal test layer — the
+          // rendered todo window shows the board only, so skip these events.
         } else if (
           e.kind === 'context_compaction_started' ||
           e.kind === 'context_compaction_phase' ||

@@ -181,17 +181,25 @@ mkdirSync(simDir, { recursive: true });
 
 const lifecycle = collectTodoLifecycleEvents();
 const hrms = collectHrmsBuildEvents();
+// Single-prompt showcase: lifecycle verification first, then the HRMS build.
+const showcase = [...lifecycle, ...hrms];
 
 const todoFile = path.join(simDir, 'todo-lifecycle.json');
 const hrmsFile = path.join(simDir, 'hrms-build.json');
+const showcaseFile = path.join(simDir, 'full-showcase.json');
 writeFileSync(
   todoFile,
-  JSON.stringify(buildFile('todo-lifecycle', { contains: 'todo', mode: 'build' }, lifecycle), null, 2) + '\n',
+  `${JSON.stringify(buildFile('todo-lifecycle', { contains: 'todo', mode: 'build' }, lifecycle), null, 2)}\n`,
   'utf-8',
 );
 writeFileSync(
   hrmsFile,
-  JSON.stringify(buildFile('hrms-build', { contains: 'hrms', mode: 'build' }, hrms), null, 2) + '\n',
+  `${JSON.stringify(buildFile('hrms-build', { contains: 'hrms', mode: 'build' }, hrms), null, 2)}\n`,
+  'utf-8',
+);
+writeFileSync(
+  showcaseFile,
+  `${JSON.stringify(buildFile('full-showcase', { contains: 'showcase', mode: 'build' }, showcase), null, 2)}\n`,
   'utf-8',
 );
 
@@ -205,3 +213,5 @@ console.log(`wrote ${todoFile} (${lifecycle.length} events)`);
 console.log(kindCount(lifecycle));
 console.log(`wrote ${hrmsFile} (${hrms.length} events)`);
 console.log(kindCount(hrms));
+console.log(`wrote ${showcaseFile} (${showcase.length} events)`);
+console.log(kindCount(showcase));

@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import type { ErrorEvent } from '../../../types/scenario';
 import { MAX_MESSAGE_PREVIEW_LENGTH } from '../../../utils/text';
 
@@ -16,6 +17,9 @@ const ACTION_LABELS: Record<string, string> = {
 export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const [expanded, setExpanded] = useState(false);
+  const { columns } = useTerminalDimensions();
+  const termCols = columns || process.stdout.columns || 80;
+  const contentWidth = Math.max(30, termCols - 2);
 
   const rawMessage = event.message.trim();
   const truncated = rawMessage.length > MAX_MESSAGE_PREVIEW_LENGTH;
@@ -34,10 +38,10 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
   );
 
   return (
-    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+    <Box flexDirection="column" width={contentWidth} marginBottom={1} paddingX={1}>
       <Box
         flexDirection="column"
-        width="100%"
+        width={contentWidth}
         borderStyle="single"
         borderTop={false}
         borderRight={false}

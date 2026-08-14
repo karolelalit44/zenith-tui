@@ -348,9 +348,10 @@ export interface TodoTestRejectedOp {
 }
 
 /**
- * One scenario result from the todo lifecycle simulation. The ScenarioRenderer
- * folds every emission into a single consolidated report card that shows the
- * phase stepper, per-scenario assertions, and rejected edge-case operations.
+ * One scenario result from the todo lifecycle simulation. These are internal
+ * test-layer events: the stream still carries them (server tests assert the
+ * counts), but the ScenarioRenderer does not render them — the visible todo
+ * window is the minimal board list.
  */
 export interface TodoTestEvent {
   kind: 'todo_test';

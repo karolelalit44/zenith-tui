@@ -15,7 +15,7 @@ const buildState = (events: ScenarioEvent[]): ScenarioEvent[] => {
 };
 
 describe('E2E: HRMS build pipeline', () => {
-  it('renders the full HRMS build: captain center, todo board, tool steps, compaction and success', () => {
+  it('renders the full HRMS build: captain center, tool steps, compaction and success', () => {
     const emitted = collectHrmsBuildEvents();
     expect(emitted.length).toBeGreaterThanOrEqual(60);
     const state = buildState(emitted);
@@ -33,10 +33,11 @@ describe('E2E: HRMS build pipeline', () => {
     expect(frame).toContain('Model Architect');
     expect(frame).toContain('Backend Agent');
 
-    // Todo board card
-    expect(frame).toContain('☑ TODO BOARD');
-    expect(frame).toContain('SIMULATION COMPLETE');
-    expect(frame).toContain('Django HRMS');
+    // Minimal todo board table: SN | title | status.
+    expect(frame).toMatch(/H1\s+Scaffold HRMS Django project\s+success/);
+    expect(frame).toMatch(/H5\s+Admin \+ seed data\s+failure/);
+    expect(frame).not.toContain('☑ TODO BOARD');
+    expect(frame).not.toContain('✓ ALL SCENARIOS PASSED');
 
     // Tool steps: the failed payroll run and its recovery
     expect(frame).toContain('payroll pro-rating');
@@ -62,7 +63,9 @@ describe('E2E: HRMS build pipeline', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('⚡ CAPTAIN ZENITH COMMAND CENTER');
-    expect(frame).toContain('☑ TODO BOARD');
+    // The minimal todo board table renders mid-build too.
+    expect(frame).toMatch(/H2\s+Employee \+ Department models\s+success/);
+    expect(frame).not.toContain('✓ ALL SCENARIOS PASSED');
     // The build is still in progress — the final success card has not rendered.
     expect(frame).not.toContain('12 iters');
   });
