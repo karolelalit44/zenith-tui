@@ -9,6 +9,7 @@ import type {
   TurnManifestEvent,
 } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
+import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -141,7 +142,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const result: ScenarioEvent[] = [];
       let orchInserted = false;
       let compactionInserted = false;
+      let boardInserted = false;
       const consolidatedCompaction = consolidateCompactionEvents(events);
+      const consolidatedBoard = consolidateTodoBoardEvents(events);
 
       for (const e of events) {
         if (e.kind === 'agent_orchestration') {
@@ -149,6 +152,16 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
             result.push(consolidatedOrch);
             orchInserted = true;
           }
+        } else if (e.kind === 'todo_board') {
+          // Fold every board snapshot into ONE minimal window (checkbox + SN +
+          // name, capped at 10 rows).
+          if (!boardInserted && consolidatedBoard) {
+            result.push(consolidatedBoard);
+            boardInserted = true;
+          }
+        } else if (e.kind === 'todo_test') {
+          // The assertion/edge-case report is an internal test layer — the
+          // rendered todo window shows the board only, so skip these events.
         } else if (
           e.kind === 'context_compaction_started' ||
           e.kind === 'context_compaction_phase' ||
@@ -179,7 +192,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         }
       }
       return result;
-    }, [events, isRunning, isHistorical]);
+    }, [events, isHistorical]);
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.
