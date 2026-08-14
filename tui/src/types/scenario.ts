@@ -14,7 +14,9 @@ export type EventKind =
   | 'context_compaction_ended'
   | 'context_compaction_phase'
   | 'context_compaction_flow'
-  | 'agent_orchestration';
+  | 'agent_orchestration'
+  | 'todo_board'
+  | 'todo_test';
 
 export interface ThinkingThought {
   text: string;
@@ -274,6 +276,94 @@ export interface AgentOrchestrationEvent {
   activeStep?: string;
 }
 
+export type TodoStatus = 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
+
+export type TodoPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface SubtaskItem {
+  id: string;
+  title: string;
+  status: TodoStatus;
+  assignee?: string;
+  note?: string;
+}
+
+/**
+ * A single work item on the todo board. `progress` is always derived in the UI
+ * from `status` + subtasks and is never trusted from the wire.
+ */
+export interface TodoItem {
+  id: string;
+  title: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  assignee?: string;
+  labels?: string[];
+  dueDate?: string;
+  createdAt: number;
+  updatedAt: number;
+  subtasks: SubtaskItem[];
+}
+
+export type TodoBoardAction = 'created' | 'updated' | 'completed' | 'cancelled' | 'snapshot';
+
+export interface TodoBoardChange {
+  itemId: string;
+  field: string;
+  from?: unknown;
+  to?: unknown;
+}
+
+/**
+ * A snapshot of the entire todo board. Every emission carries the FULL board
+ * so the UI is a pure function of the latest event — any backend that emits
+ * this shape (live WS or fixture) renders identically with zero UI changes.
+ */
+export interface TodoBoardEvent {
+  kind: 'todo_board';
+  id: string;
+  action: TodoBoardAction;
+  board: TodoItem[];
+  change?: TodoBoardChange;
+  message?: string;
+}
+
+/**
+ * Lifecycle phases exercised by the todo lifecycle simulation (triggered by a
+ * matching prompt against the test backend's `data/simulation` playback).
+ * Ordered so the report card can render a phase stepper.
+ */
+export type TodoLifecyclePhase = 'create' | 'manage' | 'update' | 'progress' | 'complete' | 'reopen' | 'persist';
+
+export interface TodoTestAssertion {
+  label: string;
+  passed: boolean;
+  detail?: string;
+}
+
+/** An invalid/incomplete-state operation that was attempted and correctly rejected. */
+export interface TodoTestRejectedOp {
+  op: string;
+  reason: string;
+}
+
+/**
+ * One scenario result from the todo lifecycle simulation. These are internal
+ * test-layer events: the stream still carries them (server tests assert the
+ * counts), but the ScenarioRenderer does not render them — the visible todo
+ * window is the minimal board list.
+ */
+export interface TodoTestEvent {
+  kind: 'todo_test';
+  id: string;
+  phase: TodoLifecyclePhase;
+  scenario: string;
+  passed: boolean;
+  assertions: TodoTestAssertion[];
+  rejectedOps?: TodoTestRejectedOp[];
+  elapsedMs?: number;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | MessageEvent
@@ -291,7 +381,9 @@ export type ScenarioEvent =
   | ContextCompactionPhaseEvent
   | ContextCompactionFlowEvent
   | TurnManifestEvent
-  | AgentOrchestrationEvent;
+  | AgentOrchestrationEvent
+  | TodoBoardEvent
+  | TodoTestEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 

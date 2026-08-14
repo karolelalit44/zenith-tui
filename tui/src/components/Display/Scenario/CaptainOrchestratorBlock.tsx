@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import React from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useAnimationTick } from '../../../context/AnimationContext';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type {
   AgentOrchestrationEvent,
@@ -68,6 +69,10 @@ function renderCrewmateStatus(status: CrewmateStatus, themeColors: any, tick: nu
 export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const tick = useAnimationTick();
+  const { columns } = useTerminalDimensions();
+
+  const termCols = columns || process.stdout.columns || 80;
+  const contentWidth = Math.max(30, termCols - 2);
 
   const isRunning = event.stage !== 'complete';
 
@@ -111,7 +116,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
   }
 
   return (
-    <Box flexDirection="column" width="100%" marginTop={1} marginBottom={1}>
+    <Box flexDirection="column" width={contentWidth} marginTop={1} marginBottom={1}>
       <Box
         flexDirection="column"
         backgroundColor={theme.colors.code.background}
