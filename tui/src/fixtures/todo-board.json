@@ -1,0 +1,867 @@
+{
+  "name": "todo-board",
+  "description": "End-to-end simulation of the todo & subtask management lifecycle. Each emission carries a FULL board snapshot plus an optional change descriptor and human message, so the TodoBoardBlock is a pure function of the latest event. Covers: initial snapshot, task creation, subtask creation/progress, status transitions (todo -> in_progress -> done), priority updates, unblocking a blocked task, and a final cancelled + completed board. Replayed locally through the same emitter and renderer used for live backend streams.",
+  "events": [
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "snapshot",
+        "message": "Synchronized todo board from workspace state — 4 tracked work items",
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612600000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "in_progress" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "todo",
+            "priority": "medium",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785602400000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "todo" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "blocked",
+            "priority": "low",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785613800000,
+            "subtasks": []
+          }
+        ]
+      },
+      "delay_ms": 300
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "created",
+        "message": "Created task #T5 — Add CI pipeline to the repo",
+        "change": { "itemId": "T5", "field": "board", "to": "T5" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612600000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "in_progress" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "todo",
+            "priority": "medium",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785602400000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "todo" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "blocked",
+            "priority": "low",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785613800000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614400000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "in_progress" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "todo" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Started subtask T5-S1 — Register slash command in registry",
+        "change": { "itemId": "T5-S1", "field": "status", "from": "todo", "to": "in_progress" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612600000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "in_progress" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "todo",
+            "priority": "medium",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785602400000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "todo" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "blocked",
+            "priority": "low",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785613800000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614460000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "in_progress" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "todo" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Completed subtask T2-S2 — subtask checkbox list renders cleanly",
+        "change": { "itemId": "T2-S2", "field": "status", "from": "in_progress", "to": "done" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612660000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "todo",
+            "priority": "medium",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785602400000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "todo" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "blocked",
+            "priority": "low",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785613800000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614460000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "in_progress" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "todo" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Picked up #T3 — assignee zenith, escalated to high priority",
+        "change": { "itemId": "T3", "field": "priority", "from": "medium", "to": "high" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612660000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785614520000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "in_progress" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "blocked",
+            "priority": "low",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785613800000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614460000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "in_progress" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "todo" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Unblocked #T4 — quarantined runner replaced, escalated to high priority",
+        "change": { "itemId": "T4", "field": "status", "from": "blocked", "to": "in_progress" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612660000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785614520000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "in_progress" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785614580000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614460000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "in_progress" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "todo" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Marked #T4 cancelled — infra fix deferred to next sprint, tracking removed",
+        "change": { "itemId": "T4", "field": "status", "from": "in_progress", "to": "cancelled" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612660000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785614520000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "in_progress" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "cancelled",
+            "priority": "high",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785614640000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614460000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "in_progress" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "todo" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Advanced #T5 — build step added, dashboard wired",
+        "change": { "itemId": "T5-S2", "field": "status", "from": "todo", "to": "in_progress" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785612660000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785614520000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "in_progress" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "cancelled",
+            "priority": "high",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785614640000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614700000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "done" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "in_progress" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Completed #T2 — activity change log renders inside the board card",
+        "change": { "itemId": "T2", "field": "status", "from": "in_progress", "to": "done" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785614760000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "done" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785614520000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "in_progress" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "todo" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "cancelled",
+            "priority": "high",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785614640000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614700000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "done" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "in_progress" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "updated",
+        "message": "Completed #T3 — fixture + renderer test suites green",
+        "change": { "itemId": "T3", "field": "status", "from": "in_progress", "to": "done" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785614760000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "done" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785614820000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "done" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "done" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "cancelled",
+            "priority": "high",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785614640000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614700000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "done" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "in_progress" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 400
+    },
+    {
+      "kind": "todo_board",
+      "data": {
+        "action": "completed",
+        "message": "Simulation complete — 4 tasks done, 1 cancelled, 0 blocked. Board is fully dynamic and data-driven.",
+        "change": { "itemId": "T5", "field": "status", "from": "in_progress", "to": "done" },
+        "board": [
+          {
+            "id": "T1",
+            "title": "Add todo board simulation pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "fixture"],
+            "createdAt": 1785600000000,
+            "updatedAt": 1785608400000,
+            "subtasks": [
+              { "id": "T1-S1", "title": "Define todo_board event schema", "status": "done" },
+              { "id": "T1-S2", "title": "Create simulation fixture JSON", "status": "done" },
+              { "id": "T1-S3", "title": "Wire fixture emitter + prompt trigger", "status": "done" }
+            ]
+          },
+          {
+            "id": "T2",
+            "title": "Design dynamic board renderer",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["ui"],
+            "createdAt": 1785601200000,
+            "updatedAt": 1785614760000,
+            "subtasks": [
+              { "id": "T2-S1", "title": "Status + priority iconography", "status": "done" },
+              { "id": "T2-S2", "title": "Subtask checkbox list", "status": "done" },
+              { "id": "T2-S3", "title": "Activity change log", "status": "done" }
+            ]
+          },
+          {
+            "id": "T3",
+            "title": "Write unit tests for the board pipeline",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["tests"],
+            "createdAt": 1785602400000,
+            "updatedAt": 1785614820000,
+            "subtasks": [
+              { "id": "T3-S1", "title": "Fixture sequence assertions", "status": "done" },
+              { "id": "T3-S2", "title": "Renderer snapshot assertions", "status": "done" }
+            ]
+          },
+          {
+            "id": "T4",
+            "title": "Flaky test suite quarantine",
+            "status": "cancelled",
+            "priority": "high",
+            "assignee": "qa-bot",
+            "labels": ["flaky", "infra"],
+            "createdAt": 1785603600000,
+            "updatedAt": 1785614640000,
+            "subtasks": []
+          },
+          {
+            "id": "T5",
+            "title": "Add CI pipeline to the repo",
+            "status": "done",
+            "priority": "high",
+            "assignee": "zenith",
+            "labels": ["frontend", "cli"],
+            "createdAt": 1785614400000,
+            "updatedAt": 1785614880000,
+            "subtasks": [
+              { "id": "T5-S1", "title": "Add build step to CI config", "status": "done" },
+              { "id": "T5-S2", "title": "Wire CI status into App dashboard", "status": "done" }
+            ]
+          }
+        ]
+      },
+      "delay_ms": 100
+    }
+  ]
+}

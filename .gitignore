@@ -11,23 +11,23 @@ __pycache__
 
 # Runtime data
 data/*
+data
 
 *.db
 *.db-shm
 *.db-wal
 *.log
-
+*.pid
+*.out
+*.err
 
 *_repo/
 *cache
 
-data
-
-
-
-*todo*
-*plan*
-*todo*
-
-*.md
 package-lock.json
+todo.md
+plan.md
+zenith*
+.claude
+.freebuff
+.vscode

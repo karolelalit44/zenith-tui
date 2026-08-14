@@ -1,4 +1,15 @@
-import type { CompactionPhase, ContextPreservation, ScenarioEvent } from '../../types/scenario';
+import type {
+  CompactionPhase,
+  ContextPreservation,
+  ScenarioEvent,
+  SubtaskItem,
+  TodoBoardAction,
+  TodoBoardChange,
+  TodoItem,
+  TodoLifecyclePhase,
+  TodoPriority,
+  TodoStatus,
+} from '../../types/scenario';
 
 /**
  * Shared mapping from the raw JSON-RPC wire event (kind + data) to a typed
@@ -196,6 +207,64 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
               size: typeof f.size === 'number' ? f.size : 0,
             }))
           : [],
+      };
+
+    case 'todo_board':
+      return {
+        kind: 'todo_board',
+        id,
+        action: (d.action as TodoBoardAction) || 'snapshot',
+        board: Array.isArray(d.board)
+          ? d.board.map(
+              (item: Record<string, unknown>): TodoItem => ({
+                id: String(item.id || ''),
+                title: String(item.title || ''),
+                status: (item.status as TodoStatus) || 'todo',
+                priority: (item.priority as TodoPriority) || 'medium',
+                assignee: item.assignee ? String(item.assignee) : undefined,
+                labels: Array.isArray(item.labels) ? item.labels.map(String) : undefined,
+                dueDate: item.dueDate ? String(item.dueDate) : undefined,
+                createdAt: typeof item.createdAt === 'number' ? item.createdAt : Date.now(),
+                updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : Date.now(),
+                subtasks: Array.isArray(item.subtasks)
+                  ? item.subtasks.map(
+                      (st: Record<string, unknown>): SubtaskItem => ({
+                        id: String(st.id || ''),
+                        title: String(st.title || ''),
+                        status: (st.status as TodoStatus) || 'todo',
+                        assignee: st.assignee ? String(st.assignee) : undefined,
+                        note: st.note ? String(st.note) : undefined,
+                      }),
+                    )
+                  : [],
+              }),
+            )
+          : [],
+        change: d.change && typeof d.change === 'object' ? (d.change as TodoBoardChange) : undefined,
+        message: d.message ? String(d.message) : undefined,
+      };
+
+    case 'todo_test':
+      return {
+        kind: 'todo_test',
+        id,
+        phase: String(d.phase || 'create') as TodoLifecyclePhase,
+        scenario: String(d.scenario || 'Scenario'),
+        passed: d.passed === true,
+        assertions: Array.isArray(d.assertions)
+          ? d.assertions.map((a: Record<string, unknown>) => ({
+              label: String(a.label || ''),
+              passed: a.passed === true,
+              detail: a.detail ? String(a.detail) : undefined,
+            }))
+          : [],
+        rejectedOps: Array.isArray(d.rejectedOps)
+          ? d.rejectedOps.map((r: Record<string, unknown>) => ({
+              op: String(r.op || ''),
+              reason: String(r.reason || ''),
+            }))
+          : undefined,
+        elapsedMs: typeof d.elapsedMs === 'number' ? d.elapsedMs : undefined,
       };
 
     default:

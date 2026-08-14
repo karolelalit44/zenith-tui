@@ -127,3 +127,114 @@ async def test_simulation_memory_list_ignores_params():
     assert len(responses) == 1
     # Static backend: params are accepted for forward-compat but do not filter.
     assert len(responses[0]["result"]["memories"]) == 9
+
+
+def test_todo_and_hrms_simulations_match_prompts_in_build_mode():
+    handler = _make_handler()
+    sims = handler._load_simulations()
+
+    files = [s["_file"] for s in sims]
+    assert "todo-lifecycle.json" in files, files
+    assert "hrms-build.json" in files, files
+
+    assert (
+        handler._match(sims, "simulate todo lifecycle", "build")["_file"] == "todo-lifecycle.json"
+    )
+    assert handler._match(sims, "build the hrms django app", "build")["_file"] == "hrms-build.json"
+
+    # Both simulations are build-mode only: in plan mode they fall back to the
+    # default response rather than hijacking the prompt.
+    assert handler._match(sims, "simulate todo lifecycle", "plan")["_file"] == "_default.json"
+    assert handler._match(sims, "build the hrms django app", "plan")["_file"] == "_default.json"
+
+
+def test_new_simulation_event_kinds_are_all_known():
+    from server.domain.events import EventKind
+
+    handler = _make_handler()
+    sims = handler._load_simulations()
+    targets = {"todo-lifecycle.json", "hrms-build.json"}
+
+    seen = 0
+    for sim in sims:
+        if sim["_file"] not in targets:
+            continue
+        seen += 1
+        events = [evt for entry in sim.get("responses") or [] for evt in entry.get("events") or []]
+        assert events, sim["_file"]
+        for evt in events:
+            kind = evt.get("kind")
+            assert kind, f"{sim['_file']}: event missing kind"
+            # Unknown kinds silently degrade to MESSAGE in playback, so any kind
+            # used here must be a real EventKind value.
+            EventKind(kind)
+    assert seen == 2
+
+
+@pytest.mark.asyncio
+async def test_todo_lifecycle_playback_streams_board_and_report(monkeypatch):
+    handler = _make_handler()
+    ws = _FakeWS()
+    sid = handler._make_session({"title": "Todo Playback"}).id
+
+    async def _noop(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr("server.api.test_websocket.asyncio.sleep", _noop)
+
+    returned = await handler._dispatch(
+        ws, "prompt.send", "todo_1", {"content": "simulate todo lifecycle"}, sid
+    )
+    assert returned == sid
+    await handler._active_tasks[sid]
+
+    events = [m for m in ws.sent if m.get("method") == "event"]
+    kinds = [e["params"]["kind"] for e in events]
+    assert kinds.count("todo_board") == 9, kinds
+    assert kinds.count("todo_test") == 8, kinds
+    assert kinds[-1] == "success", kinds
+    for evt in events:
+        assert evt["params"]["session_id"] == sid
+
+    # The consolidated report card survives the wire intact.
+    last_test = [e for e in events if e["params"]["kind"] == "todo_test"][-1]
+    data = last_test["params"]["data"]
+    assert data["phase"] == "persist"
+    assert data["passed"] is True
+    assert len(data["assertions"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_hrms_playback_streams_orchestration_and_compaction(monkeypatch):
+    handler = _make_handler()
+    ws = _FakeWS()
+    sid = handler._make_session({"title": "HRMS Playback"}).id
+
+    async def _noop(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr("server.api.test_websocket.asyncio.sleep", _noop)
+
+    returned = await handler._dispatch(
+        ws, "prompt.send", "hrms_1", {"content": "build the hrms django app"}, sid
+    )
+    assert returned == sid
+    await handler._active_tasks[sid]
+
+    events = [m for m in ws.sent if m.get("method") == "event"]
+    kinds = [e["params"]["kind"] for e in events]
+    assert kinds.count("agent_orchestration") == 7, kinds
+    assert kinds.count("todo_board") == 17, kinds
+    assert kinds.count("progress") == 3, kinds
+    assert kinds.count("context_compaction_started") == 1, kinds
+    assert kinds.count("context_compaction_ended") == 1, kinds
+    assert kinds.count("error") == 1, kinds
+    assert "tool_call" in kinds and "tool_result" in kinds
+    assert kinds[-1] == "success", kinds
+    for evt in events:
+        assert evt["params"]["session_id"] == sid
+
+    # Final board reflects every todo_board snapshot that crossed the wire.
+    boards = [e["params"]["data"]["board"] for e in events if e["params"]["kind"] == "todo_board"]
+    assert len(boards[-1]) == 7
+    assert {i["id"] for i in boards[-1]} == {"H1", "H2", "H3", "H4", "H5", "H6", "H7"}

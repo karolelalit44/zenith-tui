@@ -9,6 +9,8 @@ import type {
   TurnManifestEvent,
 } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
+import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
+import { consolidateTodoTestEvents } from '../../../utils/todoLifecycle';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -141,13 +143,27 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const result: ScenarioEvent[] = [];
       let orchInserted = false;
       let compactionInserted = false;
+      let todoBoardInserted = false;
+      let todoTestInserted = false;
       const consolidatedCompaction = consolidateCompactionEvents(events);
+      const consolidatedTodoBoard = consolidateTodoBoardEvents(events);
+      const consolidatedTodoTest = consolidateTodoTestEvents(events);
 
       for (const e of events) {
         if (e.kind === 'agent_orchestration') {
           if (!orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
             orchInserted = true;
+          }
+        } else if (e.kind === 'todo_board') {
+          if (!todoBoardInserted && consolidatedTodoBoard) {
+            result.push(consolidatedTodoBoard);
+            todoBoardInserted = true;
+          }
+        } else if (e.kind === 'todo_test') {
+          if (!todoTestInserted && consolidatedTodoTest) {
+            result.push(consolidatedTodoTest);
+            todoTestInserted = true;
           }
         } else if (
           e.kind === 'context_compaction_started' ||
@@ -179,7 +195,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         }
       }
       return result;
-    }, [events, isRunning, isHistorical]);
+    }, [events, isHistorical]);
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.

@@ -8,6 +8,8 @@ import { PlanReadyBlock } from './PlanReadyBlock';
 import { ProgressBar } from './ProgressBar';
 import { SuccessCard } from './SuccessCard';
 import { ThinkingBlock } from './ThinkingBlock';
+import { TodoBoardBlock } from './TodoBoardBlock';
+import { TodoLifecycleReportBlock } from './TodoLifecycleReportBlock';
 import { ToolStepCard } from './ToolStepCard';
 import { ToolTraceBlock } from './ToolTraceBlock';
 import { TurnManifestCard } from './TurnManifestCard';
@@ -49,6 +51,8 @@ class ComponentRegistry {
     this.register('plan_ready', PlanReadyBlock as EventComponentType);
     this.register('turn_manifest', TurnManifestCard as EventComponentType);
     this.register('agent_orchestration', CaptainOrchestratorBlock as EventComponentType);
+    this.register('todo_board', TodoBoardBlock as unknown as EventComponentType);
+    this.register('todo_test', TodoLifecycleReportBlock as unknown as EventComponentType);
     this.register('context_compaction_flow', CompactionFlowBlock as EventComponentType);
   }
 
