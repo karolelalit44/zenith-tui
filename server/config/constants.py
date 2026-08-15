@@ -159,8 +159,39 @@ MAX_TOOL_OUTPUT_TIERS = (
 
 ATTACHMENT_MAX_FILE = 512 * 1024
 ATTACHMENT_MAX_TOTAL = 2 * 1024 * 1024
-GLOB_MAX_RESULTS = 500
-GLOB_MAX_OUTPUT_CHARS = 40_000
+
+DEFAULT_SEARCH_EXCLUDED_DIRS = (
+    ".git",
+    ".svn",
+    ".hg",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+    "coverage",
+    ".gemini",
+    ".idea",
+    ".vscode",
+)
+DEFAULT_SEARCH_EXCLUDED_FILES = (
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "poetry.lock",
+    "Cargo.lock",
+)
+GLOB_MAX_RESULTS = 100
+GLOB_MAX_OUTPUT_CHARS = 10_000
+GREP_MAX_RESULTS = 100
+GREP_MAX_OUTPUT_CHARS = 10_000
+GREP_MAX_FILES = 200
+BROAD_PATTERN_THRESHOLD = 50
 MAX_FILE_CHARS = 8000
 MAX_FILE_READ_LINES = 1000
 MAX_SKILLS_IN_PROMPT = 20

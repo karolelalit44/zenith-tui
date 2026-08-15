@@ -562,7 +562,7 @@ class TestGlobTool:
         assert result.success
         assert result.metadata["count"] == 5, "count reports the true total"
         assert len(result.metadata["files"]) == 2, "returned list must be capped"
-        assert "more matches omitted" in result.output
+        assert "Showing 2 of 5 matches" in result.output
 
 
 class TestGrepTool:
