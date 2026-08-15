@@ -103,14 +103,10 @@ class BashTool(BaseTool):
         if not command.strip():
             return ToolResult(success=False, error="No command provided")
         if run_in_background:
-            return await self._start_background(
-                command, workdir, params.get("description", "")
-            )
+            return await self._start_background(command, workdir, params.get("description", ""))
         return await self._execute_sync(command, workdir, timeout, auto_background_after)
 
-    async def _start_background(
-        self, command: str, workdir: str, description: str
-    ) -> ToolResult:
+    async def _start_background(self, command: str, workdir: str, description: str) -> ToolResult:
         manager = get_background_manager()
         job = await manager.start(command, workdir, description)
         try:

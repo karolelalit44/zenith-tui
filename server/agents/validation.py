@@ -15,15 +15,14 @@ def reflection_error_limit(context_window: int = DEFAULT_CONTEXT_WINDOW) -> int:
 
 _PLACEHOLDER_PATTERNS_RAW = [
     (
-        "\\[[\\w\\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\\w\\s]*\\]",
+        "\\[[\\w\\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|DESIRED|UPDATED|REPLACE|YOUR)[\\w\\s]*\\]",
         "placeholder pattern",
     ),
     ("\\bYOUR_[\\w_]+_HERE\\b", "YOUR_..._HERE placeholder"),
-    ("\\b(?:PLACEHOLDER|TODO|FIXME|XXX|TBD)\\b", "TODO/placeholder marker"),
     ("\\[HTML\\]", "HTML placeholder"),
-    ("\\[ACTUAL_", "ACTUAL_ placeholder"),
+    ("\\[ACTUAL_[\\w_]+\\]", "ACTUAL_ placeholder"),
     ("\\[Current ", "Current... placeholder"),
-    ("\\[UPDATED_", "UPDATED_ placeholder"),
+    ("\\[UPDATED_[\\w_]+\\]", "UPDATED_ placeholder"),
 ]
 PLACEHOLDER_RE = re.compile("|".join((p for p, _ in _PLACEHOLDER_PATTERNS_RAW)), re.IGNORECASE)
 _INTERACTIVE_CMD_PATTERNS = re.compile(

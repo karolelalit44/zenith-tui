@@ -363,6 +363,14 @@ class PromptExecutor:
             agent = RecoverableAgentLoop(
                 self._config, self._provider, context_manager, self._tool_registry
             )
+            db_session = await self._session_repo.get(session_id)
+            if db_session and db_session.metadata and db_session.metadata.get("summary"):
+                agent.set_summary(db_session.metadata["summary"])
+                logger.info(
+                    "Loaded persisted session summary (%d chars) for %s",
+                    len(db_session.metadata["summary"]),
+                    session_id,
+                )
             skills_section = self._skill_loader.get_skill_prompt()
             logger.info("Agent initialized, skills loaded=%d chars", len(skills_section))
             token_repo = TokenUsageRepository(self._session_repo.db)
@@ -565,4 +573,20 @@ class PromptExecutor:
                 self._provider.temperature = _original_temperature
             if _original_max_tokens is not None:
                 self._provider.max_tokens = _original_max_tokens
+            if (
+                agent
+                and agent.summary
+                and db_session
+                and db_session.metadata.get("summary") != agent.summary
+            ):
+                db_session.metadata["summary"] = agent.summary
+                try:
+                    await self._session_repo.update(db_session)
+                    logger.info(
+                        "Persisted updated session summary (%d chars) for %s",
+                        len(agent.summary),
+                        session_id,
+                    )
+                except Exception as e:
+                    logger.warning("Failed to persist session summary: %s", e)
             await self._persist_assistant_message(session_id, response_text, collected_events)

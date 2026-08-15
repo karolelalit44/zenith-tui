@@ -1,11 +1,14 @@
 from __future__ import annotations
+
 import json
 import logging
 from collections import Counter
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
+
 from server.config.constants import (
+    BASH_TOOL,
     BG_OUTPUT_TAIL,
     BUILD_MODE,
     CHARS_PER_TOKEN,
@@ -22,6 +25,7 @@ from server.config.constants import (
     POLL_TOOLS,
     SKIP_WARNING_CAP,
     SUMMARY_MIN_CHARS,
+    TERMINAL_TOOL,
 )
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.domain import FinishReason
@@ -35,6 +39,7 @@ from server.toolkit.param_normalizer import normalize_file_params
 from server.toolkit.path_validator import validate_path
 from server.toolkit.registry import ToolRegistry
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
+
 from ..toolkit.executor import (
     _dynamic_max_output,
     auto_commit,
@@ -107,11 +112,15 @@ def _build_manifest(
         elif created_files and not verified:
             remaining = ["Files were written but no verification evidence was produced."]
         elif created_files:
-            remaining = ["Files were written and verified, but the turn ended without a final summary."]
+            remaining = [
+                "Files were written and verified, but the turn ended without a final summary."
+            ]
         elif files_edited and not verified:
             remaining = ["Files were modified but no verification evidence was produced."]
         elif files_edited:
-            remaining = ["Files were modified and verified, but the turn ended without a final summary."]
+            remaining = [
+                "Files were modified and verified, but the turn ended without a final summary."
+            ]
         else:
             remaining = ["The turn ended without completing any work."]
     payload: dict = {
@@ -482,7 +491,9 @@ class AgentLoop:
                         )
                         return
                 for job in _pending_background_completions():
-                    status = "completed" if job.exit_code == 0 else f"failed (exit code {job.exit_code})"
+                    status = (
+                        "completed" if job.exit_code == 0 else f"failed (exit code {job.exit_code})"
+                    )
                     detail = f"Background job {job.id} {status}."
                     tail_source = (job.stderr or job.stdout or "").strip()
                     if tail_source:
@@ -618,7 +629,7 @@ class AgentLoop:
                         if t_name == GET_TOOL_DEFINITION_TOOL:
                             target = (tc.get("params") or {}).get("tool_name")
                             if target and resolver.request_tool(target):
-                                if mode == PLAN_MODE and target in ("bash", "terminal"):
+                                if mode == PLAN_MODE and target in (BASH_TOOL, TERMINAL_TOOL):
                                     yield r.warning(
                                         f"Tool escalation denied: '{target}' cannot be promoted in plan mode.",
                                         session_id,
@@ -849,7 +860,9 @@ class AgentLoop:
                         consecutive_failures = 0
                     _ti = self.context_manager.get_token_info(messages, model, self.provider)
                     _remaining = _ti.total - _ti.used
-                    _threshold = 20000 if _ti.total >= LARGE_CONTEXT_WINDOW else int(_ti.total * 0.2)
+                    _threshold = (
+                        20000 if _ti.total >= LARGE_CONTEXT_WINDOW else int(_ti.total * 0.2)
+                    )
                     if _remaining <= _threshold and _remaining > 0:
                         yield r.warning(
                             f"Context approaching limit ({_ti.percent * 100:.0f}%), summarizing...",
@@ -886,7 +899,9 @@ class AgentLoop:
                                 )
                             )
                             return
-                        yield r.warning("Context summarized, continuing", session_id, code="CONTEXT")
+                        yield r.warning(
+                            "Context summarized, continuing", session_id, code="CONTEXT"
+                        )
                     executed_calls.add(sig)
                     if not result.success:
                         failed_calls.add(sig)
@@ -1335,9 +1350,11 @@ class AgentLoop:
         if not existing:
             return
         lines = [
-            ("[Session state] Files you already created or modified earlier in this session "
-            "(they exist on disk; do not re-create or re-write them unless you are changing "
-            "them):")
+            (
+                "[Session state] Files you already created or modified earlier in this session "
+                "(they exist on disk; do not re-create or re-write them unless you are changing "
+                "them):"
+            )
         ]
         for path in sorted(existing):
             rec = existing[path]

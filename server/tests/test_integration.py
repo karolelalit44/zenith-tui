@@ -450,9 +450,7 @@ class TestRepeatedCallTermination:
             "No new tool was executed this iteration" in (e.data.get("message") or "")
             for e in warnings
         ), "a final summary with a stray repeated call must be accepted as completion, not stalled"
-        manifests = [
-            e for e in events if e.kind == EventKind.TURN_MANIFEST
-        ]
+        manifests = [e for e in events if e.kind == EventKind.TURN_MANIFEST]
         assert manifests, "a completed turn must emit a turn_manifest"
         final_manifest = manifests[-1].data
         assert final_manifest.get("completed") is True, "the turn must report completed"
@@ -1048,9 +1046,9 @@ class TestStallGuard:
             events.append(event)
         assert (root / "artifact" / "README.md").read_text(encoding="utf-8") == "Artifacts"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert not any(
-            "kept re-writing" in (e.data.get("message") or "") for e in warnings
-        ), "moving on to a new tool must not trigger the path-stuck finalize"
+        assert not any("kept re-writing" in (e.data.get("message") or "") for e in warnings), (
+            "moving on to a new tool must not trigger the path-stuck finalize"
+        )
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
         success = [e for e in events if e.kind == EventKind.SUCCESS]

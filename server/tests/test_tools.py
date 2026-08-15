@@ -48,6 +48,7 @@ class TestToolResult:
         assert result.output == "ok"
         assert result.error == ""
         assert result.metadata == {}
+
     def test_failure_result(self):
         result = ToolResult(success=False, error="failed")
         assert not result.success
@@ -295,9 +296,7 @@ class TestBashTool:
         script = "import sys; sys.stderr.write('boom-on-stderr\\n')"
         script_path = Path(temp_dir) / "_stderr_probe.py"
         script_path.write_text(script, encoding="utf-8")
-        result = await tool.execute(
-            {"command": f"{_python_cmd()} \"{script_path}\""}, str(temp_dir)
-        )
+        result = await tool.execute({"command": f'{_python_cmd()} "{script_path}"'}, str(temp_dir))
         assert result.success
         assert result.metadata.get("exit_code") == 0
         assert "boom-on-stderr" in result.output
@@ -380,9 +379,7 @@ class TestBackgroundJobs:
     async def test_auto_backgrounded_command_adopts_running_process(self, temp_dir):
         tool = BashTool(auto_background_after=1)
         start = time.monotonic()
-        result = await tool.execute(
-            {"command": _slow_command(temp_dir, "auto-bg")}, str(temp_dir)
-        )
+        result = await tool.execute({"command": _slow_command(temp_dir, "auto-bg")}, str(temp_dir))
         assert result.metadata.get("background") is True, "should auto-background"
         assert result.success
         job_id = result.metadata.get("job_id")

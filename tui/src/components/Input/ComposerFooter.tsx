@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React, { useEffect, useState } from 'react';
+import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
 import { modelStore } from '../../services/providers/ModelStore';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types/scenario';
@@ -18,6 +19,7 @@ interface ComposerFooterProps {
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
   ({ mode, modelFallback, providerName, dir, branch, totalTokens, effectiveMaxTokens }) => {
     const { theme } = useTheme();
+    const { columns } = useTerminalDimensions();
     const [, forceUpdate] = useState(0);
 
     useEffect(() => modelStore.subscribe(() => forceUpdate((x) => x + 1)), []);
@@ -25,7 +27,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     const sel = modelStore.current;
     const chip = sel ? modelStore.toDisplayString(sel) : modelFallback;
 
-    const columns = process.stdout.columns ?? 80;
     const layout = computeFooterLayout({
       columns,
       mode,

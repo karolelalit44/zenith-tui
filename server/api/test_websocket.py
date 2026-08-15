@@ -13,14 +13,14 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from server.config.constants import (
     BUILD_MODE,
-    TEST_SIMULATION_DIR,
-    TEST_SIMULATION_DIR_ENV,
-    COMPACTION_SIM_TOTAL_TOKENS,
-    COMPACTION_SIM_USED_TOKENS,
     COMPACTION_SIM_AFTER_TOKENS,
     COMPACTION_SIM_SUMMARY_CHARS,
+    COMPACTION_SIM_TOTAL_TOKENS,
+    COMPACTION_SIM_USED_TOKENS,
     DEFAULT_CONTEXT_WINDOW,
     MAX_EVENT_OUTPUT,
+    TEST_SIMULATION_DIR,
+    TEST_SIMULATION_DIR_ENV,
 )
 from server.domain.domain import ScenarioMode, SessionState
 from server.domain.events import EventKind
@@ -55,7 +55,7 @@ _MEMORY_SIM_ENTRIES = [
         "id": "mem_proj_0002",
         "scope": "project",
         "title": "WebSocket protocol notes",
-        "content": "All RPC calls use JSON-RPC 2.0. Requests carry `jsonrpc`, `id`, `method` and optional `params`; events are `method: \"event\"` notifications with `kind` and `data`. The test route lives at /ws/test and mirrors the real /ws surface.",
+        "content": 'All RPC calls use JSON-RPC 2.0. Requests carry `jsonrpc`, `id`, `method` and optional `params`; events are `method: "event"` notifications with `kind` and `data`. The test route lives at /ws/test and mirrors the real /ws surface.',
         "source": "PROJECT.md",
         "tags": ["protocol", "transport"],
         "pinned": True,
@@ -163,7 +163,6 @@ def simulation_dir() -> Path:
 
 
 class TestSimulationHandler:
-
     def __init__(self, workspace_root: str | None = None) -> None:
         self.tool_registry: ToolRegistry = create_default_registry(
             timeout=30, provider=None, permission_service=None
@@ -173,7 +172,6 @@ class TestSimulationHandler:
         self._messages: dict[str, list[Message]] = {}
         self._counters: dict[str, dict[str, int]] = {}
         self._active_tasks: dict[str, asyncio.Task] = {}
-
 
     async def handle(self, websocket: WebSocket) -> None:
         session_id = None
@@ -211,7 +209,6 @@ class TestSimulationHandler:
                 task = self._active_tasks.pop(session_id, None)
                 if task:
                     task.cancel()
-
 
     async def _dispatch(
         self, ws: WebSocket, method: str, rid, params: dict, session_id: str | None
@@ -262,7 +259,6 @@ class TestSimulationHandler:
                 return session_id
         await ws.send_text(make_error_response(rid, -32601, f"Method not found: {method}"))
         return session_id
-
 
     def _get_session(self, session_id: str | None) -> Session | None:
         if not session_id:
@@ -458,7 +454,6 @@ class TestSimulationHandler:
             )
         )
 
-
     async def _ensure_session(self, ws, rid, params, session_id, content: str) -> str | None:
         if session_id and session_id in self._sessions:
             return session_id
@@ -526,7 +521,6 @@ class TestSimulationHandler:
                 ),
             )
         await ws.send_text(make_response(rid, {"cancelled": True}))
-
 
     def _run_playback(self, ws: WebSocket, session: Session, content: str) -> None:
         prev = self._active_tasks.get(session.id)
@@ -662,7 +656,10 @@ class TestSimulationHandler:
                         success = evt.get("success", True)
                         await self._send(ws, r.tool_call(tool_name, params, session.id))
                         await asyncio.sleep(0.15)
-                        await self._send(ws, r.tool_result(tool_name, success, session.id, output=output, error=""))
+                        await self._send(
+                            ws,
+                            r.tool_result(tool_name, success, session.id, output=output, error=""),
+                        )
                     elif kind == "agent_orchestration":
                         evt_data = {k: v for k, v in evt.items() if k != "kind"}
                         await self._send(
@@ -724,7 +721,8 @@ class TestSimulationHandler:
         delay = float(entry.get("delay_ms", 25) or 25) / 1000.0
         for i in range(0, len(content), chunk_size):
             await self._send(
-                ws, r.message_event(content[i : i + chunk_size], session.id, partial=True, iteration=0)
+                ws,
+                r.message_event(content[i : i + chunk_size], session.id, partial=True, iteration=0),
             )
             await asyncio.sleep(delay)
         await self._send(ws, r.message_event(content, session.id, partial=False, iteration=0))
@@ -765,7 +763,6 @@ class TestSimulationHandler:
 
     async def _send(self, ws: WebSocket, event: Any) -> None:
         await ws.send_text(serialize_event(event))
-
 
     async def _context_compact(self, ws, rid, session_id) -> None:
         session = self._get_session(session_id)

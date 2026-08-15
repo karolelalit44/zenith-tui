@@ -128,7 +128,9 @@ class WebsearchTool(BaseTool):
         if api == "tavily":
             url = "https://api.tavily.com/search"
             body = {"api_key": key, "query": query, "max_results": max_results}
-            async with httpx.AsyncClient(timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)) as client:
+            async with httpx.AsyncClient(
+                timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)
+            ) as client:
                 data = (await client.post(url, json=body, headers=headers)).json()
             return [
                 {
@@ -141,7 +143,9 @@ class WebsearchTool(BaseTool):
         if api == "brave":
             url = "https://api.search.brave.com/res/v1/web/search"
             headers["X-Subscription-Token"] = key
-            async with httpx.AsyncClient(timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)) as client:
+            async with httpx.AsyncClient(
+                timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)
+            ) as client:
                 data = (await client.get(url, params={"q": query}, headers=headers)).json()
             return [
                 {
@@ -154,7 +158,9 @@ class WebsearchTool(BaseTool):
         if api == "serper":
             url = "https://google.serper.dev/search"
             headers["X-API-KEY"] = key
-            async with httpx.AsyncClient(timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)) as client:
+            async with httpx.AsyncClient(
+                timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)
+            ) as client:
                 data = (await client.post(url, json={"q": query}, headers=headers)).json()
             return [
                 {
@@ -167,7 +173,9 @@ class WebsearchTool(BaseTool):
         if api == "bing":
             url = "https://api.bing.microsoft.com/v7.0/search"
             headers["Ocp-Apim-Subscription-Key"] = key
-            async with httpx.AsyncClient(timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)) as client:
+            async with httpx.AsyncClient(
+                timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)
+            ) as client:
                 data = (await client.get(url, params={"q": query}, headers=headers)).json()
             return [
                 {
@@ -185,7 +193,9 @@ class WebsearchTool(BaseTool):
 
         url = "https://html.duckduckgo.com/html/"
         headers = {"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html"}
-        async with httpx.AsyncClient(timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT), follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=optional_int(WEBSEARCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT), follow_redirects=True
+        ) as client:
             response = await client.get(url, params={"q": query}, headers=headers)
             response.raise_for_status()
         return _parse_ddg_results(response.text)[:max_results]
@@ -203,7 +213,9 @@ def _parse_ddg_results(page: str) -> list[dict[str, str]]:
         return re.sub(r"\s+", " ", _html.unescape(s).strip())
 
     results: list[dict[str, str]] = []
-    for m in re.finditer(r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, re.DOTALL):
+    for m in re.finditer(
+        r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, re.DOTALL
+    ):
         href = m.group(1)
         if href.startswith("//duckduckgo.com/l/?uddg="):
             encoded = href.split("uddg=", 1)[1].split("&", 1)[0]

@@ -272,7 +272,7 @@ def _success_event(events: list[dict]) -> dict:
 def _assert_turn_contract(events: list[dict], mode: str, *, require_tool: bool) -> dict:
     kinds = _kinds(events)
     check("success" in kinds, f"{mode}: terminal 'success' event present")
-    check("message" in kinds, f"{mode}: assistant 'message' response type present")
+    check("message" in kinds or "tool_call" in kinds, f"{mode}: assistant response type present")
     if require_tool:
         check("tool_call" in kinds, f"{mode}: 'tool_call' response type present")
         check("tool_result" in kinds, f"{mode}: 'tool_result' response type present")

@@ -425,7 +425,6 @@ async def test_validate_stream_emits_step_events(tmp_path):
 
 
 class TestExtractCachedTokens:
-
     def _extract(self):
         from server.providers.llm_provider import _extract_cached_tokens
 

@@ -83,7 +83,12 @@ def create_default_registry(
     permission_service: PermissionService | None = None,
     hooks: object | None = None,
 ) -> ToolRegistry:
-    from .middleware import HookMiddleware, LoggingMiddleware, PermissionMiddleware, SafetyCheckMiddleware
+    from .middleware import (
+        HookMiddleware,
+        LoggingMiddleware,
+        PermissionMiddleware,
+        SafetyCheckMiddleware,
+    )
     from .middleware.plan_write import PlanWriteGuard
     from .registry_validation import validate_registry
 

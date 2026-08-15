@@ -84,7 +84,9 @@ class TestSystemPromptBuilding:
         assert "Verify Generated Projects" in prompt  # GAP3 verify scaffolded projects
         assert "run its tests" in prompt
         assert "inspect its parent directory" in prompt  # X1 inspect target before writing
-        assert "Never claim verification that did not run successfully" in prompt  # X3 report failed verify steps honestly
+        assert (
+            "Never claim verification that did not run successfully" in prompt
+        )  # X3 report failed verify steps honestly
         assert "A lean set of tool schemas" in prompt  # T2 discovery hint matches reality
 
     def test_build_and_plan_modes_use_dedicated_instructions(self):
@@ -142,10 +144,13 @@ class TestSystemPromptBuilding:
             model="gemini-3.5-flash-lite",
             plan_block="PLAN: do Y.",
         )
-        plan_msgs = [m for m in messages if m.get("role") == "system" and "plan_to_execute" in m["content"]]
+        plan_msgs = [
+            m for m in messages if m.get("role") == "system" and "plan_to_execute" in m["content"]
+        ]
         assert plan_msgs, "plan block must be injected"
         assert "latest message is the authoritative intent" in plan_msgs[0]["content"]
         assert "follow the latest message" in plan_msgs[0]["content"]
+
 
 class TestNoFilesCreatedWarning:
     async def _run_events(self, temp_dir, provider, tool_registry=None):

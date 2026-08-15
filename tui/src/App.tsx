@@ -99,7 +99,7 @@ export const App: React.FC = () => {
     remountStatic,
   } = useConversation();
 
-  useTerminalDimensions(remountStatic);
+  const termDims = useTerminalDimensions(remountStatic);
 
   const { scrollState, scrollUp, scrollDown, scrollToTop, scrollToBottom, resetScroll, updateContentHeight } =
     useScrollState();
@@ -508,7 +508,7 @@ export const App: React.FC = () => {
                   {item.turnIndex > 0 ? (
                     <Box marginTop={1} marginBottom={0} width="100%">
                       <Text color={theme.colors.border.muted} wrap="truncate-end">
-                        {'─'.repeat(Math.max(10, (process.stdout.columns ?? 80) - 2))}
+                        {'─'.repeat(Math.max(10, termDims.columns))}
                       </Text>
                     </Box>
                   ) : null}

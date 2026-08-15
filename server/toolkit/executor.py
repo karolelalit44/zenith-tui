@@ -292,9 +292,7 @@ async def post_execution_hooks(
             if pitfall:
                 events.append(r.warning(pitfall, session_id, code="SECURITY"))
 
-            lint_result = await run_lint(
-                edited_path, workspace_root, fix=AUTO_LINT_FIX_ENABLED
-            )
+            lint_result = await run_lint(edited_path, workspace_root, fix=AUTO_LINT_FIX_ENABLED)
             if lint_result and (not lint_result.success):
                 lint_msg = format_lint_result(lint_result)
                 if lint_msg:

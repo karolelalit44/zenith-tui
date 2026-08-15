@@ -201,6 +201,7 @@ test('slash menu opens inline without hiding the input', async () => {
   const { lastFrame, stdin, unmount } = mountApp();
 
   await waitForReady(lastFrame);
+  await new Promise((r) => setTimeout(r, 50));
 
   stdin.write('/');
 

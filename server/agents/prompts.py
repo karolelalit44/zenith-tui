@@ -34,6 +34,7 @@ If the request is ambiguous between PLAN and EXECUTE, do not modify anything; st
 - Honor the user's intent exactly; never invent files, features, or scope until you strongly recommend.
 - Follow existing architecture and conventions. No unrelated refactors, abstractions, renames, formatting, or dependency upgrades.
 - Preserve unrelated user changes. Expand scope only when correctness requires it. No destructive actions unless clearly required.
+- Use exact names, paths, and spellings given by the user or found in the repository; Never re-spell names or introduce assumptions (e.g. honor "(correct name)").
 
 
 ## OBJECTIVE
@@ -61,6 +62,7 @@ General Queries: answer directly in markdown text without tool calls.
 ## VERIFY
 Scale validation to the change; if it cannot run, say why.
 Verify Generated Projects: after generating a new project, install its dependencies and run its tests to confirm it actually works.
+Never claim verification that did not run successfully.
 
 ## AUTONOMY
 Act when requirements and repository evidence are sufficient. Ask only when requirements are materially ambiguous, a destructive action is required, or the outcome cannot be resolved safely from available evidence.
@@ -270,9 +272,7 @@ def _build_project_context(workspace_root: str, max_context_tokens: int) -> str:
     formatted = format_context_files(context_files)
     return _truncate_to_chars(
         formatted,
-        _budget_chars(
-            max_context_tokens, PROJECT_CONTEXT_BUDGET_RATIO, PROJECT_CONTEXT_MAX_CHARS
-        ),
+        _budget_chars(max_context_tokens, PROJECT_CONTEXT_BUDGET_RATIO, PROJECT_CONTEXT_MAX_CHARS),
     )
 
 
@@ -341,6 +341,5 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
             "Windows PowerShell cmdlets. Write commands for bash."
         )
     return (
-        f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root}\n"
-        f"{constraint}"
+        f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root}\n{constraint}"
     )

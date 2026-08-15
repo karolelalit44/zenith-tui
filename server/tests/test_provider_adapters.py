@@ -68,7 +68,9 @@ def test_compact_rules_live_in_reference_file():
     rules = get_tier_prompt_enhancements(ModelTier.COMPACT)
     assert "file_read the tool reference file" in rules
     assert "NEVER output chat preambles" in TOOL_GUIDELINES_CONTENT
-    assert "Never call a tool twice with identical parameters in one turn" in TOOL_GUIDELINES_CONTENT
+    assert (
+        "Never call a tool twice with identical parameters in one turn" in TOOL_GUIDELINES_CONTENT
+    )
     assert "Do not repeat a tool action without a reason" in TOOL_GUIDELINES_CONTENT
     assert "output ONLY your final summary text and stop" in TOOL_GUIDELINES_CONTENT
     assert "A tool call that already succeeded this turn will be skipped" in TOOL_GUIDELINES_CONTENT

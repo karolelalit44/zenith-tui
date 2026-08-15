@@ -1,5 +1,4 @@
 from server.agents.prompts import (
-    PROJECT_CONTEXT_MAX_CHARS,
     _budget_chars,
     _build_project_context,
     build_system_prompt,

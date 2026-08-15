@@ -69,7 +69,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
     const { columns } = useTerminalDimensions();
-    const dividerWidth = Math.max(0, columns - 6);
+    const dividerWidth = Math.max(0, columns - 4);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
     const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);

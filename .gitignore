@@ -26,6 +26,7 @@ data
 
 *todo*
 *plan*
+!docs/session_leak_and_plan_mode_fix_plan.md
 
 package-lock.json
 todo.md

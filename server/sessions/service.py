@@ -45,9 +45,7 @@ class SessionService:
     ) -> list[Session]:
         raise NotImplementedError
 
-    async def list_summaries(
-        self, limit: int = 10, include_archived: bool = False
-    ) -> list[dict]:
+    async def list_summaries(self, limit: int = 10, include_archived: bool = False) -> list[dict]:
         raise NotImplementedError
 
     async def initialize(self, session_id: str) -> Session:

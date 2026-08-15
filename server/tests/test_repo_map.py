@@ -227,7 +227,9 @@ def test_repo_map_invalidates_on_file_change(sample_workspace):
 
 
 def test_auto_repo_map_budget_scales_with_context():
-    config = _make_config(Path("."), max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_tokens=None)
+    config = _make_config(
+        Path("."), max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_tokens=None
+    )
     cm = ContextManager(config)
     assert cm._resolve_repo_map_tokens("test-model") == 1024
     config = _make_config(Path("."), max_context_tokens=8000, repo_map_tokens=None)

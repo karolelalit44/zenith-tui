@@ -87,7 +87,9 @@ class SubAgentTool(BaseTool):
             )
             logger.info("SUB-AGENT completed: %s", description)
             return ToolResult(
-                success=True, output=output[:MAX_TOOL_OUTPUT_BASELINE], metadata={"sub_task": description}
+                success=True,
+                output=output[:MAX_TOOL_OUTPUT_BASELINE],
+                metadata={"sub_task": description},
             )
         except Exception as e:
             logger.error("SUB-AGENT failed: %s: %s", description, e)
