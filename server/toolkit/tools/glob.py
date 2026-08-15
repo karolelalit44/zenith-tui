@@ -5,17 +5,13 @@ from typing import Any
 
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
+    GLOB_MAX_OUTPUT_CHARS,
+    GLOB_MAX_RESULTS,
     PERMISSION_READ,
     TOOL_DOMAIN_WORKSPACE_DISCOVERY,
 )
 
 from ..base import BaseTool, ToolResult
-
-# A glob like **/* from the repo root can match tens of thousands of files
-# (node_modules, .git, ...) and blow the context by megabytes. Always cap both
-# the number of results and the rendered output.
-_GLOB_MAX_RESULTS = 500
-_GLOB_MAX_OUTPUT_CHARS = 40000
 
 
 class GlobTool(BaseTool):
@@ -63,13 +59,7 @@ class GlobTool(BaseTool):
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         pattern = params.get("pattern", "**/*")
         if pattern.strip() == "**":
-            # A bare "**" matches only the root directory in pathlib, not files.
-            # Normalize it so callers asking for "everything" actually get files.
             pattern = "**/*"
-        # Resolve both sides to absolute paths. The `path` param may arrive as an
-        # absolute path (e.g. the workspace root itself); joining a relative
-        # workspace_root with an absolute path makes relative_to() raise
-        # "not in the subpath" on the first file.
         base = Path(workspace_root).resolve()
         requested = params.get("path") or ""
         search_path = (
@@ -84,17 +74,17 @@ class GlobTool(BaseTool):
                 str(f.relative_to(base)) for f in search_path.glob(pattern) if f.is_file()
             )
             total = len(files)
-            truncated_files = total > _GLOB_MAX_RESULTS
+            truncated_files = total > GLOB_MAX_RESULTS
             if truncated_files:
-                files = files[:_GLOB_MAX_RESULTS]
+                files = files[:GLOB_MAX_RESULTS]
             output = "\n".join(files) if files else "No files found"
             if truncated_files:
                 output += (
-                    f"\n[... {total - _GLOB_MAX_RESULTS} more matches omitted; "
+                    f"\n[... {total - GLOB_MAX_RESULTS} more matches omitted; "
                     f"narrow the glob pattern or add a path to search]"
                 )
-            if len(output) > _GLOB_MAX_OUTPUT_CHARS:
-                output = output[:_GLOB_MAX_OUTPUT_CHARS]
+            if len(output) > GLOB_MAX_OUTPUT_CHARS:
+                output = output[:GLOB_MAX_OUTPUT_CHARS]
                 output += "\n[... output truncated; narrow the glob pattern]"
             return ToolResult(
                 success=True,

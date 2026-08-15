@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LLM_TEMPERATURE,
+    default_max_tokens_for_context,
+)
 from server.config.providers import ProviderConfig
 from server.domain.errors import ConfigError
 from server.persistence.repositories import load_catalog
@@ -36,8 +40,8 @@ def _resolve_model_defaults(provider_name: str, model_id: str) -> dict[str, floa
     ctx = info.get("context_window", DEFAULT_CONTEXT_WINDOW)
     max_tokens = info.get("max_output_tokens")
     if max_tokens is None:
-        max_tokens = max(4096, min(ctx // 2, 32768))
-    temperature = info.get("default_temperature", 0.7)
+        max_tokens = default_max_tokens_for_context(ctx)
+    temperature = info.get("default_temperature", DEFAULT_LLM_TEMPERATURE)
     return {"max_tokens": int(max_tokens), "temperature": float(temperature)}
 
 

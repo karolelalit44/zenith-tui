@@ -19,6 +19,8 @@ from server.config.constants import (
     COMPACTION_SIM_USED_TOKENS,
     COMPACTION_SIM_AFTER_TOKENS,
     COMPACTION_SIM_SUMMARY_CHARS,
+    DEFAULT_CONTEXT_WINDOW,
+    MAX_EVENT_OUTPUT,
 )
 from server.domain.domain import ScenarioMode, SessionState
 from server.domain.events import EventKind
@@ -34,12 +36,7 @@ from .protocol import JsonRpcRequest, make_error_response, make_response, serial
 logger = logging.getLogger(__name__)
 
 _WS_TOKEN = os.environ.get("ZENITH_WS_TOKEN", "")
-_MAX_TOOL_OUTPUT = 5000
 
-# Static memory payload served by the `memory.list` RPC on /ws/test. The real
-# backend will one day source this from the on-disk MemoryStore
-# (server/sessions/memory.py); the simulated route keeps the frontend's
-# MemoriesModal dynamic against a fixed, realistic dataset.
 _MEMORY_SIM_ENTRIES = [
     {
         "id": "mem_proj_0001",
@@ -166,12 +163,6 @@ def simulation_dir() -> Path:
 
 
 class TestSimulationHandler:
-    """Static test backend exposed at /ws/test.
-
-    Plays back scripted responses from ``data/simulation/*.json`` with the same
-    JSON-RPC surface as ``/ws``. No database and no provider are used: sessions
-    live in memory for the lifetime of the server process.
-    """
 
     def __init__(self, workspace_root: str | None = None) -> None:
         self.tool_registry: ToolRegistry = create_default_registry(
@@ -183,7 +174,6 @@ class TestSimulationHandler:
         self._counters: dict[str, dict[str, int]] = {}
         self._active_tasks: dict[str, asyncio.Task] = {}
 
-    # ------------------------------------------------------------------ io
 
     async def handle(self, websocket: WebSocket) -> None:
         session_id = None
@@ -222,7 +212,6 @@ class TestSimulationHandler:
                 if task:
                     task.cancel()
 
-    # ------------------------------------------------------------- dispatch
 
     async def _dispatch(
         self, ws: WebSocket, method: str, rid, params: dict, session_id: str | None
@@ -274,7 +263,6 @@ class TestSimulationHandler:
         await ws.send_text(make_error_response(rid, -32601, f"Method not found: {method}"))
         return session_id
 
-    # ------------------------------------------------------------ sessions
 
     def _get_session(self, session_id: str | None) -> Session | None:
         if not session_id:
@@ -470,7 +458,6 @@ class TestSimulationHandler:
             )
         )
 
-    # -------------------------------------------------------------- prompt
 
     async def _ensure_session(self, ws, rid, params, session_id, content: str) -> str | None:
         if session_id and session_id in self._sessions:
@@ -540,7 +527,6 @@ class TestSimulationHandler:
             )
         await ws.send_text(make_response(rid, {"cancelled": True}))
 
-    # ------------------------------------------------------------ playback
 
     def _run_playback(self, ws: WebSocket, session: Session, content: str) -> None:
         prev = self._active_tasks.get(session.id)
@@ -760,7 +746,7 @@ class TestSimulationHandler:
                 tool_name,
                 result.success,
                 session.id,
-                output=text[:_MAX_TOOL_OUTPUT],
+                output=text[:MAX_EVENT_OUTPUT],
                 error=result.error,
                 metadata=build_tool_metadata(
                     tool_name, params, result, duration_ms, session.workspace_root
@@ -780,7 +766,6 @@ class TestSimulationHandler:
     async def _send(self, ws: WebSocket, event: Any) -> None:
         await ws.send_text(serialize_event(event))
 
-    # -------------------------------------------------------------- misc
 
     async def _context_compact(self, ws, rid, session_id) -> None:
         session = self._get_session(session_id)
@@ -791,7 +776,6 @@ class TestSimulationHandler:
         total = COMPACTION_SIM_TOTAL_TOKENS
         used = COMPACTION_SIM_USED_TOKENS
 
-        # Phase 1 — preparing
         await self._send(
             ws,
             r.context_compaction_started(
@@ -803,7 +787,6 @@ class TestSimulationHandler:
         )
         await asyncio.sleep(0.35)
 
-        # Phase 2 — preserving (explicit phase event)
         await self._send(
             ws,
             r.context_compaction_phase(
@@ -814,7 +797,6 @@ class TestSimulationHandler:
         )
         await asyncio.sleep(0.35)
 
-        # Phase 3 — compacting (with tool-prune sub-steps as compacted events)
         tool_steps = ["bash_output", "file_read_output", "tool_result_traces"]
         saved_per_step = 12_000 // len(tool_steps)
         for tool in tool_steps:
@@ -842,7 +824,6 @@ class TestSimulationHandler:
         )
         await asyncio.sleep(0.3)
 
-        # Phase 4 — verifying
         await self._send(
             ws,
             r.context_compaction_phase(
@@ -853,7 +834,6 @@ class TestSimulationHandler:
         )
         await asyncio.sleep(0.35)
 
-        # Phase 5 — ready (with structured preserved counts + failure=False)
         await self._send(
             ws,
             r.context_compaction_ended(
@@ -942,7 +922,7 @@ class TestSimulationHandler:
                         {
                             "id": "simulated-model",
                             "name": "Simulated Model",
-                            "contextWindow": 128000,
+                            "contextWindow": DEFAULT_CONTEXT_WINDOW,
                         }
                     ]
                 },

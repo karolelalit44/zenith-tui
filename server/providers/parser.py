@@ -178,12 +178,6 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
 
 
 def _split_top_level_objects(text: str) -> list[str]:
-    """Split a candidate into its top-level ``{...}`` JSON objects.
-
-    Fences sometimes contain several tool objects back to back (optionally
-    separated by commas). json_repair cannot handle multiple top-level values,
-    so split on brace depth (ignoring strings) and repair each object alone.
-    """
     objects: list[str] = []
     depth = 0
     start = -1
@@ -329,7 +323,7 @@ def clean_tool_text(text: str) -> str:
         "",
         cleaned,
     )
-    cleaned = re.sub('\\[(\\w+)((?:\\s+\\w+=(?:\\"[^\\"]*\\"|\\S+))+\\s*)\\]', "", cleaned)
+    cleaned = BRACKET_PATTERN.sub("", cleaned)
     cleaned = re.sub(
         "^Command:\\s+.*$\\n^Output:.*$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE
     )

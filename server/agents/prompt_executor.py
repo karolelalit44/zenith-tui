@@ -10,7 +10,13 @@ import server.providers.responder as r
 from server.agents.context import ContextManager
 from server.agents.recovery import RecoverableAgentLoop
 from server.agents.sub_agent import SubAgentLoop
-from server.config.constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
+from server.config.constants import (
+    ATTACHMENT_MAX_FILE,
+    ATTACHMENT_MAX_TOTAL,
+    BUILD_MODE,
+    DEFAULT_CONTEXT_WINDOW,
+    PLAN_MODE,
+)
 from server.config.settings import AGENT_MODES
 from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
@@ -25,8 +31,6 @@ if TYPE_CHECKING:
     from server.skills.loader import SkillLoader
     from server.toolkit.registry import ToolRegistry
 logger = logging.getLogger(__name__)
-ATTACHMENT_MAX_FILE = 512 * 1024
-ATTACHMENT_MAX_TOTAL = 2 * 1024 * 1024
 
 
 def _read_file_head(path: str | Path) -> bytes:
@@ -173,10 +177,6 @@ class PromptExecutor:
         return injected
 
     async def _load_plan_context(self, session_id: str, mode: str) -> tuple[str, bool, str | None]:
-        """Load plan output, approval state and plan model override for a session.
-
-        Returns ``(plan_context, plan_approved, plan_model_override)``.
-        """
         plan_context = ""
         plan_approved = False
         if mode == BUILD_MODE:
@@ -209,11 +209,6 @@ class PromptExecutor:
         manager,
         collected_events: list[Event],
     ) -> int:
-        """Emit PLAN_READY / pending-approval warnings when a build is gated.
-
-        Returns the number of step events recorded (0 or 1) so the caller can
-        keep its step counter in sync.
-        """
         if (
             mode == BUILD_MODE
             and plan_context
@@ -242,7 +237,6 @@ class PromptExecutor:
         return 0
 
     async def _persist_plan_output(self, session_id: str, response_text: str) -> None:
-        """Persist the generated plan output back onto the session."""
         try:
             session = await self._session_repo.get(session_id)
             if session:
@@ -265,7 +259,6 @@ class PromptExecutor:
     async def _persist_assistant_message(
         self, session_id: str, response_text: str, collected_events: list[Event]
     ) -> None:
-        """Persist the assistant message produced by an execution."""
         try:
             if collected_events or response_text:
                 text_content = response_text or "[Cancelled by user]"

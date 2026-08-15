@@ -5,13 +5,19 @@ from collections.abc import AsyncIterator
 
 from pydantic import BaseModel, Field
 
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from server.domain.domain import FinishReason
 from server.domain.message import ToolCall
 
 
 class BaseProvider(ABC):
-    def __init__(self, name: str, model: str, max_tokens: int = 4096, temperature: float = 0.7):
+    def __init__(
+        self,
+        name: str,
+        model: str,
+        max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
+        temperature: float = DEFAULT_LLM_TEMPERATURE,
+    ):
         self.name = name
         self.model = model
         self.max_tokens = max_tokens
@@ -28,8 +34,6 @@ class BaseProvider(ABC):
         tool_choice: str | None = None,
         response_format: dict | None = None,
     ) -> AsyncIterator[tuple[str, str | None]]:
-        # Async-generator contract so the ABC models yield-based stream() like
-        # every concrete provider (LLMProvider, test fakes).
         if False:
             yield (None, None)
         raise NotImplementedError

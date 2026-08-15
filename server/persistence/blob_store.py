@@ -5,12 +5,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from server.config.constants import (
+    BLOB_PREFIX,
+    LINES_CHAR_BUDGET,
+    LINES_PREFIX,
+    LINES_THRESHOLD,
+    STRING_THRESHOLD,
+)
+
 logger = logging.getLogger(__name__)
-BLOB_PREFIX = "@@zenith-blob:"
-LINES_PREFIX = "@@zenith-lines:"
-STRING_THRESHOLD = 5000
-LINES_THRESHOLD = 2000
-LINES_CHAR_BUDGET = STRING_THRESHOLD * 4
 
 
 class BlobStore:

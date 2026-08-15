@@ -11,17 +11,6 @@ from .logging import db_log
 from .migrations import runner
 
 logger = logging.getLogger(__name__)
-EXPECTED_LEGACY = {
-    "002_providers_and_models.sql",
-    "003_provider_capabilities.sql",
-    "004_session_plan_fields.sql",
-    "005_token_usage.sql",
-    "006_token_usage_v2.sql",
-    "007_estimated_token_usage.sql",
-    "008_session_state_machine.sql",
-    "009_permissions.sql",
-    "010_search_index.sql",
-}
 
 
 _sqlite_tables = runner._sqlite_tables
@@ -68,7 +57,7 @@ class DatabaseStartupService:
                 self._handle_current(db_path)
             else:
                 raise MigrationError(
-                    f"Database '{db_path}' has tables but no _migrations, alembic_version, or schema_migrations — cannot determine migration state"
+                    f"Database '{db_path}' has tables but no _migrations, alembic_version, or {runner.TRACKING_TABLE} — cannot determine migration state"
                 )
             self.current_version = get_current_version(db_path)
             self._parity_check(db_path)

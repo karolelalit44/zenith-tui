@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from server.api.validation_state import FAILED, UNCONFIGURED
 from server.config.constants import DEFAULT_CONTEXT_WINDOW
 
 
@@ -64,7 +65,7 @@ class ProviderInfo(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
     has_api_key: bool = False
     api_key_masked: str = ""
-    validation_status: str = "unconfigured"
+    validation_status: str = UNCONFIGURED
     last_validation_error: str = ""
     is_active: bool = False
     model: str = ""
@@ -87,7 +88,7 @@ class ProviderListResponse(BaseModel):
 class ProviderCatalogItem(BaseModel):
     id: str
     name: str
-    type: str = "default"  # "default" | "custom"
+    type: str = "default"
 
 
 class ProviderModelListResponse(BaseModel):
@@ -122,7 +123,7 @@ class ValidationStepStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
-    FAILED = "failed"
+    FAILED = FAILED
 
 
 class ValidationStep(BaseModel):

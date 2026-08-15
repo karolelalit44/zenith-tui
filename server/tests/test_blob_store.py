@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from server.config.constants import BLOB_PREFIX, LINES_PREFIX
 from server.domain.message import Message
 from server.persistence.blob_store import BlobStore
 from server.persistence.repositories import (
@@ -48,7 +49,7 @@ class TestBlobStoreUnit:
     def test_string_roundtrip(self, temp_dir):
         store = BlobStore(temp_dir / "blobs")
         pointer = store.store("x" * 10000)
-        assert pointer.startswith("@@zenith-blob:")
+        assert pointer.startswith(BLOB_PREFIX)
         assert store.load(pointer) == "x" * 10000
 
     def test_small_string_untouched(self, temp_dir):
@@ -57,14 +58,14 @@ class TestBlobStoreUnit:
 
     def test_missing_blob_returns_placeholder(self, temp_dir):
         store = BlobStore(temp_dir / "blobs")
-        assert store.load("@@zenith-blob:doesnotexist") == "[blob missing]"
+        assert store.load(BLOB_PREFIX + "doesnotexist") == "[blob missing]"
 
     def test_pack_unpack_large_list(self, temp_dir):
         store = BlobStore(temp_dir / "blobs")
         lines = _big_lines()
         packed = store.pack({"metadata": {"output_lines": lines}})
         assert isinstance(packed["metadata"]["output_lines"], str)
-        assert packed["metadata"]["output_lines"].startswith("@@zenith-lines:")
+        assert packed["metadata"]["output_lines"].startswith(LINES_PREFIX)
         restored = store.unpack(packed)
         assert restored["metadata"]["output_lines"] == lines
 
@@ -72,7 +73,7 @@ class TestBlobStoreUnit:
         store = BlobStore(temp_dir / "blobs")
         big = "A" * 20000
         packed = store.pack({"output": big})
-        assert packed["output"].startswith("@@zenith-blob:")
+        assert packed["output"].startswith(BLOB_PREFIX)
         assert store.unpack(packed)["output"] == big
 
     def test_small_values_pass_through(self, temp_dir):
@@ -100,7 +101,7 @@ class TestSyncEventBlob:
         stored = rows[0]["event_data"]
         assert len(stored) < 2000
         parsed = json.loads(stored)
-        assert parsed["metadata"]["output_lines"].startswith("@@zenith-lines:")
+        assert parsed["metadata"]["output_lines"].startswith(LINES_PREFIX)
         blob_files = list((Path(db.db_path).parent / "blobs").glob("*.txt"))
         assert blob_files, "expected blob file on disk"
         since = await repo.get_since(sid, 0)
@@ -125,7 +126,7 @@ class TestMessageBlob:
         await MessageRepository(db).create(msg)
         row = await db.fetch_one("SELECT events_json FROM messages WHERE session_id = ?", (sid,))
         assert len(row["events_json"]) < 2000
-        assert "@@zenith-lines:" in row["events_json"]
+        assert LINES_PREFIX in row["events_json"]
         messages = await MessageRepository(db).get_by_session(sid)
         restored = messages[0].events[0].data
         assert restored["metadata"]["output_lines"] == _big_lines()

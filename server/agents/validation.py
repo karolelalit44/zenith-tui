@@ -3,13 +3,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import DEFAULT_CONTEXT_WINDOW, SMALL_CONTEXT_WINDOW
 
 
 def reflection_error_limit(context_window: int = DEFAULT_CONTEXT_WINDOW) -> int:
-    if context_window <= 32000:
+    if context_window <= SMALL_CONTEXT_WINDOW:
         return 3
-    extra = (context_window - 32000) // 64000
+    extra = (context_window - SMALL_CONTEXT_WINDOW) // 64000
     return min(3 + extra, 20)
 
 
@@ -25,7 +25,7 @@ _PLACEHOLDER_PATTERNS_RAW = [
     ("\\[Current ", "Current... placeholder"),
     ("\\[UPDATED_", "UPDATED_ placeholder"),
 ]
-_PLACEHOLDER_RE = re.compile("|".join((p for p, _ in _PLACEHOLDER_PATTERNS_RAW)), re.IGNORECASE)
+PLACEHOLDER_RE = re.compile("|".join((p for p, _ in _PLACEHOLDER_PATTERNS_RAW)), re.IGNORECASE)
 _INTERACTIVE_CMD_PATTERNS = re.compile(
     "\\binput\\s*\\(|python\\s+-i\\b|python\\s+-im\\b|python\\s+-mi\\b|\\bpdb\\b|\\bgetpass\\b|\\bread\\s+-[srp]\\b",
     re.IGNORECASE,
@@ -41,7 +41,7 @@ def detect_placeholders(params: dict) -> str | None:
     for key in ("content", "old_content", "new_content"):
         val = params.get(key, "")
         if isinstance(val, str) and val:
-            m = _PLACEHOLDER_RE.search(val)
+            m = PLACEHOLDER_RE.search(val)
             if m:
                 return f"Parameter '{key}' contains placeholder content ({m.group(0)}). Provide the actual content."
     return None
@@ -71,13 +71,6 @@ def detect_interactive_command(command: str) -> str | None:
 
 
 def parse_cd_prefix(command: str) -> tuple[str | None, str]:
-    """Split a leading ``cd <dir>;`` / ``Set-Location <dir>;`` prefix off a command.
-
-    Returns ``(target, remainder)`` where ``target`` is the directory the model
-    asked to change into (with quotes stripped), or ``None`` when the command has
-    no leading change-directory prefix. ``remainder`` is the rest of the command.
-    The prefix is only split off when a usable target and a remainder both exist.
-    """
     m = _CD_PREFIX_RE.match(command.strip())
     if not m:
         return None, command
@@ -89,7 +82,6 @@ def parse_cd_prefix(command: str) -> tuple[str | None, str]:
 
 
 def strip_cd_prefix(command: str) -> str:
-    """Return the command without its leading change-directory prefix."""
     _, remainder = parse_cd_prefix(command)
     return remainder
 

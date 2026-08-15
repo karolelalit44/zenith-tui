@@ -8,6 +8,7 @@ from server.config.constants import (
     CONCURRENCY_GROUP_SUBAGENT,
     COST_CLASS_HIGH,
     LATENCY_CLASS_HIGH,
+    MAX_TOOL_OUTPUT_BASELINE,
     PERMISSION_SUBAGENT,
     RISK_MEDIUM,
     TOOL_DOMAIN_SUBAGENT,
@@ -86,7 +87,7 @@ class SubAgentTool(BaseTool):
             )
             logger.info("SUB-AGENT completed: %s", description)
             return ToolResult(
-                success=True, output=output[:10000], metadata={"sub_task": description}
+                success=True, output=output[:MAX_TOOL_OUTPUT_BASELINE], metadata={"sub_task": description}
             )
         except Exception as e:
             logger.error("SUB-AGENT failed: %s: %s", description, e)

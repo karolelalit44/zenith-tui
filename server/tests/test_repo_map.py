@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from server.agents.context import ContextManager
+from server.config.constants import CHARS_PER_TOKEN, DEFAULT_CONTEXT_WINDOW
 from server.config.settings import AppSettings
 from server.providers.token_counter import TokenCounter
 from server.workspace.repo_map import RepoMap
@@ -44,7 +45,7 @@ def sample_workspace(temp_dir):
 
 
 def _estimated_tokens(text: str) -> int:
-    return len(text) // 4
+    return len(text) // CHARS_PER_TOKEN
 
 
 def test_repo_map_is_token_bounded(sample_workspace):
@@ -75,7 +76,7 @@ def _make_config(temp_dir, **overrides) -> AppSettings:
     defaults: dict[str, Any] = {
         "db_path": str(temp_dir / "test.db"),
         "workspace_root": str(temp_dir),
-        "max_context_tokens": 128000,
+        "max_context_tokens": DEFAULT_CONTEXT_WINDOW,
         "repo_map_tokens": 2000,
     }
     defaults.update(overrides)
@@ -226,7 +227,7 @@ def test_repo_map_invalidates_on_file_change(sample_workspace):
 
 
 def test_auto_repo_map_budget_scales_with_context():
-    config = _make_config(Path("."), max_context_tokens=128000, repo_map_tokens=None)
+    config = _make_config(Path("."), max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_tokens=None)
     cm = ContextManager(config)
     assert cm._resolve_repo_map_tokens("test-model") == 1024
     config = _make_config(Path("."), max_context_tokens=8000, repo_map_tokens=None)

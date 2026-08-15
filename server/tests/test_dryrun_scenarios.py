@@ -1,18 +1,3 @@
-"""Dry-run scenario matrix.
-
-Scripted stub providers are replayed through the REAL ``AgentLoop`` (no network,
-no real LLM) and every emitted event is checked against the behavior the code is
-supposed to have. Each scenario carries explicit expected-event checks plus the
-cross-cutting invariants:
-
-* I1 - tool pairing: every ``tool_result`` is FIFO-paired to a preceding
-  ``tool_call`` of the same tool (the TUI ghost-card regression).
-* I2 - no duplicate final answer text (``partial=False`` messages).
-* I3 - every event carries a session id.
-
-Run with:  python -m pytest server/tests/test_dryrun_scenarios.py -v
-"""
-
 from __future__ import annotations
 
 import sys
@@ -37,6 +22,12 @@ from server.agents.loop import (
 )
 from server.agents.session_workspace import reset_session
 from server.agents.validation import reflection_error_limit, schemas_to_openai_tools
+from server.config.constants import (
+    DEFAULT_CONTEXT_WINDOW,
+    MAX_TOOL_OUTPUT_BASELINE,
+    MAX_TOOL_OUTPUT_TIERS,
+    SMALL_CONTEXT_WINDOW,
+)
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.domain import FinishReason
@@ -52,25 +43,11 @@ from server.toolkit.executor import (
     validate_tool_rejection,
 )
 
-# ---------------------------------------------------------------------------
-# Scripted provider
-# ---------------------------------------------------------------------------
-
 
 _PY = ("python" if " " in sys.executable else sys.executable.replace("\\", "/"))
 
 
 class _DryRunProvider(BaseProvider):
-    """Plays a script of responses through the real streaming path.
-
-    Each entry is either:
-    * a ``str`` (the whole assistant response; streamed char by char), or
-    * a ``dict``: ``{"text": ..., "finish_reason": ..., "raise": exc}``, or
-    * a callable ``(messages) -> str | dict`` for stateful scripts.
-
-    The script index never runs past the last entry (it repeats forever), which
-    lets a two-step script also model a stalled model.
-    """
 
     def __init__(self, scripts, name="dryrun", model="test-model"):
         super().__init__(name, model)
@@ -107,11 +84,6 @@ class _DryRunProvider(BaseProvider):
 
     async def list_models(self) -> list[str]:
         return ["test-model"]
-
-
-# ---------------------------------------------------------------------------
-# Event helpers
-# ---------------------------------------------------------------------------
 
 
 def _warnings(events: list[Event]) -> list[str]:
@@ -183,8 +155,6 @@ async def _run(
 ) -> list[Event]:
     agent = AgentLoop(config, provider, tool_registry=create_default_registry())
     events: list[Event] = []
-    # The durable session registry is keyed by session_id; every scenario here
-    # reuses "s1", so clear any state an earlier scenario may have recorded.
     if reset_registry:
         reset_session(session_id)
 
@@ -197,10 +167,6 @@ async def _run(
     await collect()
     return events
 
-
-# ---------------------------------------------------------------------------
-# Scenario definitions
-# ---------------------------------------------------------------------------
 
 SCENARIOS: list[dict] = [
     {
@@ -570,11 +536,6 @@ SCENARIOS: list[dict] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Matrix runner
-# ---------------------------------------------------------------------------
-
-
 async def _prelude(config: AppSettings, spec: str | None) -> None:
     if not spec:
         return
@@ -604,7 +565,7 @@ async def _run_scenario(scenario: dict, temp_dir: Path) -> tuple[list[str], dict
 
     if scenario.get("cancel_before_start"):
         agent = AgentLoop(config, provider, tool_registry=create_default_registry())
-        agent._cancel_sequence = 10**9  # simulate a cancel that already happened
+        agent._cancel_sequence = 10**9
         events = [ev async for ev in agent.process_prompt(scenario.get("prompt", "Do the work"), "s1", [], scenario.get("mode", "build"))]
     else:
         events = await _run(
@@ -640,11 +601,6 @@ async def test_dryrun_scenario(scenario, temp_dir):
     assert not failures, (
         f"{scenario['name']} failed ({summary['events']} events):\n" + "\n".join(failures)
     )
-
-
-# ---------------------------------------------------------------------------
-# Unit-level dry run of the loop's pure helpers
-# ---------------------------------------------------------------------------
 
 
 class TestLoopHelperDryRun:
@@ -685,27 +641,22 @@ class TestLoopHelperDryRun:
     def test_build_manifest_verification_flag(self, temp_dir):
         ws = str(temp_dir)
         (temp_dir / "a.txt").write_text("a", encoding="utf-8")
-        # No files changed: verified defaults to True (nothing to verify).
         empty = _build_manifest(set(), [], True, False, "done", ws)
         assert empty["verified"] is True and empty["checks"] == []
-        # Files created but nothing ran after them: not verified.
         unverified = _build_manifest({"a.txt"}, ["a.txt"], True, False, "done", ws)
         assert unverified["verified"] is False and unverified["checks"] == []
-        # A post-change tool that produced observable output marks the turn verified.
         verified = _build_manifest(
             {"a.txt"}, ["a.txt"], True, False, "done", ws,
             verification=[{"tool": "file_read", "output_len": 12}],
         )
         assert verified["verified"] is True
         assert verified["checks"] == [{"tool": "file_read", "output_len": 12}]
-        # A successful tool with NO output bytes is not evidence of a working change.
         silent = _build_manifest(
             {"a.txt"}, ["a.txt"], True, False, "done", ws,
             verification=[{"tool": "bash", "output_len": 0, "exit_code": 0}],
         )
         assert silent["verified"] is False
         assert silent["checks"] == [{"tool": "bash", "output_len": 0, "exit_code": 0}]
-        # Internal sequence keys never leak into the manifest checks list.
         stripped = _build_manifest(
             {"a.txt"}, ["a.txt"], True, False, "done", ws,
             verification=[{"tool": "bash", "output_len": 5, "seq": 3}],
@@ -713,14 +664,10 @@ class TestLoopHelperDryRun:
         assert stripped["checks"] == [{"tool": "bash", "output_len": 5}]
 
     def test_has_verification_evidence(self):
-        # Empty or no checks: never evidence.
         assert _has_verification_evidence([]) is False
         assert _has_verification_evidence(None) is False
-        # Output bytes are evidence.
         assert _has_verification_evidence([{"tool": "bash", "output_len": 12}]) is True
-        # Zero-output success is not evidence.
         assert _has_verification_evidence([{"tool": "bash", "output_len": 0, "exit_code": 0}]) is False
-        # after_seq: a check recorded before the last change does not verify it.
         checks = [{"tool": "bash", "output_len": 12, "seq": 1}, {"tool": "bash", "output_len": 3, "seq": 2}]
         assert _has_verification_evidence(checks, after_seq=2) is True
         assert _has_verification_evidence([{"tool": "bash", "output_len": 12, "seq": 1}], after_seq=2) is False
@@ -730,25 +677,21 @@ class TestLoopHelperDryRun:
             return SimpleNamespace(role=role, content=content)
 
         hist = [m("user"), m("assistant"), m("tool"), m("tool")]
-        # Group starts at the assistant message that issued the tool calls.
         assert _group_start(hist, 4) == 1
         hist2 = [m("user", "a"), m("assistant", "b"), m("tool", "c"), m("tool", "d")]
-        # Cutting must not split the assistant+tool group: keep_tail=2 still
-        # keeps the [assistant, tool, tool] group, so only the first message drops.
         assert _find_compaction_cut(hist2, keep_tail=2) == 1
         hist3 = [m("user", "x")] * 20
         assert _find_compaction_cut_budgeted(hist3, 3, lambda c: 1) == 17
 
     def test_reflection_error_limit_windows(self):
-        assert reflection_error_limit(32000) == 3
-        assert reflection_error_limit(128000) == 4
-        assert reflection_error_limit(32000 + 64000 * 20) <= 20
+        assert reflection_error_limit(SMALL_CONTEXT_WINDOW) == 3
+        assert reflection_error_limit(DEFAULT_CONTEXT_WINDOW) == 4
+        assert reflection_error_limit(SMALL_CONTEXT_WINDOW + 64000 * 20) <= 20
 
     def test_dynamic_max_output_tiers(self):
-        assert _dynamic_max_output(128000) == 15_000
-        assert _dynamic_max_output(200_000) == 25_000
-        assert _dynamic_max_output(1_000_000) == 50_000
-        assert _dynamic_max_output(1000) == 10_000
+        for tier_window, tier_limit in MAX_TOOL_OUTPUT_TIERS:
+            assert _dynamic_max_output(tier_window) == tier_limit
+        assert _dynamic_max_output(1000) == MAX_TOOL_OUTPUT_BASELINE
 
     def test_compact_tool_output_trims(self):
         text = "x" * 300
@@ -817,8 +760,6 @@ class TestParserDryRun:
         assert [c["tool"] for c in calls] == ["file_write", "file_read"]
 
     def test_parse_malformed_json_does_not_crash(self):
-        # A truncated/ungrammatical fence must never raise; the parser either
-        # repairs it or falls back to clean text with no calls.
         clean, calls = UnifiedResponseFormatter.process_response(
             '```tool\n{"tool": "file_write", "params": {"path": '
         )
@@ -832,16 +773,12 @@ class TestParserDryRun:
 
 
 class TestDurableReplayAcrossTurns:
-    """Task 13 A2: byte-identical writes re-emitted in a LATER turn of the same
-    session are blocked; a build must never run twice and a manifest must never
-    claim a re-creation."""
 
     async def test_repeated_prompt_does_not_rebuild(self, temp_dir):
         session_id = "s-replay-1"
         reset_session(session_id)
         config = _config(temp_dir)
 
-        # Turn 1: the model writes a.py, reads it back (evidence), and reports done.
         first = _DryRunProvider(
             [
                 ('```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
@@ -855,9 +792,6 @@ class TestDurableReplayAcrossTurns:
         assert (temp_dir / "a.py").read_text(encoding="utf-8") == "x = 1\n"
         first_writes = _tool_runs(evs1, "file_write")
 
-        # Turn 2 (same session): the model "rebuilds" by re-emitting the exact
-        # same write. The durable guard must block it, so a.py stays untouched and
-        # the manifest reports no creation.
         second = _DryRunProvider(
             [
                 ('```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
@@ -875,7 +809,6 @@ class TestDurableReplayAcrossTurns:
         assert second_writes == 0
         assert first_writes == 1
         assert (temp_dir / "a.py").read_text(encoding="utf-8") == "x = 1\n"
-        # The block is surfaced so the model knows why nothing happened.
         assert any("re-write blocked" in (x.data.get("message") or "").lower() for x in evs2 if x.kind == EventKind.WARNING)
 
     async def test_new_session_is_not_blocked(self, temp_dir):
@@ -893,9 +826,6 @@ class TestDurableReplayAcrossTurns:
 
 
 def _tool_runs(events, tool_name) -> int:
-    # Blocked/rejected calls never emit a TOOL_CALL, so counting TOOL_CALL
-    # events equals actual executions.
     return sum(
         1 for ev in events if ev.kind == EventKind.TOOL_CALL and ev.data.get("tool") == tool_name
     )
-

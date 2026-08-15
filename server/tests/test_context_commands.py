@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
@@ -12,7 +13,7 @@ from server.providers.base import BaseProvider
 
 
 class StubProvider(BaseProvider):
-    def __init__(self, total_tokens: int = 0, context_window: int = 128000):
+    def __init__(self, total_tokens: int = 0, context_window: int = DEFAULT_CONTEXT_WINDOW):
         super().__init__("test", "test-model")
         self._context_window = context_window
         self._cumulative_usage = {
