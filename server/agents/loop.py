@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -14,6 +15,7 @@ from server.config.constants import (
     CHARS_PER_TOKEN,
     COMPACTION_KEEP_TAIL,
     CONTEXT_SUMMARY_THRESHOLD,
+    EPHEMERAL_TOOL_WINDOW_SIZE,
     FILE_DELETE_TOOL,
     FILE_EDIT_TOOL,
     FILE_OVERWRITE_PARAM,
@@ -35,6 +37,7 @@ from server.domain.message import Message
 from server.providers import responder as r
 from server.providers.base import BaseProvider
 from server.providers.parser import UnifiedResponseFormatter
+from server.toolkit.digest import format_tool_digest
 from server.toolkit.param_normalizer import normalize_file_params
 from server.toolkit.path_validator import validate_path
 from server.toolkit.registry import ToolRegistry
@@ -149,6 +152,25 @@ def _build_manifest(
             )
     payload["files"] = files
     return payload
+
+
+def _strip_write_payload_from_assistant_messages(messages: list[dict], file_path: str) -> None:
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            if (
+                isinstance(content, str)
+                and file_path in content
+                and len(content) > 500
+                and ('"content":' in content or "'content':" in content)
+            ):
+                msg["content"] = re.sub(
+                    r'([\'"]content[\'"]\s*:\s*)[\'"].*?[\'"]',
+                    r'\1"[content omitted; file written]"',
+                    content,
+                    flags=re.DOTALL,
+                )
+            break
 
 
 def _all_calls_repeat(valid_calls: list[dict], executed: set[tuple[str, str]]) -> bool:
@@ -419,6 +441,7 @@ class AgentLoop:
         last_evidence_seq = 0
         prior_replay_blocks = 0
         _total_completion_chars = 0
+        active_tool_result_indices: list[int] = []
 
         def _with_manifest(ev: Event) -> Event:
             if isinstance(ev.data, dict) and "manifest" not in ev.data:
@@ -955,12 +978,26 @@ class AgentLoop:
                             original_chars=cstats.original_chars,
                             compacted_chars=cstats.compacted_chars,
                         )
+                    digest_str = format_tool_digest(tool_name, tool_params, result)
                     messages.append(
                         {
                             "role": "user",
                             "content": format_tool_result(tool_name, result, result_limit),
+                            "digest": digest_str,
                         }
                     )
+                    active_tool_result_indices.append(len(messages) - 1)
+                    if len(active_tool_result_indices) > EPHEMERAL_TOOL_WINDOW_SIZE:
+                        for old_idx in active_tool_result_indices[:-EPHEMERAL_TOOL_WINDOW_SIZE]:
+                            if 0 <= old_idx < len(messages):
+                                old_msg = messages[old_idx]
+                                if "digest" in old_msg and not old_msg.get("is_digested"):
+                                    old_msg["content"] = old_msg["digest"]
+                                    old_msg["is_digested"] = True
+                    if tool_name == FILE_WRITE_TOOL and result.success:
+                        p_written = tool_params.get("filepath") or tool_params.get("path") or ""
+                        if p_written:
+                            _strip_write_payload_from_assistant_messages(messages, p_written)
                     executed_results[sig] = messages[-1]["content"]
                     self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
                 if skipped_calls:
