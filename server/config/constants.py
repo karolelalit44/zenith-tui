@@ -162,10 +162,18 @@ ATTACHMENT_MAX_TOTAL = 2 * 1024 * 1024
 GLOB_MAX_RESULTS = 500
 GLOB_MAX_OUTPUT_CHARS = 40_000
 MAX_FILE_CHARS = 8000
+MAX_FILE_READ_LINES = 1000
 MAX_SKILLS_IN_PROMPT = 20
 SKILL_ROOTS = ("skills", "agents/skills", ".zenith/skills", ".agent/skills")
 FUZZY_THRESHOLD = 0.85
 MAX_EVENT_OUTPUT = 5000
+
+# System-prompt budget allocation (chars, approximated at CHARS_PER_TOKEN).
+# These bound dynamic sections so total context stays under control.
+PROJECT_CONTEXT_BUDGET_RATIO = 0.08
+PROJECT_CONTEXT_MAX_CHARS = 24_000
+SKILLS_BUDGET_RATIO = 0.05
+SKILLS_MAX_CHARS = 12_000
 
 ANSI_RE = re.compile(
     r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[PXQ^_][^\x1b]*\x1b\\|\x1b[()][A-Za-z0-9]"

@@ -4,6 +4,7 @@ from typing import Any
 
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
+    MAX_FILE_READ_LINES,
     PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
@@ -40,7 +41,11 @@ class FileReadTool(BaseTool):
                     "description": "Start line (0-indexed)",
                     "default": 0,
                 },
-                "limit": {"type": "integer", "description": "Max lines", "default": 2000},
+                "limit": {
+                    "type": "integer",
+                    "description": "Max lines (capped)",
+                    "default": MAX_FILE_READ_LINES,
+                },
             },
             "required": ["path"],
         }
@@ -51,7 +56,7 @@ class FileReadTool(BaseTool):
         if resolved is None:
             return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
         offset = params.get("offset", 0)
-        limit = params.get("limit", 2000)
+        limit = min(int(params.get("limit", MAX_FILE_READ_LINES)), MAX_FILE_READ_LINES)
         if not resolved.exists():
             return ToolResult(success=False, error=f"File not found: {rel_path}")
         if resolved.is_dir():

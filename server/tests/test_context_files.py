@@ -1,4 +1,10 @@
-from server.agents.prompts import build_system_prompt
+from server.agents.prompts import (
+    PROJECT_CONTEXT_MAX_CHARS,
+    _budget_chars,
+    _build_project_context,
+    build_system_prompt,
+)
+from server.config.constants import CHARS_PER_TOKEN
 from server.workspace.context import load_context_files
 
 
@@ -80,3 +86,24 @@ class TestContextFileSizeGuards:
         _write(tmp_path, "zenith.md", "\n".join(f"line {i}" for i in range(600)))
         prompt = build_system_prompt(workspace_root=str(tmp_path), mode="build")
         assert "... (truncated at 500 lines)" in prompt
+
+
+class TestProjectContextTokenBudget:
+    def test_budget_scales_with_context_window(self):
+        big = int(128_000 * CHARS_PER_TOKEN * 0.08) + 1
+        small = int(8_000 * CHARS_PER_TOKEN * 0.08) + 1
+        assert _budget_chars(128_000, 0.08, 1_000_000) == big - 1
+        assert _budget_chars(8_000, 0.08, 1_000_000) == small - 1
+        assert _budget_chars(128_000, 0.08, 10_000) == 10_000
+
+    def test_project_context_capped_at_budget(self, tmp_path):
+        _write(tmp_path, "zenith.md", "\n".join(f"line {i:03d} content" for i in range(500)))
+        context = _build_project_context(str(tmp_path), max_context_tokens=4_000)
+        assert len(context) <= 4_000 * CHARS_PER_TOKEN * 0.08
+        assert "truncated to fit the token budget" in context
+
+    def test_small_context_not_truncated(self, tmp_path):
+        _write(tmp_path, "zenith.md", "short instructions")
+        context = _build_project_context(str(tmp_path), max_context_tokens=128_000)
+        assert context
+        assert "truncated to fit the token budget" not in context

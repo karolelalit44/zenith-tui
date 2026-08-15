@@ -84,10 +84,12 @@ def create_default_registry(
     hooks: object | None = None,
 ) -> ToolRegistry:
     from .middleware import HookMiddleware, LoggingMiddleware, PermissionMiddleware, SafetyCheckMiddleware
+    from .middleware.plan_write import PlanWriteGuard
     from .registry_validation import validate_registry
 
     registry = ToolRegistry()
     registry.register_middleware(LoggingMiddleware())
+    registry.register_middleware(PlanWriteGuard())
     registry.register(BashTool(timeout=timeout))
     registry.register(FileReadTool())
     registry.register(FileWriteTool())

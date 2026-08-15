@@ -64,10 +64,7 @@ class TestSystemPromptBuilding:
     def test_build_system_prompt_omits_text_tool_schemas(self):
         from server.agents.prompts import build_system_prompt
 
-        dummy_schemas = [{"name": "file_read", "description": "Read file", "schema": {}}]
-        prompt = build_system_prompt(
-            workspace_root="/tmp/test", mode="build", tool_schemas=dummy_schemas
-        )
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
         assert "<available_tools>" not in prompt
 
     def test_build_system_prompt_states_shell_constraint(self):
@@ -90,6 +87,65 @@ class TestSystemPromptBuilding:
         assert "Never claim verification that did not run successfully" in prompt  # X3 report failed verify steps honestly
         assert "A lean set of tool schemas" in prompt  # T2 discovery hint matches reality
 
+    def test_build_and_plan_modes_use_dedicated_instructions(self):
+        from server.agents.prompts import build_system_prompt
+
+        plan = build_system_prompt(workspace_root="/tmp/test", mode="plan")
+        build = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "PLAN MODE BOUNDARY" in plan
+        assert "plan.md" in plan and "todo.md" in plan
+        assert "## OBJECTIVE" in build
+        assert "PLAN MODE BOUNDARY" not in build
+        assert "Only writable files are plan.md and todo.md" not in build
+
+    def test_build_system_prompt_classifies_intent(self):
+        """Intent detection must be explicit: EXECUTE vs PLAN/DESIGN vs QUESTION."""
+        from server.agents.prompts import build_system_prompt
+
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "## INTENT" in prompt
+        assert "Classify the user" in prompt
+        assert "EXECUTE" in prompt
+        assert "PLAN/DESIGN" in prompt
+        assert "QUESTION" in prompt
+        assert "BUILD mode means EXECUTION" in prompt
+
+    def test_build_system_prompt_enforces_exact_names(self):
+        """Fidelity regression: never re-spell the user's names; honor '(correct name)'."""
+        from server.agents.prompts import build_system_prompt
+
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "exact names, paths, and spellings" in prompt
+        assert "(correct name)" in prompt
+        assert "Never re-spell" in prompt
+
+    def test_plan_system_prompt_classifies_intent(self):
+        """In plan mode an execution-sounding request must become a PLAN, not code."""
+        from server.agents.prompts import build_system_prompt
+
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="plan")
+        assert "## INTENT" in prompt
+        assert "PLANNING request" in prompt
+        assert "PLANNING ONLY" in prompt
+        assert "do not execute it" in prompt
+
+    def test_plan_block_defers_to_latest_user_message(self):
+        """A previously approved plan must not override a newer, conflicting user intent."""
+        from server.agents.context import ContextManager
+        from server.config.settings import AppSettings
+
+        cm = ContextManager(AppSettings(workspace_root="/tmp/test", db_path="/tmp/test.db"))
+        messages = cm.build_messages(
+            history=[],
+            system_prompt="sys",
+            new_prompt="Actually do X instead of the plan.",
+            model="gemini-3.5-flash-lite",
+            plan_block="PLAN: do Y.",
+        )
+        plan_msgs = [m for m in messages if m.get("role") == "system" and "plan_to_execute" in m["content"]]
+        assert plan_msgs, "plan block must be injected"
+        assert "latest message is the authoritative intent" in plan_msgs[0]["content"]
+        assert "follow the latest message" in plan_msgs[0]["content"]
 
 class TestNoFilesCreatedWarning:
     async def _run_events(self, temp_dir, provider, tool_registry=None):

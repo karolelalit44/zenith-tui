@@ -105,7 +105,7 @@ class TestSchemaResolver:
         seed = build_mode_tool_seed(CORE_PLAN_TOOLS)
         assert DISCOVER_CAPABILITIES_TOOL in seed
         assert GET_TOOL_DEFINITION_TOOL in seed
-        assert "file_write" not in seed
+        assert "file_write" in seed
         assert "bash" not in seed
 
     def test_active_set_bounded(self):
@@ -133,7 +133,8 @@ class TestSchemaResolver:
         resolver.request_tool("file_write")
         plan_schemas = resolver.schemas(PLAN_MODE)
         plan_names = {s["name"] for s in plan_schemas}
-        assert "file_write" not in plan_names
+        assert "file_write" in plan_names
+        assert "file_delete" not in plan_names
         assert DISCOVER_CAPABILITIES_TOOL in plan_names
 
     def test_eviction_preserves_seed_and_discovery_tools(self):

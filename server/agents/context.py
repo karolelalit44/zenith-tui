@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 from server.config.constants import (
@@ -16,6 +17,30 @@ from server.persistence.repositories import load_catalog
 from server.providers.token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
+
+_E2E_INSTRUMENT = bool(os.environ.get("ZENITH_E2E_INSTRUMENT", ""))
+
+_req_seq = 0
+
+
+def _instrument(messages: list[dict], model: str) -> None:
+    """When enabled, log the exact model request for e2e verification.
+
+    Used only by scripts/backend_e2e_signoff.py; off by default so production
+    logs stay unchanged.
+    """
+    if not _E2E_INSTRUMENT:
+        return
+    global _req_seq
+    _req_seq += 1
+    for i, msg in enumerate(messages):
+        logger.info(
+            "E2E_REQUEST[%d] role=%s len=%d preview=%s",
+            _req_seq,
+            msg.get("role", "?"),
+            len(str(msg.get("content", ""))),
+            str(msg.get("content", ""))[:120].replace("\n", "\\n"),
+        )
 
 
 def _prompt_buffer(system_prompt: str) -> int:
@@ -190,7 +215,7 @@ class ContextManager:
                 messages.append(
                     {
                         "role": "system",
-                        "content": f"<plan_to_execute>\n{plan_block}\n</plan_to_execute>\n\nYou MUST execute the plan above exactly. Create every file listed, implement every component, and follow the architecture decisions described.",
+                        "content": f"<plan_to_execute>\n{plan_block}\n</plan_to_execute>\n\nYou MUST execute the plan above exactly. Create every file listed, implement every component, and follow the architecture decisions described. The user's latest message is the authoritative intent: if it conflicts with this plan, follow the latest message and say what you changed.",
                     }
                 )
                 used += plan_tokens
@@ -245,6 +270,7 @@ class ContextManager:
             new_entry = {"role": "user", "content": new_prompt}
         if not messages or messages[-1].get("content") != new_entry.get("content"):
             messages.append(new_entry)
+        _instrument(messages, model)
         return messages
 
     def should_summarize(self, messages: list[dict], model: str, provider=None) -> bool:

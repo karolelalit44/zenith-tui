@@ -4,7 +4,6 @@ from typing import Any
 
 from server.agents.validation import PLACEHOLDER_RE
 from server.config.constants import (
-    BUILD_MODE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     FILE_ALREADY_EXISTS_ERROR,
     FILE_OVERWRITE_PARAM,
@@ -19,9 +18,10 @@ from ..path_validator import validate_path
 class FileWriteTool(BaseTool):
     name = "file_write"
     description = (
-        "Create or overwrite a file; missing parent directories are created automatically."
+        "Create or overwrite a file; missing parent directories are created automatically. "
+        "In plan mode, only plan.md/todo.md are writable."
     )
-    requires_mode = BUILD_MODE
+    requires_mode = None
     capability_id = "file_write"
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION

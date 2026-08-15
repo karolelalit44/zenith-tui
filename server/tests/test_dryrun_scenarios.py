@@ -354,8 +354,8 @@ SCENARIOS: list[dict] = [
         ],
     },
     {
-        "name": "S13_plan_mode_read_only",
-        "desc": "Plan mode: write tools are not offered; a direct write call cannot create files.",
+        "name": "S13_plan_mode_write_boundary",
+        "desc": "Plan mode: writes are offered but restricted to plan.md/todo.md; a source write is blocked by the plan guard.",
         "mode": "plan",
         "prompt": "Analyze the project",
         "scripts": [
@@ -364,9 +364,9 @@ SCENARIOS: list[dict] = [
         ],
         "checks": [
             ("no file created", lambda e, p, c: _require(e, "file", not (Path(c.workspace_root) / "p.txt").exists())),
-            ("file_write not offered", lambda e, p, c: _require(e, "offered", p.offered_tools is not None and "file_write" not in p.offered_tools)),
+            ("file_write offered", lambda e, p, c: _require(e, "offered", p.offered_tools is not None and "file_write" in p.offered_tools)),
             ("read tools offered", lambda e, p, c: _require(e, "read", "file_read" in (p.offered_tools or []))),
-            ("write call blocked by mode gate", lambda e, p, c: _require(e, "gated", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "file_write" and x.data.get("success") is False for x in e))),
+            ("write call blocked by plan guard", lambda e, p, c: _require(e, "gated", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "file_write" and x.data.get("success") is False for x in e))),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
             ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
         ],

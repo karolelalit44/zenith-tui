@@ -6,7 +6,15 @@ from .constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
 from .env import optional_env, optional_float, optional_int, optional_int_none
 from .providers import ProviderConfig
 
-CORE_PLAN_TOOLS = ["file_read", "glob", "grep", "websearch", "webfetch"]
+CORE_PLAN_TOOLS = [
+    "file_read",
+    "file_write",
+    "file_edit",
+    "glob",
+    "grep",
+    "websearch",
+    "webfetch",
+]
 
 
 @dataclass(frozen=True)

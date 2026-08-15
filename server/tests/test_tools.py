@@ -126,10 +126,12 @@ class TestToolRegistry:
         reg = ToolRegistry()
         reg.register(FileReadTool())
         reg.register(FileWriteTool())
+        reg.register(BashTool())
         schemas = reg.get_schemas_for_mode("plan")
         names = [s["name"] for s in schemas]
         assert "file_read" in names
-        assert "file_write" not in names
+        assert "file_write" in names
+        assert "bash" not in names
 
     @pytest.mark.asyncio
     async def test_execute_unknown_tool(self):
@@ -141,8 +143,8 @@ class TestToolRegistry:
     @pytest.mark.asyncio
     async def test_execute_mode_mismatch(self):
         reg = ToolRegistry()
-        reg.register(FileWriteTool())
-        result = await reg.execute("file_write", {"path": "x", "content": "y"}, ".", mode="plan")
+        reg.register(BashTool())
+        result = await reg.execute("bash", {"command": "echo hi"}, ".", mode="plan")
         assert not result.success
         assert "not available" in result.error
 
@@ -152,12 +154,12 @@ BUILD_ONLY_TOOLS = [
     "agent",
     "todo",
     "job_kill",
-    "file_write",
-    "file_edit",
     "file_delete",
     "multi_edit",
     "lsp_rename",
 ]
+
+PLAN_WRITABLE_TOOLS = ["file_write", "file_edit"]
 
 
 class TestModeGating:
@@ -173,13 +175,96 @@ class TestModeGating:
         for name in BUILD_ONLY_TOOLS:
             assert name in build_names, f"{name} missing from build mode"
 
+    def test_plan_mode_offers_writable_plan_tools(self):
+        reg = create_default_registry()
+        plan_names = set(reg.list_tools_for_mode("plan"))
+        for name in PLAN_WRITABLE_TOOLS:
+            assert name in plan_names, f"{name} missing from plan mode"
+
     @pytest.mark.asyncio
     async def test_plan_mode_execution_rejects_leaked_tools(self):
         reg = create_default_registry()
-        for name in ("bash", "agent", "todo", "job_kill"):
+        for name in ("bash", "agent", "todo", "job_kill", "file_delete", "multi_edit"):
             result = await reg.execute(name, {"command": "echo hi"}, ".", mode="plan")
             assert not result.success
             assert "not available" in result.error
+
+
+class TestPlanWriteGuard:
+    @pytest.mark.asyncio
+    async def test_plan_write_to_plan_md_allowed(self, temp_dir):
+        reg = create_default_registry()
+        result = await reg.execute(
+            "file_write",
+            {"path": "plan.md", "content": "# Plan"},
+            str(temp_dir),
+            mode="plan",
+        )
+        assert result.success
+        assert (temp_dir / "plan.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_plan_write_to_source_file_blocked(self, temp_dir):
+        reg = create_default_registry()
+        result = await reg.execute(
+            "file_write",
+            {"path": "src/foo.py", "content": "x"},
+            str(temp_dir),
+            mode="plan",
+        )
+        assert not result.success
+        assert "only allows writing plan.md or todo.md" in result.error
+        assert not (temp_dir / "src" / "foo.py").exists()
+
+    @pytest.mark.asyncio
+    async def test_plan_write_outside_root_blocked(self, temp_dir):
+        reg = create_default_registry()
+        result = await reg.execute(
+            "file_write",
+            {"path": "../evil.md", "content": "x"},
+            str(temp_dir),
+            mode="plan",
+        )
+        assert not result.success
+
+    @pytest.mark.asyncio
+    async def test_plan_edit_todo_md_allowed(self, temp_dir):
+        (temp_dir / "todo.md").write_text("- [ ] step", encoding="utf-8")
+        reg = create_default_registry()
+        result = await reg.execute(
+            "file_edit",
+            {"path": "todo.md", "old_content": "- [ ] step", "new_content": "- [x] step"},
+            str(temp_dir),
+            mode="plan",
+        )
+        assert result.success
+        assert "- [x] step" in (temp_dir / "todo.md").read_text(encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_plan_edit_source_file_blocked(self, temp_dir):
+        (temp_dir / "main.py").write_text("print(1)", encoding="utf-8")
+        reg = create_default_registry()
+        result = await reg.execute(
+            "file_edit",
+            {"path": "main.py", "old_content": "print(1)", "new_content": "print(2)"},
+            str(temp_dir),
+            mode="plan",
+        )
+        assert not result.success
+        assert "only allows writing plan.md or todo.md" in result.error
+        assert (temp_dir / "main.py").read_text(encoding="utf-8") == "print(1)"
+
+    @pytest.mark.asyncio
+    async def test_build_mode_write_unrestricted(self, temp_dir):
+        reg = create_default_registry()
+        result = await reg.execute(
+            "file_write",
+            {"path": "src/foo.py", "content": "x"},
+            str(temp_dir),
+            mode="build",
+        )
+        assert result.success
+        assert (temp_dir / "src" / "foo.py").exists()
 
 
 class TestBashTool:

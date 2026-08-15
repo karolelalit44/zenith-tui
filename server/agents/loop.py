@@ -97,25 +97,30 @@ def _build_manifest(
     created = sorted(created_files)
     modified = sorted(p for p in files_edited if p not in created_files)
     completed = bool(task_completed and not stall_finalized)
+    changed = bool(created_files or files_edited)
+    verified = True if not changed else _has_verification_evidence(verification or [])
     remaining: list[str] = []
     if not completed:
         text = (last_text or "").strip()
         if text:
             remaining = [text]
-        elif created_files:
+        elif created_files and not verified:
             remaining = ["Files were written but no verification evidence was produced."]
-        elif files_edited:
+        elif created_files:
+            remaining = ["Files were written and verified, but the turn ended without a final summary."]
+        elif files_edited and not verified:
             remaining = ["Files were modified but no verification evidence was produced."]
+        elif files_edited:
+            remaining = ["Files were modified and verified, but the turn ended without a final summary."]
         else:
             remaining = ["The turn ended without completing any work."]
-    changed = bool(created_files or files_edited)
     payload: dict = {
         "created": created,
         "modified": modified,
         "remaining": remaining,
         "completed": completed,
         "stalled": bool(stall_finalized),
-        "verified": True if not changed else _has_verification_evidence(verification or []),
+        "verified": verified,
         "checks": [
             {k: v for k, v in (c or {}).items() if k != "seq"} for c in (verification or [])
         ],
@@ -302,9 +307,12 @@ class AgentLoop:
         allowed_tools = mode_config.allowed_tools if mode_config else None
         resolver = SchemaResolver(self.tool_registry, seed=build_mode_tool_seed(allowed_tools))
         if mode == PLAN_MODE:
-            logger.info("PLAN MODE: using focused plan prompt, read-only tools")
+            logger.info("PLAN MODE: using focused plan prompt (read + plan.md/todo.md)")
             system_prompt = build_plan_system_prompt(
-                self.config.workspace_root, provider_name=provider_name, model_name=model
+                self.config.workspace_root,
+                provider_name=provider_name,
+                model_name=model,
+                max_context_tokens=self.config.max_context_tokens,
             )
             registered_tools = set(resolver.active_names())
             openai_tools = resolver.openai_tools(PLAN_MODE, allowed_mcp=allowed_mcp)
@@ -314,7 +322,6 @@ class AgentLoop:
             system_prompt = build_system_prompt(
                 self.config.workspace_root,
                 mode,
-                active_schemas,
                 skills_section=skills_section,
                 max_context_tokens=self.config.max_context_tokens,
                 provider_name=provider_name,
@@ -393,6 +400,7 @@ class AgentLoop:
         stall_finalized = False
         written_paths: set[str] = set()
         path_write_attempts: list[str] = []
+        path_attempt_this_iter = False
         warned_rejects: set[tuple[str, str]] = set()
         warned_skips: set[str] = set()
         pending_skips: list[str] = []
@@ -424,6 +432,7 @@ class AgentLoop:
                 if task_completed and post_comp_iterations >= 1:
                     break
                 iteration += 1
+                path_attempt_this_iter = False
                 if task_completed:
                     post_comp_iterations += 1
                 token_info = self.context_manager.get_token_info(messages, model, self.provider)
@@ -704,6 +713,7 @@ class AgentLoop:
                         target = tool_params.get("filepath") or tool_params.get("path") or ""
                         if target:
                             path_write_attempts.append(target)
+                            path_attempt_this_iter = True
                             resolved = validate_path(target, ws)
                             if (
                                 resolved is not None
@@ -1006,7 +1016,11 @@ class AgentLoop:
                         break
                 elif newly_executed:
                     stall_count = 0
-                if path_write_attempts and _most_common_count(path_write_attempts) >= 3:
+                if (
+                    path_write_attempts
+                    and _most_common_count(path_write_attempts) >= 3
+                    and path_attempt_this_iter
+                ):
                     task_completed = True
                     stall_finalized = True
                     yield r.warning(
