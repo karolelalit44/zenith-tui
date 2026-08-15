@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field, field_validator
 
 from .constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
-from .env import optional_env, optional_float, optional_int
+from .env import optional_env, optional_float, optional_int, optional_int_none
 from .providers import ProviderConfig
 
 CORE_PLAN_TOOLS = ["file_read", "glob", "grep", "websearch", "webfetch"]
@@ -111,7 +111,7 @@ class AppSettings(BaseModel):
     )
     repo_map_enabled: bool = True
     repo_map_tokens: int | None = Field(
-        default=optional_int("ZENITH_REPO_MAP_TOKENS", None),
+        default=optional_int_none("ZENITH_REPO_MAP_TOKENS"),
         ge=256,
         le=32000,
         description="Token budget for the repo map. None = auto (context/8, clamped to 1024-4096)",

@@ -74,9 +74,7 @@ export interface UseAutocompleteReturn {
   historyUp: () => string | undefined;
   historyDown: () => string | undefined;
   attachments: FileAttachment[];
-  addAttachment: (attachment: FileAttachment) => void;
   removeAttachment: (index: number) => void;
-  clearAttachments: () => void;
 }
 
 export function useAutocomplete(): UseAutocompleteReturn {
@@ -188,10 +186,6 @@ export function useAutocomplete(): UseAutocompleteReturn {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const clearAttachments = useCallback(() => {
-    setAttachments([]);
-  }, []);
-
   return {
     input,
     showAutocomplete,
@@ -206,8 +200,6 @@ export function useAutocomplete(): UseAutocompleteReturn {
     historyUp,
     historyDown,
     attachments,
-    addAttachment,
     removeAttachment,
-    clearAttachments,
   };
 }

@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from server.config.constants import SQLITE_BUSY_TIMEOUT_MS
+
 logger = logging.getLogger(__name__)
 for _noisy in ("sqlalchemy", "sqlalchemy.engine", "sqlalchemy.engine.Engine", "aiosqlite"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
@@ -26,7 +28,7 @@ def resolve_db_path() -> str:
 def _set_pragmas(dbapi_connection, connection_record) -> None:
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
 

@@ -108,7 +108,7 @@ class _MockProvider(BaseProvider):
     async def complete(self, messages: list[dict], tools=None) -> str:
         return "mock response"
 
-    async def stream(self, messages: list[dict], tools=None):
+    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
         yield ("mock ", None)
         yield ("stream", None)
 

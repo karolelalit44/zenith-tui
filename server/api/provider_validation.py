@@ -145,11 +145,11 @@ def get_provider_list(db_path: str | None = None) -> ProviderListResponse:
         except Exception:
             pass
     if not Path(db_path).exists():
-        infos = [
+        catalog_infos = [
             build_provider_info(pid, {}, catalog, active) for pid in catalog.get("providers", {})
         ]
         return ProviderListResponse(
-            all=infos, active=active, connected=[], max_context_tokens=max_context_tokens
+            all=catalog_infos, active=active, connected=[], max_context_tokens=max_context_tokens
         )
     active = ""
     providers_dict: dict[str, Any] = {}

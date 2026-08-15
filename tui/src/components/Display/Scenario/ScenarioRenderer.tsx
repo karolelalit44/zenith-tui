@@ -22,26 +22,6 @@ interface ScenarioRendererProps {
   gitBranch?: string;
 }
 
-export interface LiveBannerState {
-  interruptible: boolean;
-  hint: string | null;
-}
-
-export function resolveLiveBanner(lastEvent: ScenarioEvent | undefined): LiveBannerState {
-  if (!lastEvent) return { interruptible: true, hint: 'esc to interrupt' };
-  if (lastEvent.kind === 'warning') {
-    const code = (lastEvent.code || '').toUpperCase();
-    if (code.startsWith('RATE_LIMIT') || code === 'QUOTA') {
-      return { interruptible: false, hint: 'waiting for rate limit cooldown…' };
-    }
-    return { interruptible: true, hint: 'esc to interrupt' };
-  }
-  if (lastEvent.kind === 'error' || lastEvent.kind === 'success') {
-    return { interruptible: false, hint: null };
-  }
-  return { interruptible: true, hint: 'esc to interrupt' };
-}
-
 class EventErrorBoundary extends Component<
   { children: ReactNode; eventKind: string; errorColor: string },
   { hasError: boolean }

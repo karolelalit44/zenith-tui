@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { envStr } from '../../config/env';
 import type { TodoItem } from '../../types/scenario';
 
 /**
@@ -12,13 +13,11 @@ export interface BoardPersistence {
   load(filePath: string): TodoItem[];
 }
 
-export const DEFAULT_SIM_OUTPUT_DIR = path.join(process.cwd(), 'data', 'simulation');
-
 export const TODO_LIFECYCLE_FILE = 'todo-lifecycle.json';
 
-/** Output directory for simulation artifacts; overridable in tests/CI. */
+/** Output directory for simulation artifacts (from tui/.env). */
 export function simOutputDir(): string {
-  return process.env.ZENITH_SIM_OUTPUT_DIR || DEFAULT_SIM_OUTPUT_DIR;
+  return path.resolve(envStr('ZENITH_SIM_OUTPUT_DIR'));
 }
 
 export const todoPersistence: BoardPersistence = {

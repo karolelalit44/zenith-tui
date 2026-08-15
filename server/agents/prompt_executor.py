@@ -141,7 +141,8 @@ class PromptExecutor:
             if isinstance(inline, str) and inline.strip():
                 text, error = (inline, None)
             else:
-                text, error = await read_attachment(path, self._config.workspace_root)
+                read_text, error = await read_attachment(path, self._config.workspace_root)
+                text = read_text if isinstance(read_text, str) else ""
             if error:
                 warning = r.warning(f"Skipped attachment '{path}': {error}", session_id)
                 collected_events.append(warning)

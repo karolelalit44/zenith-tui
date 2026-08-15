@@ -17,26 +17,6 @@ import type {
 import { type BoardPersistence, simOutputDir, TODO_LIFECYCLE_FILE, todoPersistence } from './todoPersistence';
 import { type OpResult, TodoStore } from './todoStore';
 
-export const LIFECYCLE_PHASES: TodoLifecyclePhase[] = [
-  'create',
-  'manage',
-  'update',
-  'progress',
-  'complete',
-  'reopen',
-  'persist',
-];
-
-export const LIFECYCLE_PHASE_LABEL: Record<TodoLifecyclePhase, string> = {
-  create: 'Create',
-  manage: 'Manage',
-  update: 'Update',
-  progress: 'Progress',
-  complete: 'Complete',
-  reopen: 'Reopen',
-  persist: 'Persist',
-};
-
 export interface LifecycleDriverOptions {
   /** Clock override for deterministic tests. */
   now?: () => number;

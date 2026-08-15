@@ -8,19 +8,24 @@ from typing import Any
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     COST_CLASS_MEDIUM,
+    DEFAULT_USER_AGENT,
+    DEFAULT_WEB_TIMEOUT,
+    DEFAULT_WEBFETCH_MAX_BYTES,
     LATENCY_CLASS_HIGH,
     PERMISSION_NETWORK,
     RISK_LOW,
     TOOL_DOMAIN_WEB_MCP,
+    WEBFETCH_MAX_BYTES_ENV,
+    WEBFETCH_TIMEOUT_ENV,
 )
+from server.config.env import optional_int
 
 from ..base import BaseTool, ToolResult
 from ._html_text import html_to_markdown
 
 logger = logging.getLogger(__name__)
 
-_USER_AGENT = "Mozilla/5.0 (compatible; Zenith-Agent/1.0; +https://example.invalid/zenith)"
-_DEFAULT_MAX_CHARS = 40000
+_DEFAULT_MAX_CHARS = optional_int(WEBFETCH_MAX_BYTES_ENV, DEFAULT_WEBFETCH_MAX_BYTES)
 # Content fed to the extractor model is capped tighter so the extraction call
 # stays cheap and low-latency (Claude Code's WebFetch is "lossy by design").
 _EXTRACT_MAX_CHARS = 25000
@@ -100,7 +105,9 @@ class WebfetchTool(BaseTool):
             import httpx
 
             async with httpx.AsyncClient(
-                timeout=30, follow_redirects=True, headers={"User-Agent": _USER_AGENT}
+                timeout=optional_int(WEBFETCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT),
+                follow_redirects=True,
+                headers={"User-Agent": DEFAULT_USER_AGENT},
             ) as client:
                 response = await client.get(url)
                 response.raise_for_status()
@@ -145,6 +152,8 @@ class WebfetchTool(BaseTool):
 
     async def _extract_answer(self, content: str, question: str) -> str | None:
         """Have a fast model answer `question` against `content` (lossy by design)."""
+        if self._provider is None:
+            return None
         try:
             excerpt = content[:_EXTRACT_MAX_CHARS]
             prompt = (

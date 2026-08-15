@@ -1,10 +1,8 @@
+import { appConfig } from '../../config/appConfig';
 import type { Scenario, ScenarioMode } from '../../types/scenario';
 import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scenario/types';
 import { mapRawEvent, uid } from './rawEventMapper';
 import { type WebSocketClient, wsClient } from './WebSocketClient';
-
-const STALE_TIMEOUT_MS = 600_000;
-const RECONNECT_WAIT_MS = 20_000;
 
 export class BackendScenarioProvider implements ScenarioProvider {
   readonly name = 'backend';
@@ -52,7 +50,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
           finalize();
           onComplete();
         }
-      }, STALE_TIMEOUT_MS);
+      }, appConfig.ws.staleTimeoutMs);
     };
 
     const finalize = () => {
@@ -124,7 +122,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         disconnectEventIndex = null;
         finalize();
         onComplete();
-      }, RECONNECT_WAIT_MS);
+      }, appConfig.ws.reconnectWaitMs);
     };
 
     const handleReconnect = async () => {

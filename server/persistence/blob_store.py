@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 BLOB_PREFIX = "@@zenith-blob:"
@@ -40,7 +41,7 @@ class BlobStore:
             logger.warning("Failed to read blob %s: %s", blob_id, e)
             return "[blob unreadable]"
 
-    def pack(self, data: object, threshold: int = STRING_THRESHOLD) -> object:
+    def pack(self, data: object, threshold: int = STRING_THRESHOLD) -> Any:
         if isinstance(data, dict):
             return {k: self.pack(v, threshold) for k, v in data.items()}
         if isinstance(data, list):
@@ -57,7 +58,7 @@ class BlobStore:
             return data
         return data
 
-    def unpack(self, data: object) -> object:
+    def unpack(self, data: object) -> Any:
         if isinstance(data, dict):
             return {k: self.unpack(v) for k, v in data.items()}
         if isinstance(data, list):

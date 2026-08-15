@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import delete, func, select, update
 
-from server.domain.domain import SessionState
+from server.domain.domain import ScenarioMode, SessionState
 from server.domain.events import Event
 from server.domain.message import Message
 from server.domain.session import Session
@@ -221,14 +221,14 @@ class SessionRepository:
             return Session(
                 id=rec.id,
                 title=rec.title,
-                mode=rec.mode,
+                mode=ScenarioMode(rec.mode) if rec.mode else ScenarioMode.BUILD,
                 created_at=datetime.fromisoformat(rec.created_at),
                 updated_at=datetime.fromisoformat(rec.updated_at),
                 workspace_root=rec.workspace_root,
                 is_active=bool(rec.is_active),
                 metadata=json.loads(rec.metadata_json or "{}"),
                 parent_session_id=rec.parent_session_id,
-                state=rec.state or "created",
+                state=SessionState(rec.state or "created"),
                 plan_output=rec.plan_output or "",
                 plan_approved_at=datetime.fromisoformat(rec.plan_approved_at)
                 if rec.plan_approved_at

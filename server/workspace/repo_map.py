@@ -70,7 +70,7 @@ TREE_SITTER_EXTENSIONS = {
     ".cpp": "cpp",
     ".h": "c",
 }
-DEFINITION_QUERIES: dict[str, str] = {
+DEFINITION_QUERIES: dict[str, str | list[str]] = {
     "python": " (function_definition name: (identifier) @name) @def (class_definition name: (identifier) @name) @def ",
     "javascript": " (function_declaration name: (identifier) @name) @def (class_declaration name: (identifier) @name) @def (lexical_declaration (variable_declarator name: (identifier) @name)) @def ",
     "typescript": " (function_signature name: (identifier) @name) @def (class_declaration name: (type_identifier) @name) @def (interface_declaration name: (type_identifier) @name) @def (type_alias_declaration name: (type_identifier) @name) @def (lexical_declaration (variable_declarator name: (identifier) @name)) @def ",
@@ -220,7 +220,7 @@ class RepoMap:
 
                 lang_obj = TSLanguage(go_lang())
             elif lang_name == "rust":
-                from tree_sitter_rust import language as rust_lang
+                from tree_sitter_rust import language as rust_lang  # type: ignore[import-not-found]
 
                 lang_obj = TSLanguage(rust_lang())
             elif lang_name == "java":
@@ -228,11 +228,11 @@ class RepoMap:
 
                 lang_obj = TSLanguage(java_lang())
             elif lang_name == "ruby":
-                from tree_sitter_ruby import language as ruby_lang
+                from tree_sitter_ruby import language as ruby_lang  # type: ignore[import-not-found]
 
                 lang_obj = TSLanguage(ruby_lang())
             elif lang_name in ("c", "cpp"):
-                from tree_sitter_c import language as c_lang
+                from tree_sitter_c import language as c_lang  # type: ignore[import-not-found]
 
                 lang_obj = TSLanguage(c_lang())
             else:
@@ -291,7 +291,10 @@ class RepoMap:
                             else "ref"
                         )
                         for node in nodes:
-                            name = node.text.decode("utf-8", errors="replace")
+                            raw_text = node.text
+                            if raw_text is None:
+                                continue
+                            name = raw_text.decode("utf-8", errors="replace")
                             if name in seen_names:
                                 continue
                             seen_names.add(name)

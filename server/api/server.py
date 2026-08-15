@@ -127,7 +127,7 @@ async def _do_startup() -> None:
             logger.info("Pricing data seeded")
         except Exception as e:
             logger.warning("Failed to seed pricing data: %s", e)
-        _handler.handlers.dispatch = wrap_handler(_handler.handlers.dispatch)
+        setattr(_handler.handlers, "dispatch", wrap_handler(_handler.handlers.dispatch))
         _shutdown.register_cleanup(db.close)
         logger.info("Handler initialized — server ready")
     except Exception as e:

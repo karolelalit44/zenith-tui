@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import textwrap
 
 import pytest
@@ -22,7 +23,7 @@ def write_stub_server(path):
 
 def make_config(tmp_path) -> McpServerConfig:
     return McpServerConfig(
-        command=os.sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")]
+        command=sys.executable, args=[write_stub_server(tmp_path / "stub_mcp.py")]
     )
 
 

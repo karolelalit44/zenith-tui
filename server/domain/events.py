@@ -113,7 +113,8 @@ class EventBus:
 
     def subscribe(
         self, event_type: EventKind | None = None, session_id: str | None = None
-    ) -> Subscription: ...
+    ) -> Subscription:
+        raise NotImplementedError
 
     def unsubscribe(self, subscription_id: str) -> None: ...
 

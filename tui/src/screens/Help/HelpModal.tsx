@@ -4,6 +4,7 @@ import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { formatKeyBind, KEYBINDINGS, type KeybindId, type Keybinding } from '../../config/keybind';
 import { APP_VERSION } from '../../constants/app';
+import { commandRegistry } from '../../services/api/CommandRegistry';
 import { useTheme } from '../../theme/ThemeContext';
 
 interface HelpModalProps {
@@ -11,6 +12,13 @@ interface HelpModalProps {
 }
 
 const SHORTCUTS = Object.entries(KEYBINDINGS) as [KeybindId, Keybinding][];
+
+const SLASH_COMMANDS = commandRegistry
+  .filter((c) => c.slash && !c.hidden)
+  .map((c) => ({
+    slash: c.slash as string,
+    description: c.description,
+  }));
 
 export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
   const { theme } = useTheme();
@@ -75,30 +83,11 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
               SLASH COMMANDS
             </Text>
             <Box marginTop={1} flexDirection="column">
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/provider</Text> AI Provider Management
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/settings</Text> Theme & Options
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/context</Text> View Context Window
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/clear</Text> Reset Conversation
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/compact</Text> Compact Context
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/model</Text> Open Model Picker
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/session</Text> Browse & Resume Sessions
-              </Text>
-              <Text color={theme.colors.text.ethereal}>
-                <Text color={theme.colors.status.success}>/exit</Text> Save & Exit Zenith
-              </Text>
+              {SLASH_COMMANDS.map((cmd) => (
+                <Text key={cmd.slash} color={theme.colors.text.ethereal}>
+                  <Text color={theme.colors.status.success}>{cmd.slash}</Text> {cmd.description}
+                </Text>
+              ))}
             </Box>
           </Box>
 

@@ -7,7 +7,7 @@ UNCONFIGURED = "unconfigured"
 CONFIGURED = "configured"
 VALIDATED = "validated"
 FAILED = "failed"
-_statuses: dict[str, dict[str, object]] = {}
+_statuses: dict[str, _Entry] = {}
 _lock = threading.Lock()
 
 

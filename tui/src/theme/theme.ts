@@ -247,3 +247,23 @@ export const themes: Record<string, Theme> = {
     },
   },
 };
+
+export interface ThemeOption {
+  id: string;
+  name: string;
+  swatch: string[];
+}
+
+function themeDisplayName(id: string): string {
+  return id
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/** Theme picker entries derived from the themes registry — never duplicated. */
+export const themeOptions: ThemeOption[] = Object.entries(themes).map(([id, theme]) => ({
+  id,
+  name: themeDisplayName(id),
+  swatch: theme.colors.logo.slice(0, 4),
+}));

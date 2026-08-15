@@ -1,6 +1,7 @@
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -71,7 +72,7 @@ def test_repo_map_honors_small_budget(sample_workspace):
 
 
 def _make_config(temp_dir, **overrides) -> AppSettings:
-    defaults = {
+    defaults: dict[str, Any] = {
         "db_path": str(temp_dir / "test.db"),
         "workspace_root": str(temp_dir),
         "max_context_tokens": 128000,

@@ -153,13 +153,13 @@ class TodoTool(BaseTool):
                 return ToolResult(success=False, error="No task_id provided")
             status = params.get("status")
             description = params.get("description")
-            task = tracker.update(task_id, status=status, description=description)
-            if task is None:
+            updated = tracker.update(task_id, status=status, description=description)
+            if updated is None:
                 return ToolResult(success=False, error=f"Task {task_id} not found")
             return ToolResult(
                 success=True,
-                output=f"Task {task.id} updated: {task.description} (status: {task.status})",
-                metadata={"task_id": task.id, "action": "update"},
+                output=f"Task {updated.id} updated: {updated.description} (status: {updated.status})",
+                metadata={"task_id": task_id, "action": "update"},
             )
         elif action == "list":
             tasks = tracker.get_all()

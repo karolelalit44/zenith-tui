@@ -105,8 +105,8 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
     except Exception:
         pass
     if json_result:
-        params = json_result.get("params", {})
-        content = params.get("content", "")
+        js_params = json_result.get("params", {})
+        content = js_params.get("content", "")
         if content or json_result["tool"] != "file_write":
             return json_result
     tool_match = re.search('"tool"\\s*:\\s*"([^"]+)"', candidate)
@@ -265,9 +265,9 @@ def parse_tool_calls(text: str) -> list[dict]:
             if parsed and _add_call(parsed):
                 matched_spans.append((start, end))
     if not calls:
-        match = UNCLOSED_PATTERN.search(text)
-        if match:
-            candidate = match.group(1).strip()
+        unclosed = UNCLOSED_PATTERN.search(text)
+        if unclosed:
+            candidate = unclosed.group(1).strip()
             parsed = _repair_and_parse_json(candidate)
             if parsed and _add_call(parsed):
                 calls.append(parsed)

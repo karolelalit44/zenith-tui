@@ -85,10 +85,6 @@ def echo_server(tmp_path_factory):
     env = os.environ.copy()
     env.setdefault("ZENITH_DB_PATH", db_path)
     env.setdefault("ZENITH_LOG_LEVEL", "CRITICAL")
-    env.setdefault("ZENITH_MAX_CONTEXT_TOKENS", "128000")
-    env.setdefault("ZENITH_SUMMARY_THRESHOLD", "0.8")
-    env.setdefault("ZENITH_BASH_TIMEOUT", "30")
-    env.setdefault("ZENITH_GIT_TIMEOUT", "30")
     env["ZENITH_ECHO_PROVIDER"] = str(prov_file)
     server_script = f'\nimport os, sys\nos.environ["ZENITH_DB_PATH"] = {db_path!r}\nos.environ["ZENITH_LOG_LEVEL"] = "CRITICAL"\n\nimport importlib.util\nspec = importlib.util.spec_from_file_location("echo_prov", {str(prov_file)!r})\nmod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\nimport server.providers.registry as reg\n_orig_from_config = reg.ProviderRegistry.from_config\n\ndef _patched_from_config(providers, active, **kw):\n    r = _orig_from_config(providers, active, **kw)\n    r.register("echo", mod.EchoProvider())\n    return r\n\nreg.ProviderRegistry.from_config = _patched_from_config\n\nimport server.config.loader as loader\n_orig_load = loader.load_config\n\ndef _patched_load(*a, **kw):\n    cfg = _orig_load(*a, **kw)\n    from server.config.providers import ProviderConfig\n    if cfg.providers is None:\n        cfg.providers = {{}}\n    cfg.providers["echo"] = ProviderConfig(model="echo-v1", is_active=True, api_key="echo-test-key")\n    cfg.active_provider = "echo"\n    return cfg\n\nloader.load_config = _patched_load\n\nimport server.api.server as api\nimport uvicorn\nuvicorn.run(api.create_app(), host="127.0.0.1", port={port}, log_level="error")\n'
     server_file = Path(tempfile.mktemp(suffix=".py"))

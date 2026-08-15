@@ -71,12 +71,13 @@ class FileWriteTool(BaseTool):
             )
         content = params.get("content", "")
         overwrite = params.get(FILE_OVERWRITE_PARAM, False)
-        if content and _PLACEHOLDER_RE.search(content):
+        if content:
             m = _PLACEHOLDER_RE.search(content)
-            return ToolResult(
-                success=False,
-                error=f"Content contains placeholder ({m.group(0)}). Write the actual content, not a placeholder.",
-            )
+            if m:
+                return ToolResult(
+                    success=False,
+                    error=f"Content contains placeholder ({m.group(0)}). Write the actual content, not a placeholder.",
+                )
         if resolved.exists() and (not overwrite):
             return ToolResult(
                 success=False,

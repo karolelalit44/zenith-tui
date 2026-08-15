@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collectTodoBoardEvents } from '../src/services/transport/todoBoardFixtureEmitter';
+import { collectTodoBoardEvents } from '../src/services/transport/fixtureEmitter';
 import type { ScenarioEvent, TodoBoardEvent } from '../src/types/scenario';
 import { upsertEvent } from '../src/utils/eventUpsert';
 import { consolidateTodoBoardEvents, MAX_ACTIVITY_ENTRIES } from '../src/utils/todoBoard';

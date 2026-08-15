@@ -41,7 +41,9 @@ def wrap_handler(dispatch_fn: Callable) -> Callable:
         if require_provider(method):
             try:
                 requested = (params or {}).get("provider") or None
-                validate_provider_config(dispatch_fn.__self__.config, requested)
+                dispatch_self = getattr(dispatch_fn, "__self__", None)
+                if dispatch_self is not None:
+                    validate_provider_config(dispatch_self.config, requested)
             except ConfigError as e:
                 from .protocol import make_error_response
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { render } from 'ink-testing-library';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
-import { collectHrmsBuildEvents } from '../src/services/transport/hrmsBuildEmitter';
+import { collectHrmsBuildEvents } from '../src/services/scenario/hrmsBuildDriver';
 import { collectTodoLifecycleEvents } from '../src/services/transport/todoLifecycleEmitter';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { ScenarioEvent } from '../src/types/scenario';

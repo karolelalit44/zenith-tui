@@ -23,13 +23,17 @@ class SessionService:
         workspace_root: str | None = None,
         parent_session_id: str | None = None,
         metadata: dict | None = None,
-    ) -> Session: ...
+    ) -> Session:
+        raise NotImplementedError
 
-    async def get(self, session_id: str) -> Session | None: ...
+    async def get(self, session_id: str) -> Session | None:
+        raise NotImplementedError
 
-    async def require(self, session_id: str) -> Session: ...
+    async def require(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def list_active(self) -> list[Session]: ...
+    async def list_active(self) -> list[Session]:
+        raise NotImplementedError
 
     async def list_sessions(
         self,
@@ -38,65 +42,93 @@ class SessionService:
         include_archived: bool = False,
         search: str | None = None,
         state_filter: str | None = None,
-    ) -> list[Session]: ...
+    ) -> list[Session]:
+        raise NotImplementedError
 
     async def list_summaries(
         self, limit: int = 10, include_archived: bool = False
-    ) -> list[dict]: ...
+    ) -> list[dict]:
+        raise NotImplementedError
 
-    async def initialize(self, session_id: str) -> Session: ...
+    async def initialize(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def complete(self, session_id: str) -> Session: ...
+    async def complete(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def pause(self, session_id: str) -> Session: ...
+    async def pause(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def resume(self, session_id: str) -> Session: ...
+    async def resume(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def add_message(self, session_id: str, message: Message) -> None: ...
+    async def add_message(self, session_id: str, message: Message) -> None:
+        raise NotImplementedError
 
-    async def get_history(self, session_id: str, limit: int | None = None) -> list[Message]: ...
+    async def get_history(self, session_id: str, limit: int | None = None) -> list[Message]:
+        raise NotImplementedError
 
-    async def get_message_count(self, session_id: str) -> int: ...
+    async def get_message_count(self, session_id: str) -> int:
+        raise NotImplementedError
 
-    async def get_token_count(self, session_id: str) -> int: ...
+    async def get_token_count(self, session_id: str) -> int:
+        raise NotImplementedError
 
-    async def update_title(self, session_id: str, title: str) -> Session: ...
+    async def update_title(self, session_id: str, title: str) -> Session:
+        raise NotImplementedError
 
-    async def update(self, session: Session) -> Session: ...
+    async def update(self, session: Session) -> Session:
+        raise NotImplementedError
 
-    async def update_context(self, session_id: str, used: int, window: int) -> Session: ...
+    async def update_context(self, session_id: str, used: int, window: int) -> Session:
+        raise NotImplementedError
 
-    async def add_tokens(self, session_id: str, tokens: int, cost: float = 0.0) -> Session: ...
+    async def add_tokens(self, session_id: str, tokens: int, cost: float = 0.0) -> Session:
+        raise NotImplementedError
 
-    async def record_error(self, session_id: str, error: str) -> Session: ...
+    async def record_error(self, session_id: str, error: str) -> Session:
+        raise NotImplementedError
 
-    async def checkpoint(self, session_id: str, checkpoint_type: str = "automatic") -> str: ...
+    async def checkpoint(self, session_id: str, checkpoint_type: str = "automatic") -> str:
+        raise NotImplementedError
 
-    async def restore_from_checkpoint(self, session_id: str) -> Session | None: ...
+    async def restore_from_checkpoint(self, session_id: str) -> Session | None:
+        raise NotImplementedError
 
-    async def archive(self, session_id: str) -> Session: ...
+    async def archive(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def delete(self, session_id: str) -> None: ...
+    async def delete(self, session_id: str) -> None:
+        raise NotImplementedError
 
-    async def duplicate(self, session_id: str, new_title: str | None = None) -> Session: ...
+    async def duplicate(self, session_id: str, new_title: str | None = None) -> Session:
+        raise NotImplementedError
 
-    async def restore_from_archive(self, session_id: str) -> Session: ...
+    async def restore_from_archive(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def export_markdown(self, session_id: str) -> str: ...
+    async def export_markdown(self, session_id: str) -> str:
+        raise NotImplementedError
 
-    async def create_draft(self, session_id: str, prompt: str = "", ttl_hours: int = 24) -> str: ...
+    async def create_draft(self, session_id: str, prompt: str = "", ttl_hours: int = 24) -> str:
+        raise NotImplementedError
 
-    async def promote_draft(self, session_id: str) -> Session: ...
+    async def promote_draft(self, session_id: str) -> Session:
+        raise NotImplementedError
 
-    async def get_status_history(self, session_id: str, limit: int = 50) -> list[dict]: ...
+    async def get_status_history(self, session_id: str, limit: int = 50) -> list[dict]:
+        raise NotImplementedError
 
-    async def get_sync_events(self, session_id: str, since_sequence: int = 0) -> list[dict]: ...
+    async def get_sync_events(self, session_id: str, since_sequence: int = 0) -> list[dict]:
+        raise NotImplementedError
 
-    async def get_latest_sync_sequence(self, session_id: str) -> int: ...
+    async def get_latest_sync_sequence(self, session_id: str) -> int:
+        raise NotImplementedError
 
     async def record_sync_event(
         self, session_id: str, event_type: str, event_data: dict, sequence: int | None = None
-    ) -> str: ...
+    ) -> str:
+        raise NotImplementedError
 
 
 class DefaultSessionService(SessionService):
@@ -339,7 +371,8 @@ class DefaultSessionService(SessionService):
 
     async def record_error(self, session_id: str, error: str) -> Session:
         session = await self.require(session_id)
-        session.record_error(error)
+        session.error_count += 1
+        session.last_error = error
         result = await self._session_repo.update(session)
         if session.state == SessionState.ACTIVE:
             await self._transition(session, SessionState.ERROR, error)

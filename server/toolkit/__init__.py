@@ -1,5 +1,7 @@
 import logging
 
+from server.permissions.service import PermissionService
+
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
 from .catalog import (
     CapabilityCatalog,
@@ -78,13 +80,14 @@ __all__ = [
 def create_default_registry(
     timeout: int = 30,
     provider: object | None = None,
-    permission_service: object | None = None,
+    permission_service: PermissionService | None = None,
     hooks: object | None = None,
 ) -> ToolRegistry:
-    from .middleware import HookMiddleware, PermissionMiddleware, SafetyCheckMiddleware
+    from .middleware import HookMiddleware, LoggingMiddleware, PermissionMiddleware, SafetyCheckMiddleware
     from .registry_validation import validate_registry
 
     registry = ToolRegistry()
+    registry.register_middleware(LoggingMiddleware())
     registry.register(BashTool(timeout=timeout))
     registry.register(FileReadTool())
     registry.register(FileWriteTool())

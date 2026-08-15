@@ -29,7 +29,7 @@ export const AnimationProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 /**
  * Returns the current animation tick (increments every 100ms).
- * Use this instead of useTickAnimation or local setInterval in components.
+ * Use this instead of a local setInterval in components.
  */
 export function useAnimationTick(): number {
   return useContext(AnimationContext).tick;

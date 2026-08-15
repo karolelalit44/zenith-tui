@@ -1,11 +1,10 @@
 from __future__ import annotations
-
 import json
 import logging
 from collections import Counter
 from collections.abc import AsyncIterator
 from pathlib import Path
-
+from typing import Any
 from server.config.constants import (
     BUILD_MODE,
     CONTEXT_SUMMARY_THRESHOLD,
@@ -29,7 +28,6 @@ from server.toolkit.param_normalizer import normalize_file_params
 from server.toolkit.path_validator import validate_path
 from server.toolkit.registry import ToolRegistry
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
-
 from ..toolkit.executor import (
     _dynamic_max_output,
     auto_commit,
@@ -142,7 +140,7 @@ def _build_manifest(
         # verified is evidence-gated: a change is only "verified" when a
         # post-change tool result carried observable output bytes. Nothing to
         # verify when no files changed.
-        "verified": True if not changed else _has_verification_evidence(verification),
+        "verified": True if not changed else _has_verification_evidence(verification or []),
         "checks": [
             {k: v for k, v in (c or {}).items() if k != "seq"} for c in (verification or [])
         ],
@@ -399,7 +397,7 @@ class AgentLoop:
             "Context built: %d messages, system_prompt=%d chars", len(messages), len(system_prompt)
         )
         if self.context_manager.should_summarize(messages, model, self.provider):
-            _rebuild_holder: list = []
+            _rebuild_holder: list[Any] = []
             async for _ev in self._summarize_and_rebuild(
                 history,
                 session_id,
@@ -525,7 +523,7 @@ class AgentLoop:
                             }
                         },
                     )
-                    _rebuild_holder: list = []
+                    _rebuild_holder = []
                     async for ev in self._summarize_and_rebuild(
                         history,
                         session_id,
@@ -620,7 +618,7 @@ class AgentLoop:
                         session_id,
                         code="CONTEXT",
                     )
-                    _rebuild_holder: list = []
+                    _rebuild_holder = []
                     async for ev in self._summarize_and_rebuild(
                         history,
                         session_id,
@@ -986,7 +984,7 @@ class AgentLoop:
                             code="CONTEXT",
                             extra={"tokenInfo": vars(_ti)},
                         )
-                        _rebuild_holder: list = []
+                        _rebuild_holder = []
                         async for ev in self._summarize_and_rebuild(
                             history,
                             session_id,
@@ -1086,7 +1084,7 @@ class AgentLoop:
                             if s not in pending_skips:
                                 pending_skips.append(s)
                         failed_skips = [s for s in skipped_calls if " [failed]" in s]
-                        msg = (
+                        skip_msg = (
                             "[System] Calls listed below were already completed earlier in this "
                             "turn with identical parameters (or were blocked) and were NOT "
                             "re-run: "
@@ -1095,12 +1093,12 @@ class AgentLoop:
                             "unfinished step."
                         )
                         if failed_skips:
-                            msg += (
+                            skip_msg += (
                                 " The calls marked [failed] did not succeed; do not retry them "
                                 "with identical parameters - use different parameters or a "
                                 "different approach."
                             )
-                        messages.append({"role": "user", "content": msg})
+                        messages.append({"role": "user", "content": skip_msg})
                 if skipped_calls and not newly_executed and not task_completed:
                     stall_count += 1
                     # The model's own completion signal is a closing summary written

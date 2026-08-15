@@ -1,3 +1,5 @@
+from .env import optional_int
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 HOST_ENV_VAR = "ZENITH_HOST"
@@ -94,6 +96,36 @@ MAX_ACTIVE_TOOLS_PER_TURN = 12
 # Schema-token benchmark
 DEFAULT_TOKENIZER_MODEL = "cl100k_base"
 
+# Shared HTTP user agent for web tools
+DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; Zenith-Agent/1.0; +https://example.invalid/zenith)"
+
+# Web tool timeouts/limits (env-driven, defaults here)
+WEBFETCH_TIMEOUT_ENV = "ZENITH_WEBFETCH_TIMEOUT"
+WEBFETCH_MAX_BYTES_ENV = "ZENITH_WEBFETCH_MAX_BYTES"
+WEBSEARCH_TIMEOUT_ENV = "ZENITH_WEBSEARCH_TIMEOUT"
+DEFAULT_WEB_TIMEOUT = 30
+DEFAULT_WEBFETCH_MAX_BYTES = 40_000
+
+# Provider validation / summarizer timeouts (env-driven)
+VALIDATION_TIMEOUT_ENV = "ZENITH_VALIDATION_TIMEOUT"
+DEFAULT_VALIDATION_TIMEOUT = 30
+SUMMARIZER_TIMEOUT_ENV = "ZENITH_SUMMARIZER_TIMEOUT"
+DEFAULT_SUMMARIZER_TIMEOUT = 30.0
+
+# Fallback LLM defaults when a provider has no catalog entry (env-driven)
+LLM_MAX_TOKENS_ENV = "ZENITH_MAX_TOKENS"
+LLM_TEMPERATURE_ENV = "ZENITH_TEMPERATURE"
+DEFAULT_LLM_MAX_TOKENS = 4096
+DEFAULT_LLM_TEMPERATURE = 0.7
+
+# SQLite pragmas
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+
+# LSP / MCP protocol timings (intrinsic)
+LSP_INIT_POLL_INTERVAL = 0.5
+LSP_REQUEST_TIMEOUT = 10.0
+MCP_SHUTDOWN_TIMEOUT = 5.0
+
 # Tool names (registry keys)
 FILE_WRITE_TOOL = "file_write"
 FILE_EDIT_TOOL = "file_edit"
@@ -149,7 +181,7 @@ FILE_ALREADY_EXISTS_ERROR = (
 )
 
 # Tool output formatting
-MAX_TOOL_OUTPUT_BASELINE = 10_000
+MAX_TOOL_OUTPUT_BASELINE = optional_int("ZENITH_MAX_TOOL_OUTPUT", 10_000)
 MAX_TOOL_METADATA_PREVIEW_CHARS = 200
 # Ordered high-to-low (context window tier, max tool output in chars).
 MAX_TOOL_OUTPUT_TIERS = (

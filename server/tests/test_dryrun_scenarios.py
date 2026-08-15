@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -160,7 +161,7 @@ def _require(events: list[Event], desc: str, cond: bool) -> None:
 
 
 def _config(temp_dir: Path, **overrides) -> AppSettings:
-    base = {
+    base: dict[str, Any] = {
         "providers": {"test": ProviderConfig(model="test-model", is_active=True)},
         "active_provider": "test",
         "db_path": str(temp_dir / "test.db"),
@@ -211,7 +212,7 @@ SCENARIOS: list[dict] = [
             ("exactly one full message", lambda e, p, c: _require(e, "message count", len(_full_messages(e)) == 1)),
             ("message text matches", lambda e, p, c: _require(e, "text", _full_messages(e)[0] == "Hello there!")),
             ("no tool events", lambda e, p, c: _require(e, "no tools", not any(x.kind in (EventKind.TOOL_CALL, EventKind.TOOL_RESULT) for x in e))),
-            ("manifest completed", lambda e, p, c: _require(e, "manifest", _manifests(e) and _manifests(e)[-1].get("completed") is True)),
+            ("manifest completed", lambda e, p, c: _require(e, "manifest", bool(_manifests(e) and _manifests(e)[-1].get("completed") is True))),
             ("manifest not stalled", lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is False)),
             ("no created files", lambda e, p, c: _require(e, "created", _manifests(e)[-1].get("created") == [])),
             ("terminal success only", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),

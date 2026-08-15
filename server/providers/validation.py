@@ -16,7 +16,8 @@ from server.api.schemas import (
     ValidationStep,
     ValidationStepStatus,
 )
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_VALIDATION_TIMEOUT, VALIDATION_TIMEOUT_ENV
+from server.config.env import optional_int
 from server.persistence import provider_config_repo
 from server.persistence.repositories import load_catalog
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
@@ -279,7 +280,7 @@ async def validate_provider(
     _update("api_key", ValidationStepStatus.SUCCESS, key_note)
     yield _step_event("api_key", ValidationStepStatus.SUCCESS, key_note)
     models: list[ProviderModelInfo] = []
-    timeout = 30
+    timeout = optional_int(VALIDATION_TIMEOUT_ENV, DEFAULT_VALIDATION_TIMEOUT)
     endpoint = _base_url_endpoint(base_url)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key.strip() else {}
     try:

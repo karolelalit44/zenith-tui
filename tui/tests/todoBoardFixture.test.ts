@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { collectTodoBoardEvents, emitTodoBoardFixture } from '../src/services/transport/todoBoardFixtureEmitter';
+import { collectTodoBoardEvents, emitTodoBoardFixture } from '../src/services/transport/fixtureEmitter';
 import type { ScenarioEvent, TodoBoardEvent, TodoItem } from '../src/types/scenario';
 
 /**

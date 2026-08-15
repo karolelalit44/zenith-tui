@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
@@ -53,6 +53,6 @@ def safe_db(operation: str, *, table: str = "") -> Callable[[F], F]:
                 )
                 raise classify(e) from e
 
-        return wrapper
+        return cast(F, wrapper)
 
     return decorator

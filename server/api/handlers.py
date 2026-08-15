@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from server.toolkit.registry import ToolRegistry
 
     from ..agents.prompt_executor import PromptExecutor
+    from ..permissions.service import DefaultPermissionService
+    from .websocket import ConnectionManager
 logger = logging.getLogger(__name__)
 
 
@@ -68,7 +70,8 @@ class MethodHandlers:
         self.message_repo = MessageRepository(db)
         self.skill_loader = SkillLoader(config.workspace_root)
         self.exporter = SessionExporter()
-        self.manager = None
+        self.manager: ConnectionManager | None = None
+        self._permission_service: DefaultPermissionService | None = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
 

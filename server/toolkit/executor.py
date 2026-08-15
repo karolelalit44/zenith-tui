@@ -43,8 +43,9 @@ def redact_tool_params(tool_params: dict) -> dict:
 
 def validate_tool_calls(
     tool_calls: list[dict], registered_tools: set[str]
-) -> tuple[list[dict], list[str]]:
-    valid, invalid = ([], [])
+) -> tuple[list[dict], list[dict]]:
+    valid: list[dict] = []
+    invalid: list[dict] = []
     for tc in tool_calls:
         name = tc.get("tool", "")
         (valid if name in registered_tools else invalid).append(tc)

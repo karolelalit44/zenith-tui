@@ -78,7 +78,7 @@ class ProviderRegistry:
                     api_key=config.api_key,
                     base_url=config.base_url,
                     model=config.model,
-                    max_tokens=model_defaults["max_tokens"],
+                    max_tokens=int(model_defaults["max_tokens"]),
                     temperature=model_defaults["temperature"],
                     enable_thinking=getattr(config, "enable_thinking", False) or catalog_thinking,
                     reasoning_budget=getattr(config, "reasoning_budget", None),

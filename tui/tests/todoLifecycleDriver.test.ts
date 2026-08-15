@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LIFECYCLE_PHASES, type LifecycleRun, runTodoLifecycle } from '../src/services/todo/todoLifecycleDriver';
+import { LIFECYCLE_ORDER } from '../src/utils/todoLifecycle';
+import { type LifecycleRun, runTodoLifecycle } from '../src/services/todo/todoLifecycleDriver';
 import { TODO_LIFECYCLE_FILE, todoPersistence } from '../src/services/todo/todoPersistence';
 import type { ScenarioEvent, TodoBoardEvent, TodoTestEvent } from '../src/types/scenario';
 
@@ -27,8 +28,8 @@ describe('runTodoLifecycle', () => {
     // Two scenarios share the 'complete' phase, so assert the FIRST occurrence
     // of each phase follows the canonical lifecycle order.
     const firstOccurrence = [...new Set(phases)];
-    expect(firstOccurrence).toEqual(LIFECYCLE_PHASES);
-    expect(phases.length).toBeGreaterThanOrEqual(LIFECYCLE_PHASES.length + 1);
+    expect(firstOccurrence).toEqual(LIFECYCLE_ORDER);
+    expect(phases.length).toBeGreaterThanOrEqual(LIFECYCLE_ORDER.length + 1);
     expect(result.passed).toBe(result.total);
     expect(result.passed).toBeGreaterThanOrEqual(8);
   });

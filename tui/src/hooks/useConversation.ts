@@ -9,7 +9,6 @@ export interface ConversationTurn {
   model?: string;
   events: ScenarioEvent[];
   isComplete: boolean;
-  isSaved?: boolean;
   /** Short timestamp frozen at turn creation: "HH:MM" (e.g. "12:08") */
   timestamp: string;
   /** Long timestamp frozen at turn creation: "HH:MM, DD Mon" (e.g. "12:08, 12 Aug") */
@@ -26,7 +25,6 @@ export interface UseConversationReturn {
   addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: (events?: ScenarioEvent[]) => void;
-  markTurnSaved: (turnId: string) => void;
   clearTurns: () => void;
   remountStatic: () => void;
 }
@@ -152,10 +150,6 @@ export function useConversation(): UseConversationReturn {
     });
   }, []);
 
-  const markTurnSaved = useCallback((turnId: string) => {
-    setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, isSaved: true } : t)));
-  }, []);
-
   const clearTurns = useCallback(() => {
     setTurns([]);
     setStaticKey((k) => k + 1);
@@ -171,7 +165,6 @@ export function useConversation(): UseConversationReturn {
     addTurn,
     completeActiveTurn,
     abortActiveTurn,
-    markTurnSaved,
     clearTurns,
     remountStatic,
   };

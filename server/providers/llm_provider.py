@@ -12,11 +12,15 @@ from collections.abc import AsyncIterator
 
 from server.config.constants import (
     DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TEMPERATURE,
     DEFAULT_MIN_REQUEST_INTERVAL,
+    LLM_MAX_TOKENS_ENV,
+    LLM_TEMPERATURE_ENV,
     MIN_REQUEST_INTERVAL_ENV,
     REQUEST_THROTTLE_JITTER,
 )
-from server.config.env import optional_float
+from server.config.env import optional_float, optional_int
 from server.domain.domain import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
 from server.persistence.repositories import load_catalog
@@ -414,8 +418,8 @@ def _get_model_config(name: str, model_id: str) -> dict:
         pass
     return {
         "context_window": DEFAULT_CONTEXT_WINDOW,
-        "max_output_tokens": 4096,
-        "default_temperature": 0.7,
+        "max_output_tokens": optional_int(LLM_MAX_TOKENS_ENV, DEFAULT_LLM_MAX_TOKENS),
+        "default_temperature": optional_float(LLM_TEMPERATURE_ENV, DEFAULT_LLM_TEMPERATURE),
         "supports_temperature": True,
         "enable_thinking": False,
         "supports_tools": True,

@@ -176,7 +176,9 @@ function buildFile(name: string, match: Record<string, unknown>, events: Scenari
   };
 }
 
-const simDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/simulation');
+const simDir = process.env.ZENITH_SIM_OUTPUT_DIR
+  ? path.resolve(process.env.ZENITH_SIM_OUTPUT_DIR)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/simulation');
 mkdirSync(simDir, { recursive: true });
 
 const lifecycle = collectTodoLifecycleEvents();

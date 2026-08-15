@@ -3,6 +3,7 @@ import { render, type TestStdin } from 'ink-testing-library';
 // biome-ignore lint/correctness/noUnusedImports: React is required for JSX transform (jsx: "react")
 import React from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
+import { appConfig } from '../src/config/appConfig';
 
 const dump = (label: string, content: string) => {
   writeFileSync(`C:\\Users\\Lenovo\\AppData\\Local\\Temp\\opencode\\tool_${label}.txt`, content, 'utf8');
@@ -63,7 +64,7 @@ const READY_RESPONSE = {
 };
 
 test('Esc during create-fastapi tool execution: streamed data survives + frame stops changing', async () => {
-  process.env.ZENITH_BACKEND_URL = 'http://127.0.0.1:8799';
+  process.env.ZENITH_BACKEND_URL = appConfig.backendUrl.replace(/\d+$/, '8799');
 
   const { App } = await import('../src/App');
   const startup = await import('../src/services/api/StartupService');

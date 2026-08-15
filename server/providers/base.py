@@ -27,7 +27,12 @@ class BaseProvider(ABC):
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
         response_format: dict | None = None,
-    ) -> AsyncIterator[tuple[str, str | None]]: ...
+    ) -> AsyncIterator[tuple[str, str | None]]:
+        # Async-generator contract so the ABC models yield-based stream() like
+        # every concrete provider (LLMProvider, test fakes).
+        if False:
+            yield (None, None)
+        raise NotImplementedError
 
     @abstractmethod
     async def validate(self) -> bool: ...
