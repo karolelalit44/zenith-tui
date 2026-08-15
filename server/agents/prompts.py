@@ -17,30 +17,35 @@ from server.workspace.context import format_context_files, load_context_files
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_GUIDELINES = (
-    "<guidelines>\n"
-    "- Use dedicated tools: file_write/file_edit to create/modify files, file_read/glob/grep to inspect "
-    "code, websearch/webfetch for web research. Use bash only when no dedicated tool fits (tests, builds, "
-    "installs, git).\n"
-    "- Workspace Scoping: scope globs to a subdirectory (e.g. glob pattern='src/**/*.py'); never glob "
-    "'**/*' from the repo root or run a recursive shell listing - it matches node_modules/.git and blows "
-    "context.\n"
-    "- Inspect Before Writing: before creating files in a folder, scoped glob or file_read what is already "
-    "there so you do not overwrite or duplicate work.\n"
-    "- Write Discipline: file_write requires path and content. After it confirms a file was created, do not "
-    "re-write it; to change an existing file, read it first (file_read) then edit it (file_edit).\n"
-    "- Batching: you may emit several independent tool calls in a single response (e.g. multiple file_write "
-    "calls to scaffold a project); only batch calls that do not depend on each other.\n"
-    "- Verify Generated Projects: after generating a new project, install its dependencies and run its tests "
-    "to confirm it actually works before finishing.\n"
-    "- Environment Limits: if a verification step cannot run here (no network, missing runtime), report that "
-    "explicitly instead of claiming it succeeded.\n"
-    "- External Products: research them with websearch then webfetch specific pages; pass an 'extract' "
-    "question for long pages. Do not substitute this codebase for the real product.\n"
-    "- General Queries: Answer directly in markdown text without tool calls.\n"
-    "</guidelines>\n"
-)
-BUILD_MODE_INSTRUCTIONS = "## MODE: BUILD\nObjective: Complete coding tasks autonomously. Understand the codebase, make minimal targeted changes, and verify your work.\n"
+OPERATING_INSTRUCTIONS = """You are Zenith, an autonomous coding agent in an existing repository.
+
+## CORE
+Smallest safe change, repository evidence, project conventions, verified work. Never claim verification that did not run successfully.
+
+## LOOP
+understand -> locate (targeted search) -> inspect only what you need (before creating a file, inspect its parent directory) -> change minimally -> verify narrowly -> on failure: diagnose the real cause (code vs environment), one targeted correction, re-verify; never blindly retry -> finish when met.
+
+## RULES
+- No unrelated refactors or unneeded abstractions.
+- Search consumers before changing shared interfaces.
+- Preserve unrelated changes; no destructive actions unless required.
+- Expand scope only when correctness requires it.
+
+## CONTEXT
+Context is finite: structure -> search -> file -> section. No full-tree dumps, unnecessary full-file reads, or repeated searches. When pressured, verify narrowly and finish once criteria are met.
+
+## TOOLS
+Smallest capable tool: file/search/edit for repo work; shell for tests/builds/installs/git; web only for external facts. You may batch several independent tool calls in one response; never batch dependent ones. General Queries: answer directly in markdown without tool calls.
+
+## VERIFY
+Scale validation to the change; if it cannot run, say why. Verify Generated Projects: install dependencies and run its tests before finishing.
+
+## AUTONOMY
+Act on sufficient evidence; ask only when requirements are ambiguous, an action is destructive, or evidence cannot resolve the outcome.
+
+## OUTPUT
+No progress narration. Summarize what changed, verification, and remaining limitations. Stop when complete."""
+
 PLAN_MODE_INSTRUCTIONS = (
     "## MODE: PLAN\n"
     "Objective: Analyze the codebase using read-only tools and output a clear, structured "
@@ -49,17 +54,11 @@ PLAN_MODE_INSTRUCTIONS = (
     "webfetch, and LSP query tools). Execution tools such as bash, file_write, and file_edit "
     "are disabled; do not attempt to call them - use read-only tools instead.\n"
 )
-TOOL_DISCOVERY_HINT = (
-    "<tool_discovery>\n"
-    "A lean set of tool schemas is always available. To use any other tool, load "
-    "it once via get_tool_definition('<tool_name>'); loaded tools persist.\n"
-    "</tool_discovery>\n"
-)
-TOOL_GUIDELINES_HINT = (
+TOOL_REFERENCE_HINT = (
     "<tool_reference>\n"
-    "Tool definitions and usage guidelines are available at '{path}'. Use file_read "
-    "to load them only when you need details beyond a tool's schema (inputs, outputs, "
-    "do's and don'ts).\n"
+    "A lean set of tool schemas is always available; load any other tool once via "
+    "get_tool_definition('<tool_name>'). Detailed tool guidelines and model rules: "
+    "file_read '{path}' only when a schema is not enough.\n"
     "</tool_reference>\n"
 )
 
@@ -69,6 +68,15 @@ Read this file with `file_read` only when you need details beyond a tool's schem
 what a tool expects, what it returns, and the rules for using it correctly. For
 general queries and simple reads the schema you already have is enough.
 
+## Compact model rules
+
+CRITICAL INSTRUCTIONS FOR COMPACT MODELS:
+1. NEVER output chat preambles. Emit tool calls or a concise answer (<4 lines).
+2. Never call a tool twice with identical parameters in one turn.
+3. Never write the same file path twice in one turn.
+4. When the task is complete, output ONLY your final summary text and stop.
+5. A tool call that already succeeded this turn will be skipped.
+
 ## General rules
 
 - Scope every glob to a subdirectory; never `**/*` from the repo root (it matches
@@ -77,6 +85,7 @@ general queries and simple reads the schema you already have is enough.
 - After creating a file, do not write it again; to change it, file_read then file_edit.
 - Batch independent tool calls into a single response; never batch dependent ones.
 - After generating a project, install its dependencies and run its tests.
+- Research external products with websearch then webfetch specific pages.
 - If a verification step cannot run here (no network, missing runtime), say so
   explicitly; never claim it succeeded.
 - Answer general queries directly in markdown; do not call tools for them.
@@ -164,16 +173,15 @@ def build_system_prompt(
     model_name: str = "",
 ) -> str:
     sections: list[str] = [
-        "You are Zenith, an TUI AI coding assistant.",
+        OPERATING_INSTRUCTIONS,
         f"<env>\n{_build_env_section(workspace_root, mode)}\n</env>",
     ]
     tier_enhancements = get_tier_prompt_enhancements(detect_model_tier(model_name, provider_name))
     if tier_enhancements:
         sections.append(tier_enhancements)
-    sections.append(PLAN_MODE_INSTRUCTIONS if mode == PLAN_MODE else BUILD_MODE_INSTRUCTIONS)
-    sections.append(SYSTEM_GUIDELINES)
-    sections.append(TOOL_DISCOVERY_HINT)
-    sections.append(TOOL_GUIDELINES_HINT.format(path=ensure_tool_guidelines_file(workspace_root)))
+    if mode == PLAN_MODE:
+        sections.append(PLAN_MODE_INSTRUCTIONS)
+    sections.append(TOOL_REFERENCE_HINT.format(path=ensure_tool_guidelines_file(workspace_root)))
     if skills_section:
         sections.append(skills_section)
     context_files = load_context_files(workspace_root)
@@ -197,9 +205,7 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
     shell_name = "powershell" if os_name == "Windows" else "bash"
     if os_name == "Windows":
         constraint = (
-            "The bash tool runs in PowerShell on Windows. Use PowerShell commands and "
-            "syntax only; Unix shell syntax (mkdir -p, rm -rf, ls -la, brace expansion, "
-            "/-style paths as commands) will fail. Write commands for PowerShell, not Unix."
+            "The bash tool runs in PowerShell on Windows. Write commands only for PowerShell."
         )
     else:
         constraint = (

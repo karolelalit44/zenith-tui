@@ -371,6 +371,7 @@ class AgentLoop:
             mode,
             len(messages),
         )
+        logger.info("=== SYSTEM PROMPT (%d chars) ===\n%s", len(system_prompt), system_prompt)
         for i, msg in enumerate(messages):
             role = msg.get("role", "?")
             content = str(msg.get("content", ""))

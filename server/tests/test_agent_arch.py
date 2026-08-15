@@ -86,8 +86,8 @@ class TestSystemPromptBuilding:
         assert "several independent tool calls" in prompt  # GAP1 batching
         assert "Verify Generated Projects" in prompt  # GAP3 verify scaffolded projects
         assert "run its tests" in prompt
-        assert "Inspect Before Writing" in prompt  # X1 inspect target before writing
-        assert "Environment Limits" in prompt  # X3 report failed verify steps honestly
+        assert "inspect its parent directory" in prompt  # X1 inspect target before writing
+        assert "Never claim verification that did not run successfully" in prompt  # X3 report failed verify steps honestly
         assert "A lean set of tool schemas" in prompt  # T2 discovery hint matches reality
 
 

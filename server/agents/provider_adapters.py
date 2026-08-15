@@ -41,13 +41,9 @@ def get_tier_prompt_enhancements(tier: ModelTier) -> str:
     if tier == ModelTier.COMPACT:
         return (
             "<compact_model_rules>\n"
-            "CRITICAL INSTRUCTIONS FOR COMPACT MODELS:\n"
-            "1. NEVER output chat preambles. Emit tool calls or a concise answer (<4 lines).\n"
-            "ANTI-LOOP RULES:\n"
-            "2. Never call a tool twice with identical parameters in one turn.\n"
-            "3. Never write the same file path twice in one turn.\n"
-            "4. When the task is complete, output ONLY your final summary text and stop.\n"
-            "5. A tool call that already succeeded this turn will be skipped.\n"
+            "Compact model: no chat preambles; emit tool calls or a concise answer (<4 lines). "
+            "file_read the tool reference file (path in <tool_reference>) and obey its "
+            "'Compact model rules' section before acting.\n"
             "</compact_model_rules>\n"
         )
     elif tier == ModelTier.REASONING:

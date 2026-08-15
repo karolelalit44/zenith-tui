@@ -3,7 +3,7 @@ import { render, type TestStdin } from 'ink-testing-library';
 // biome-ignore lint/correctness/noUnusedImports: React is required for JSX transform (jsx: "react")
 import React from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
-import { appConfig } from '../src/config/appConfig';
+import { readDotEnv } from '../src/config/env';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const waitForFrame = async (getFrame: () => string, predicate: (f: string) => boolean, timeoutMs = 20_000) => {
@@ -64,7 +64,11 @@ const READY_RESPONSE = {
 };
 
 test('Esc during real /ws/test streaming: streamed data must survive and streaming must stop', async () => {
-  process.env.ZENITH_BACKEND_URL = process.env.ZENITH_BACKEND_URL || appConfig.backendUrl;
+  // Target the simulation backend deterministically regardless of the .env
+  // default (ZENITH_WS_PATH=/ws) so this stays a reproducible streaming test.
+  const dotEnv = readDotEnv();
+  process.env.ZENITH_WS_PATH = '/ws/test';
+  process.env.ZENITH_BACKEND_URL = process.env.ZENITH_BACKEND_URL || dotEnv.ZENITH_BACKEND_URL;
 
   const { App } = await import('../src/App');
   const startup = await import('../src/services/api/StartupService');
