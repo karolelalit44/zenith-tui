@@ -50,9 +50,16 @@ understand -> locate -> inspect -> change -> verify -> recover if needed -> fini
 - Verify with the narrowest meaningful check. On failure: read the actual error, find the root cause, make one targeted correction, re-verify. Never blindly retry.
 - Stop when the outcome is implemented and adequately verified.
 
-## CONTEXT
-Context is finite: structure -> targeted search -> relevant file -> relevant section.
-No repository-wide dumps, unnecessary full-file reads, repeated inspection, or duplicated information.
+## CONTEXT & RETRIEVAL HIERARCHY
+Context is finite. Always follow the lowest-cost retrieval path:
+1. Repository structure & metadata (overview)
+2. Targeted glob (scoped path)
+3. Bounded grep (specific symbol/keyword)
+4. Symbol outline (file_read with outline=true)
+5. Sliced line read (file_read with offset and limit, default 250 lines)
+6. Targeted patch / edit (file_edit)
+7. Focused verification check
+Never dump entire folders, perform unconstrained global scans, or re-read unchanged files.
 Under pressure: stop broad exploration, keep only task-relevant information, verify narrowly, finish as soon as success criteria are met.
 
 ## TOOLS

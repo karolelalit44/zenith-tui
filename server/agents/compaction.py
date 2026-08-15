@@ -52,3 +52,65 @@ def compact_tool_output(
     stats.chars_removed = max(0, stats.original_chars - len(compacted))
     stats.tokens_saved = stats.chars_removed // CHARS_PER_TOKEN
     return (compacted, stats)
+
+
+def prune_inflight_messages(
+    messages: list[dict],
+    keep_latest_tools: int = 2,
+    max_output: int = 1000,
+) -> tuple[list[dict], CompactionStats]:
+    """Prune in-flight tool results in active conversation memory.
+
+    Replaces older tool results with structured digests or head-tail trimmed previews,
+    protecting the latest ``keep_latest_tools`` results in full detail.
+    """
+    stats = CompactionStats()
+    if not messages:
+        return ([], stats)
+
+    # Find indices of all tool output messages
+    tool_indices: list[int] = []
+    for i, msg in enumerate(messages):
+        content = msg.get("content", "")
+        if isinstance(content, str) and content.startswith("[Tool:"):
+            tool_indices.append(i)
+
+    # Protect the latest `keep_latest_tools`
+    to_prune_indices = (
+        set(tool_indices[:-keep_latest_tools]) if len(tool_indices) > keep_latest_tools else set()
+    )
+
+    pruned_messages: list[dict] = []
+    for i, msg in enumerate(messages):
+        m = dict(msg)
+        content = m.get("content", "")
+        if i in to_prune_indices and isinstance(content, str):
+            orig_len = len(content)
+            stats.original_chars += orig_len
+
+            if "digest" in m:
+                m["content"] = m["digest"]
+                m["time"] = "compacted"
+                m["is_digested"] = True
+            else:
+                lines = content.split("\n", 1)
+                head = lines[0]
+                rest = lines[1] if len(lines) > 1 else ""
+                trimmed_rest, _ = head_tail_trim(rest, max_output)
+                m["content"] = head + "\n" + trimmed_rest if rest else head
+                m["time"] = "compacted"
+
+            compacted_len = len(m["content"])
+            chars_diff = max(0, orig_len - compacted_len)
+            stats.chars_removed += chars_diff
+            stats.tokens_saved += chars_diff // CHARS_PER_TOKEN
+            stats.compacted_chars += compacted_len
+            stats.trimmed = True
+        else:
+            if isinstance(content, str):
+                stats.original_chars += len(content)
+                stats.compacted_chars += len(content)
+
+        pruned_messages.append(m)
+
+    return (pruned_messages, stats)

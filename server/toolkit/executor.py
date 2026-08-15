@@ -17,6 +17,7 @@ from server.config.constants import (
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
     TERMINAL_TOOL,
+    TOOL_MAX_OUTPUT_CHARS,
 )
 from server.domain.events import Event
 from server.providers import responder as r
@@ -66,10 +67,11 @@ def format_tool_result(
 ) -> str:
     from server.agents.compaction import compact_tool_output
 
+    effective_max = min(max_output, TOOL_MAX_OUTPUT_CHARS)
     status = "SUCCESS" if result.success else "FAILED"
     lines = [f"[Tool: {tool_name} | Status: {status}]"]
     if result.output:
-        compacted, _stats = compact_tool_output(result.output, max_output=max_output)
+        compacted, _stats = compact_tool_output(result.output, max_output=effective_max)
         lines.append(compacted)
     if result.error:
         lines.append(f"Error: {result.error}")
