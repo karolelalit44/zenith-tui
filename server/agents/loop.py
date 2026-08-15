@@ -618,6 +618,13 @@ class AgentLoop:
                         if t_name == GET_TOOL_DEFINITION_TOOL:
                             target = (tc.get("params") or {}).get("tool_name")
                             if target and resolver.request_tool(target):
+                                if mode == PLAN_MODE and target in ("bash", "terminal"):
+                                    yield r.warning(
+                                        f"Tool escalation denied: '{target}' cannot be promoted in plan mode.",
+                                        session_id,
+                                        code="PLAN_MODE_TOOL_ESCALATION_DENIED",
+                                    )
+                                    continue
                                 logger.info(
                                     "Discovery: loaded tool '%s' via get_tool_definition", target
                                 )
@@ -670,10 +677,11 @@ class AgentLoop:
                             len(created_files),
                         )
                         break
-                    logger.info(
-                        "All requested calls already executed this turn; falling through so the "
-                        "per-call loop can skip them and the stall handler can guide the model."
-                    )
+                    if iteration > 1:
+                        logger.debug(
+                            "All requested calls already executed this turn; falling through so the "
+                            "per-call loop can skip them and the stall handler can guide the model."
+                        )
                 if task_completed:
                     yield r.warning(
                         "Model emitted tool calls after signaling completion; finalizing the turn.",
