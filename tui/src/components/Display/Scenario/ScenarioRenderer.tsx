@@ -158,18 +158,16 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         }
       }
 
-      if (!isHistorical) {
-        const hasSuccess = result.some((e) => e.kind === 'success');
-        if (!hasSuccess) {
-          return [
-            ...result,
-            {
-              kind: 'success',
-              id: 'evt_live_status_row',
-              elapsedMs: 0,
-            } as ScenarioEvent,
-          ];
-        }
+      const hasSuccess = result.some((e) => e.kind === 'success');
+      if (!hasSuccess) {
+        return [
+          ...result,
+          {
+            kind: 'success',
+            id: isHistorical ? 'evt_historical_status_row' : 'evt_live_status_row',
+            elapsedMs: isHistorical ? 1000 : 0,
+          } as ScenarioEvent,
+        ];
       }
       return result;
     }, [events, isHistorical]);
@@ -196,8 +194,11 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       );
     };
 
+    const termCols = process.stdout.columns;
+    const contentWidth = termCols ? Math.max(30, termCols - 2) : '100%';
+
     return (
-      <Box flexDirection="column" width="100%">
+      <Box flexDirection="column" width={contentWidth}>
         {pinnedEarly && renderEvent(pinnedEarly)}
 
         {hasOverflow && !expanded && (
@@ -210,7 +211,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
 
         {visibleEvents.map((event) => {
           return (
-            <Box key={event.id} flexDirection="column" width="100%">
+            <Box key={event.id} flexDirection="column" width={contentWidth}>
               {renderEvent(event)}
             </Box>
           );

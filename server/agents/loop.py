@@ -171,9 +171,10 @@ def _most_common_count(items: list[str]) -> int:
 
 def _has_verification_evidence(checks: list[dict], after_seq: int | None = None) -> bool:
     for check in checks or []:
-        if (check.get("output_len") or 0) > 0:
-            if after_seq is None or (check.get("seq") or 0) >= after_seq:
-                return True
+        if (check.get("output_len") or 0) > 0 and (
+            after_seq is None or (check.get("seq") or 0) >= after_seq
+        ):
+            return True
     return False
 
 
@@ -583,12 +584,11 @@ class AgentLoop:
                     len(clean_response or ""),
                     finish_reason,
                 )
-                if clean_response:
-                    if clean_response != self._last_emitted_message:
-                        yield r.message_event(
-                            clean_response, session_id, partial=False, iteration=iteration
-                        )
-                        self._last_emitted_message = clean_response
+                if clean_response and clean_response != self._last_emitted_message:
+                    yield r.message_event(
+                        clean_response, session_id, partial=False, iteration=iteration
+                    )
+                    self._last_emitted_message = clean_response
                 if finish_reason == FinishReason.LENGTH:
                     logger.info("FinishReason=LENGTH on turn %d — continuing response", iteration)
                     if iteration >= safety_iterations * 2:
@@ -769,9 +769,12 @@ class AgentLoop:
                         target = tool_params.get("path") or ""
                         if target:
                             resolved = validate_path(target, ws)
-                            if resolved is not None and resolved.exists():
-                                if not self.config.auto_risky:
-                                    reject_msg = f"File delete denied: '{target}'."
+                            if (
+                                resolved is not None
+                                and resolved.exists()
+                                and not self.config.auto_risky
+                            ):
+                                reject_msg = f"File delete denied: '{target}'."
                     if reject_msg:
                         reject_sig = _call_signature(tool_name, tool_params)
                         if reject_sig not in warned_rejects:

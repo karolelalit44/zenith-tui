@@ -122,12 +122,15 @@ class _Extractor(HTMLParser):
         if tag in _SKIP_TAGS:
             self._skip += 1
             return
-        if self._root_depth is None and not self._root_closed:
-            if tag in ("main", "article") or attr_map.get("role") == "main":
-                self._root_depth = self._depth
-                # Content before the root (nav/sidebar/header) is not part of
-                # the page body — drop anything emitted so far.
-                self.buf = []
+        if (
+            self._root_depth is None
+            and not self._root_closed
+            and (tag in ("main", "article") or attr_map.get("role") == "main")
+        ):
+            self._root_depth = self._depth
+            # Content before the root (nav/sidebar/header) is not part of
+            # the page body — drop anything emitted so far.
+            self.buf = []
         if tag in _CODE_TAGS:
             self._pre += 1
         if tag in _HEADING_TAGS:

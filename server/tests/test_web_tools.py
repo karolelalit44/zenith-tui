@@ -132,8 +132,9 @@ class TestWebfetchExtraction:
         import httpx
 
         class _Resp:
-            headers = {"content-type": "text/html"}
-            text = "<html><body><main><p>Claude Code ships WebSearch and WebFetch.</p></main></body></html>"
+            def __init__(self):
+                self.headers = {"content-type": "text/html"}
+                self.text = "<html><body><main><p>Claude Code ships WebSearch and WebFetch.</p></main></body></html>"
 
             def raise_for_status(self):
                 return None
@@ -164,8 +165,9 @@ class TestWebfetchExtraction:
         import httpx
 
         class _Resp:
-            headers = {"content-type": "text/html"}
-            text = "<html><body><main><p>Some body.</p></main></body></html>"
+            def __init__(self):
+                self.headers = {"content-type": "text/html"}
+                self.text = "<html><body><main><p>Some body.</p></main></body></html>"
 
             def raise_for_status(self):
                 return None

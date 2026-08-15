@@ -32,7 +32,8 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   ];
 
   // Duration in whole 1-second increments (updates only on 1s changes)
-  const elapsedMs = isLiveRunning ? tick * 100 : (event.elapsedMs ?? 0);
+  const fallbackElapsed = !isLiveRunning && turnEvents && turnEvents.length > 0 ? 1000 : 0;
+  const elapsedMs = isLiveRunning ? tick * 100 : (event.elapsedMs ?? fallbackElapsed);
   const durationStr = elapsedMs > 0 ? formatDuration(elapsedMs) : '';
 
   // Used tokens calculation
@@ -40,8 +41,18 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 
   const metricsParts: string[] = [];
-  if (event.iterations !== undefined) {
-    metricsParts.push(`${event.iterations} iter${event.iterations === 1 ? '' : 's'}`);
+  const iters =
+    event.iterations !== undefined
+      ? event.iterations
+      : !isLiveRunning
+        ? Math.max(
+            1,
+            turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1,
+          )
+        : undefined;
+
+  if (iters !== undefined) {
+    metricsParts.push(`${iters} iter${iters === 1 ? '' : 's'}`);
   }
   if (durationStr) {
     metricsParts.push(durationStr);

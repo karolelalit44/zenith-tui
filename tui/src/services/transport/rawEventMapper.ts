@@ -105,7 +105,10 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         kind: 'success',
         id,
         message: String(d.message || 'Completed'),
-        iterations: typeof d.iterations === 'number' ? d.iterations : undefined,
+        iterations:
+          typeof d.iterations === 'number' ? d.iterations : typeof d.iteration === 'number' ? d.iteration : undefined,
+        elapsedMs:
+          typeof d.elapsedMs === 'number' ? d.elapsedMs : typeof d.duration === 'number' ? d.duration : undefined,
         tokenInfo:
           d.tokenInfo && typeof d.tokenInfo === 'object'
             ? {

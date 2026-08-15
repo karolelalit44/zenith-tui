@@ -4,13 +4,6 @@ import { matchKeypress } from '../../config/keybind';
 import { useTheme } from '../../theme/ThemeContext';
 import { expandPastedMarkers, insertOrMergePaste } from '../../utils/pasteTracker';
 
-const MIN_LINES = 1;
-const HARD_MAX_LINES = 15;
-
-function computeMaxLines(): number {
-  return Math.max(MIN_LINES, Math.min(HARD_MAX_LINES, Math.floor((process.stdout.rows ?? 24) / 3)));
-}
-
 interface MultiLineTextInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -41,8 +34,6 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
     }, []);
 
     const lines = useMemo(() => value.split('\n'), [value]);
-    const maxLines = useMemo(computeMaxLines, []);
-    const lineCount = Math.max(MIN_LINES, Math.min(maxLines, lines.length));
 
     // Refs mirror the latest committed render so the useInput handler never reads
     // a stale closure when keypresses arrive between renders (e.g. a paste right
@@ -215,7 +206,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
     let content: React.ReactNode;
     if (value.length === 0) {
       content = (
-        <Text wrap="truncate-end">
+        <Text wrap="wrap">
           <Text inverse color={theme.colors.text.bright}>
             {' '}
           </Text>
@@ -264,7 +255,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
     }
 
     return (
-      <Box width="100%" height={lineCount}>
+      <Box flexDirection="column" width="100%">
         {content}
       </Box>
     );

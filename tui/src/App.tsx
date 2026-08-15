@@ -100,6 +100,7 @@ export const App: React.FC = () => {
   } = useConversation();
 
   const termDims = useTerminalDimensions(remountStatic);
+  const contentWidth = termDims.columns ? Math.max(30, termDims.columns - 2) : '100%';
 
   const { scrollState, scrollUp, scrollDown, scrollToTop, scrollToBottom, resetScroll, updateContentHeight } =
     useScrollState();
@@ -526,7 +527,7 @@ export const App: React.FC = () => {
 
             // type === 'response'
             return (
-              <Box key={item.id} flexDirection="column" width="100%">
+              <Box key={item.id} flexDirection="column" width={contentWidth}>
                 <ScenarioRenderer
                   events={item.turn.events}
                   isRunning={false}
@@ -543,7 +544,7 @@ export const App: React.FC = () => {
         {/* ── Dynamic area: only the live streaming response ─────────── */}
         {/* No UserMessageBlock here — it's already committed to Static.  */}
         {(isRunning || (activeTurn && !activeTurn.isComplete)) && (
-          <Box flexDirection="column" width="100%">
+          <Box flexDirection="column" width={contentWidth}>
             <ScenarioRenderer
               events={events}
               isRunning={isRunning}

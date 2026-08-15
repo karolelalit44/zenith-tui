@@ -88,7 +88,9 @@ export function useConversation(): UseConversationReturn {
       const elapsedMs = last ? Math.max(1000, Date.now() - last.startedAt) : undefined;
 
       const stampedEvents =
-        elapsedMs !== undefined ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e)) : events;
+        elapsedMs !== undefined
+          ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs: e.elapsedMs ?? elapsedMs } : e))
+          : events;
 
       // Ensure a success event always exists so the unified status row renders
       const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
@@ -100,7 +102,7 @@ export function useConversation(): UseConversationReturn {
               kind: 'success',
               id: `evt_success_complete_${Date.now()}`,
               message: 'done',
-              elapsedMs: elapsedMs ?? 0,
+              elapsedMs: elapsedMs ?? 1000,
             } as ScenarioEvent,
           ];
 

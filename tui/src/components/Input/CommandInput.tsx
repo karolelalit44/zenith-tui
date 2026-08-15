@@ -133,10 +133,12 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           paddingY={0}
         >
           <Box flexDirection="row" width="100%" alignItems="flex-start">
-            <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
-              {focused ? '❯' : '◌'}{' '}
-            </Text>
-            <Box flexDirection="column" flexGrow={1}>
+            <Box flexShrink={0}>
+              <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
+                {focused ? '❯' : '◌'}{' '}
+              </Text>
+            </Box>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1}>
               {disabled ? (
                 <Box flexDirection="row" alignItems="center" minHeight={1}>
                   <Text color={theme.colors.text.muted} italic>
