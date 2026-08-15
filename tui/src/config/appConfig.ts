@@ -1,52 +1,37 @@
-import { envInt } from './env';
+import { envFloat, envInt, envStr } from './env';
 
-const BACKEND_BASE = process.env.ZENITH_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8765';
-
-/**
- * WebSocket route for the current backend. Defaults to the simulation
- * backend (`/ws/test`). Point this at `/ws` (and ZENITH_BACKEND_URL at the
- * production server) when swapping from the test route to the real backend —
- * no other change required.
- */
-const WS_PATH = process.env.ZENITH_WS_PATH || process.env.VITE_WS_PATH || '/ws/test';
-
-function parseFloatOrDefault(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw.trim() === '') return fallback;
-  const n = Number.parseFloat(raw.trim());
-  return Number.isNaN(n) ? fallback : n;
-}
+const BACKEND_BASE = envStr('ZENITH_BACKEND_URL');
+const WS_PATH = envStr('ZENITH_WS_PATH');
 
 export const appConfig = Object.freeze({
   backendUrl: BACKEND_BASE.replace(/\/+$/, ''),
 
   timeout: {
-    fetchMs: (() => {
-      const raw = envInt('VITE_BACKEND_FETCH_TIMEOUT', 10000);
-      return raw <= 0 ? 10000 : raw;
-    })(),
-
-    rpcMs: envInt('ZENITH_WS_RPC_TIMEOUT', 60000),
+    fetchMs: envInt('VITE_BACKEND_FETCH_TIMEOUT'),
+    rpcMs: envInt('ZENITH_WS_RPC_TIMEOUT'),
   },
 
   ws: {
-    maxReconnect: envInt('ZENITH_WS_MAX_RECONNECT', 5),
-    reconnectDelayMs: envInt('ZENITH_WS_RECONNECT_DELAY', 1000),
+    maxReconnect: envInt('ZENITH_WS_MAX_RECONNECT'),
+    reconnectDelayMs: envInt('ZENITH_WS_RECONNECT_DELAY'),
+    staleTimeoutMs: envInt('ZENITH_WS_STALE_TIMEOUT_MS'),
+    reconnectWaitMs: envInt('ZENITH_WS_RECONNECT_WAIT_MS'),
   },
 
   git: {
-    cacheTtlMs: envInt('ZENITH_GIT_CACHE_TTL', 30000),
-    timeoutMs: envInt('ZENITH_GIT_TIMEOUT', 30) * 1000,
+    cacheTtlMs: envInt('ZENITH_GIT_CACHE_TTL'),
+    timeoutMs: envInt('ZENITH_GIT_TIMEOUT') * 1000,
   },
 
   startup: {
-    connectRetries: envInt('ZENITH_STARTUP_RETRIES', 30),
-    initialDelayMs: envInt('ZENITH_STARTUP_RETRY_DELAY_MS', 250),
-    maxDelayMs: envInt('ZENITH_STARTUP_RETRY_MAX_DELAY_MS', 1000),
+    connectRetries: envInt('ZENITH_STARTUP_RETRIES'),
+    initialDelayMs: envInt('ZENITH_STARTUP_RETRY_DELAY_MS'),
+    maxDelayMs: envInt('ZENITH_STARTUP_RETRY_MAX_DELAY_MS'),
   },
 
   defaults: {
-    temperature: parseFloatOrDefault(process.env.VITE_DEFAULT_TEMPERATURE, 0.7),
-    fallbackMaxTokens: envInt('VITE_FALLBACK_MAX_TOKENS', 4096),
+    temperature: envFloat('VITE_DEFAULT_TEMPERATURE'),
+    fallbackMaxTokens: envInt('VITE_FALLBACK_MAX_TOKENS'),
   },
 
   buildUrl(path: string): string {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from server.agents.context import ContextManager
+from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.config.settings import AppSettings
 from server.sessions.memory import MemoryStore
 
@@ -57,7 +58,7 @@ class TestMemoryInContext:
     def test_build_messages_injects_memory(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "The stack is FastAPI + Ink.")
         config = AppSettings(
-            max_context_tokens=128000,
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
             repo_map_enabled=False,
             db_path=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
@@ -71,7 +72,7 @@ class TestMemoryInContext:
     def test_memory_disabled(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "should not load")
         config = AppSettings(
-            max_context_tokens=128000,
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
             repo_map_enabled=False,
             memory_enabled=False,
             db_path=str(temp_dir / "test.db"),
@@ -98,7 +99,7 @@ class TestMemoryInContext:
     def test_memory_merged_when_no_system_role(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "remember this fact")
         config = AppSettings(
-            max_context_tokens=128000,
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
             repo_map_enabled=False,
             db_path=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
@@ -114,7 +115,7 @@ class TestMemoryInContext:
         MemoryStore(temp_dir).append("session-A", "DRY principle enforced")
         cm = ContextManager(
             AppSettings(
-                max_context_tokens=128000,
+                max_context_tokens=DEFAULT_CONTEXT_WINDOW,
                 repo_map_enabled=False,
                 db_path=str(temp_dir / "test.db"),
                 workspace_root=str(temp_dir),

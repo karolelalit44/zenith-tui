@@ -11,6 +11,9 @@ import { runTodoLifecycle } from '../todo/todoLifecycleDriver';
  * `/ws/test` backend. `collectTodoLifecycleEvents` is the single source of
  * truth for the event stream: the generator that writes that JSON file, and
  * the frontend test suite, both consume it.
+ *
+ * The persist phase writes the board snapshot to `data/simulation/todo-board.json`
+ * (see `todoPersistence.ts`), alongside the scripted playback files.
  */
 
 /**

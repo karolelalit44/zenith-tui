@@ -1,4 +1,5 @@
 import type { CompactionPhase } from '../types/scenario';
+import { envFloat } from './env';
 
 export type ContextLevel = 'neutral' | 'attention' | 'preparing' | 'required';
 
@@ -11,24 +12,15 @@ export interface ContextThresholds {
   required: number;
 }
 
-export const DEFAULT_CONTEXT_THRESHOLDS: ContextThresholds = {
-  attention: 0.7,
-  preparing: 0.85,
-  required: 0.95,
-};
-
-function readThreshold(env: string | undefined, fallback: number): number {
-  if (env === undefined || env.trim() === '') return fallback;
-  const n = Number.parseFloat(env.trim());
-  if (Number.isNaN(n)) return fallback;
-  return Math.max(0, Math.min(1, n));
+function clamp01(fraction: number): number {
+  return Math.max(0, Math.min(1, fraction));
 }
 
-/** Configurable context-pressure thresholds. Overridable via env, model-agnostic. */
+/** Configurable context-pressure thresholds (from tui/.env, model-agnostic). */
 export const contextThresholds: ContextThresholds = Object.freeze({
-  attention: readThreshold(process.env.ZENITH_CONTEXT_ATTENTION, DEFAULT_CONTEXT_THRESHOLDS.attention),
-  preparing: readThreshold(process.env.ZENITH_CONTEXT_PREPARING, DEFAULT_CONTEXT_THRESHOLDS.preparing),
-  required: readThreshold(process.env.ZENITH_CONTEXT_REQUIRED, DEFAULT_CONTEXT_THRESHOLDS.required),
+  attention: clamp01(envFloat('ZENITH_CONTEXT_ATTENTION')),
+  preparing: clamp01(envFloat('ZENITH_CONTEXT_PREPARING')),
+  required: clamp01(envFloat('ZENITH_CONTEXT_REQUIRED')),
 });
 
 /** Ordered compaction phases for the continuous status component. */

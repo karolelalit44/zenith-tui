@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
+from server.agents.validation import PLACEHOLDER_RE
 from server.config.constants import (
     BUILD_MODE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
@@ -14,11 +14,6 @@ from server.config.constants import (
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
-
-_PLACEHOLDER_RE = re.compile(
-    r"\[[\w\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|TODO|DESIRED|UPDATED|REPLACE|YOUR)[\w\s]*\]|\bYOUR_[\w_]+_HERE\b|\[PLACEHOLDER\]|\[XXX\]|\[TBD\]|\[HTML\]|\[ACTUAL_|\[Current |\[UPDATED_",
-    re.IGNORECASE,
-)
 
 
 class FileWriteTool(BaseTool):
@@ -71,12 +66,13 @@ class FileWriteTool(BaseTool):
             )
         content = params.get("content", "")
         overwrite = params.get(FILE_OVERWRITE_PARAM, False)
-        if content and _PLACEHOLDER_RE.search(content):
-            m = _PLACEHOLDER_RE.search(content)
-            return ToolResult(
-                success=False,
-                error=f"Content contains placeholder ({m.group(0)}). Write the actual content, not a placeholder.",
-            )
+        if content:
+            m = PLACEHOLDER_RE.search(content)
+            if m:
+                return ToolResult(
+                    success=False,
+                    error=f"Content contains placeholder ({m.group(0)}). Write the actual content, not a placeholder.",
+                )
         if resolved.exists() and (not overwrite):
             return ToolResult(
                 success=False,

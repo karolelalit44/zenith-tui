@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { appConfig } from '../src/config/appConfig';
 import { ApiError, BaseApiService } from '../src/services/api/BaseApiService';
 
 class TestApi extends BaseApiService {
@@ -26,7 +27,7 @@ describe('BaseApiService', () => {
     await expect(api.getThing()).resolves.toEqual({ id: 7 });
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe('http://localhost:8765/things/1');
+    expect(String(url)).toBe(appConfig.buildUrl('/things/1'));
     expect(init.method).toBe('GET');
     expect(init.headers).toMatchObject({ Accept: 'application/json' });
   });

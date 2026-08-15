@@ -45,7 +45,7 @@ class BashTool(BaseTool):
     name = "bash"
 
     @property
-    def description(self) -> str:
+    def description(self) -> str:  # type: ignore[override]
         return BASH_TOOL_DESCRIPTION_WINDOWS if _is_windows() else BASH_TOOL_DESCRIPTION_UNIX
 
     capability_id = "command_execution"

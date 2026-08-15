@@ -26,7 +26,6 @@ from server.toolkit.tools.webfetch import WebfetchTool
 
 
 def test_file_write_documents_parent_dir_creation():
-    """B3: the tool advertises that it auto-creates missing parent directories."""
     tool = FileWriteTool()
     assert "automatically" in tool.description
     schema = tool.get_schema()
@@ -34,7 +33,6 @@ def test_file_write_documents_parent_dir_creation():
 
 
 def test_bash_description_states_working_directory():
-    """GAP2: the bash tool tells the model commands run from the workspace root."""
     tool = BashTool()
     if platform.system() == "Windows":
         assert "Set-Location" in tool.description
@@ -208,10 +206,6 @@ class TestBashTool:
 
     @pytest.mark.asyncio
     async def test_success_surfaces_stderr(self, temp_dir):
-        """Task 13 RC2: a command that exits 0 but writes its report to stderr
-        (e.g. `python -m unittest`) must still surface those bytes to the model.
-        Before this change, stderr was dropped on exit 0 and the model saw a
-        bare SUCCESS with zero evidence."""
         tool = BashTool()
         script = "import sys; sys.stderr.write('boom-on-stderr\\n')"
         script_path = Path(temp_dir) / "_stderr_probe.py"
@@ -284,7 +278,6 @@ async def _wait_for_job(manager, job_id: str, marker: str, timeout: float = 10.0
 class TestBackgroundJobs:
     @pytest.mark.asyncio
     async def test_direct_background_job_starts_and_completes(self, temp_dir):
-        """B4: run_in_background must actually spawn the process and finish it."""
         tool = BashTool()
         result = await tool.execute(
             {"command": _slow_command(temp_dir, "bg-done"), "run_in_background": True},
@@ -300,7 +293,6 @@ class TestBackgroundJobs:
 
     @pytest.mark.asyncio
     async def test_auto_backgrounded_command_adopts_running_process(self, temp_dir):
-        """B4: a command that exceeds auto_background_after is adopted, not re-spawned."""
         tool = BashTool(auto_background_after=1)
         start = time.monotonic()
         result = await tool.execute(
@@ -435,7 +427,6 @@ class TestFileDeleteTool:
 
     @pytest.mark.asyncio
     async def test_delete_directory_tree_recursively(self, temp_dir):
-        """X2: file_delete is a generic delete - it handles directory trees too."""
         sub = temp_dir / "subdir"
         sub.mkdir()
         (sub / "a.py").write_text("x")
@@ -479,11 +470,9 @@ class TestGlobTool:
 
     @pytest.mark.asyncio
     async def test_glob_caps_overflowing_results(self, temp_dir, monkeypatch):
-        """A recursive glob from the repo root can match tens of thousands of
-        files; the tool must cap results + output to protect the context."""
         import server.toolkit.tools.glob as glob_mod
 
-        monkeypatch.setattr(glob_mod, "_GLOB_MAX_RESULTS", 2)
+        monkeypatch.setattr(glob_mod, "GLOB_MAX_RESULTS", 2)
         for i in range(5):
             (temp_dir / f"f{i}.py").write_text("")
         tool = GlobTool()

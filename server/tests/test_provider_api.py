@@ -5,6 +5,7 @@ from server.api.provider_validation import (
     set_provider_model,
 )
 from server.api.schemas import ProviderModelRequest
+from server.config.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from server.persistence import provider_config_repo
 from server.persistence.connection import Database
 from server.persistence.provider_config_repo import mask_api_key, read_provider_config_full
@@ -34,8 +35,8 @@ def test_read_provider_config_full_masks_key(tmp_path):
         api_key="sk-supersecretkey-xyz",
         model="gpt-4o-mini",
         base_url="https://api.openai.com/v1",
-        max_tokens=4096,
-        temperature=0.7,
+        max_tokens=DEFAULT_LLM_MAX_TOKENS,
+        temperature=DEFAULT_LLM_TEMPERATURE,
         db_path=db_file,
     )
     active, providers = read_provider_config_full(db_path=db_file)
@@ -85,7 +86,6 @@ def test_get_provider_catalog_returns_only_metadata(tmp_path):
     assert "openrouter" in ids
     assert "custom" in ids
     for item in items:
-        # Provider list carries no models — models are fetched separately.
         assert not hasattr(item, "models")
         assert item.type in ("default", "custom")
     assert next(i for i in items if i.id == "custom").type == "custom"
@@ -103,7 +103,6 @@ def test_get_provider_models_paginated_and_complete(tmp_path):
     assert res.limit == 2
     all_res = get_provider_models("groq", offset=0, limit=1000, db_path=db_file)
     assert all_res.total == len(all_res.models)
-    # The expanded Groq catalog (migration 006) must be surfaced here.
     assert "llama-3.3-70b-versatile" in [m.id for m in all_res.models]
 
 
@@ -135,8 +134,8 @@ def test_get_provider_list_after_auth_and_model(tmp_path):
         api_key="gsk_secretkey123",
         model="",
         base_url="",
-        max_tokens=4096,
-        temperature=0.7,
+        max_tokens=DEFAULT_LLM_MAX_TOKENS,
+        temperature=DEFAULT_LLM_TEMPERATURE,
         db_path=db_file,
         set_active=False,
     )
@@ -426,7 +425,6 @@ async def test_validate_stream_emits_step_events(tmp_path):
 
 
 class TestExtractCachedTokens:
-    """Task 13 RC7: cached_tokens must come from real provider-reported data."""
 
     def _extract(self):
         from server.providers.llm_provider import _extract_cached_tokens
@@ -466,8 +464,6 @@ class TestExtractCachedTokens:
         assert f(_Usage()) == 88
 
     def test_does_not_misread_cache_creation_tokens(self):
-        # cache_creation_input_tokens is the cost of building a cache, never a
-        # cached-read hit; scanning every attribute for "cached" would misread it.
         f = self._extract()
         assert f({"cache_creation_input_tokens": 500}) == 0
 

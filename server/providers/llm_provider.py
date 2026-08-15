@@ -11,12 +11,18 @@ import time
 from collections.abc import AsyncIterator
 
 from server.config.constants import (
+    ANSI_RE,
     DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TEMPERATURE,
     DEFAULT_MIN_REQUEST_INTERVAL,
+    LLM_MAX_TOKENS_ENV,
+    LLM_TEMPERATURE_ENV,
+    MAX_OUTPUT_TOKENS_CLAMP,
     MIN_REQUEST_INTERVAL_ENV,
     REQUEST_THROTTLE_JITTER,
 )
-from server.config.env import optional_float
+from server.config.env import optional_float, optional_int
 from server.domain.domain import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
 from server.persistence.repositories import load_catalog
@@ -26,24 +32,13 @@ from .token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 _catalog: dict | None = None
-_ANSI_RE = re.compile("\\x1b\\[[0-9;]*m")
-# Google's 429 body carries the advised delay as `"retryDelay": "9.788501089s"`
-# inside a RetryInfo detail. Accepts "9.7s", 9.7, 9000ms, 2m, ... (both the
-# bare `retryDelay:` and the JSON-quoted `"retryDelay":` forms).
 _RETRY_DELAY_RE = re.compile(
     r'retryDelay\s*"?\s*[:=]\s*"?(\d+(?:\.\d+)?)\s*(ms|s|m|h)?"?', re.IGNORECASE
 )
-# Fallback for prose like "Please retry in 9.788501089s" at the end of the
-# exception message (no retryDelay key present).
 _RETRY_IN_RE = re.compile(r"\bretry\s+in\s+(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\b", re.IGNORECASE)
 _MIN_REQUEST_INTERVAL_DEFAULT = optional_float(
     MIN_REQUEST_INTERVAL_ENV, DEFAULT_MIN_REQUEST_INTERVAL
 )
-# Daily/billing quota exhaustion is terminal within a turn (recoverable=False).
-# Per-minute free-tier throttling ("quota exceeded", "free_tier_requests",
-# RESOURCE_EXHAUSTED, ...) is transient and stays recoverable=True with a
-# server-advised cooldown (see llm_stream). Only the hard keywords below flip
-# a 429 into a non-recoverable error.
 _QUOTA_EXHAUSTED_KEYWORDS = (
     "free-models-per-day",
     "insufficient_quota",
@@ -56,11 +51,10 @@ _QUOTA_EXHAUSTED_KEYWORDS = (
 
 
 def _strip_ansi(text: str) -> str:
-    return _ANSI_RE.sub("", text)
+    return ANSI_RE.sub("", text)
 
 
 def _normalize_count(value) -> int:
-    """Coerce a provider-reported usage counter to a non-negative int."""
     if value is None:
         return 0
     try:
@@ -70,15 +64,6 @@ def _normalize_count(value) -> int:
 
 
 def _extract_cached_tokens(usage) -> int:
-    """Return the number of *cached input tokens* the provider actually reports.
-
-    Handles two families: OpenAI/Anthropic-style ``prompt_tokens_details``
-    with a ``cached_tokens`` field, and Gemini's ``cached_content_token_count``
-    / ``cachedContentTokenCount`` (litellm may surface it either camelCased or
-    snake_cased, at the top level of the usage object). Returns ``0`` when no
-    provider reported cache hits so observability stays honest (task 12/13: do
-    not claim caching for providers/turns that produced no measurable hit).
-    """
     if usage is None:
         return 0
 
@@ -142,14 +127,6 @@ def _set_api_key(provider_name: str, api_key: str | None) -> None:
 
 
 def _unwrap_bytes_literal(text: str) -> str:
-    """Strip a ``b'...'`` / ``b"..."`` wrapper embedded in a message.
-
-    litellm surfaces Google's JSON error body as the repr of a bytes object
-    (``b'{"error": {...}}'``). Evaluating that repr with ``ast.literal_eval``
-    yields the original bytes (handling ``\\n``, ``\\xNN``, ``\\u`` and quote
-    escapes correctly), which is then decoded back to text so the JSON parser
-    sees the actual body instead of a ``b'...'``-wrapped blob.
-    """
     stripped = text.strip()
     for marker in ("b'", 'b"'):
         start = stripped.find(marker)
@@ -169,11 +146,6 @@ def _unwrap_bytes_literal(text: str) -> str:
 
 
 def _extract_json_error_message(text: str) -> str:
-    """Pull a clean message out of an embedded JSON error object.
-
-    Scans for the first parseable JSON object anywhere in ``text`` (handles the
-    surrounding litellm/provider wrapper text) and prefers ``error.message``.
-    """
     decoder = json.JSONDecoder()
     idx = 0
     while True:
@@ -220,13 +192,6 @@ def _extract_clean_message(exc: Exception) -> str:
 
 
 def _parse_retry_delay(text: str) -> float | None:
-    """Parse a provider-advised retry delay out of an error body.
-
-    Google (among others) does not set a ``retry-after`` header; it embeds the
-    delay as ``"retryDelay": "9.788501089s"`` inside a ``RetryInfo`` detail in
-    the JSON body, which litellm surfaces as part of ``str(exc)``. This handles
-    that form plus bare seconds, milliseconds, minutes, and hours.
-    """
     if not text:
         return None
     match = _RETRY_DELAY_RE.search(text) or _RETRY_IN_RE.search(text)
@@ -256,8 +221,6 @@ def _extract_retry_after(exc: Exception) -> float | None:
                 return float(ra)
             except (TypeError, ValueError):
                 pass
-    # The HTTP header is the common case; Google only surfaces the delay in the
-    # body, so scan str(exc) and any response payload for a retryDelay hint.
     body_parts = [_strip_ansi(str(exc))]
     if resp is not None:
         for attr in ("content", "body", "text"):
@@ -396,9 +359,11 @@ def _get_model_config(name: str, model_id: str) -> dict:
                 ctx = m.get("context_window", DEFAULT_CONTEXT_WINDOW)
                 return {
                     "context_window": ctx,
-                    "max_output_tokens": m.get("max_output_tokens", min(ctx // 4, 32768)),
+                    "max_output_tokens": m.get(
+                        "max_output_tokens", min(ctx // 4, MAX_OUTPUT_TOKENS_CLAMP)
+                    ),
                     "default_temperature": m.get(
-                        "default_temperature", 0.0 if caps.get("reasoning") else 0.7
+                        "default_temperature", 0.0 if caps.get("reasoning") else DEFAULT_LLM_TEMPERATURE
                     ),
                     "supports_temperature": caps.get("supports_temperature", True),
                     "enable_thinking": caps.get("thinking", False),
@@ -414,8 +379,8 @@ def _get_model_config(name: str, model_id: str) -> dict:
         pass
     return {
         "context_window": DEFAULT_CONTEXT_WINDOW,
-        "max_output_tokens": 4096,
-        "default_temperature": 0.7,
+        "max_output_tokens": optional_int(LLM_MAX_TOKENS_ENV, DEFAULT_LLM_MAX_TOKENS),
+        "default_temperature": optional_float(LLM_TEMPERATURE_ENV, DEFAULT_LLM_TEMPERATURE),
         "supports_temperature": True,
         "enable_thinking": False,
         "supports_tools": True,
@@ -427,12 +392,6 @@ def _get_model_config(name: str, model_id: str) -> dict:
 
 
 def _resolve_min_request_interval(provider_name: str) -> float:
-    """Per-provider request pacing: catalog ``rate_limit`` beats the env default.
-
-    ``ZENITH_MIN_REQUEST_INTERVAL`` is the global default (disabled unless set);
-    a catalog ``rate_limit`` entry (e.g. ``{"requests_per_minute": 15}`` for
-    Google AI Studio free tier) overrides it for that provider.
-    """
     try:
         entry = _get_catalog().get("providers", {}).get(provider_name) or {}
         rate_limit = entry.get("rate_limit") or {}
@@ -448,13 +407,6 @@ def _resolve_min_request_interval(provider_name: str) -> float:
 
 
 class _RequestThrottle:
-    """Paces independent API calls so a turn cannot outrun a provider quota.
-
-    ``min_interval`` is the minimum wall-clock gap between call starts (~4 s
-    for a 15 req/min free tier). ``wait()`` sleeps only as long as needed to
-    restore that gap, plus a little jitter so bursts from concurrent sessions
-    don't all land on the same second.
-    """
 
     def __init__(self, min_interval: float, jitter: float = REQUEST_THROTTLE_JITTER):
         self.min_interval = max(0.0, min_interval)
@@ -462,7 +414,6 @@ class _RequestThrottle:
         self._last_start: float | None = None
 
     async def wait(self) -> float:
-        """Sleep until the next call start is allowed; returns seconds waited."""
         if self.min_interval <= 0:
             return 0.0
         now = time.monotonic()
@@ -637,8 +588,6 @@ class LLMProvider(BaseProvider):
     async def complete(
         self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None
     ) -> str:
-        # A single attempt: no silent retries/backoff. Provider failures are
-        # classified and surfaced to the caller as explicit errors.
         try:
             return await self._complete_impl(messages, tools, model)
         except ProviderError:

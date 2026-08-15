@@ -23,7 +23,6 @@ export const LSP_RENAME_TOOL = 'lsp_rename';
 export const AGENT_TOOL = 'agent';
 export const AGENT_TOOL_ALIAS = 'agent_tool';
 export const TODO_TOOL = 'todo';
-export const MCP_TOOL = 'mcp_tool';
 
 export const TOOL_VERB_LABELS: Record<string, string> = {
   [FILE_WRITE_TOOL]: 'Create',
@@ -64,22 +63,6 @@ export function getToolVerbLabel(tool: string): string {
   return TOOL_VERB_LABELS[tool] || tool;
 }
 
-export const TOOL_STEP_SKIP_PARAMS = new Set([
-  'content',
-  'file_content',
-  'old_content',
-  'new_content',
-  'data',
-  'file_data',
-  'filetext',
-  'file_text',
-  'source',
-  'text',
-  'body',
-  'input',
-  'output',
-]);
-
 export const TOOL_STEP_PRIMARY_KEYS = [
   'path',
   'filepath',
@@ -104,15 +87,6 @@ export function getToolStepPrimaryParam(
     }
   }
   return null;
-}
-
-/** Parse an MCP wrapper tool name (`mcp_<server>_<tool>`) into its parts. */
-export function parseMcpToolName(tool: string): { server: string; action: string } | null {
-  const parts = tool.split('_');
-  if (parts.length < 2 || parts[0] !== 'mcp') return null;
-  const server = parts[1] || '';
-  const action = parts.slice(2).join('_') || '';
-  return { server, action };
 }
 
 /** Count errors and warnings from an lsp_diagnostics metadata payload. */
@@ -336,11 +310,4 @@ export function getToolStepStatusText(event: {
       if (event.tool.startsWith('mcp_')) return formatMcpStatus(event);
       return `✓ ${getToolVerbLabel(event.tool)}`;
   }
-}
-
-/** Header shown while a step is pending: `<verb> <target>...`. */
-export function getToolStepPendingText(tool: string, params: Record<string, unknown>, _text?: string): string {
-  const primary = getToolStepPrimaryParam(tool, params);
-  const verb = getToolVerbLabel(tool);
-  return `${verb}${primary ? ` ${primary.value}` : ''}...`;
 }

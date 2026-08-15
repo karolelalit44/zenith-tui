@@ -95,7 +95,6 @@ export const App: React.FC = () => {
     addTurn,
     completeActiveTurn,
     abortActiveTurn,
-    markTurnSaved,
     clearTurns,
     remountStatic,
   } = useConversation();
@@ -179,14 +178,8 @@ export const App: React.FC = () => {
 
   // Throttle live token estimate: recalculate at most every 2 s while running
   // so that each streamed event does not trigger a full CommandInput re-render.
-  const tokenEstimateRef = useRef(0);
   const lastTokenUpdateRef = useRef(0);
   const [liveTotalTokens, setLiveTotalTokens] = useState(totalTokens);
-
-  const liveTurnTokens = useMemo(() => {
-    if (!isRunning || events.length === 0) return 0;
-    return estimateTokensForEvents(events);
-  }, [isRunning, events]);
 
   // Derive the single consolidated compaction-flow state from the live event
   // stream so the footer token usage reflects the real, in-progress compaction.
@@ -206,15 +199,12 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isRunning) {
       setLiveTotalTokens(totalTokens);
-      tokenEstimateRef.current = 0;
       return;
     }
     const now = Date.now();
     if (now - lastTokenUpdateRef.current > 2000) {
       lastTokenUpdateRef.current = now;
-      const estimate = totalTokens + estimateTokensForEvents(events);
-      tokenEstimateRef.current = estimate;
-      setLiveTotalTokens(estimate);
+      setLiveTotalTokens(totalTokens + estimateTokensForEvents(events));
     }
   }, [totalTokens, isRunning, events]);
 
@@ -263,11 +253,8 @@ export const App: React.FC = () => {
     const targetEvents = isRunning ? events : targetTurn?.events || [];
     if (targetEvents.length > 0) {
       savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
-      if (targetTurn) {
-        markTurnSaved(targetTurn.id);
-      }
     }
-  }, [turns, events, isRunning, markTurnSaved]);
+  }, [turns, events, isRunning]);
 
   const handleExit = useCallback(() => {
     setExitPhase('exiting');
@@ -360,7 +347,6 @@ export const App: React.FC = () => {
     closeAllOverlays,
     abort,
     abortActiveTurn,
-    markTurnSaved,
     clearTurns,
     onToggleThinking: toggleThinking,
     scrollUp,
@@ -609,7 +595,6 @@ export const App: React.FC = () => {
               onInputChange={handleInputChange}
               onSubmit={handleSubmit}
               running={isRunning}
-              liveTurnTokens={liveTurnTokens}
               disabled={!!retryTarget || !!continueTarget}
               disabledMessage={
                 retryTarget ? 'Choose an action above…' : continueTarget ? 'Choose an action above…' : undefined

@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from server.config.constants import LSP_INIT_POLL_INTERVAL, LSP_REQUEST_TIMEOUT
+
 logger = logging.getLogger(__name__)
 DEFAULT_SERVERS: dict[str, dict[str, Any]] = {
     ".py": {"command": "pyright-langserver", "args": ["--stdio"], "name": "pyright"},
@@ -198,7 +200,7 @@ class LspClient:
     async def get_diagnostics(self, file_path: str, content: str) -> list[dict]:
         language_id = get_language_id(file_path)
         await self.did_open(file_path, language_id, content)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(LSP_INIT_POLL_INTERVAL)
         diagnostics: list[dict] = []
         temp: list[dict] = []
         while not self._notifications.empty():
@@ -232,7 +234,7 @@ class LspClient:
         uri = Path(file_path).as_uri()
         params = {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
         try:
-            result = await self._send_request("textDocument/definition", params, timeout=10.0)
+            result = await self._send_request("textDocument/definition", params, timeout=LSP_REQUEST_TIMEOUT)
         except Exception:
             result = None
         await self.did_close(file_path)
@@ -275,7 +277,7 @@ class LspClient:
             "newName": new_name,
         }
         try:
-            result = await self._send_request("textDocument/rename", params, timeout=10.0)
+            result = await self._send_request("textDocument/rename", params, timeout=LSP_REQUEST_TIMEOUT)
         except Exception:
             result = None
         await self.did_close(file_path)

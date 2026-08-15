@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
-import { collectHrmsBuildEvents } from '../src/services/transport/hrmsBuildEmitter';
+import { collectHrmsBuildEvents } from '../src/services/scenario/hrmsBuildDriver';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { ScenarioEvent } from '../src/types/scenario';
 import { upsertEvent } from '../src/utils/eventUpsert';

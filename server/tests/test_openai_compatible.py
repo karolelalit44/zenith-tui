@@ -1,3 +1,4 @@
+from server.config.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from server.persistence.provider_config_repo import read_providers, save_provider_config
 from server.providers.llm_provider import LLMProvider
 
@@ -54,8 +55,8 @@ def test_openai_compatible_save_config(tmp_path):
         api_key="sk-tokenrouter-secret-key",
         model="moonshotai/kimi-k3-free",
         base_url="https://api.tokenrouter.com/v1",
-        max_tokens=4096,
-        temperature=0.7,
+        max_tokens=DEFAULT_LLM_MAX_TOKENS,
+        temperature=DEFAULT_LLM_TEMPERATURE,
         db_path=db_file,
     )
     providers = read_providers(db_path=db_file)

@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
-import { collectTodoBoardEvents, emitTodoBoardFixture } from '../src/services/transport/todoBoardFixtureEmitter';
+import { collectTodoBoardEvents, emitTodoBoardFixture } from '../src/services/transport/fixtureEmitter';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { ScenarioEvent } from '../src/types/scenario';
 import { upsertEvent } from '../src/utils/eventUpsert';

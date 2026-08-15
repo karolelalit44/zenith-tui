@@ -46,6 +46,8 @@ class ListDirTool(BaseTool):
             resolved = validate_path(rel_path, workspace_root)
         except ValueError as err:
             return ToolResult(success=False, error=str(err))
+        if resolved is None:
+            return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
 
         if not resolved.exists():
             return ToolResult(success=False, error=f"Directory not found: {rel_path}")

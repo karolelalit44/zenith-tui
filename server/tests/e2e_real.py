@@ -153,12 +153,12 @@ async def run_all_tests() -> bool:
         ("WS health", test_websocket_health),
         ("Session lifecycle", lambda: test_session_lifecycle()),
     ]
-    results = []
+    results: list[tuple[str, bool, object]] = []
     for name, coro_fn in tests:
         try:
             if name == "Session lifecycle":
-                session_id = await coro_fn()
-                results.append((name, True, session_id))
+                lifecycle_id = await coro_fn()
+                results.append((name, True, lifecycle_id))
             else:
                 await coro_fn()
                 results.append((name, True, None))
@@ -166,9 +166,9 @@ async def run_all_tests() -> bool:
         except Exception as e:
             results.append((name, False, str(e)))
             log(f"  ✗ {name}: {e}")
-    session_id = None
+    session_id: str | None = None
     for name, ok, val in results:
-        if name == "Session lifecycle" and ok:
+        if name == "Session lifecycle" and ok and isinstance(val, str):
             session_id = val
     if session_id:
         reliable_models = [

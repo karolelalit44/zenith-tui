@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import path, { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { TodoItem } from '../../types/scenario';
 
 /**
@@ -12,13 +13,16 @@ export interface BoardPersistence {
   load(filePath: string): TodoItem[];
 }
 
-export const DEFAULT_SIM_OUTPUT_DIR = path.join(process.cwd(), 'data', 'simulation');
+export const TODO_BOARD_FILE = 'todo-board.json';
 
-export const TODO_LIFECYCLE_FILE = 'todo-lifecycle.json';
-
-/** Output directory for simulation artifacts; overridable in tests/CI. */
-export function simOutputDir(): string {
-  return process.env.ZENITH_SIM_OUTPUT_DIR || DEFAULT_SIM_OUTPUT_DIR;
+/**
+ * Output directory for the todo board snapshot: the single canonical simulation
+ * folder `data/simulation` at the repo root (same folder the server scans for
+ * scripted playback). The board snapshot uses a distinct filename so it never
+ * collides with the `todo-lifecycle.json` playback script.
+ */
+export function boardOutputDir(): string {
+  return path.resolve(dirname(fileURLToPath(import.meta.url)), '../../../../data/simulation');
 }
 
 export const todoPersistence: BoardPersistence = {

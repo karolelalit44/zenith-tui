@@ -5,6 +5,8 @@ import json
 import logging
 from typing import Any
 
+from server.config.constants import MCP_SHUTDOWN_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,7 +75,7 @@ class McpClient:
                 pass
         if self._process and self._process.returncode is None:
             try:
-                await self._send_request("shutdown", None, timeout=5.0)
+                await self._send_request("shutdown", None, timeout=MCP_SHUTDOWN_TIMEOUT)
             except Exception:
                 pass
             try:

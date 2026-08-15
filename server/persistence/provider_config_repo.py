@@ -12,7 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as SASession
 from sqlalchemy.orm import sessionmaker
 
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import DEFAULT_CONTEXT_WINDOW, SQLITE_BUSY_TIMEOUT_MS
 from server.persistence.connection import resolve_db_path
 from server.persistence.models import (
     AppSettingRecord,
@@ -39,7 +39,7 @@ def mask_api_key(key: str | None) -> str:
 def _set_pragmas(dbapi_connection, connection_record) -> None:
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
 

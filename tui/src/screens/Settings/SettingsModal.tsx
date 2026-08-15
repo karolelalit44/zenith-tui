@@ -1,37 +1,21 @@
-import { Box, Text, useInput } from 'ink';
+﻿import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
 import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
 import { loadUserProfile, saveUserProfile, type UserProfile } from '../../services/api/userProfileService';
 import { useTheme } from '../../theme/ThemeContext';
+import { themeOptions } from '../../theme/theme';
 
 interface SettingsModalProps {
   onClose: () => void;
 }
-
-interface ThemeOption {
-  id: string;
-  name: string;
-  swatch: string[];
-}
-
-const THEME_OPTIONS: ThemeOption[] = [
-  { id: 'graphite', name: 'Graphite Monochrome (Default)', swatch: ['#E0E0E0', '#A0A0A0', '#707070', '#444444'] },
-  { id: 'stealth', name: 'Stealth Tactical (Lowkey Slate)', swatch: ['#7DA396', '#6B8E9C', '#B89C6D', '#BD6B6B'] },
-  { id: 'deep_forest', name: 'Deep Forest', swatch: ['#50C878', '#8FBC8F', '#DAA520', '#FF6B6B'] },
-  { id: 'dracula', name: 'Dracula', swatch: ['#BD93F9', '#50FA7B', '#8BE9FD', '#FF79C6'] },
-  { id: 'monokai', name: 'Monokai Pro', swatch: ['#A6E22E', '#66D9EF', '#FD971F', '#F92672'] },
-  { id: 'synthwave', name: 'Synthwave 84', swatch: ['#F92A82', '#00F2FE', '#F39C12', '#BC7FD4'] },
-  { id: 'aura', name: 'Aura Dark', swatch: ['#61FFCA', '#82E2FF', '#A277FF', '#FF6767'] },
-  { id: 'golden_hour', name: 'Golden Hour (Sun & Sky)', swatch: ['#FFD700', '#64B5F6', '#FF8C00', '#FFF3B0'] },
-];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const { theme, activeThemeId, setTheme } = useTheme();
   const [userProfile, setUserProfile] = useState<UserProfile>(() => loadUserProfile());
   const [activeTab, setActiveTab] = useState<'theme' | 'preferences'>('theme');
 
-  const currentThemeIdx = THEME_OPTIONS.findIndex((t) => t.id === activeThemeId);
+  const currentThemeIdx = themeOptions.findIndex((t) => t.id === activeThemeId);
   const [selectedThemeIdx, setSelectedThemeIdx] = useState(currentThemeIdx >= 0 ? currentThemeIdx : 0);
   const [prefCursor, setPrefCursor] = useState(0);
 
@@ -57,13 +41,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       if (key.upArrow) {
         const nextIdx = Math.max(0, selectedThemeIdx - 1);
         setSelectedThemeIdx(nextIdx);
-        setTheme(THEME_OPTIONS[nextIdx].id);
+        setTheme(themeOptions[nextIdx].id);
       }
 
       if (key.downArrow) {
-        const nextIdx = Math.min(THEME_OPTIONS.length - 1, selectedThemeIdx + 1);
+        const nextIdx = Math.min(themeOptions.length - 1, selectedThemeIdx + 1);
         setSelectedThemeIdx(nextIdx);
-        setTheme(THEME_OPTIONS[nextIdx].id);
+        setTheme(themeOptions[nextIdx].id);
       }
     } else {
       if (key.upArrow) {
@@ -121,7 +105,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
 
         {activeTab === 'theme' ? (
           <Box flexDirection="column">
-            {THEME_OPTIONS.map((t, idx) => {
+            {themeOptions.map((t, idx) => {
               const isSelected = idx === selectedThemeIdx;
               const isActive = t.id === activeThemeId;
 

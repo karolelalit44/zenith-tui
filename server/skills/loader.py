@@ -5,9 +5,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from server.config.constants import MAX_SKILLS_IN_PROMPT, SKILL_ROOTS
+
 logger = logging.getLogger(__name__)
-SKILL_ROOTS = ("skills", "agents/skills", ".zenith/skills", ".agent/skills")
-MAX_SKILLS_IN_PROMPT = 20
 
 
 def _extract_yaml_field(content: str, field: str) -> str | None:

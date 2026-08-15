@@ -43,7 +43,7 @@ class JobOutputTool(BaseTool):
         job = manager.get(job_id)
         if job is None:
             return ToolResult(success=False, error=f"Job {job_id} not found")
-        output = manager.get_output(job_id)
+        output = manager.get_output(job_id) or ""
         if not job.done:
             return ToolResult(
                 success=True, output=output, metadata={"job_id": job_id, "completed": False}

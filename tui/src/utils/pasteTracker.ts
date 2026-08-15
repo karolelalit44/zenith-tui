@@ -1,9 +1,3 @@
-export interface PasteMarkerInfo {
-  marker: string;
-  rawText: string;
-  lineCount: number;
-}
-
 const pasteRegistry = new Map<string, string>();
 let pasteCounter = 0;
 
@@ -72,8 +66,4 @@ export function expandPastedMarkers(text: string): string {
 
 export function isLargePaste(text: string): boolean {
   return text.includes('\n') || text.length > 100;
-}
-
-export function getPasteMarkerRegex(): RegExp {
-  return /\[Pasted (?:(?:\+\d+ lines)|\d+ chars) #\d+\]/g;
 }

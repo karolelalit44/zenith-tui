@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -16,7 +15,16 @@ from server.api.schemas import (
     ValidationStep,
     ValidationStepStatus,
 )
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TEMPERATURE,
+    DEFAULT_VALIDATION_TIMEOUT,
+    URL_SCHEME_RE,
+    VALIDATION_TIMEOUT_ENV,
+    default_max_tokens_for_context,
+)
+from server.config.env import optional_int
 from server.persistence import provider_config_repo
 from server.persistence.repositories import load_catalog
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
@@ -32,7 +40,6 @@ STEP_LABELS: dict[str, str] = {
     "smoke_test": "Smoke Test",
     "save": "Save",
 }
-_URL_RE = re.compile("^https?://", re.IGNORECASE)
 _AUTH_REJECTION_HINTS = (
     "authentication",
     "unauthorized",
@@ -132,14 +139,14 @@ def _resolve_config(
             if m.get("id") == resolved_model:
                 ctx = m.get("context_window", DEFAULT_CONTEXT_WINDOW)
                 if max_tokens is None:
-                    max_tokens = m.get("max_output_tokens", max(4096, min(ctx // 2, 32768)))
+                    max_tokens = m.get("max_output_tokens", default_max_tokens_for_context(ctx))
                 if temperature is None:
-                    temperature = m.get("default_temperature", 0.7)
+                    temperature = m.get("default_temperature", DEFAULT_LLM_TEMPERATURE)
                 break
     if max_tokens is None:
-        max_tokens = 4096
+        max_tokens = DEFAULT_LLM_MAX_TOKENS
     if temperature is None:
-        temperature = 0.7
+        temperature = DEFAULT_LLM_TEMPERATURE
     config = {
         "api_key": resolved_key,
         "base_url": resolved_base,
@@ -243,7 +250,7 @@ async def validate_provider(
             ValidationError(code="MISSING_BASE_URL", message=msg),
         )
         return
-    if not _URL_RE.match(base_url):
+    if not URL_SCHEME_RE.match(base_url):
         msg = f"Base URL '{base_url}' must start with http:// or https://"
         _update("base_url", ValidationStepStatus.FAILED, msg)
         yield _step_event("base_url", ValidationStepStatus.FAILED, msg)
@@ -279,7 +286,7 @@ async def validate_provider(
     _update("api_key", ValidationStepStatus.SUCCESS, key_note)
     yield _step_event("api_key", ValidationStepStatus.SUCCESS, key_note)
     models: list[ProviderModelInfo] = []
-    timeout = 30
+    timeout = optional_int(VALIDATION_TIMEOUT_ENV, DEFAULT_VALIDATION_TIMEOUT)
     endpoint = _base_url_endpoint(base_url)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key.strip() else {}
     try:

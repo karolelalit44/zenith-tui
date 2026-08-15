@@ -3,6 +3,12 @@ from __future__ import annotations
 from sqlalchemy import Float, ForeignKey, Index, Integer, PrimaryKeyConstraint, Text, TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from server.config.constants import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TEMPERATURE,
+)
+
 
 class Base(DeclarativeBase):
     pass
@@ -83,8 +89,12 @@ class ProviderRecord(Base):
     api_key: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     model: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     base_url: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="4096")
-    temperature: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.7")
+    max_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=str(DEFAULT_LLM_MAX_TOKENS)
+    )
+    temperature: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default=str(DEFAULT_LLM_TEMPERATURE)
+    )
     is_active: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
     swatch_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
     adapter_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="openai_compat")
@@ -107,7 +117,9 @@ class ProviderModelRecord(Base):
         ForeignKey("providers.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    context_window: Mapped[int] = mapped_column(Integer, nullable=False, server_default="128000")
+    context_window: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=str(DEFAULT_CONTEXT_WINDOW)
+    )
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     is_default: Mapped[bool] = mapped_column(BoolInt, nullable=False, server_default="0")
 
@@ -159,7 +171,9 @@ class CatalogModelRecord(Base):
     id: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    context_window: Mapped[int] = mapped_column(Integer, nullable=False, server_default="128000")
+    context_window: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=str(DEFAULT_CONTEXT_WINDOW)
+    )
     parameters: Mapped[str | None] = mapped_column(Text, nullable=True)
     architecture: Mapped[str | None] = mapped_column(Text, nullable=True)
     input_modalities: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")

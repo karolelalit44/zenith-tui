@@ -27,7 +27,6 @@ data
 *todo*
 *plan*
 
-*.md
 package-lock.json
 todo.md
 plan.md
@@ -35,3 +34,4 @@ zenith*
 .claude
 .freebuff
 .vscode
+.agents

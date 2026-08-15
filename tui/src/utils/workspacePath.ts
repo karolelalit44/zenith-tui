@@ -27,10 +27,3 @@ export function getWorkspaceFolderName(workspacePath?: string): string {
 
   return lastSegment;
 }
-
-/** Format folder and branch into a standardized CLI prompt string (`folder:branch`). */
-export function formatFolderBranch(folderPath?: string, branchName?: string): string {
-  const folder = getWorkspaceFolderName(folderPath);
-  const cleanBranch = branchName ? branchName.replace(/^\(+|\)+$/g, '').trim() : '';
-  return cleanBranch ? `${folder}:${cleanBranch}` : folder;
-}

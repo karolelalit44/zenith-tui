@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from server.config.constants import MAX_EVENT_OUTPUT
 from server.domain.events import Event, EventKind
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def tool_result(
     error: str = "",
     metadata: dict | None = None,
 ) -> Event:
-    max_event_output = 5000
+    max_event_output = MAX_EVENT_OUTPUT
     return event(
         EventKind.TOOL_RESULT,
         {
@@ -88,11 +89,6 @@ def success(
 
 
 def turn_manifest(payload: dict, session_id: str) -> Event:
-    """End-of-turn summary of files created/modified and remaining work.
-
-    Emitted before the terminal success event so the UI can render "Built
-    these files; not yet done: ..." and offer a Continue path.
-    """
     return event(EventKind.TURN_MANIFEST, dict(payload), session_id)
 
 

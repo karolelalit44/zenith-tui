@@ -7,7 +7,6 @@ from server.toolkit.middleware import (
     LoggingMiddleware,
     PermissionMiddleware,
     SafetyCheckMiddleware,
-    ValidationMiddleware,
 )
 from server.toolkit.registry import ToolRegistry
 
@@ -15,10 +14,7 @@ from server.toolkit.registry import ToolRegistry
 class EchoTool(BaseTool):
     name = "echo"
     description = "Echoes input"
-
-    @property
-    def risk_level(self) -> str:
-        return "safe"
+    risk_level = "safe"
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         return ToolResult(success=True, output=params.get("text", ""))
@@ -230,24 +226,6 @@ class TestPermissionMiddleware:
         result = await mw.before_execute("bash", {"command": "ls"}, ctx)
         assert isinstance(result, ToolResult)
         assert not result.success
-
-
-class TestValidationMiddleware:
-    @pytest.mark.asyncio
-    async def test_missing_required_param(self):
-        mw = ValidationMiddleware()
-        ctx = ToolContext(request_id="r1", mode="build")
-        result = await mw.before_execute("bash", {}, ctx)
-        assert isinstance(result, ToolResult)
-        assert not result.success
-        assert "Missing" in result.error
-
-    @pytest.mark.asyncio
-    async def test_valid_params(self):
-        mw = ValidationMiddleware()
-        ctx = ToolContext(request_id="r1", mode="build")
-        result = await mw.before_execute("bash", {"command": "ls"}, ctx)
-        assert result is True
 
 
 class TestLoggingMiddleware:

@@ -5,12 +5,11 @@ from datetime import datetime
 
 from sqlalchemy import delete, func, select, update
 
-from server.domain.domain import SessionState
+from server.domain.domain import ScenarioMode, SessionState
 from server.domain.events import Event
 from server.domain.message import Message
 from server.domain.session import Session
 
-from ..blob_store import BlobStore
 from ..connection import Database
 from ..models import MessageRecord, SessionRecord
 from ..safe import safe_db
@@ -221,14 +220,14 @@ class SessionRepository:
             return Session(
                 id=rec.id,
                 title=rec.title,
-                mode=rec.mode,
+                mode=ScenarioMode(rec.mode) if rec.mode else ScenarioMode.BUILD,
                 created_at=datetime.fromisoformat(rec.created_at),
                 updated_at=datetime.fromisoformat(rec.updated_at),
                 workspace_root=rec.workspace_root,
                 is_active=bool(rec.is_active),
                 metadata=json.loads(rec.metadata_json or "{}"),
                 parent_session_id=rec.parent_session_id,
-                state=rec.state or "created",
+                state=SessionState(rec.state or "created"),
                 plan_output=rec.plan_output or "",
                 plan_approved_at=datetime.fromisoformat(rec.plan_approved_at)
                 if rec.plan_approved_at
@@ -254,11 +253,10 @@ class SessionRepository:
 class MessageRepository:
     def __init__(self, db: Database):
         self.db = db
-        self._blob_store = BlobStore.from_db_path(db.db_path)
 
     @safe_db("create_message", table="messages")
     async def create(self, message: Message) -> Message:
-        packed_events = [self._blob_store.pack(e.model_dump()) for e in message.events]
+        event_dicts = [e.model_dump() for e in message.events]
         async with self.db.session() as s:
             s.add(
                 MessageRecord(
@@ -266,7 +264,7 @@ class MessageRepository:
                     session_id=message.session_id,
                     role=message.role,
                     content=message.content,
-                    events_json=json.dumps(packed_events),
+                    events_json=json.dumps(event_dicts),
                     token_count=message.token_count,
                     created_at=message.created_at.isoformat(),
                     metadata_json=json.dumps(message.metadata),
@@ -298,7 +296,7 @@ class MessageRepository:
         messages = []
         for r in reversed(rows):
             events_data = json.loads(r.events_json or "[]")
-            events = [Event(**self._blob_store.unpack(e)) for e in events_data]
+            events = [Event(**e) for e in events_data]
             messages.append(
                 Message(
                     id=r.id,
@@ -366,15 +364,14 @@ class MessageRepository:
             for rid, raw in rows:
                 if not raw:
                     continue
-                unpacked = [self._blob_store.unpack(e) for e in json.loads(raw)]
-                kept = [e for e in unpacked if e.get("kind") != EventKind.TOOL_RESULT.value]
-                if len(kept) == len(unpacked):
+                parsed = json.loads(raw)
+                kept = [e for e in parsed if e.get("kind") != EventKind.TOOL_RESULT.value]
+                if len(kept) == len(parsed):
                     continue
-                packed = [self._blob_store.pack(e) for e in kept]
                 await s.execute(
                     update(MessageRecord)
                     .where(MessageRecord.id == rid)
-                    .values(events_json=json.dumps(packed))
+                    .values(events_json=json.dumps(kept))
                 )
                 touched += 1
             if touched:

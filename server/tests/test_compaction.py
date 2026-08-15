@@ -12,6 +12,11 @@ from server.agents.loop import (
     _find_compaction_cut_budgeted,
     _format_tool_result,
 )
+from server.config.constants import (
+    COMPACTION_KEEP_TAIL,
+    DEFAULT_CONTEXT_WINDOW,
+    MAX_TOOL_OUTPUT_BASELINE,
+)
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
@@ -65,7 +70,7 @@ class TestHeadTailTrim:
 class TestCompactToolOutput:
     def test_50k_lines_token_drop(self):
         output = _big_output(50000)
-        compacted, stats = compact_tool_output(output, max_output=10000)
+        compacted, stats = compact_tool_output(output, max_output=MAX_TOOL_OUTPUT_BASELINE)
         assert stats.original_chars == len(output)
         assert stats.trimmed is True
         assert stats.chars_removed > 0
@@ -84,7 +89,7 @@ class TestCompactToolOutput:
         assert stats.tokens_saved > 0
 
     def test_small_output_untouched(self):
-        compacted, stats = compact_tool_output("hello world", max_output=10000)
+        compacted, stats = compact_tool_output("hello world", max_output=MAX_TOOL_OUTPUT_BASELINE)
         assert compacted == "hello world"
         assert stats.trimmed is False
         assert stats.chars_removed == 0
@@ -102,18 +107,18 @@ class TestCompactionCutPoint:
         ]
 
     def test_short_history_summarizes_everything(self):
-        assert _find_compaction_cut(self._history(5), keep_tail=8) == 0
+        assert _find_compaction_cut(self._history(5), keep_tail=COMPACTION_KEEP_TAIL) == 0
 
     def test_cut_never_splits_tool_result_exchange(self):
         msgs = self._history(30)
-        cut = _find_compaction_cut(msgs, keep_tail=8)
+        cut = _find_compaction_cut(msgs, keep_tail=COMPACTION_KEEP_TAIL)
         assert cut > 0
         assert msgs[cut - 1].role != "assistant"
-        assert len(msgs) - cut <= 8 + 1
+        assert len(msgs) - cut <= COMPACTION_KEEP_TAIL + 1
 
     def test_cut_prefers_user_boundary(self):
         msgs = self._history(28)
-        cut = _find_compaction_cut(msgs, keep_tail=8)
+        cut = _find_compaction_cut(msgs, keep_tail=COMPACTION_KEEP_TAIL)
         assert msgs[cut - 1].role == "user"
 
 
@@ -192,7 +197,7 @@ class TestFormatToolResultCompaction:
 class TestContextCompactedEvent:
     def test_event_emitted_with_counts(self):
         output = _big_output(50000)
-        _, stats = compact_tool_output(output, max_output=10000)
+        _, stats = compact_tool_output(output, max_output=MAX_TOOL_OUTPUT_BASELINE)
         ev = r.context_compacted(
             "bash",
             stats.chars_removed,
@@ -210,7 +215,7 @@ class TestContextCompactedEvent:
         assert ev.data["compactedChars"] == stats.compacted_chars
 
     def test_no_event_for_small_output(self):
-        _, stats = compact_tool_output("small", max_output=10000)
+        _, stats = compact_tool_output("small", max_output=MAX_TOOL_OUTPUT_BASELINE)
         assert stats.chars_removed == 0
 
 
@@ -273,7 +278,7 @@ class TestRebuildReplaysLiveTurn:
             active_provider="test",
             db_path=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
-            max_context_tokens=128000,
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         )
         return AgentLoop(config, _BigReadProvider())
 
@@ -333,7 +338,7 @@ class TestSummarizeAndRebuildHolder:
             active_provider="test",
             db_path=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
-            max_context_tokens=128000,
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         )
         return AgentLoop(config, _BigReadProvider())
 
@@ -381,7 +386,7 @@ class TestPruneToolOutputs:
             active_provider="test",
             db_path=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
-            max_context_tokens=128000,
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         )
         return AgentLoop(config, _BigReadProvider())
 

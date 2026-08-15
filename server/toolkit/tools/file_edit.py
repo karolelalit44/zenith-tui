@@ -6,6 +6,7 @@ from typing import Any
 from server.config.constants import (
     BUILD_MODE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
+    FUZZY_THRESHOLD,
     PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
@@ -13,11 +14,8 @@ from server.config.constants import (
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
-FUZZY_THRESHOLD = 0.85
-
 
 def _unified_patch(rel_path: str, before: str, after: str) -> str:
-    """Render a compact unified diff for the edit (used outside git repos)."""
     return "".join(
         unified_diff(
             before.splitlines(keepends=True),

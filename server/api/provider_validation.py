@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from server.api import validation_state
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TEMPERATURE,
+)
 from server.persistence.connection import resolve_db_path
 from server.persistence.provider_config_repo import (
     read_provider_config_full,
@@ -145,11 +149,11 @@ def get_provider_list(db_path: str | None = None) -> ProviderListResponse:
         except Exception:
             pass
     if not Path(db_path).exists():
-        infos = [
+        catalog_infos = [
             build_provider_info(pid, {}, catalog, active) for pid in catalog.get("providers", {})
         ]
         return ProviderListResponse(
-            all=infos, active=active, connected=[], max_context_tokens=max_context_tokens
+            all=catalog_infos, active=active, connected=[], max_context_tokens=max_context_tokens
         )
     active = ""
     providers_dict: dict[str, Any] = {}
@@ -175,11 +179,6 @@ def get_provider_list(db_path: str | None = None) -> ProviderListResponse:
 
 
 def get_provider_catalog(db_path: str | None = None) -> list[ProviderCatalogItem]:
-    """Return only the available providers (id/name/type) — no models.
-
-    Single responsibility: the provider list API must not bundle the model
-    catalog; models are fetched separately via get_provider_models().
-    """
     db_path = db_path or resolve_db_path()
     catalog = load_catalog(db_path)
     providers = catalog.get("providers", {})
@@ -209,13 +208,6 @@ def get_provider_models(
     limit: int = 50,
     db_path: str | None = None,
 ) -> ProviderModelListResponse:
-    """Return the models for a single provider, taken from the authoritative
-    backend catalog/storage rather than any frontend hardcoded list.
-
-    Models are always read fresh from the database so newly configured models
-    (e.g. an expanded Groq/NVIDIA catalog) appear without a frontend patch.
-    Backend pagination is preferred; the caller may request offset/limit.
-    """
     db_path = db_path or resolve_db_path()
     catalog = load_catalog(db_path)
     active = ""
@@ -247,8 +239,8 @@ def set_provider_model(
         api_key="",
         model=model,
         base_url="",
-        max_tokens=4096,
-        temperature=0.7,
+        max_tokens=DEFAULT_LLM_MAX_TOKENS,
+        temperature=DEFAULT_LLM_TEMPERATURE,
         db_path=db_path,
         set_active=True,
     )

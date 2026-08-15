@@ -1,26 +1,15 @@
 import os
 import tempfile
-
-_test_tmpdir = tempfile.mkdtemp()
-_env_defaults = {
-    "ZENITH_DB_PATH": os.path.join(_test_tmpdir, "test.db"),
-    "ZENITH_LOG_LEVEL": "info",
-    "ZENITH_MAX_CONTEXT_TOKENS": "128000",
-    "ZENITH_SUMMARY_THRESHOLD": "0.8",
-    "ZENITH_BASH_TIMEOUT": "30",
-    "ZENITH_GIT_TIMEOUT": "30",
-    "ZENITH_WS_MAX_RECONNECT": "5",
-    "ZENITH_WS_RECONNECT_DELAY": "1000",
-    "ZENITH_WS_RPC_TIMEOUT": "60000",
-    "VITE_BACKEND_URL": "http://localhost:8765",
-    "VITE_BACKEND_FETCH_TIMEOUT": "5000",
-    "VITE_DEFAULT_MAX_TOKENS": "4096",
-    "VITE_DEFAULT_TEMPERATURE": "0.7",
-    "VITE_FALLBACK_MAX_TOKENS": "30000",
-}
-for key, val in _env_defaults.items():
-    os.environ.setdefault(key, val)
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# .env is the single source of truth for config; explicitly set env vars win.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+
+# DB stays isolated to a fresh temp file per test run, never the real zenith.db.
+_test_tmpdir = tempfile.mkdtemp()
+os.environ["ZENITH_DB_PATH"] = os.path.join(_test_tmpdir, "test.db")
 
 import pytest
 

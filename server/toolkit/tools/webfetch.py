@@ -2,27 +2,30 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from typing import Any
 
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     COST_CLASS_MEDIUM,
+    DEFAULT_USER_AGENT,
+    DEFAULT_WEB_TIMEOUT,
+    DEFAULT_WEBFETCH_MAX_BYTES,
     LATENCY_CLASS_HIGH,
     PERMISSION_NETWORK,
     RISK_LOW,
     TOOL_DOMAIN_WEB_MCP,
+    URL_SCHEME_RE,
+    WEBFETCH_MAX_BYTES_ENV,
+    WEBFETCH_TIMEOUT_ENV,
 )
+from server.config.env import optional_int
 
 from ..base import BaseTool, ToolResult
 from ._html_text import html_to_markdown
 
 logger = logging.getLogger(__name__)
 
-_USER_AGENT = "Mozilla/5.0 (compatible; Zenith-Agent/1.0; +https://example.invalid/zenith)"
-_DEFAULT_MAX_CHARS = 40000
-# Content fed to the extractor model is capped tighter so the extraction call
-# stays cheap and low-latency (Claude Code's WebFetch is "lossy by design").
+_DEFAULT_MAX_CHARS = optional_int(WEBFETCH_MAX_BYTES_ENV, DEFAULT_WEBFETCH_MAX_BYTES)
 _EXTRACT_MAX_CHARS = 25000
 
 
@@ -89,7 +92,7 @@ class WebfetchTool(BaseTool):
         url = params.get("url", "").strip()
         if not url:
             return ToolResult(success=False, error="No URL provided")
-        if not re.match(r"^https?://", url, re.IGNORECASE):
+        if not URL_SCHEME_RE.match(url):
             return ToolResult(success=False, error=f"Only http/https URLs are supported: {url}")
         try:
             max_chars = int(params.get("max_chars", _DEFAULT_MAX_CHARS))
@@ -100,7 +103,9 @@ class WebfetchTool(BaseTool):
             import httpx
 
             async with httpx.AsyncClient(
-                timeout=30, follow_redirects=True, headers={"User-Agent": _USER_AGENT}
+                timeout=optional_int(WEBFETCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT),
+                follow_redirects=True,
+                headers={"User-Agent": DEFAULT_USER_AGENT},
             ) as client:
                 response = await client.get(url)
                 response.raise_for_status()
@@ -109,7 +114,6 @@ class WebfetchTool(BaseTool):
             if "html" in content_type:
                 markdown = html_to_markdown(raw, max_chars=max_chars)
             else:
-                # Plain text / JSON / etc. — cap it and report.
                 markdown = raw[:max_chars]
             truncated = len(markdown) >= max_chars and len(raw) > max_chars
             if truncated:
@@ -130,7 +134,6 @@ class WebfetchTool(BaseTool):
                     metadata["extracted"] = True
                     metadata["source_chars"] = len(markdown)
                     return ToolResult(success=True, output=answer, metadata=metadata)
-                # Extraction failed; fall back to the full content with a note.
                 markdown = (
                     f"[Webfetch extraction was unavailable; page content follows]\n\n{markdown}"
                 )
@@ -144,7 +147,8 @@ class WebfetchTool(BaseTool):
             return ToolResult(success=False, error=f"Failed to fetch {url}: {e}")
 
     async def _extract_answer(self, content: str, question: str) -> str | None:
-        """Have a fast model answer `question` against `content` (lossy by design)."""
+        if self._provider is None:
+            return None
         try:
             excerpt = content[:_EXTRACT_MAX_CHARS]
             prompt = (

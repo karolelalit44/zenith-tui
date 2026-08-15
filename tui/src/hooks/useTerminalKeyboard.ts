@@ -17,7 +17,6 @@ interface UseTerminalKeyboardOptions {
   closeAllOverlays?: () => void;
   abort: () => void;
   abortActiveTurn: (events?: ScenarioEvent[]) => void;
-  markTurnSaved: (turnId: string) => void;
   clearTurns?: () => void;
   onToggleThinking?: () => void;
   scrollUp?: (lines?: number) => void;
@@ -44,7 +43,6 @@ export function useTerminalKeyboard({
   closeAllOverlays,
   abort,
   abortActiveTurn,
-  markTurnSaved,
   clearTurns,
   onToggleThinking,
   scrollUp,
@@ -69,7 +67,6 @@ export function useTerminalKeyboard({
     closeAllOverlays,
     abort,
     abortActiveTurn,
-    markTurnSaved,
     clearTurns,
     onToggleThinking,
     scrollUp,
@@ -96,7 +93,6 @@ export function useTerminalKeyboard({
       closeAllOverlays,
       abort,
       abortActiveTurn,
-      markTurnSaved,
       clearTurns,
       onToggleThinking,
       scrollUp,
@@ -169,9 +165,6 @@ export function useTerminalKeyboard({
         const targetEvents = opts.isRunning ? opts.events : targetTurn?.events || [];
         if (targetEvents.length > 0) {
           savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
-          if (targetTurn) {
-            opts.markTurnSaved(targetTurn.id);
-          }
         }
         return;
       }

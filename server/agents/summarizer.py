@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from typing import Any
 
+from server.config.constants import DEFAULT_SUMMARIZER_TIMEOUT, SUMMARIZER_TIMEOUT_ENV
+from server.config.env import optional_float
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.providers.base import BaseProvider
@@ -30,15 +33,16 @@ class ConversationSummarizer:
         conversation = "\n".join(f"[{m.role}]: {m.content}" for m in messages if m.content)
         prompt = self._build_prompt(conversation, previous_summary)
         try:
-            kwargs = {}
+            kwargs: dict[str, Any] = {}
+            provider: Any = self.provider
             if (
                 self.config.weak_model
-                and "model" in inspect.signature(self.provider.complete).parameters
+                and "model" in inspect.signature(provider.complete).parameters
             ):
                 kwargs["model"] = self.config.weak_model
             result = await asyncio.wait_for(
-                self.provider.complete([{"role": "user", "content": prompt}], **kwargs),
-                timeout=30.0,
+                provider.complete([{"role": "user", "content": prompt}], **kwargs),
+                timeout=optional_float(SUMMARIZER_TIMEOUT_ENV, DEFAULT_SUMMARIZER_TIMEOUT),
             )
         except TimeoutError:
             logger.warning("Summarization timed out, using fallback")

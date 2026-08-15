@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
+
+from server.config.constants import CHARS_PER_TOKEN, SUMMARY_FRAMING_TOKENS
 
 logger = logging.getLogger(__name__)
-_FRAMING_PER_MESSAGE = 4
 _REPLY_PRIMING = 2
 
 
@@ -24,7 +26,7 @@ def _encoding_name_for_model(model: str) -> str | None:
 
 class TokenCounter:
     def __init__(self) -> None:
-        self._encodings: dict[str, object] = {}
+        self._encodings: dict[str, Any] = {}
         self._available: bool = True
         try:
             from importlib.util import find_spec
@@ -38,7 +40,7 @@ class TokenCounter:
     def _resolve_encoding_name(self, model: str) -> str:
         return _encoding_name_for_model(model) or "cl100k_base"
 
-    def _get_encoding(self, model: str) -> object:
+    def _get_encoding(self, model: str) -> Any:
         if not self._available:
             return None
         if model not in self._encodings:
@@ -83,10 +85,10 @@ class TokenCounter:
                 logger.warning("count_messages skipping non-dict message: %s", type(msg).__name__)
                 continue
             total += self.count(msg.get("content", ""), model)
-            total += _FRAMING_PER_MESSAGE
+            total += SUMMARY_FRAMING_TOKENS
         total += _REPLY_PRIMING
         return total
 
     @staticmethod
     def _count_heuristic(text: str) -> int:
-        return max(1, len(text) // 4)
+        return max(1, len(text) // CHARS_PER_TOKEN)

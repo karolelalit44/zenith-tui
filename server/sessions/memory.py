@@ -5,10 +5,11 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from server.config.constants import MAX_FILE_CHARS
+
 logger = logging.getLogger(__name__)
 MEMORY_DIR = "memory"
 PROJECT_MEMORY_FILE = "PROJECT.md"
-MAX_FILE_CHARS = 8000
 NO_CONTEXT_SENTINEL = "No prior context available."
 _ROLLOVER_HEADER = "# Zenith memory (rolled over)"
 _PROJECT_HEADER = "# Zenith project memory (cross-session)"

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 
+from server.config.constants import ANSI_RE, CHARS_PER_TOKEN, MAX_TOOL_OUTPUT_BASELINE
+
 logger = logging.getLogger(__name__)
-ANSI_RE = re.compile(
-    "\\x1b\\[[0-9;?]*[A-Za-z]|\\x1b\\][^\\x07]*(?:\\x07|\\x1b\\\\)|\\x1b[PXQ^_][^\\x1b]*\\x1b\\\\|\\x1b[()][A-Za-z0-9]"
-)
-CHARS_PER_TOKEN = 4
 
 
 @dataclass
@@ -38,7 +35,9 @@ def head_tail_trim(text: str, max_chars: int) -> tuple[str, int]:
     return (text[:head] + marker + text[-tail:], omitted)
 
 
-def compact_tool_output(output: str, max_output: int = 10000) -> tuple[str, CompactionStats]:
+def compact_tool_output(
+    output: str, max_output: int = MAX_TOOL_OUTPUT_BASELINE
+) -> tuple[str, CompactionStats]:
     stats = CompactionStats(original_chars=len(output))
     compacted, n_ansi = strip_ansi(output)
     stats.ansi_sequences_removed = n_ansi

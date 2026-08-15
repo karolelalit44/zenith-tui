@@ -125,9 +125,11 @@ class BackgroundJobManager:
         if job.process.returncode is None:
             job.process.kill()
             try:
-                job.process.wait()
-            except Exception:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
                 pass
+            else:
+                loop.create_task(job.process.wait())
             return f"Job {job_id} killed"
         return f"Job {job_id} already terminated"
 

@@ -3,14 +3,19 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from server.config.constants import CONTEXT_SUMMARY_THRESHOLD, DEFAULT_CONTEXT_WINDOW
+from server.config.constants import (
+    CONTEXT_SUMMARY_THRESHOLD,
+    DEFAULT_CONTEXT_WINDOW,
+    LARGE_CONTEXT_WINDOW,
+    SMALL_CONTEXT_WINDOW,
+    SUMMARY_FRAMING_TOKENS,
+)
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.persistence.repositories import load_catalog
 from server.providers.token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
-SUMMARY_FRAMING_TOKENS = 4
 
 
 def _prompt_buffer(system_prompt: str) -> int:
@@ -31,15 +36,15 @@ def _get_model_context_window(model: str, fallback: int = DEFAULT_CONTEXT_WINDOW
 
 
 def _adaptive_reserve(model: str, context_window: int) -> int:
-    if context_window >= 200000:
+    if context_window >= LARGE_CONTEXT_WINDOW:
         return min(20000, context_window // 10)
     return max(4096, context_window // 5)
 
 
 def _adaptive_summary_threshold(model: str, context_window: int) -> float:
-    if context_window >= 200000:
+    if context_window >= LARGE_CONTEXT_WINDOW:
         return CONTEXT_SUMMARY_THRESHOLD
-    if context_window >= 32000:
+    if context_window >= SMALL_CONTEXT_WINDOW:
         return 0.8
     return 0.75
 
@@ -75,7 +80,6 @@ class ContextManager:
         self._aux_tokens = 0
 
     def set_aux_tokens(self, tokens: int) -> None:
-        """Account for out-of-message overhead such as offered tool schemas."""
         self._aux_tokens = max(0, int(tokens))
 
     def _resolve_context_window(self, model: str) -> int:

@@ -3,7 +3,6 @@ import { truncateEnd, truncateStart } from './text';
 import { getWorkspaceFolderName } from './workspacePath';
 
 export const FOOTER_EDGE_PAD = 4;
-export const FOOTER_MIN_CHIP_LEN = 8;
 export const FOOTER_GAUGE_BLOCKS = 10;
 const FOOTER_MIN_PROVIDER_LEN = 6;
 

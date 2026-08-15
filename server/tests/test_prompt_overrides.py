@@ -4,6 +4,7 @@ import json
 import pytest
 
 from server.agents.prompt_executor import ATTACHMENT_MAX_FILE, PromptExecutor, read_attachment
+from server.config.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
@@ -128,8 +129,8 @@ class TestProviderOverrides:
         assert observed["temperature"] == 0.2
         assert observed["max_tokens"] == 123
         assert provider.model == "base-model"
-        assert provider.temperature == 0.7
-        assert provider.max_tokens == 4096
+        assert provider.temperature == DEFAULT_LLM_TEMPERATURE
+        assert provider.max_tokens == DEFAULT_LLM_MAX_TOKENS
 
     @pytest.mark.asyncio
     async def test_no_override_when_not_provided(self, test_config, test_db):
@@ -138,8 +139,8 @@ class TestProviderOverrides:
         session = await executor._session_repo.create(Session(title="No Override"))
         await executor._execute(session.id, "hello", "build", None, None)
         assert provider.calls[0]["model"] == "base-model"
-        assert provider.calls[0]["temperature"] == 0.7
-        assert provider.calls[0]["max_tokens"] == 4096
+        assert provider.calls[0]["temperature"] == DEFAULT_LLM_TEMPERATURE
+        assert provider.calls[0]["max_tokens"] == DEFAULT_LLM_MAX_TOKENS
         assert provider.model == "base-model"
 
 

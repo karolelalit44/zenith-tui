@@ -48,6 +48,16 @@ def optional_int(key: str, default: int) -> int:
         return default
 
 
+def optional_int_none(key: str) -> int | None:
+    val = os.environ.get(key, "").strip()
+    if not val:
+        return None
+    try:
+        return int(val)
+    except ValueError:
+        return None
+
+
 def optional_float(key: str, default: float) -> float:
     val = os.environ.get(key, "").strip()
     if not val:
