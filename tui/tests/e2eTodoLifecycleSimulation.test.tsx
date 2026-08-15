@@ -53,7 +53,7 @@ describe('E2E: todo lifecycle pipeline', () => {
     expect(frame).not.toContain('☑ TODO BOARD');
 
     // Persistence was exercised: file must exist under the temp dir.
-    expect(() => readFileSync(path.join(tempDir, 'todo-lifecycle.json'), 'utf8')).not.toThrow();
+    expect(() => readFileSync(path.join(tempDir, 'todo-board.json'), 'utf8')).not.toThrow();
   });
 
   it('renders the live empty board early in the simulation', () => {

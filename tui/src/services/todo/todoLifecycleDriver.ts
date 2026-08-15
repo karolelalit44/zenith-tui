@@ -14,7 +14,7 @@ import type {
   TodoTestEvent,
   TodoTestRejectedOp,
 } from '../../types/scenario';
-import { type BoardPersistence, simOutputDir, TODO_LIFECYCLE_FILE, todoPersistence } from './todoPersistence';
+import { type BoardPersistence, boardOutputDir, TODO_BOARD_FILE, todoPersistence } from './todoPersistence';
 import { type OpResult, TodoStore } from './todoStore';
 
 export interface LifecycleDriverOptions {
@@ -461,7 +461,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     kind: 'tool_call',
     id: 'lc_tool_write',
     tool: 'write_file',
-    params: { path: 'data/simulation/todo-lifecycle.json', description: 'Board snapshot for the persist phase' },
+    params: { path: TODO_BOARD_FILE, description: 'Board snapshot for the persist phase' },
     text: 'Staging the board snapshot before the persist phase',
   });
   events.push({
@@ -471,7 +471,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     success: true,
     output: 'Staged board snapshot — 1 todo, 5 subtasks, priority urgent, status done.',
     error: '',
-    metadata: { path: 'data/simulation/todo-lifecycle.json', lines: 132 },
+    metadata: { path: TODO_BOARD_FILE, lines: 132 },
   });
 
   crew = {
@@ -501,8 +501,8 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
 
   // ── 8 · PERSIST — real file + fresh-store reload ──────────────────────
   const persist = scenario('persist', 'Persist board + verify after refresh/reload');
-  const outputDir = options.outputDir ?? simOutputDir();
-  const persistedPath = path.join(outputDir, TODO_LIFECYCLE_FILE);
+  const outputDir = options.outputDir ?? boardOutputDir();
+  const persistedPath = path.join(outputDir, TODO_BOARD_FILE);
   const persistence = options.persistence ?? todoPersistence;
   const board = store.snapshot();
 
@@ -510,7 +510,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
   const fresh = new TodoStore(persistence.load(persistedPath), { now: options.now });
   persist.assert(fresh.itemsCount() === 1, 'reloaded board has exactly 1 todo');
   persist.assert(deepEqual(board, fresh.snapshot()), 'board deep-equal after fresh-store reload');
-  persist.assert(persistedPath.endsWith(TODO_LIFECYCLE_FILE), 'persisted to todo-lifecycle.json');
+  persist.assert(persistedPath.endsWith(TODO_BOARD_FILE), 'persisted to todo-board.json');
 
   let missingFileError = '';
   try {

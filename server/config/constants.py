@@ -167,12 +167,6 @@ SKILL_ROOTS = ("skills", "agents/skills", ".zenith/skills", ".agent/skills")
 FUZZY_THRESHOLD = 0.85
 MAX_EVENT_OUTPUT = 5000
 
-BLOB_PREFIX = "@@zenith-blob:"
-LINES_PREFIX = "@@zenith-lines:"
-STRING_THRESHOLD = 5000
-LINES_THRESHOLD = 2000
-LINES_CHAR_BUDGET = STRING_THRESHOLD * 4
-
 ANSI_RE = re.compile(
     r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[PXQ^_][^\x1b]*\x1b\\|\x1b[()][A-Za-z0-9]"
 )

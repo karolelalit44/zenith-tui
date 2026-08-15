@@ -1,10 +1,11 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
+import path, { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LIFECYCLE_ORDER } from '../src/utils/todoLifecycle';
 import { type LifecycleRun, runTodoLifecycle } from '../src/services/todo/todoLifecycleDriver';
-import { TODO_LIFECYCLE_FILE, todoPersistence } from '../src/services/todo/todoPersistence';
+import { TODO_BOARD_FILE, boardOutputDir, todoPersistence } from '../src/services/todo/todoPersistence';
 import type { ScenarioEvent, TodoBoardEvent, TodoTestEvent } from '../src/types/scenario';
 
 let tempDir: string;
@@ -63,7 +64,7 @@ describe('runTodoLifecycle', () => {
 
   it('exercises real persistence: file written, fresh store reloads identical board', () => {
     const result = run(tempDir);
-    expect(result.persistedPath).toBe(path.join(tempDir, TODO_LIFECYCLE_FILE));
+    expect(result.persistedPath).toBe(path.join(tempDir, TODO_BOARD_FILE));
     expect(() => readFileSync(result.persistedPath, 'utf8')).not.toThrow();
 
     const reloaded = todoPersistence.load(result.persistedPath);
@@ -76,17 +77,9 @@ describe('runTodoLifecycle', () => {
     expect(reloadAssertion?.passed).toBe(true);
   });
 
-  it('uses the env override for the output directory when provided', () => {
-    const override = path.join(tempDir, 'env-override');
-    const prev = process.env.ZENITH_SIM_OUTPUT_DIR;
-    process.env.ZENITH_SIM_OUTPUT_DIR = override;
-    try {
-      const result = runTodoLifecycle();
-      expect(result.persistedPath.startsWith(override)).toBe(true);
-    } finally {
-      if (prev === undefined) delete process.env.ZENITH_SIM_OUTPUT_DIR;
-      else process.env.ZENITH_SIM_OUTPUT_DIR = prev;
-    }
+  it('uses the canonical data/simulation folder for the default board output', () => {
+    const repoSimRoot = path.resolve(dirname(fileURLToPath(import.meta.url)), '../../data/simulation');
+    expect(path.resolve(boardOutputDir())).toBe(repoSimRoot);
   });
 
   it('writes deterministic ids and ends with message + success events', () => {

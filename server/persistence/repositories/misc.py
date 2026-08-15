@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select
 
-from ..blob_store import BlobStore
 from ..connection import Database
 from ..models import (
     SessionCheckpointRecord,
@@ -71,7 +70,6 @@ class CheckpointRepository:
 class SyncEventRepository:
     def __init__(self, db: Database):
         self.db = db
-        self._blob_store = BlobStore.from_db_path(db.db_path)
 
     @safe_db("record_sync_event", table="sync_events")
     async def record(
@@ -90,7 +88,7 @@ class SyncEventRepository:
                     id=eid,
                     session_id=session_id,
                     event_type=event_type,
-                    event_data=json.dumps(self._blob_store.pack(event_data)),
+                    event_data=json.dumps(event_data),
                     sequence=seq,
                     created_at=created_at or datetime.now().isoformat(),
                 )
@@ -130,7 +128,7 @@ class SyncEventRepository:
         result = []
         for r in rows:
             d = {c.name: getattr(r, c.name) for c in SyncEventRecord.__table__.columns}
-            d["event_data"] = self._blob_store.unpack(json.loads(d["event_data"]))
+            d["event_data"] = json.loads(d["event_data"])
             result.append(d)
         return result
 
