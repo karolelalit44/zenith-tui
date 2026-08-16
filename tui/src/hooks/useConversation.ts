@@ -47,8 +47,9 @@ export function useConversation(): UseConversationReturn {
       const successEvent = t.events.find(
         (e): e is SuccessEvent => e.kind === 'success' && 'tokenInfo' in e && Boolean((e as SuccessEvent).tokenInfo),
       );
-      if (successEvent?.tokenInfo) {
-        return sum + successEvent.tokenInfo.used;
+      const reported = successEvent?.tokenInfo;
+      if (reported && !reported.estimated && reported.used > 0) {
+        return sum + reported.used;
       }
 
       return sum + estimateTokensForEvents(t.events);

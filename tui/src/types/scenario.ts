@@ -59,6 +59,8 @@ export interface TokenInfo {
   remaining: number;
   total: number;
   percent: number;
+  /** True when usage is estimated from characters, not reported by the provider. */
+  estimated?: boolean;
 }
 
 export interface SuccessEvent {

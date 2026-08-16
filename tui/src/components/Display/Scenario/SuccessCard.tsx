@@ -32,12 +32,16 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   ];
 
   // Duration in whole 1-second increments (updates only on 1s changes)
-  const fallbackElapsed = !isLiveRunning && turnEvents && turnEvents.length > 0 ? 1000 : 0;
-  const elapsedMs = isLiveRunning ? tick * 100 : (event.elapsedMs ?? fallbackElapsed);
-  const durationStr = elapsedMs > 0 ? formatDuration(elapsedMs) : '';
+  const elapsedMs = isLiveRunning ? tick * 100 : event.elapsedMs;
+  const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
 
-  // Used tokens calculation
-  const usedTokens = event.tokenInfo?.used ?? (turnEvents ? estimateTokensForEvents(turnEvents) : 0);
+  // Used tokens calculation. Trust provider-reported usage only when it is a
+  // real, non-zero figure; fall back to the frontend estimate when usage is
+  // missing, zero, or estimated from characters.
+  const reportedUsed = event.tokenInfo?.used ?? 0;
+  const usageIsUnknown =
+    reportedUsed <= 0 || event.tokenInfo?.estimated === true || event.tokenInfo === undefined;
+  const usedTokens = usageIsUnknown ? (turnEvents ? estimateTokensForEvents(turnEvents) : 0) : reportedUsed;
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 
   const metricsParts: string[] = [];

@@ -522,6 +522,43 @@ class TestFileDeleteTool:
         assert result.metadata.get("entries", 0) == 3
 
 
+class TestBraceExpansion:
+    def test_no_braces_passthrough(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("**/*.py") == ["**/*.py"]
+
+    def test_single_group(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("*.{py,ts}") == ["*.py", "*.ts"]
+
+    def test_multiple_groups_cartesian(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("src/{a,b}/**/*.{py,ts}") == [
+            "src/a/**/*.py",
+            "src/a/**/*.ts",
+            "src/b/**/*.py",
+            "src/b/**/*.ts",
+        ]
+
+    def test_nested_groups(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("{a,{b,c}}.py") == ["a.py", "b.py", "c.py"]
+
+    def test_unbalanced_braces_passthrough(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("{broken.py") == ["{broken.py"]
+
+    def test_dedupe_overlapping(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("{a,a}.py") == ["a.py"]
+
+
 class TestGlobTool:
     @pytest.mark.asyncio
     async def test_glob_matches(self, temp_dir):
@@ -547,6 +584,29 @@ class TestGlobTool:
         (temp_dir / "top.py").write_text("")
         tool = GlobTool()
         result = await tool.execute({"pattern": "**/*.py"}, str(temp_dir))
+        assert result.success
+        assert result.metadata["count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_glob_brace_expansion(self, temp_dir):
+        (temp_dir / "a.py").write_text("")
+        (temp_dir / "b.ts").write_text("")
+        (temp_dir / "c.tsx").write_text("")
+        (temp_dir / "d.txt").write_text("")
+        tool = GlobTool()
+        result = await tool.execute({"pattern": "*.{ts,tsx}"}, str(temp_dir))
+        assert result.success
+        assert result.metadata["count"] == 2
+        assert {Path(f).name for f in result.metadata["files"]} == {"b.ts", "c.tsx"}
+
+    @pytest.mark.asyncio
+    async def test_glob_brace_expansion_recursive(self, temp_dir):
+        (temp_dir / "sub").mkdir()
+        (temp_dir / "sub" / "deep.py").write_text("")
+        (temp_dir / "sub" / "deep.ts").write_text("")
+        (temp_dir / "top.js").write_text("")
+        tool = GlobTool()
+        result = await tool.execute({"pattern": "**/*.{py,ts}"}, str(temp_dir))
         assert result.success
         assert result.metadata["count"] == 2
 
@@ -590,6 +650,37 @@ class TestGrepTool:
         result = await tool.execute({"pattern": "hello", "include": "*.py"}, str(temp_dir))
         assert result.success
         assert result.metadata["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_grep_include_brace_expansion(self, temp_dir):
+        (temp_dir / "a.ts").write_text("const x = 'hello'")
+        (temp_dir / "b.tsx").write_text("const x = 'hello'")
+        (temp_dir / "c.md").write_text("hello there")
+        tool = GrepTool()
+        result = await tool.execute({"pattern": "hello", "include": "*.{ts,tsx}"}, str(temp_dir))
+        assert result.success
+        assert result.metadata["count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_grep_broad_search_prunes_excluded_dirs(self, temp_dir):
+        import server.toolkit.tools.grep as grep_mod
+
+        (temp_dir / "keep.py").write_text("needle in keep")
+        excluded = temp_dir / "node_modules"
+        excluded.mkdir()
+        (excluded / "bloat.py").write_text("needle in node_modules")
+
+        searched = []
+
+        def _spy(path, *_a, **_k):
+            searched.append(Path(path))
+            yield from []
+
+        grep_mod._iter_source_files = _spy
+        tool = GrepTool()
+        result = await tool.execute({"pattern": "needle"}, str(temp_dir))
+        assert result.success
+        assert not any("node_modules" in str(p) for p in searched), "excluded dir must not be traversed"
 
     @pytest.mark.asyncio
     async def test_grep_invalid_regex(self, temp_dir):

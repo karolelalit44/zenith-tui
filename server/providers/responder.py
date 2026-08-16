@@ -80,11 +80,18 @@ def warning(message: str, session_id: str, code: str = "", extra: dict | None = 
 
 
 def success(
-    message: str, session_id: str, iterations: int = 0, token_info: dict | None = None
+    message: str,
+    session_id: str,
+    iterations: int = 0,
+    token_info: dict | None = None,
+    elapsed_ms: int | None = None,
 ) -> Event:
     data: dict = {"message": message, "iterations": iterations}
     if token_info:
         data["tokenInfo"] = token_info
+    if elapsed_ms is not None:
+        data["elapsedMs"] = elapsed_ms
+        data["duration"] = elapsed_ms
     return event(EventKind.SUCCESS, data, session_id)
 
 

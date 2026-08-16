@@ -400,10 +400,18 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
       return changedMasks.get(index);
     };
 
+    const isAllAdd = lines.length > 0 && lines.every((l) => l.type === 'add');
+    const containerBg = isAllAdd ? theme.colors.diff.addBg : theme.colors.code.background;
+
     return (
       <Box flexDirection="column" width="100%" marginTop={0} marginBottom={1}>
-        {/* Git Native Diff Container */}
-        <Box flexDirection="column" width="100%">
+        {/* Unified Diff & File View Container with top and bottom padding */}
+        <Box
+          flexDirection="column"
+          width="100%"
+          paddingY={1}
+          backgroundColor={containerBg}
+        >
           {lines.map((line, index) => renderLine(line, index, theme, effectiveLang, maskFor, hasBoth, isUnifiedDiff))}
         </Box>
       </Box>

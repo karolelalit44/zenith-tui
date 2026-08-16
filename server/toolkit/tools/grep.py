@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from server.config.constants import (
 )
 
 from ..base import BaseTool, ToolResult
+from ..brace_expand import expand_braces
 
 
 def _is_excluded(rel_path: Path, excluded_dirs: set[str], excluded_files: set[str]) -> bool:
@@ -26,6 +28,38 @@ def _is_excluded(rel_path: Path, excluded_dirs: set[str], excluded_files: set[st
     if filename in excluded_files:
         return True
     return len(rel_path.parts) == 1 and rel_path.parts[0] in excluded_dirs
+
+
+def _iter_source_files(
+    root: Path, excluded_dirs: set[str], excluded_files: set[str], include_ignored: bool
+):
+    """Yield files under root, pruning excluded directories before descending.
+
+    Avoids the expensive `Path.glob("**/*")` walk that descends into
+    node_modules/.git/.venv before filtering them out.
+    """
+    stack: list[Path] = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            continue
+        dirs: list[str] = []
+        for entry in entries:
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if is_dir:
+                name = entry.name
+                if include_ignored or (name not in excluded_dirs and not name.startswith(".git")):
+                    dirs.append(entry.path)
+                continue
+            if entry.name in excluded_files:
+                continue
+            yield Path(entry.path)
+        stack.extend(reversed(dirs))
 
 
 class GrepTool(BaseTool):
@@ -60,7 +94,7 @@ class GrepTool(BaseTool):
                 },
                 "include": {
                     "type": "string",
-                    "description": "File pattern filter (e.g. '*.py', '*.ts', 'src/**')",
+                    "description": "File pattern filter (e.g. '*.py', '*.ts', 'src/**', '*.{ts,tsx}')",
                 },
                 "include_ignored": {
                     "type": "boolean",
@@ -107,17 +141,28 @@ class GrepTool(BaseTool):
                 if include_ignored or not _is_excluded(rel, excluded_dirs, excluded_files):
                     files_to_search = [search_path]
             else:
-                glob_pattern = include if include else "**/*"
-                for f in search_path.glob(glob_pattern):
-                    if not f.is_file():
-                        continue
-                    try:
-                        rel = f.relative_to(base)
-                    except ValueError:
-                        rel = f
-                    if not include_ignored and _is_excluded(rel, excluded_dirs, excluded_files):
-                        continue
-                    files_to_search.append(f)
+                patterns = expand_braces(include) if include else ["**/*"]
+                for glob_pattern in patterns:
+                    if glob_pattern in ("**", "**/*"):
+                        for f in _iter_source_files(
+                            search_path, excluded_dirs, excluded_files, include_ignored
+                        ):
+                            files_to_search.append(f)
+                            if len(files_to_search) >= GREP_MAX_FILES:
+                                break
+                    else:
+                        for f in search_path.glob(glob_pattern):
+                            if not f.is_file():
+                                continue
+                            try:
+                                rel = f.relative_to(base)
+                            except ValueError:
+                                rel = f
+                            if not include_ignored and _is_excluded(rel, excluded_dirs, excluded_files):
+                                continue
+                            files_to_search.append(f)
+                            if len(files_to_search) >= GREP_MAX_FILES:
+                                break
                     if len(files_to_search) >= GREP_MAX_FILES:
                         break
 

@@ -116,6 +116,7 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
                 remaining: Number((d.tokenInfo as Record<string, unknown>).remaining) || 0,
                 total: Number((d.tokenInfo as Record<string, unknown>).total) || 0,
                 percent: Number((d.tokenInfo as Record<string, unknown>).percent) || 0,
+                estimated: (d.tokenInfo as Record<string, unknown>).estimated === true,
               }
             : undefined,
       };

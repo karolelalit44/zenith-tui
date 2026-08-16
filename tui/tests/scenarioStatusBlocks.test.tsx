@@ -11,6 +11,7 @@ import { ThemeProvider } from '../src/theme/ThemeContext';
 import type {
   MessageEvent,
   ProgressEvent,
+  ScenarioEvent,
   SuccessEvent,
   ThinkingEvent,
   ToolStepEvent,
@@ -153,6 +154,76 @@ describe('SuccessCard manifest enrichment', () => {
       </ThemeProvider>,
     );
     expect(lastFrame()).toContain('✓ Turn complete');
+  });
+});
+
+describe('SuccessCard token usage and duration', () => {
+  const renderSuccess = (event: SuccessEvent, turnEvents?: ScenarioEvent[]) =>
+    render(
+      <ThemeProvider>
+        <SuccessCard event={event} turnEvents={turnEvents} />
+      </ThemeProvider>,
+    );
+
+  it('shows provider-reported token usage when used > 0', () => {
+    const success: SuccessEvent = {
+      kind: 'success',
+      id: 's1',
+      message: 'done',
+      tokenInfo: { used: 1500, remaining: 98000, total: 100000, percent: 0.015 },
+    };
+    const { lastFrame } = renderSuccess(success);
+    expect(lastFrame()).toContain('1.5k tokens');
+  });
+
+  it('shows the turn duration from elapsedMs on a completed turn', () => {
+    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done', elapsedMs: 3200 };
+    const { lastFrame } = renderSuccess(success);
+    expect(lastFrame()).toContain('3 s');
+  });
+
+  it('does not show a fabricated duration when elapsedMs is missing', () => {
+    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done' };
+    const { lastFrame } = renderSuccess(success);
+    expect(lastFrame()).not.toContain(' s');
+  });
+
+  it('falls back to the frontend estimate when tokenInfo is missing', () => {
+    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done' };
+    const turnEvents: ScenarioEvent[] = [
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'A fairly long assistant response that carries enough characters to exceed zero tokens.',
+        partial: false,
+      },
+      {
+        kind: 'thinking',
+        id: 't1',
+        thoughts: ['Some internal reasoning text spanning many characters so the estimate is meaningful.'],
+      },
+    ];
+    const { lastFrame } = renderSuccess(success, turnEvents);
+    expect(lastFrame()).toContain('tokens');
+  });
+
+  it('falls back to the estimate when tokenInfo.used is zero (estimated usage)', () => {
+    const success: SuccessEvent = {
+      kind: 'success',
+      id: 's1',
+      message: 'done',
+      tokenInfo: { used: 0, remaining: 0, total: 0, percent: 0, estimated: true },
+    };
+    const turnEvents: ScenarioEvent[] = [
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'A long message body used to drive the estimation fallback path forward.',
+        partial: false,
+      },
+    ];
+    const { lastFrame } = renderSuccess(success, turnEvents);
+    expect(lastFrame()).toContain('tokens');
   });
 });
 

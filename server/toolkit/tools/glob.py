@@ -16,6 +16,7 @@ from server.config.constants import (
 )
 
 from ..base import BaseTool, ToolResult
+from ..brace_expand import expand_braces
 
 
 def _is_excluded(rel_path: Path, excluded_dirs: set[str], excluded_files: set[str]) -> bool:
@@ -81,6 +82,7 @@ class GlobTool(BaseTool):
                     "type": "string",
                     "description": (
                         "Glob pattern, preferably scoped to a subdirectory (e.g. 'server/**/*.py'). "
+                        "Brace expansion is supported (e.g. 'src/**/*.{ts,tsx}'). "
                         "Default exclusions (.git, node_modules, .venv, __pycache__) are applied automatically."
                     ),
                 },
@@ -118,18 +120,19 @@ class GlobTool(BaseTool):
 
         try:
             matched_rel_paths: list[Path] = []
-            for f in search_path.glob(pattern):
-                if not f.is_file():
-                    continue
-                try:
-                    rel = f.relative_to(base)
-                except ValueError:
-                    rel = f
-                if not include_ignored and _is_excluded(rel, excluded_dirs, excluded_files):
-                    continue
-                matched_rel_paths.append(rel)
+            for variant in expand_braces(pattern):
+                for f in search_path.glob(variant):
+                    if not f.is_file():
+                        continue
+                    try:
+                        rel = f.relative_to(base)
+                    except ValueError:
+                        rel = f
+                    if not include_ignored and _is_excluded(rel, excluded_dirs, excluded_files):
+                        continue
+                    matched_rel_paths.append(rel)
 
-            matched_rel_paths.sort()
+            matched_rel_paths = sorted(set(matched_rel_paths))
             total = len(matched_rel_paths)
             if total == 0:
                 return ToolResult(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections import Counter
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -296,6 +297,7 @@ class AgentLoop:
         repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
         sequence = self.accept()
+        self._run_started_at = time.monotonic()
         _reset_usage = getattr(self.provider, "_reset_cumulative_usage", None)
         if callable(_reset_usage):
             _reset_usage()
@@ -1154,6 +1156,10 @@ class AgentLoop:
             post_write_checks,
         )
         yield r.turn_manifest(manifest, session_id)
+        _started_at = getattr(self, "_run_started_at", None)
+        elapsed_ms = (
+            round((time.monotonic() - _started_at) * 1000) if _started_at is not None else None
+        )
         yield _with_manifest(
             r.success(
                 success_message,
@@ -1171,6 +1177,7 @@ class AgentLoop:
                     "estimated": is_estimated,
                     "mode": mode,
                 },
+                elapsed_ms=elapsed_ms,
             )
         )
 

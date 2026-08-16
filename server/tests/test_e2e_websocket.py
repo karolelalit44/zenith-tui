@@ -280,6 +280,7 @@ async def test_ws_prompt_full_event_pipeline(echo_server):
         success_data = success_evt["params"]["data"]
         assert "message" in success_data
         assert "iterations" in success_data
+        assert success_data.get("elapsedMs", 0) > 0, "success event must report the turn duration"
 
 
 @pytest.mark.asyncio
