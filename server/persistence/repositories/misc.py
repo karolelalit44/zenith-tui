@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import uuid as _uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import delete, func, select
 
 from ..connection import Database
 from ..models import (
+    AppSettingRecord,
     SessionCheckpointRecord,
     SessionDraftRecord,
     SessionStatusHistoryRecord,
@@ -237,3 +239,53 @@ class DraftRepository:
                 result["context"] = json.loads(result["context"])
                 return result
             return None
+
+
+class AppSettingsRepository:
+    def __init__(self, db: Database):
+        self.db = db
+
+    @safe_db("get_app_setting", table="app_settings")
+    async def get(self, key: str, default: Any | None = None) -> Any:
+        async with self.db.session() as s:
+            rec = (
+                await s.execute(select(AppSettingRecord).where(AppSettingRecord.key == key))
+            ).scalar_one_or_none()
+            if rec is not None:
+                try:
+                    return json.loads(rec.value)
+                except (json.JSONDecodeError, TypeError):
+                    return rec.value
+            return default
+
+    @safe_db("set_app_setting", table="app_settings")
+    async def set(self, key: str, value: Any) -> None:
+        val_str = json.dumps(value) if not isinstance(value, str) else value
+        async with self.db.session() as s:
+            rec = (
+                await s.execute(select(AppSettingRecord).where(AppSettingRecord.key == key))
+            ).scalar_one_or_none()
+            if rec is not None:
+                rec.value = val_str
+            else:
+                s.add(AppSettingRecord(key=key, value=val_str))
+            await s.commit()
+
+    @safe_db("get_all_app_settings", table="app_settings")
+    async def get_all(self) -> dict[str, Any]:
+        async with self.db.session() as s:
+            rows = (await s.execute(select(AppSettingRecord))).scalars().all()
+            settings = {}
+            for r in rows:
+                try:
+                    settings[r.key] = json.loads(r.value)
+                except (json.JSONDecodeError, TypeError):
+                    settings[r.key] = r.value
+            return settings
+
+    @safe_db("delete_app_setting", table="app_settings")
+    async def delete(self, key: str) -> bool:
+        async with self.db.session() as s:
+            res = await s.execute(delete(AppSettingRecord).where(AppSettingRecord.key == key))
+            await s.commit()
+            return res.rowcount > 0

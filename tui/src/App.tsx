@@ -275,10 +275,17 @@ export const App: React.FC = () => {
     setRetryTarget(null);
   }, [abort, abortActiveTurn, eventsRef]);
 
+  const handleNewChat = useCallback(() => {
+    setActiveSessionId(null);
+    clearTurns();
+    setRetryTarget(null);
+    setContinueTarget(null);
+  }, [setActiveSessionId, clearTurns]);
+
   const commandCtx = useMemo<CommandRunContext>(
     () => ({
       openOverlay,
-      clearTurns,
+      clearTurns: handleNewChat,
       clearTools: handleClearTools,
       setMode: handleModeSelect,
       openModelPicker: () => openOverlay('models'),
@@ -290,7 +297,7 @@ export const App: React.FC = () => {
     }),
     [
       openOverlay,
-      clearTurns,
+      handleNewChat,
       handleClearTools,
       handleModeSelect,
       handleSetShowPalette,
@@ -348,7 +355,7 @@ export const App: React.FC = () => {
     closeAllOverlays,
     abort,
     abortActiveTurn,
-    clearTurns,
+    clearTurns: handleNewChat,
     onToggleThinking: toggleThinking,
     scrollUp,
     scrollDown,

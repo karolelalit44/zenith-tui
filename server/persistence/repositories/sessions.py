@@ -131,6 +131,8 @@ class SessionRepository:
             rows = (await s.execute(stmt)).scalars().all()
             return [self._record_to_session(r) for r in rows]
 
+    list = list_all
+
     @safe_db("list_sessions", table="sessions")
     async def get_summaries(self, limit: int = 10, include_archived: bool = False) -> list[dict]:
         async with self.db.session() as s:
@@ -277,6 +279,8 @@ class MessageRepository:
                 srec.updated_at = datetime.now().isoformat()
             await s.commit()
         return message
+
+    append = create
 
     @safe_db("get_messages", table="messages")
     async def get_by_session(self, session_id: str, limit: int = 50) -> list[Message]:
