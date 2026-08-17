@@ -1,4 +1,12 @@
-## Project facts — 2026-08-17T17:15:00
+## Project facts — 2026-08-17T17:07:41
+- User favorite color: Blue
+- User pet's name: Rex
+- User location: New York City
+- Project name: Zenith (zenith-frontend-tui)
+- Frontend framework: React with Ink
+- Backend configuration: Python 3.12 on port 8765 with WebSocket JSON-RPC (ZENITH_PORT=8765, VITE_BACKEND_URL=http://127.0.0.1:8765)
+- Database: SQLite
+- Linter: Ruff
 - Project name: Zenith
 - Frontend technology: Ink and React
 - Backend: Python 3.12 on port 8765 with WebSocket JSON-RPC
