@@ -62,18 +62,25 @@ async def test_summary_rehydration_and_persistence(db, tmp_path):
         SkillLoader(str(config.workspace_root)),
     )
 
-    # 2. Execute prompt and verify initial_summary was loaded
+    # 2. Execute prompt; the completed turn schedules a background running summary.
     await executor._execute("test-summary-sess-1", "Hi", "build", None, None)
 
-    # 3. Simulate summary update in agent loop
+    # 3. Await the background summary task so no DB I/O outlives the test teardown.
+    task = executor._summary_scheduler._tasks.get("test-summary-sess-1")
+    if task is not None:
+        await task
+
+    # 4. The async running summary refreshed the persisted session summary
+    #    (todo 3.13-3.14: per-turn write-back, freshest wins).
+    db_sess = await session_repo.get("test-summary-sess-1")
+    assert db_sess is not None
+    assert db_sess.metadata.get("summary") == "Hello back!"
+
+    # 5. Simulate summary update in agent loop
     agent = AgentLoop(config, provider)
     agent.set_summary("Updated summary: user asked for help.")
 
-    # 4. Verify db session metadata update
-    db_sess = await session_repo.get("test-summary-sess-1")
-    assert db_sess is not None
-    assert db_sess.metadata.get("summary") == "Previous summary: user built FastAPI app."
-
+    # 6. Manual write-back still lands and rehydrates.
     db_sess.metadata["summary"] = agent.summary
     await session_repo.update(db_sess)
 

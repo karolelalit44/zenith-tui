@@ -11,6 +11,7 @@ from server.config.settings import AGENT_MODES
 from server.domain.message import Message
 from server.persistence.connection import Database
 from server.persistence.repositories import MessageRepository, SessionRepository
+from server.persistence.repositories.workspace import SessionWorkspaceRepository
 from server.sessions.export import SessionExporter
 from server.sessions.service import DefaultSessionService, SessionService
 from server.skills.loader import SkillLoader
@@ -74,6 +75,7 @@ class MethodHandlers:
         self._permission_service: DefaultPermissionService | None = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
+        self._workspace_repo = SessionWorkspaceRepository(db)
 
     def reload_config(self) -> None:
         from server.config.loader import load_config
@@ -116,6 +118,9 @@ class MethodHandlers:
             "workspace.diff": lambda: self._workspace_diff(ws, rid, params),
             "workspace.log": lambda: self._workspace_log(ws, rid, params),
             "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
+            "memory.list": lambda: self._memory_list(ws, rid, params),
+            "memory.add": lambda: self._memory_add(ws, rid, params),
+            "memory.delete": lambda: self._memory_delete(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
         }
         handler = handlers.get(method)
@@ -187,6 +192,12 @@ class MethodHandlers:
             session = await svc.resume(sid)
         except ValueError:
             pass
+        try:
+            from server.agents.session_workspace import load_from_db
+
+            await load_from_db(sid, self._workspace_repo)
+        except Exception:
+            pass
         messages = await svc.get_history(sid)
         replayed = 0
         if self.manager:
@@ -254,6 +265,13 @@ class MethodHandlers:
             return
         svc = self._resolve_service()
         await svc.delete(sid)
+        try:
+            await self._workspace_repo.delete_session(sid)
+        except Exception:
+            pass
+        from server.agents.session_workspace import reset_session
+
+        reset_session(sid)
         if self.manager:
             self.manager.drop_buffer(sid)
         await ws.send_text(make_response(rid, {"status": "deleted"}))
@@ -481,6 +499,11 @@ class MethodHandlers:
             return session_id
         session_id = resolved_session
         user_msg = Message(session_id=session_id, role="user", content=content)
+        user_msg.metadata["mode"] = params.get("mode", BUILD_MODE)
+        if temperature is not None:
+            user_msg.metadata["temperature"] = temperature
+        if max_tokens is not None:
+            user_msg.metadata["max_tokens"] = max_tokens
         if model_override:
             user_msg.metadata["model"] = model_override
         if attachments:
@@ -505,6 +528,7 @@ class MethodHandlers:
                 self.session_repo,
                 self.message_repo,
                 self.skill_loader,
+                workspace_repo=self._workspace_repo,
             )
             self._session_executors[session_id] = executor
             executor.run(
@@ -673,3 +697,48 @@ class MethodHandlers:
         if self._session_service is not None:
             return self._session_service
         return DefaultSessionService(session_repo=self.session_repo, message_repo=self.message_repo)
+
+    async def _memory_list(self, ws, rid, params) -> None:
+        from server.sessions.memory import MemoryStore
+
+        store = MemoryStore(self.config.workspace_root)
+        text = store.load_plain()
+        await ws.send_text(make_response(rid, {"memory": text}))
+
+    async def _memory_add(self, ws, rid, params) -> None:
+        from server.sessions.memory import MemoryStore
+
+        key = params.get("key", "").strip()
+        value = params.get("value", "").strip()
+        if not key:
+            await ws.send_text(make_error_response(rid, -32602, "key is required"))
+            return
+        store = MemoryStore(self.config.workspace_root)
+        entry = f"- **{key}**: {value}" if value else f"- {key}"
+        store.append_project(entry)
+        await ws.send_text(make_response(rid, {"status": "ok", "key": key}))
+
+    async def _memory_delete(self, ws, rid, params) -> None:
+        from server.sessions.memory import MemoryStore
+
+        key = params.get("key", "").strip()
+        if not key:
+            await ws.send_text(make_error_response(rid, -32602, "key is required"))
+            return
+        store = MemoryStore(self.config.workspace_root)
+        project_path = store.project_path()
+        if not project_path.exists():
+            await ws.send_text(make_response(rid, {"deleted": False}))
+            return
+        text = project_path.read_text(encoding="utf-8", errors="replace")
+        lines = text.split("\n")
+        new_lines = []
+        deleted = False
+        for line in lines:
+            if key in line and line.strip().startswith("-"):
+                deleted = True
+                continue
+            new_lines.append(line)
+        if deleted:
+            project_path.write_text("\n".join(new_lines), encoding="utf-8")
+        await ws.send_text(make_response(rid, {"deleted": deleted}))

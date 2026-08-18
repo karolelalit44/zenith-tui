@@ -15,13 +15,16 @@ from server.config.constants import (
     BUILD_MODE,
     CHARS_PER_TOKEN,
     COMPACTION_KEEP_TAIL,
-    CONTEXT_SUMMARY_THRESHOLD,
+    CONTEXT_EXHAUSTED_HINT,
+    CONTEXT_EXHAUSTED_MESSAGE,
     EPHEMERAL_TOOL_WINDOW_SIZE,
     FILE_DELETE_TOOL,
     FILE_EDIT_TOOL,
     FILE_OVERWRITE_PARAM,
+    FILE_READ_TOOL,
     FILE_WRITE_TOOL,
     GET_TOOL_DEFINITION_TOOL,
+    HARD_STOP_USAGE_RATIO,
     LARGE_CONTEXT_WINDOW,
     MANIFEST_CHECKS_CAP,
     PLAN_MODE,
@@ -59,7 +62,13 @@ from .context import ContextManager, _adaptive_reserve, _get_model_context_windo
 from .llm_stream import StreamState, stream_completion
 from .loop_detection import LoopDetector
 from .prompts import build_plan_system_prompt, build_system_prompt
-from .session_workspace import is_identical_replay, known_files, record_edit, record_write
+from .session_state import render_session_state
+from .session_workspace import (
+    is_identical_replay,
+    record_edit,
+    record_read,
+    record_write,
+)
 from .validation import reflection_error_limit, schemas_to_openai_tools
 
 _format_tool_result = format_tool_result
@@ -379,6 +388,8 @@ class AgentLoop:
             plan_block=plan_context,
             use_system_prompt=model_use_system_prompt,
             repo_map=repo_map,
+            session_id=session_id,
+            project_memory=self._load_project_memory(),
         )
         self._inject_session_state(messages, session_id)
         base_len = len(messages)
@@ -402,7 +413,24 @@ class AgentLoop:
             ):
                 yield _ev
             messages = _rebuild_holder[0]
+        if self.context_manager.is_context_exhausted(messages, model, self.provider):
+            yield r.turn_manifest(
+                _build_manifest(set(), [], False, False, "", self.config.workspace_root, []),
+                session_id,
+            )
+            yield r.error(
+                CONTEXT_EXHAUSTED_MESSAGE,
+                session_id,
+                code="CONTEXT_EXHAUSTED",
+                action="retry",
+                hint=CONTEXT_EXHAUSTED_HINT,
+            )
+            return
         if self.is_cancelled(sequence):
+            yield r.turn_manifest(
+                _build_manifest(set(), [], False, False, "", self.config.workspace_root, []),
+                session_id,
+            )
             yield r.warning("Request was cancelled before starting", session_id, code="CANCELLED")
             return
         messages = self._apply_prompt_caching(messages)
@@ -462,6 +490,18 @@ class AgentLoop:
             safety_iterations = self._resolve_safety_iterations(model)
             while iteration < safety_iterations:
                 if self.is_cancelled(sequence):
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                        ),
+                        session_id,
+                    )
                     yield r.warning("Request cancelled", session_id, code="CANCELLED")
                     return
                 if task_completed and post_comp_iterations >= 1:
@@ -471,7 +511,7 @@ class AgentLoop:
                 if task_completed:
                     post_comp_iterations += 1
                 token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                if token_info.percent > CONTEXT_SUMMARY_THRESHOLD:
+                if token_info.percent >= self.config.context_compaction_threshold:
                     logger.warning(
                         "Context window %.1f%% full — summarizing", token_info.percent * 100
                     )
@@ -492,14 +532,14 @@ class AgentLoop:
                         yield ev
                     messages = _rebuild_holder[0]
                     token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                    if token_info.percent > 0.95:
+                    if token_info.percent >= HARD_STOP_USAGE_RATIO:
                         yield _with_manifest(
                             r.error(
-                                "Context window exhausted even after summarization",
+                                CONTEXT_EXHAUSTED_MESSAGE,
                                 session_id,
                                 code="CONTEXT_EXHAUSTED",
                                 action="retry",
-                                hint="Start a new session to free up context.",
+                                hint=CONTEXT_EXHAUSTED_HINT,
                             )
                         )
                         return
@@ -541,9 +581,33 @@ class AgentLoop:
                             turn_errored = True
                         yield event
                 except ZenithError:
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                        ),
+                        session_id,
+                    )
                     return
                 if turn_errored:
                     consecutive_failures += 1
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                        ),
+                        session_id,
+                    )
                     return
                 if context_exceeded:
                     logger.info("Context exceeded at runtime — summarizing")
@@ -631,8 +695,20 @@ class AgentLoop:
                     task_completed = True
                     break
                 if not self.tool_registry:
-                    yield r.error("No tool registry available", session_id)
-                    break
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                        ),
+                        session_id,
+                    )
+                    yield _with_manifest(r.error("No tool registry available", session_id))
+                    return
                 if self.tool_registry:
                     for tc in tool_calls:
                         t_name = tc.get("tool")
@@ -926,6 +1002,8 @@ class AgentLoop:
                                 record_write(session_id, p, tool_params.get("content", ""))
                             elif tool_name == FILE_EDIT_TOOL:
                                 record_edit(session_id, p)
+                            elif tool_name == FILE_READ_TOOL:
+                                record_read(session_id, p)
                             if tool_name in (FILE_EDIT_TOOL, FILE_WRITE_TOOL):
                                 files_edited.append(p)
                             change_seq += 1
@@ -1127,6 +1205,7 @@ class AgentLoop:
             1, _total_completion_chars // 4
         )
         is_estimated = cum_usage.get("total_tokens", 0) == 0
+        tier_breakdown = self.context_manager.token_breakdown(messages).to_dict()
         if mode == BUILD_MODE and tools_used and (not created_files):
             yield r.warning(
                 "Build completed but no files were created. The model output text instead of using file_write.",
@@ -1176,6 +1255,13 @@ class AgentLoop:
                     "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
                     "estimated": is_estimated,
                     "mode": mode,
+                    "ttft_ms": getattr(self.provider, "_last_ttft_ms", None),
+                    "tierBreakdown": tier_breakdown,
+                    "stale_reads_evicted": self.context_manager._last_stale_count,
+                    "cache_hit_rate": round(
+                        cum_usage.get("cached_tokens", 0) / max(prompt_tokens, 1),
+                        4,
+                    ),
                 },
                 elapsed_ms=elapsed_ms,
             )
@@ -1192,7 +1278,11 @@ class AgentLoop:
         )
         used = token_info.used if token_info else 0
         total = token_info.total if token_info else 0
-        yield r.context_compaction_started(session_id, reason, used, total)
+        before_breakdown = (
+            self.context_manager.token_breakdown(messages or []) if messages else None
+        )
+        before_tiers = before_breakdown.to_dict() if before_breakdown else None
+        yield r.context_compaction_started(session_id, reason, used, total, tokens=before_tiers)
         yield r.context_compaction_phase(
             session_id, "preserving", "Preserving active working state & recent files..."
         )
@@ -1223,9 +1313,6 @@ class AgentLoop:
             self._summary = await ConversationSummarizer(self.config, self.provider).summarize(
                 target, model, session_id=session_id, previous_summary=self._summary
             )
-            yield r.context_compaction_phase(
-                session_id, "verifying", "Verifying token savings & rebuilt context..."
-            )
             after_token_info = (
                 self.context_manager.get_token_info(messages or [], model, self.provider)
                 if messages
@@ -1242,6 +1329,19 @@ class AgentLoop:
                     max(0, target_tokens - self.context_manager.count_tokens(self._summary, model))
                     + pruned["tokens_saved"]
                 )
+            after_breakdown = (
+                self.context_manager.token_breakdown(messages or []) if messages else None
+            )
+            after_tiers = after_breakdown.to_dict() if after_breakdown else None
+            yield r.context_compaction_phase(
+                session_id,
+                "verifying",
+                "Verifying token savings & rebuilt context...",
+                before_tokens=used,
+                after_tokens=after_used,
+                tokens_before=before_tiers,
+                tokens_after=after_tiers,
+            )
 
             yield r.context_compaction_ended(
                 session_id,
@@ -1250,9 +1350,20 @@ class AgentLoop:
                 total,
                 tokens_saved=tokens_saved,
                 summary_chars=len(self._summary),
+                tokens_before=before_tiers,
+                tokens_after=after_tiers,
             )
         except Exception as e:
             logger.warning("Summarization failed: %s", e)
+            yield r.context_compaction_ended(
+                session_id,
+                reason,
+                used,
+                total,
+                failed=True,
+                tokens_before=before_tiers,
+                tokens_after=before_tiers,
+            )
 
     def _prune_tool_outputs(
         self,
@@ -1322,6 +1433,7 @@ class AgentLoop:
         plan_context: str,
         use_system_prompt: bool,
         repo_map: str | None,
+        session_id: str | None = None,
     ) -> list[dict]:
         live_tail = messages[base_len:]
         rebuilt = self.context_manager.build_messages(
@@ -1333,6 +1445,7 @@ class AgentLoop:
             plan_block=plan_context,
             use_system_prompt=use_system_prompt,
             repo_map=repo_map,
+            session_id=session_id,
         )
         if live_tail:
             compacted_tail = []
@@ -1406,6 +1519,7 @@ class AgentLoop:
                 plan_context,
                 use_system_prompt,
                 repo_map,
+                session_id=session_id,
             )
         )
 
@@ -1425,10 +1539,18 @@ class AgentLoop:
         if catalog.get("adapter") == "gemini":
             return messages
         cached = [dict(msg) for msg in messages]
-        for i in range(min(2, len(cached))):
-            cached[i]["cache_control"] = {"type": "ephemeral"}
-        if len(cached) >= 1:
-            cached[-1]["cache_control"] = {"type": "ephemeral"}
+        boundaries = self.context_manager.tier_boundaries()
+        breakpoint_indices = []
+        if boundaries["t0_end"] > 0:
+            breakpoint_indices.append(boundaries["t0_end"])
+        if boundaries["t1_end"] > boundaries["t0_end"]:
+            breakpoint_indices.append(boundaries["t1_end"])
+        if boundaries["t2_end"] > boundaries["t1_end"]:
+            breakpoint_indices.append(boundaries["t2_end"])
+        breakpoint_indices = breakpoint_indices[:4]
+        for idx in breakpoint_indices:
+            if 0 <= idx - 1 < len(cached):
+                cached[idx - 1]["cache_control"] = {"type": "ephemeral"}
         return cached
 
     @staticmethod
@@ -1442,25 +1564,22 @@ class AgentLoop:
 
     @staticmethod
     def _inject_session_state(messages: list[dict], session_id: str) -> None:
-        existing = known_files(session_id)
-        if not existing:
+        content = render_session_state(session_id)
+        if content is None:
             return
-        lines = [
-            (
-                "[Session state] Files you already created or modified earlier in this session "
-                "(they exist on disk; do not re-create or re-write them unless you are changing "
-                "them):"
-            )
-        ]
-        for path in sorted(existing):
-            rec = existing[path]
-            lines.append(f"- {path} ({rec.size} bytes, content hash {rec.content_hash[:10]})")
-        lines.append(
-            "If you need to modify one of these, read it first (file_read), then use "
-            "file_edit for a targeted change."
-        )
-        state_msg = {"role": "system", "content": "\n".join(lines)}
+        state_msg = {"role": "system", "content": content}
         idx = 1
         while idx < len(messages) and messages[idx].get("role") == "system":
             idx += 1
         messages.insert(idx, state_msg)
+
+    def _load_project_memory(self) -> str:
+        from server.sessions.memory import MemoryStore
+
+        try:
+            store = MemoryStore(self.config.workspace_root)
+            if store.project_path().exists():
+                return store.project_path().read_text(encoding="utf-8", errors="replace").strip()
+        except Exception:
+            logger.debug("Failed to load project memory", exc_info=True)
+        return ""

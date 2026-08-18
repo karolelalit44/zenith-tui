@@ -406,12 +406,7 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
     return (
       <Box flexDirection="column" width="100%" marginTop={0} marginBottom={1}>
         {/* Unified Diff & File View Container with top and bottom padding */}
-        <Box
-          flexDirection="column"
-          width="100%"
-          paddingY={1}
-          backgroundColor={containerBg}
-        >
+        <Box flexDirection="column" width="100%" paddingY={1} backgroundColor={containerBg}>
           {lines.map((line, index) => renderLine(line, index, theme, effectiveLang, maskFor, hasBoth, isUnifiedDiff))}
         </Box>
       </Box>

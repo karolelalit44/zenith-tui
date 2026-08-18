@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, PrimaryKeyConstraint, Text, TypeDecorator
+from sqlalchemy import (
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    PrimaryKeyConstraint,
+    Text,
+    TypeDecorator,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from server.config.constants import (
@@ -344,3 +353,51 @@ class PermissionRecord(Base):
 
 Index("idx_permissions_tool", PermissionRecord.tool_name)
 Index("idx_permissions_session", PermissionRecord.session_id)
+
+
+class SessionWorkspaceRecord(Base):
+    __tablename__ = "session_workspace"
+    __table_args__ = (
+        UniqueConstraint("session_id", "path", name="uq_session_workspace_session_path"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    size: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    writes: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    edits: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_read_at: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
+    last_edited_at: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+Index("idx_session_workspace_session", SessionWorkspaceRecord.session_id)
+Index(
+    "idx_session_workspace_session_path",
+    SessionWorkspaceRecord.session_id,
+    SessionWorkspaceRecord.path,
+    unique=True,
+)
+
+
+class ProjectMemoryRecord(Base):
+    """DB-backed project-level memory (cross-session learnings)."""
+
+    __tablename__ = "project_memory"
+    __table_args__ = (UniqueConstraint("workspace_root", "key", name="uq_project_memory_ws_key"),)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_root: Mapped[str] = mapped_column(Text, nullable=False)
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+Index(
+    "idx_project_memory_ws",
+    ProjectMemoryRecord.workspace_root,
+)

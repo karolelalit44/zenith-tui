@@ -118,6 +118,21 @@ def load_config(workspace_root: str = ".") -> AppSettings:
         hooks_cfg = parse_hooks_env(hooks_raw)
         if hooks_cfg:
             data["hooks"] = hooks_cfg
+    compaction_raw = os.environ.get("ZENITH_CONTEXT_COMPACTION_THRESHOLD", "").strip()
+    if compaction_raw:
+        try:
+            val = float(compaction_raw)
+            if 0.0 <= val <= 1.0:
+                data["context_compaction_threshold"] = val
+            else:
+                logger.warning(
+                    "ZENITH_CONTEXT_COMPACTION_THRESHOLD must be in [0,1], got %r — ignored",
+                    compaction_raw,
+                )
+        except ValueError:
+            logger.warning(
+                "Invalid ZENITH_CONTEXT_COMPACTION_THRESHOLD %r — ignored", compaction_raw
+            )
     settings = AppSettings(**data)
     _validate_config(settings)
     return settings

@@ -7,7 +7,7 @@ import { useTheme } from '../../theme/ThemeContext';
 
 interface SessionBrowserModalProps {
   onClose: () => void;
-  onResume: (sessionId: string, summary: SessionSummary) => void;
+  onResume: (sessionId: string, summary: SessionSummary, messages?: Record<string, unknown>[]) => void;
 }
 
 function formatSessionTime(isoStr: string): string {
@@ -118,9 +118,9 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
       if (resuming) return;
       setResuming(true);
       try {
-        await wsClient.resumeSession(s.id);
-        onResume(s.id, s);
-      } catch {
+        const result = await wsClient.resumeSession(s.id);
+        onResume(s.id, s, result.messages);
+      } catch (err) {
         if (mounted.current) {
           setResuming(false);
           setError('Failed to resume session.');

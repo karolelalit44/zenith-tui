@@ -40,3 +40,22 @@ def test_require_active_provider_config_missing():
         assert False, "Should have raised"
     except ValueError as e:
         assert "not configured" in str(e)
+
+
+def test_context_compaction_threshold_default():
+    """New budget setting defaults to the import-time ZENITH_* default when unset."""
+    config = AppSettings()
+    assert 0.0 <= config.context_compaction_threshold <= 1.0
+
+
+def test_load_config_context_compaction_threshold_env_override(monkeypatch, temp_dir):
+    """A new ZENITH_* scalar env var is honored by load_config() at load time (task 0.3)."""
+    monkeypatch.setenv("ZENITH_CONTEXT_COMPACTION_THRESHOLD", "0.62")
+    config = load_config(str(temp_dir))
+    assert abs(config.context_compaction_threshold - 0.62) < 1e-9
+
+
+def test_load_config_context_compaction_threshold_invalid_ignored(monkeypatch, temp_dir):
+    monkeypatch.setenv("ZENITH_CONTEXT_COMPACTION_THRESHOLD", "not-a-number")
+    config = load_config(str(temp_dir))
+    assert 0.0 <= config.context_compaction_threshold <= 1.0

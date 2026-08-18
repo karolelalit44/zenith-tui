@@ -16,6 +16,9 @@ CONTEXT_SUMMARY_THRESHOLD = 0.85
 DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
 PLAN_MODE = "plan"
+READ_ONLY_MODE = "read_only"
+
+READ_ONLY_TOOLS = ["file_read", "glob", "grep", "list_dir"]
 
 COMPACTION_SIM_TOTAL_TOKENS = 128_000
 COMPACTION_SIM_USED_TOKENS = 118_000
@@ -24,11 +27,34 @@ COMPACTION_SIM_SUMMARY_CHARS = 12_000
 
 CHARS_PER_TOKEN = 4
 SUMMARY_FRAMING_TOKENS = 4
+MIN_OUTPUT_RESERVE_TOKENS = 8_000
+HARD_STOP_USAGE_RATIO = 0.95
+CONTEXT_EXHAUSTED_MESSAGE = "Context window exhausted even after summarization"
+CONTEXT_EXHAUSTED_HINT = "Start a new session to free up context."
 COMPACTION_KEEP_TAIL = 8
 SKIP_WARNING_CAP = 6
 SUMMARY_MIN_CHARS = 40
 BG_OUTPUT_TAIL = 800
 MANIFEST_CHECKS_CAP = 5
+RUNNING_SUMMARY_MESSAGE_LIMIT = 50
+SESSION_STATE_MAX_TOKENS = 400
+SESSION_STATE_MAX_FILES = 50
+SESSION_STATE_MARKER = "[Session state]"
+SESSION_STATE_HASH_PREFIX_LEN = 10
+SESSION_STATE_ENTRY_MAX_CHARS = 200
+SESSION_STATE_INTRO = (
+    "Files you already created or modified earlier in this session (they exist on "
+    "disk; do not re-create or re-write them unless you are changing them):"
+)
+SESSION_STATE_OUTRO = (
+    "If you need to modify one of these, read it first (file_read), then use "
+    "file_edit for a targeted change."
+)
+
+STALE_TOKEN_MULTIPLIER = 2
+HEAVY_TOOL_THRESHOLD_TOKENS = 5000
+PROJECT_MEMORY_MAX_TOKENS = 500
+PROJECT_MEMORY_MAX_ENTRIES = 20
 
 SMALL_CONTEXT_WINDOW = 32_000
 LARGE_CONTEXT_WINDOW = 200_000

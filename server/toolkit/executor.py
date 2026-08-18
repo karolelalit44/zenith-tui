@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time as _time
 from pathlib import Path
 
@@ -40,6 +41,23 @@ def redact_tool_params(tool_params: dict) -> dict:
         else:
             redacted[key] = value
     return redacted
+
+
+_SECRET_PATTERNS = [
+    (
+        re.compile(r"(?:api[_-]?key|token|secret|password|credential)\s*[=:]\s*\S+", re.IGNORECASE),
+        "***",
+    ),
+    (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "***"),
+    (re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{20,}"), "Bearer ***"),
+]
+
+
+def redact_pii(text: str) -> str:
+    """Strip common secret/PII patterns from text before persistence."""
+    for pat, replacement in _SECRET_PATTERNS:
+        text = pat.sub(replacement, text)
+    return text
 
 
 def validate_tool_calls(

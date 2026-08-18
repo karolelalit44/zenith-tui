@@ -191,6 +191,71 @@ class TestModeGating:
             assert "not available" in result.error
 
 
+class TestReadOnlyModeGating:
+    READ_ONLY_MUTATION_TOOLS = [
+        "file_write",
+        "file_edit",
+        "file_delete",
+        "bash",
+        "agent",
+        "todo",
+        "job_kill",
+        "multi_edit",
+        "lsp_rename",
+    ]
+
+    def test_read_only_mode_schemas_exclude_all_mutation_tools(self):
+        reg = create_default_registry()
+        from server.config.settings import READ_ONLY_MODE_CONFIG
+
+        schemas = reg.get_schemas_for_mode(
+            "read_only",
+            allowed_mcp={},
+            allowed_tools=READ_ONLY_MODE_CONFIG.allowed_tools,
+        )
+        schema_names = {s["name"] for s in schemas}
+        for name in self.READ_ONLY_MUTATION_TOOLS:
+            assert name not in schema_names, f"{name} leaked into read_only schemas"
+
+    def test_read_only_mode_includes_pure_read_tools(self):
+        reg = create_default_registry()
+        from server.config.settings import READ_ONLY_MODE_CONFIG
+
+        schemas = reg.get_schemas_for_mode(
+            "read_only",
+            allowed_mcp={},
+            allowed_tools=READ_ONLY_MODE_CONFIG.allowed_tools,
+        )
+        schema_names = {s["name"] for s in schemas}
+        for name in ("file_read", "glob", "grep", "list_dir"):
+            assert name in schema_names, f"{name} missing from read_only schemas"
+
+    @pytest.mark.asyncio
+    async def test_read_only_mode_execution_rejects_build_only_tools(self):
+        reg = create_default_registry()
+        for name in ("bash", "agent", "todo"):
+            result = await reg.execute(name, {}, ".", mode="read_only")
+            assert not result.success
+            assert "not available" in result.error
+
+    def test_read_only_openai_tools_match_seed(self):
+        from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
+        from server.agents.validation import schemas_to_openai_tools
+        from server.config.settings import READ_ONLY_MODE_CONFIG
+
+        reg = create_default_registry()
+        resolver = SchemaResolver(
+            reg, seed=build_mode_tool_seed(READ_ONLY_MODE_CONFIG.allowed_tools)
+        )
+        tools = schemas_to_openai_tools(resolver.schemas("read_only"))
+        names = {t["function"]["name"] for t in tools}
+        expected = set(READ_ONLY_MODE_CONFIG.allowed_tools) | {
+            "discover_capabilities",
+            "get_tool_definition",
+        }
+        assert names == expected
+
+
 class TestPlanWriteGuard:
     @pytest.mark.asyncio
     async def test_plan_write_to_plan_md_allowed(self, temp_dir):
@@ -680,7 +745,9 @@ class TestGrepTool:
         tool = GrepTool()
         result = await tool.execute({"pattern": "needle"}, str(temp_dir))
         assert result.success
-        assert not any("node_modules" in str(p) for p in searched), "excluded dir must not be traversed"
+        assert not any("node_modules" in str(p) for p in searched), (
+            "excluded dir must not be traversed"
+        )
 
     @pytest.mark.asyncio
     async def test_grep_invalid_regex(self, temp_dir):

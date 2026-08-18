@@ -756,10 +756,11 @@ class LLMProvider(BaseProvider):
         async for chunk in stream:
             if first_chunk_time is None:
                 first_chunk_time = time.monotonic()
+                self._last_ttft_ms = round((first_chunk_time - t0) * 1000)
                 logger.info(
                     "API FIRST CHUNK model=%s time_to_first_chunk=%.0fms",
                     self._litellm_model,
-                    (first_chunk_time - t0) * 1000,
+                    self._last_ttft_ms,
                 )
             chunk_count += 1
             delta = chunk.choices[0].delta if chunk.choices else None

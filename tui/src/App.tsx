@@ -39,6 +39,7 @@ import { useTheme } from './theme/ThemeContext';
 import type { ScenarioEvent, ScenarioMode, TurnManifestEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
+import { convertHistoryToTurns } from './utils/historyToTurns';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 
 /**
@@ -96,6 +97,7 @@ export const App: React.FC = () => {
     completeActiveTurn,
     abortActiveTurn,
     clearTurns,
+    loadTurns,
     remountStatic,
   } = useConversation();
 
@@ -262,11 +264,16 @@ export const App: React.FC = () => {
   }, []);
 
   const handleSessionResume = useCallback(
-    (sessionId: string, _summary: SessionSummary) => {
+    (sessionId: string, _summary: SessionSummary, messages?: Record<string, unknown>[]) => {
       setActiveSessionId(sessionId);
-      clearTurns();
+      const turns = convertHistoryToTurns(messages ?? [], selectedMode);
+      if (turns.length > 0) {
+        loadTurns(turns);
+      } else {
+        clearTurns();
+      }
     },
-    [setActiveSessionId, clearTurns],
+    [setActiveSessionId, clearTurns, loadTurns, selectedMode],
   );
 
   const handleCancel = useCallback(() => {

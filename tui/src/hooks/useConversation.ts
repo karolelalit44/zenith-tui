@@ -26,6 +26,7 @@ export interface UseConversationReturn {
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: (events?: ScenarioEvent[]) => void;
   clearTurns: () => void;
+  loadTurns: (turns: ConversationTurn[]) => void;
   remountStatic: () => void;
 }
 
@@ -159,6 +160,12 @@ export function useConversation(): UseConversationReturn {
     process.stdout.write('\x1B[2J\x1B[H');
   }, []);
 
+  const loadTurns = useCallback((newTurns: ConversationTurn[]) => {
+    setTurns(newTurns);
+    setStaticKey((k) => k + 1);
+    process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+  }, []);
+
   return {
     turns,
     completedTurns,
@@ -169,6 +176,7 @@ export function useConversation(): UseConversationReturn {
     completeActiveTurn,
     abortActiveTurn,
     clearTurns,
+    loadTurns,
     remountStatic,
   };
 }

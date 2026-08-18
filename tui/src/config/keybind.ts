@@ -1,5 +1,3 @@
-import type { KeyBinding } from '@inkjs/ui';
-
 export type KeybindScheme = 'default' | 'vim';
 
 export interface KeybindAction {
@@ -99,4 +97,58 @@ export function formatKey(key: string): string {
 export function matchesKeybinding(scheme: KeybindScheme, actionId: string, input: string): boolean {
   const keys = getKeyForAction(scheme, actionId);
   return keys.some((k) => k.toLowerCase() === input.toLowerCase());
+}
+
+export type InkKey = {
+  return?: boolean;
+  escape?: boolean;
+  tab?: boolean;
+  upArrow?: boolean;
+  downArrow?: boolean;
+  leftArrow?: boolean;
+  rightArrow?: boolean;
+  pageUp?: boolean;
+  pageDown?: boolean;
+  delete?: boolean;
+  backspace?: boolean;
+  ctrl?: boolean;
+  shift?: boolean;
+  meta?: boolean;
+};
+
+export type KeybindId = string;
+
+export interface Keybinding {
+  description: string;
+  keys: string[];
+}
+
+export const KEYBINDINGS: Record<string, Keybinding> = Object.fromEntries(
+  keybindActions.map((a) => [a.id, { description: a.description, keys: [...a.keys] }]),
+);
+
+export function formatKeyBind(id: KeybindId): string {
+  const action = keybindActions.find((a) => a.id === id);
+  if (!action) return id.toUpperCase();
+  return formatKey(action.keys[0] ?? id);
+}
+
+export function matchKeypress(input: string, key: InkKey): string[] {
+  const matched: string[] = [];
+  if (key.ctrl || key.meta) {
+    if (input === 'p') matched.push('palette');
+    if (input === 'm') matched.push('model_picker');
+    if (input === 'h') matched.push('thinking');
+    if (input === 's') matched.push('save_plan');
+    if (input === 'l') matched.push('clear_turns');
+    if (input === 'u') matched.push('clear_input');
+    if (input === 'r') matched.push('expand_history');
+    if (input === 'j') matched.push('compaction');
+    if (input === 'z') matched.push('undo');
+  }
+  if (key.return && !key.shift && !key.ctrl && !key.meta) matched.push('submit');
+  if (key.return && (key.shift || key.ctrl || key.meta)) matched.push('newline');
+  if (key.upArrow) matched.push('history_up');
+  if (key.downArrow) matched.push('history_down');
+  return matched;
 }

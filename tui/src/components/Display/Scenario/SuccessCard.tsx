@@ -31,16 +31,21 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
     theme.colors.status.info,
   ];
 
-  // Duration in whole 1-second increments (updates only on 1s changes)
-  const elapsedMs = isLiveRunning ? tick * 100 : event.elapsedMs;
+  // Duration in whole 1-second increments (updates only on 1s changes).
+  // Prefer the server-reported elapsedMs; the shared tick is a render signal,
+  // not a clock, so only fall back to it while a value is still missing.
+  // NOTE: the synthesized live status row carries elapsedMs: 0, which is a
+  // missing value, not a real measurement — a nullish-coalesce would treat 0
+  // as truthy and freeze the timer at zero, so compare explicitly.
+  const reportedElapsedMs = event.elapsedMs ?? 0;
+  const elapsedMs = reportedElapsedMs > 0 ? reportedElapsedMs : isLiveRunning ? tick * 100 : undefined;
   const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
 
   // Used tokens calculation. Trust provider-reported usage only when it is a
   // real, non-zero figure; fall back to the frontend estimate when usage is
   // missing, zero, or estimated from characters.
   const reportedUsed = event.tokenInfo?.used ?? 0;
-  const usageIsUnknown =
-    reportedUsed <= 0 || event.tokenInfo?.estimated === true || event.tokenInfo === undefined;
+  const usageIsUnknown = reportedUsed <= 0 || event.tokenInfo?.estimated === true || event.tokenInfo === undefined;
   const usedTokens = usageIsUnknown ? (turnEvents ? estimateTokensForEvents(turnEvents) : 0) : reportedUsed;
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 

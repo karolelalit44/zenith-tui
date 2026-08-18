@@ -43,6 +43,22 @@ class _StallProvider(BaseProvider):
         return ["stall-model"]
 
 
+class _HighUsageProvider(_StallProvider):
+    """Reports >=95% of the context window as used; summarizer may run once,
+    but the main turn must be hard-stopped with a retry hint."""
+
+    def __init__(self):
+        super().__init__()
+        self._cumulative_usage = {"total_tokens": 127000}
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        return "Summary of prior work. Keep it short."
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        raise AssertionError("stream must never be reached during a context hard stop")
+
+
 async def _stream_from_complete(self, messages, tools=None, tool_choice=None, response_format=None):
     """Reusable stream() that drives complete() per char (same as _StallProvider)."""
     response = await self.complete(messages, tools)
@@ -152,6 +168,38 @@ async def test_loop_hard_stops_on_repeated_identical_calls(test_config):
     # breaks at the top-of-loop task_completed check. Definitely not a runaway.
     assert provider.call_count <= 3, f"loop re-invoked the LLM {provider.call_count} times"
     assert events[-1].kind == EventKind.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_high_usage_hard_stops_before_calling_the_llm(temp_dir):
+    """3.7: used >= 95% of the window -> CONTEXT_EXHAUSTED hard stop + retry hint.
+
+    The summarizer may run once (provider-reported usage also trips the
+    compaction watermark), but the loop must refuse the main request and emit
+    the retry hint instead of streaming a final answer.
+    """
+    provider = _HighUsageProvider()
+    config = AppSettings(
+        providers={"test": ProviderConfig(model="test-model", is_active=True)},
+        active_provider="test",
+        db_path=str(temp_dir / "test.db"),
+        workspace_root=str(temp_dir),
+    )
+    agent = AgentLoop(config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Do the work", "s1", [], "build"):
+        events.append(event)
+
+    errors = [e for e in events if e.kind == EventKind.ERROR]
+    assert len(errors) == 1
+    assert errors[0].data.get("code") == "CONTEXT_EXHAUSTED"
+    assert errors[0].data.get("action") == "retry"
+    assert errors[0].data.get("hint")
+    assert errors[0] is events[-1], "hard-stop error must be the final event"
+    assert provider.call_count <= 1, (
+        f"main turn must not be streamed; got {provider.call_count} calls"
+    )
 
 
 @pytest.mark.asyncio
@@ -424,3 +472,120 @@ async def test_stall_finalize_emits_turn_manifest(test_config):
     success_events = [e for e in events if e.kind == EventKind.SUCCESS]
     assert len(success_events) == 1
     assert "manifest" in success_events[0].data, "stall success missing manifest payload"
+
+
+class _CancelledProvider(BaseProvider):
+    def __init__(self):
+        super().__init__("cancel", "cancel-model")
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        yield ("message", "Working...")
+        yield ("done", None)
+
+    async def complete(self, messages, tools=None):
+        return "Working..."
+
+    async def validate(self):
+        return True
+
+    async def list_models(self):
+        return ["cancel-model"]
+
+
+class _ErrorProvider(BaseProvider):
+    def __init__(self):
+        super().__init__("err", "err-model")
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        yield ("message", "Partial")
+        yield ("error", {"error": "rate limit", "code": "RATE_LIMIT", "recoverable": True})
+
+    async def complete(self, messages, tools=None):
+        return "Partial"
+
+    async def validate(self):
+        return True
+
+    async def list_models(self):
+        return ["err-model"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_start_emits_manifest(test_config):
+    """4.6: cancel before loop starts emits turn_manifest + terminal warning."""
+    agent = AgentLoop(test_config, _CancelledProvider())
+    agent._cancel_sequence = 10**9
+    events = []
+    async for event in agent.process_prompt("Go", "s1", [], "build"):
+        events.append(event)
+    kinds = [e.kind for e in events]
+    assert EventKind.TURN_MANIFEST in kinds, "turn_manifest missing on cancel-before-start"
+    assert EventKind.WARNING in kinds, "warning missing on cancel-before-start"
+
+
+@pytest.mark.asyncio
+async def test_context_exhausted_pre_loop_emits_manifest(test_config):
+    """4.6: context exhausted before loop starts emits turn_manifest + error."""
+    from server.domain.events import EventKind
+
+    agent = AgentLoop(test_config, _ErrorProvider())
+    agent.context_manager = _ExhaustedContextManager()
+    events = []
+    async for event in agent.process_prompt("Go", "s1", [], "build"):
+        events.append(event)
+    kinds = [e.kind for e in events]
+    assert EventKind.TURN_MANIFEST in kinds, "turn_manifest missing on context-exhausted"
+    assert EventKind.ERROR in kinds, "error missing on context-exhausted"
+
+
+@pytest.mark.asyncio
+async def test_stream_error_emits_manifest(test_config):
+    """4.6: ZenithError from stream emits turn_manifest before returning."""
+    from server.domain.events import EventKind
+    from server.domain.errors import ZenithError
+
+    class _StreamErrorProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("se", "se-model")
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            raise ZenithError("boom")
+            yield  # make it a generator
+
+        async def complete(self, messages, tools=None):
+            return ""
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["se-model"]
+
+    agent = AgentLoop(test_config, _StreamErrorProvider())
+    events = []
+    async for event in agent.process_prompt("Go", "s1", [], "build"):
+        events.append(event)
+    kinds = [e.kind for e in events]
+    assert EventKind.TURN_MANIFEST in kinds, "turn_manifest missing on stream error"
+
+
+class _ExhaustedContextManager:
+    def build_messages(self, *a, **kw):
+        return [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}]
+
+    def is_context_exhausted(self, messages, model, provider):
+        return True
+
+    def get_token_info(self, messages, model, provider):
+        from server.agents.context import TokenInfo
+
+        return TokenInfo(used=1000, total=1000, remaining=0, percent=1.0)
+
+    def t0_len(self):
+        return 1
+
+    def set_aux_tokens(self, tokens):
+        pass
+
+    def should_summarize(self, messages, model, provider):
+        return False

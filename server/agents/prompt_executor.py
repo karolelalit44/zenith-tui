@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import server.providers.responder as r
 from server.agents.context import ContextManager
 from server.agents.recovery import RecoverableAgentLoop
+from server.agents.running_summary import RunningSummaryScheduler
 from server.agents.sub_agent import SubAgentLoop
 from server.config.constants import (
     ATTACHMENT_MAX_FILE,
@@ -31,6 +32,10 @@ if TYPE_CHECKING:
     from server.skills.loader import SkillLoader
     from server.toolkit.registry import ToolRegistry
 logger = logging.getLogger(__name__)
+
+# When a worker turn produced files and its raw last-emitted text is this long, fold it into
+# a weak-model summary so the persisted assistant hand-off stays compact (§3.3 of the design).
+_HANDOFF_SUMMARY_CHARS = 800
 
 
 def _read_file_head(path: str | Path) -> bytes:
@@ -66,6 +71,74 @@ async def read_attachment(path: str, workspace_root: str | Path) -> tuple[str | 
         return (None, f"read failed: {e}")
 
 
+def _turn_manifest_from_events(collected_events: list[Event]) -> dict | None:
+    """Extract the last TURN_MANIFEST payload (the crafted created/modified/verified record)."""
+    manifest: dict | None = None
+    for ev in collected_events or []:
+        if ev.kind == EventKind.TURN_MANIFEST and isinstance(ev.data, dict):
+            m = ev.data.get("manifest")
+            if isinstance(m, dict):
+                manifest = m
+    return manifest
+
+
+def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | None:
+    """Build a deterministic, terse assistant hand-off from the turn manifest.
+
+    Shape: `Created: <files> | Modified: <files> | Verified: <bool>` then the model's own
+    last emitted text as the body. Rich enough for the next prompt, never empty.
+    Returns ``None`` when nothing of substance happened and there is no body text.
+    """
+    parts: list[str] = []
+    if manifest:
+        created = [str(p) for p in (manifest.get("created") or [])]
+        modified = [str(p) for p in (manifest.get("modified") or [])]
+        if created:
+            parts.append("Created: " + ", ".join(created))
+        if modified:
+            parts.append("Modified: " + ", ".join(modified))
+        if created or modified:
+            parts.append("Verified: " + ("true" if manifest.get("verified") else "false"))
+        remaining = manifest.get("remaining") or []
+        if remaining:
+            snippet = (str(remaining[0]) or "").strip()
+            if snippet:
+                parts.append("Remaining: " + snippet[:160])
+    header = " | ".join(parts)
+    body = (response_text or "").strip()
+    if header and body:
+        return f"{header}\n\n{body}"
+    if body:
+        return body
+    return header or None
+
+
+def _did_work(manifest: dict | None) -> bool:
+    if not manifest:
+        return False
+    return bool((manifest.get("created") or []) or (manifest.get("modified") or []))
+
+
+def _handoff_messages(collected_events: list[Event], response_text: str) -> list[Message]:
+    """Flatten the typed event stream into Message objects for weak-model summarization."""
+    msgs: list[Message] = []
+    for ev in collected_events or []:
+        if ev.kind == EventKind.MESSAGE and ev.data.get("text"):
+            msgs.append(
+                Message(
+                    session_id=ev.session_id or "",
+                    role="assistant",
+                    content=str(ev.data["text"]),
+                )
+            )
+        elif ev.kind == EventKind.TOOL_RESULT and ev.data.get("label"):
+            digest = str(ev.data.get("digest") or ev.data.get("label"))
+            msgs.append(Message(session_id=ev.session_id or "", role="tool", content=digest))
+    if response_text:
+        msgs.append(Message(session_id="", role="assistant", content=response_text))
+    return msgs
+
+
 class PromptExecutor:
     def __init__(
         self,
@@ -75,6 +148,7 @@ class PromptExecutor:
         session_repo: SessionRepository,
         message_repo: MessageRepository,
         skill_loader: SkillLoader,
+        workspace_repo=None,
     ) -> None:
         self._config = config
         self._provider = provider
@@ -82,8 +156,12 @@ class PromptExecutor:
         self._session_repo = session_repo
         self._message_repo = message_repo
         self._skill_loader = skill_loader
+        self._workspace_repo = workspace_repo
         self._active_task: asyncio.Task | None = None
         self._context_manager = ContextManager(self._config)
+        self._summary_scheduler = RunningSummaryScheduler(
+            config, provider, session_repo, message_repo
+        )
 
     def cancel_active(self) -> None:
         if self._active_task and (not self._active_task.done()):
@@ -260,24 +338,58 @@ class PromptExecutor:
         self, session_id: str, response_text: str, collected_events: list[Event]
     ) -> None:
         try:
-            if collected_events or response_text:
-                text_content = response_text or "[Cancelled by user]"
-                assistant_msg = Message(
-                    session_id=session_id,
-                    role="assistant",
-                    content=text_content,
-                    events=collected_events,
-                )
-                await self._message_repo.create(assistant_msg)
-                logger.info(
-                    "Assistant message persisted: %d events, %d chars",
-                    len(collected_events),
-                    len(text_content),
-                )
-            else:
+            events = list(collected_events or [])
+            if not (events or response_text.strip()):
                 logger.info("Skipping empty assistant message (no events or text)")
+                return
+            manifest = _turn_manifest_from_events(events)
+            worked = _did_work(manifest)
+            handoff = _build_crafted_handoff(manifest, response_text)
+            if worked and response_text.strip() and len(response_text) > _HANDOFF_SUMMARY_CHARS:
+                summarized = await self._summarize_handoff(session_id, events, response_text)
+                if summarized:
+                    handoff = _build_crafted_handoff(manifest, summarized)
+            if not handoff:
+                # Never persist a placeholder when real work happened.
+                handoff = "[Cancelled by user]" if not worked else "[No summary recorded]"
+            text_content = handoff.strip()
+            if not text_content:
+                logger.info("Skipping blank assistant message for session %s", session_id)
+                return
+            from server.toolkit.executor import redact_pii
+
+            text_content = redact_pii(text_content)
+            assistant_msg = Message(
+                session_id=session_id,
+                role="assistant",
+                content=text_content,
+                events=events,
+            )
+            await self._message_repo.create(assistant_msg)
+            logger.info(
+                "Assistant message persisted: %d events, %d chars, worked=%s",
+                len(events),
+                len(text_content),
+                worked,
+            )
         except Exception:
             logger.exception("Failed to persist assistant message for session %s", session_id)
+
+    async def _summarize_handoff(
+        self, session_id: str, collected_events: list[Event], response_text: str
+    ) -> str | None:
+        """Weak-model summarization fallback for long/no-text turns (never blocking success)."""
+        try:
+            from server.agents.summarizer import ConversationSummarizer
+
+            summarizer = ConversationSummarizer(self._config, self._provider)
+            model = str(getattr(self._provider, "model", "") or "")
+            return await summarizer.summarize(
+                _handoff_messages(collected_events, response_text), model, session_id
+            )
+        except Exception as e:
+            logger.warning("Hand-off summarization failed: %s", e)
+            return None
 
     async def _execute(
         self,
@@ -321,6 +433,7 @@ class PromptExecutor:
             _original_model = getattr(self._provider, "model", None)
             _original_temperature = getattr(self._provider, "temperature", None)
             _original_max_tokens = getattr(self._provider, "max_tokens", None)
+            completed_ok = False
             effective_model = model_override or plan_model_override
             if effective_model and effective_model != _original_model:
                 logger.info("Per-prompt model override: %s -> %s", _original_model, effective_model)
@@ -541,6 +654,7 @@ class PromptExecutor:
                     await manager.send_event(session_id, event)
                 if event.kind == EventKind.MESSAGE and (not event.data.get("partial")):
                     response_text += event.data.get("text", "")
+            completed_ok = True
             if mode == PLAN_MODE and response_text:
                 await self._persist_plan_output(session_id, response_text)
             logger.info("=" * 60)
@@ -590,3 +704,12 @@ class PromptExecutor:
                 except Exception as e:
                     logger.warning("Failed to persist session summary: %s", e)
             await self._persist_assistant_message(session_id, response_text, collected_events)
+            if self._workspace_repo:
+                try:
+                    from server.agents.session_workspace import flush_to_db
+
+                    await flush_to_db(session_id, self._workspace_repo)
+                except Exception:
+                    logger.debug("Failed to flush workspace to DB for %s", session_id)
+            if completed_ok:
+                self._summary_scheduler.schedule(session_id)

@@ -5,6 +5,7 @@ import { ProgressBar } from '../src/components/Display/Scenario/ProgressBar';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
 import { SuccessCard } from '../src/components/Display/Scenario/SuccessCard';
 import { ThinkingBlock } from '../src/components/Display/Scenario/ThinkingBlock';
+import { ToolStepCard } from '../src/components/Display/Scenario/ToolStepCard';
 import { UserMessageBlock } from '../src/components/Display/Scenario/UserMessageBlock';
 import { modelStore } from '../src/services/providers/ModelStore';
 import { ThemeProvider } from '../src/theme/ThemeContext';
@@ -53,6 +54,31 @@ describe('ThinkingBlock', () => {
       </ThemeProvider>,
     );
     expect(lastFrame()).toBe('');
+  });
+});
+
+describe('ToolStepCard pending duration', () => {
+  it('starts the live timer at the step itself, not app mount (shows ~ 1 s on first render)', () => {
+    const event: ToolStepEvent = {
+      kind: 'tool_step',
+      id: 'bash-1',
+      tool: 'bash',
+      params: { command: 'Get-Date -Format "yyyy-MM-dd"' },
+      success: false,
+      output: '',
+      error: '',
+      metadata: {},
+      text: undefined,
+      pending: true,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ToolStepCard event={event} context={{ isRunning: true, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('~ 1 s');
+    expect(frame).toContain('Get-Date');
   });
 });
 

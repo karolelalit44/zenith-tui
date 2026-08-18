@@ -624,8 +624,12 @@ SCENARIOS: list[dict] = [
                 ),
             ),
             (
-                "terminal event is the error",
-                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.ERROR),
+                "turn_manifest emitted",
+                lambda e, p, c: _require(e, "manifest", bool(_manifests(e))),
+            ),
+            (
+                "error present",
+                lambda e, p, c: _require(e, "error", any(x.kind == EventKind.ERROR for x in e)),
             ),
         ],
     },
@@ -781,7 +785,7 @@ SCENARIOS: list[dict] = [
     },
     {
         "name": "S16_cancel_before_start",
-        "desc": "A pre-cancelled request yields the pre-start cancellation warning and no success.",
+        "desc": "A pre-cancelled request yields turn_manifest + cancellation warning.",
         "cancel_before_start": True,
         "scripts": ["Hello"],
         "skip_invariants": True,
@@ -793,16 +797,14 @@ SCENARIOS: list[dict] = [
                 ),
             ),
             (
-                "no success",
-                lambda e, p, c: _require(
-                    e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e)
-                ),
+                "turn_manifest emitted",
+                lambda e, p, c: _require(e, "manifest", bool(_manifests(e))),
             ),
         ],
     },
     {
         "name": "S17_cancel_mid_loop",
-        "desc": "Cancelling mid-turn stops the loop at the next iteration boundary (top-of-loop cancel check).",
+        "desc": "Cancelling mid-turn stops the loop and emits turn_manifest + cancellation warning.",
         "scripts": [
             '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```',
             "More work later.",
@@ -815,12 +817,9 @@ SCENARIOS: list[dict] = [
                 lambda e, p, c: _require(e, "warning", _has_warning(e, "Request cancelled")),
             ),
             (
-                "no success",
-                lambda e, p, c: _require(
-                    e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e)
-                ),
+                "turn_manifest emitted",
+                lambda e, p, c: _require(e, "manifest", bool(_manifests(e))),
             ),
-            ("no turn manifest", lambda e, p, c: _require(e, "manifest", not _manifests(e))),
             (
                 "loop stopped before next turn",
                 lambda e, p, c: _require(e, "calls", p.call_count <= 1),

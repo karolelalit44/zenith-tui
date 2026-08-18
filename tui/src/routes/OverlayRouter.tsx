@@ -26,7 +26,7 @@ interface OverlayRouterProps {
   onClose: () => void;
   onComplete: () => void;
   onOpenProvider?: () => void;
-  onResumeSession?: (sessionId: string, summary: SessionSummary) => void;
+  onResumeSession?: (sessionId: string, summary: SessionSummary, messages?: Record<string, unknown>[]) => void;
   onCompactNow?: () => void;
 }
 
@@ -96,8 +96,8 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
         <Box flexDirection="column" marginTop={1} width="100%">
           <SessionBrowserModal
             onClose={onClose}
-            onResume={(id, summary) => {
-              onResumeSession?.(id, summary);
+            onResume={(id, summary, messages) => {
+              onResumeSession?.(id, summary, messages);
               onClose();
             }}
           />
