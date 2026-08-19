@@ -592,32 +592,55 @@ class MethodHandlers:
             return session_id
         session = await svc.require(session_id)
         history = await svc.get_history(session_id)
-        model = getattr(provider, "model", "?")
-        if self.manager:
-            await self.manager.send_event(
-                session_id, r.context_compaction_started(session_id, "manual")
-            )
-        try:
-            from server.agents.summarizer import ConversationSummarizer
 
-            previous = (session.metadata or {}).get("summary") or ""
-            summary = await ConversationSummarizer(self.config, provider).summarize(
-                history, model, session_id=session_id, previous_summary=previous
-            )
-            session.metadata["summary"] = summary
-            await svc.update(session)
-            await self.message_repo.delete_by_session(session_id)
+        async def _emit(event) -> None:
             if self.manager:
-                await self.manager.send_event(
-                    session_id,
-                    r.context_compaction_ended(
-                        session_id, "manual", tokens_saved=0, summary_chars=len(summary)
-                    ),
+                await self.manager.send_event(session_id, event)
+
+        from server.agents.compaction_service import CompactionService
+        from server.agents.context import ContextManager
+        from server.domain.events import CompactionTrigger
+
+        service = CompactionService(
+            self.config,
+            provider,
+            context_manager=ContextManager(self.config),
+            session_repo=self.session_repo,
+            message_repo=self.message_repo,
+        )
+        outcome = await service.compact(
+            session_id=session_id,
+            history=history,
+            messages=None,
+            trigger=CompactionTrigger.MANUAL,
+            reason="manual",
+            previous_summary=((session.metadata or {}).get("summary") or None),
+            emit=_emit,
+        )
+        if outcome.failed:
+            await ws.send_text(
+                make_error_response(rid, -32603, f"Compaction failed: {outcome.error}")
+            )
+        elif outcome.skipped:
+            await ws.send_text(
+                make_response(
+                    rid, {"status": "skipped", "summary": "", "cleared": 0, "trigger": "manual"}
                 )
-            await ws.send_text(make_response(rid, {"summary": summary, "cleared": len(history)}))
-        except Exception as e:
-            logger.exception("Manual compact failed for session %s", session_id)
-            await ws.send_text(make_error_response(rid, -32603, f"Compaction failed: {e}"))
+            )
+        else:
+            await ws.send_text(
+                make_response(
+                    rid,
+                    {
+                        "summary": outcome.summary,
+                        "cleared": outcome.deleted,
+                        "kept_tail": outcome.kept_tail,
+                        "tokens_saved": outcome.tokens_saved,
+                        "trigger": outcome.trigger.value,
+                        "status": outcome.status.value,
+                    },
+                )
+            )
         return session_id
 
     async def _context_clear_tools(self, ws, rid, session_id) -> None:

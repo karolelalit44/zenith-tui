@@ -13,8 +13,6 @@ from server.config.constants import (
     BASH_TOOL,
     BG_OUTPUT_TAIL,
     BUILD_MODE,
-    CHARS_PER_TOKEN,
-    COMPACTION_KEEP_TAIL,
     CONTEXT_EXHAUSTED_HINT,
     CONTEXT_EXHAUSTED_MESSAGE,
     EPHEMERAL_TOOL_WINDOW_SIZE,
@@ -25,7 +23,6 @@ from server.config.constants import (
     FILE_WRITE_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     HARD_STOP_USAGE_RATIO,
-    LARGE_CONTEXT_WINDOW,
     MANIFEST_CHECKS_CAP,
     PLAN_MODE,
     POLL_TOOLS,
@@ -57,7 +54,18 @@ from ..toolkit.executor import (
     validate_tool_calls,
     validate_tool_rejection,
 )
-from .compaction import compact_tool_output, head_tail_trim
+from .compaction import (
+    _find_compaction_cut,
+    _find_compaction_cut_budgeted,
+    _group_start,
+    compact_tool_output,
+)
+from .compaction_service import (
+    CompactionService,
+    CompactionTrigger,
+    compact_live_tail,
+    prune_tool_outputs,
+)
 from .context import ContextManager, _adaptive_reserve, _get_model_context_window
 from .llm_stream import StreamState, stream_completion
 from .loop_detection import LoopDetector
@@ -219,42 +227,6 @@ def _pending_background_completions() -> list:
         return []
 
 
-def _find_compaction_cut(history, keep_tail: int = COMPACTION_KEEP_TAIL) -> int:
-    if len(history) <= keep_tail:
-        return 0
-    cut = len(history) - keep_tail
-    while cut > 0 and history[cut - 1].role == "assistant":
-        cut -= 1
-    return cut
-
-
-def _group_start(history, i: int) -> int:
-    j = i - 1
-    if history[j].role == "tool":
-        while j > 0 and history[j - 1].role == "tool":
-            j -= 1
-        if j > 0 and history[j - 1].role == "assistant":
-            j -= 1
-    return j
-
-
-def _find_compaction_cut_budgeted(history, keep_tokens: int, count_fn) -> int:
-    if not history:
-        return 0
-    i = len(history)
-    j = _group_start(history, i)
-    used = sum(count_fn(m.content) for m in history[j:i])
-    i = j
-    while i > 0:
-        j = _group_start(history, i)
-        group_tokens = sum(count_fn(m.content) for m in history[j:i])
-        if used + group_tokens > keep_tokens:
-            break
-        used += group_tokens
-        i = j
-    return i
-
-
 class AgentLoop:
     def __init__(
         self,
@@ -262,16 +234,28 @@ class AgentLoop:
         provider: BaseProvider,
         context_manager: ContextManager | None = None,
         tool_registry: ToolRegistry | None = None,
+        compaction_service: CompactionService | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
         self.context_manager = context_manager or ContextManager(config)
         self.tool_registry = tool_registry
+        self._compaction_service = compaction_service
         self._summary: str | None = None
         self._loop_detector = LoopDetector()
         self._accept_sequence: int = 0
         self._cancel_sequence: int = -1
         self._last_emitted_message: str | None = None
+        self._compacted_this_turn = False
+        self._compacted_message_count = 0
+        self._last_compaction_outcome = None
+
+    def _get_compaction_service(self) -> CompactionService:
+        if self._compaction_service is None:
+            self._compaction_service = CompactionService(
+                self.config, self.provider, self.context_manager
+            )
+        return self._compaction_service
 
     def accept(self) -> int:
         self._accept_sequence += 1
@@ -342,6 +326,8 @@ class AgentLoop:
         sequence: int = 0,
         repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
+        self._compacted_this_turn = False
+        self._compacted_message_count = 0
         provider_name = getattr(self.provider, "name", "")
         model = self.provider.model
         ws = self.config.workspace_root
@@ -510,8 +496,14 @@ class AgentLoop:
                 path_attempt_this_iter = False
                 if task_completed:
                     post_comp_iterations += 1
-                token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                if token_info.percent >= self.config.context_compaction_threshold:
+                token_info = self.context_manager.get_token_info(messages, model)
+                if (
+                    token_info.percent >= self.config.context_compaction_threshold
+                    and (
+                        not self._compacted_this_turn
+                        or len(messages) > self._compacted_message_count
+                    )
+                ):
                     logger.warning(
                         "Context window %.1f%% full — summarizing", token_info.percent * 100
                     )
@@ -531,7 +523,7 @@ class AgentLoop:
                     ):
                         yield ev
                     messages = _rebuild_holder[0]
-                    token_info = self.context_manager.get_token_info(messages, model, self.provider)
+                    token_info = self.context_manager.get_token_info(messages, model)
                     if token_info.percent >= HARD_STOP_USAGE_RATIO:
                         yield _with_manifest(
                             r.error(
@@ -632,8 +624,8 @@ class AgentLoop:
                     ):
                         yield ev
                     messages = _rebuild_holder[0]
-                    token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                    if token_info.percent > 0.95:
+                    token_info = self.context_manager.get_token_info(messages, model)
+                    if token_info.percent > HARD_STOP_USAGE_RATIO:
                         yield _with_manifest(
                             r.error(
                                 "Context window exhausted even after summarization",
@@ -949,12 +941,10 @@ class AgentLoop:
                             return
                     else:
                         consecutive_failures = 0
-                    _ti = self.context_manager.get_token_info(messages, model, self.provider)
+                    _ti = self.context_manager.get_token_info(messages, model)
                     _remaining = _ti.total - _ti.used
-                    _threshold = (
-                        20000 if _ti.total >= LARGE_CONTEXT_WINDOW else int(_ti.total * 0.2)
-                    )
-                    if _remaining <= _threshold and _remaining > 0:
+                    _reserve = _adaptive_reserve(model, _ti.total)
+                    if _remaining <= _reserve and _remaining > 0:
                         logger.warning(
                             "Context approaching limit (%.0f%%), summarizing...", _ti.percent * 100
                         )
@@ -974,8 +964,8 @@ class AgentLoop:
                         ):
                             yield ev
                         messages = _rebuild_holder[0]
-                        _ti2 = self.context_manager.get_token_info(messages, model, self.provider)
-                        if _ti2.percent > 0.95:
+                        _ti2 = self.context_manager.get_token_info(messages, model)
+                        if _ti2.percent > HARD_STOP_USAGE_RATIO:
                             yield _with_manifest(
                                 r.error(
                                     f"Too many errors ({consecutive_failures}).",
@@ -1268,102 +1258,30 @@ class AgentLoop:
         )
 
     async def _maybe_summarize(self, history, session_id, messages=None, reason="automatic"):
-        from server.agents.summarizer import ConversationSummarizer
+        """Route one automatic compaction through the canonical service.
 
-        model = self.provider.model
-        token_info = (
-            self.context_manager.get_token_info(messages or [], model, self.provider)
-            if messages
-            else None
-        )
-        used = token_info.used if token_info else 0
-        total = token_info.total if token_info else 0
-        before_breakdown = (
-            self.context_manager.token_breakdown(messages or []) if messages else None
-        )
-        before_tiers = before_breakdown.to_dict() if before_breakdown else None
-        yield r.context_compaction_started(session_id, reason, used, total, tokens=before_tiers)
-        yield r.context_compaction_phase(
-            session_id, "preserving", "Preserving active working state & recent files..."
-        )
-        try:
-            yield r.context_compaction_phase(
-                session_id, "compacting", "Compacting intermediate tool outputs & history..."
-            )
-            pruned: dict = {"count": 0, "chars_removed": 0, "tokens_saved": 0}
-            if messages:
-                pruned = self._prune_tool_outputs(messages, force_intraturn=True)
-                if pruned["count"]:
-                    yield r.context_compacted(
-                        "context",
-                        pruned["chars_removed"],
-                        pruned["tokens_saved"],
-                        f"pruned {pruned['count']} old tool result(s)",
-                        session_id,
-                    )
-            ctx = min(_get_model_context_window(model), self.config.max_context_tokens)
-            reserve = _adaptive_reserve(model, ctx)
-            keep_tokens = max(8000, min(20000, int(max(0, ctx - reserve) * 0.25)))
-            cut = _find_compaction_cut_budgeted(
-                history,
-                keep_tokens,
-                lambda m: self.context_manager.count_tokens(getattr(m, "content", str(m)), model),
-            )
-            target = history[:cut] if cut > 0 else history
-            self._summary = await ConversationSummarizer(self.config, self.provider).summarize(
-                target, model, session_id=session_id, previous_summary=self._summary
-            )
-            after_token_info = (
-                self.context_manager.get_token_info(messages or [], model, self.provider)
-                if messages
-                else None
-            )
-            after_used = after_token_info.used if after_token_info else used
-            tokens_saved = max(0, used - after_used)
-            if tokens_saved == 0 and (target or pruned["tokens_saved"]):
-                target_tokens = sum(
-                    self.context_manager.count_tokens(getattr(m, "content", str(m)), model)
-                    for m in target
-                )
-                tokens_saved = (
-                    max(0, target_tokens - self.context_manager.count_tokens(self._summary, model))
-                    + pruned["tokens_saved"]
-                )
-            after_breakdown = (
-                self.context_manager.token_breakdown(messages or []) if messages else None
-            )
-            after_tiers = after_breakdown.to_dict() if after_breakdown else None
-            yield r.context_compaction_phase(
-                session_id,
-                "verifying",
-                "Verifying token savings & rebuilt context...",
-                before_tokens=used,
-                after_tokens=after_used,
-                tokens_before=before_tiers,
-                tokens_after=after_tiers,
-            )
+        Events are forwarded to the caller via the generator; the outcome is
+        kept on ``self._last_compaction_outcome``.
+        """
+        emitted: list[Event] = []
 
-            yield r.context_compaction_ended(
-                session_id,
-                reason,
-                used,
-                total,
-                tokens_saved=tokens_saved,
-                summary_chars=len(self._summary),
-                tokens_before=before_tiers,
-                tokens_after=after_tiers,
-            )
-        except Exception as e:
-            logger.warning("Summarization failed: %s", e)
-            yield r.context_compaction_ended(
-                session_id,
-                reason,
-                used,
-                total,
-                failed=True,
-                tokens_before=before_tiers,
-                tokens_after=before_tiers,
-            )
+        async def _emit(ev: Event) -> None:
+            emitted.append(ev)
+
+        outcome = await self._get_compaction_service().compact(
+            session_id=session_id,
+            history=history,
+            messages=messages,
+            trigger=CompactionTrigger.AUTOMATIC,
+            reason=reason,
+            previous_summary=self._summary,
+            emit=_emit,
+        )
+        self._last_compaction_outcome = outcome
+        if not outcome.failed and not outcome.skipped:
+            self._summary = outcome.summary or self._summary
+        for ev in emitted:
+            yield ev
 
     def _prune_tool_outputs(
         self,
@@ -1372,55 +1290,10 @@ class AgentLoop:
         max_output: int = 2000,
         force_intraturn: bool = False,
     ) -> dict:
-        stats: dict = {"count": 0, "chars_removed": 0, "tokens_saved": 0}
-        if not messages:
-            return stats
-        boundary = 0
-        if not force_intraturn:
-            turns = 0
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i].get("role") == "user":
-                    turns += 1
-                    if turns > keep_turns:
-                        boundary = i + 1
-                        break
-        else:
-            tool_msg_indices = [
-                idx
-                for idx, m in enumerate(messages)
-                if isinstance(m.get("content", ""), str)
-                and m.get("content", "").startswith("[Tool:")
-            ]
-            boundary = tool_msg_indices[-2] if len(tool_msg_indices) > 2 else 0
-
-        for msg in messages[:boundary]:
-            content = msg.get("content", "")
-            if not isinstance(content, str) or not content.startswith("[Tool:"):
-                continue
-            if msg.get("time") == "compacted":
-                continue
-            orig_len = len(content)
-            if "digest" in msg:
-                msg["content"] = msg["digest"]
-                msg["time"] = "compacted"
-                msg["is_digested"] = True
-                chars_diff = max(0, orig_len - len(msg["content"]))
-                stats["count"] += 1
-                stats["chars_removed"] += chars_diff
-                stats["tokens_saved"] += chars_diff // CHARS_PER_TOKEN
-            else:
-                lines = content.split("\n", 1)
-                head = lines[0]
-                rest = lines[1] if len(lines) > 1 else ""
-                if len(rest) > max_output:
-                    compacted_rest, _ = head_tail_trim(rest, max_output)
-                    msg["content"] = head + "\n" + compacted_rest if rest else head
-                    msg["time"] = "compacted"
-                    chars_diff = max(0, orig_len - len(msg["content"]))
-                    stats["count"] += 1
-                    stats["chars_removed"] += chars_diff
-                    stats["tokens_saved"] += chars_diff // CHARS_PER_TOKEN
-        return stats
+        """Compress old tool-result messages (delegates to the shared pipeline)."""
+        return prune_tool_outputs(
+            messages, keep_turns=keep_turns, max_output=max_output, force_intraturn=force_intraturn
+        )
 
     def _rebuild_messages(
         self,
@@ -1452,24 +1325,8 @@ class AgentLoop:
             for msg in live_tail:
                 if not isinstance(msg, dict):
                     continue
-                m = dict(msg)
-                content = m.get("content", "")
-                if (
-                    m.get("role") == "user"
-                    and isinstance(content, str)
-                    and content.startswith("[Tool:")
-                ):
-                    if "digest" in m:
-                        m["content"] = m["digest"]
-                        m["time"] = "compacted"
-                    elif len(content) > 1000:
-                        lines = content.split("\n", 1)
-                        head = lines[0]
-                        rest = lines[1] if len(lines) > 1 else ""
-                        trimmed_rest, _ = head_tail_trim(rest, 1000)
-                        m["content"] = head + "\n" + trimmed_rest if rest else head
-                        m["time"] = "compacted"
-                compacted_tail.append(m)
+                compacted_tail.append(dict(msg))
+            compact_live_tail(compacted_tail)
 
             rebuilt.extend(compacted_tail)
             rebuilt.append(
@@ -1508,11 +1365,21 @@ class AgentLoop:
     ) -> AsyncIterator[Event]:
         async for ev in self._maybe_summarize(history, session_id, messages):
             yield ev
+        outcome = self._last_compaction_outcome
+        if outcome is None or outcome.failed or outcome.skipped:
+            # Nothing changed: keep the authoritative context untouched.
+            result.append(list(messages))
+            return
+        # Only the recent tail (the part not represented by the summary) is
+        # re-fed into the rebuilt context; the summarized prefix is dropped.
+        cut = outcome.cut if outcome.cut > 0 else 0
+        tail_history = history[cut:] if cut > 0 else []
+        self._compacted_this_turn = True
         result.append(
             self._rebuild_messages(
                 messages,
                 base_len,
-                history,
+                tail_history,
                 system_prompt,
                 prompt,
                 model,
@@ -1522,6 +1389,7 @@ class AgentLoop:
                 session_id=session_id,
             )
         )
+        self._compacted_message_count = len(result[-1])
 
     def _get_tool_schemas(self) -> list[dict]:
         return self.tool_registry.get_schemas() if self.tool_registry else []

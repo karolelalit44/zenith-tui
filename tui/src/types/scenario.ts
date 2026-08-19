@@ -129,6 +129,16 @@ export interface PlanReadyEvent {
   sessionId: string;
 }
 
+export type CompactionTrigger = 'automatic' | 'manual';
+export type CompactionStatus =
+  | 'started'
+  | 'preserving'
+  | 'compacting'
+  | 'verifying'
+  | 'completed'
+  | 'failed'
+  | 'skipped';
+
 export interface ContextCompactedEvent {
   kind: 'context_compacted';
   id: string;
@@ -143,6 +153,9 @@ export interface ContextCompactionStartedEvent {
   message: string;
   used?: number;
   total?: number;
+  /** Who initiated the compaction: `automatic` (threshold) or `manual` (RPC). */
+  trigger?: CompactionTrigger;
+  status?: CompactionStatus;
 }
 
 export interface ContextCompactionEndedEvent {
@@ -157,13 +170,15 @@ export interface ContextCompactionEndedEvent {
   failed?: boolean;
   /** Human-readable summary of what the compaction pass preserved. */
   summary?: string;
+  /** Who initiated the compaction: `automatic` (threshold) or `manual` (RPC). */
+  trigger?: CompactionTrigger;
+  status?: CompactionStatus;
 }
 
 /**
- * Explicit phase transition emitted by a simulation/driver so the UI can
- * animate the full compaction lifecycle dynamically. The production backend
- * emits only started/compacted/ended; this kind lets richer drivers (e.g. the
- * test-route simulator) drive the intermediate stages too.
+ * Explicit phase transition emitted by the compaction pipeline so the UI can
+ * animate the full compaction lifecycle dynamically. The backend emits one of
+ * these for each stage (preserving → compacting → verifying).
  */
 export interface ContextCompactionPhaseEvent {
   kind: 'context_compaction_phase';
@@ -172,6 +187,8 @@ export interface ContextCompactionPhaseEvent {
   label?: string;
   beforeTokens?: number;
   afterTokens?: number;
+  /** Who initiated the compaction: `automatic` (threshold) or `manual` (RPC). */
+  trigger?: CompactionTrigger;
 }
 
 export type CompactionPhase = 'preparing' | 'preserving' | 'compacting' | 'verifying' | 'ready' | 'failed';
@@ -214,6 +231,9 @@ export interface ContextCompactionFlowEvent {
   /** Human-readable summary of what the compaction pass preserved. */
   summary?: string;
   failed?: boolean;
+  /** Who initiated the compaction: `automatic` (threshold) or `manual` (RPC). */
+  trigger?: CompactionTrigger;
+  status?: CompactionStatus;
 }
 
 export interface TurnManifestEvent {

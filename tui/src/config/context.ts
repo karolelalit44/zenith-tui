@@ -32,6 +32,16 @@ export const COMPACTION_PHASE_ORDER: readonly CompactionPhase[] = [
   'ready',
 ];
 
+/**
+ * Single source of truth for compaction trigger labels. The UI must never
+ * guess the trigger: wire data carries `trigger` (`automatic` | `manual`);
+ * anything else falls back to the label of the TUI-invoked (manual) path.
+ */
+export const COMPACTION_TRIGGER_LABELS: Record<string, string> = Object.freeze({
+  automatic: 'automatic',
+  manual: 'manual',
+});
+
 /** Map a context-used fraction (0..1) to a tonal level. */
 export function contextLevelForFraction(fraction: number): ContextLevel {
   if (fraction >= contextThresholds.required) return 'required';

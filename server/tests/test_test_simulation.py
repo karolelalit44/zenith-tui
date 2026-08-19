@@ -3,12 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from server.config.constants import (
-    COMPACTION_SIM_AFTER_TOKENS,
-    COMPACTION_SIM_TOTAL_TOKENS,
-    COMPACTION_SIM_USED_TOKENS,
-)
-
 
 class _FakeWS:
     """Minimal websocket stand-in that records every message sent."""
@@ -27,7 +21,13 @@ def _make_handler():
 
 
 @pytest.mark.asyncio
-async def test_simulation_context_compact_streams_full_sequence():
+async def test_simulation_context_compact_is_not_simulated():
+    """The /ws/test demo backend no longer fakes compaction output.
+
+    Real compaction (automatic + manual) runs through the production
+    ``CompactionService`` (see test_compaction_service.py); the demo route must
+    not present fabricated metrics as if they were real.
+    """
     handler = _make_handler()
     ws = _FakeWS()
     sid = handler._make_session({"title": "Compact Test"}).id
@@ -35,51 +35,10 @@ async def test_simulation_context_compact_streams_full_sequence():
     returned = await handler._dispatch(ws, "context.compact", "compact_1", {}, sid)
     assert returned == sid
 
-    events = [m for m in ws.sent if m.get("method") == "event"]
-    response = [m for m in ws.sent if m.get("id") == "compact_1"]
-
-    assert len(response) == 1
-    assert response[0]["result"]["status"] == "compacted"
-
-    kinds = [e["params"]["kind"] for e in events]
-    assert kinds[0] == "context_compaction_started", kinds
-    assert "context_compaction_phase" in kinds
-    assert "context_compacted" in kinds
-    assert kinds[-1] == "context_compaction_ended", kinds
-
-    started = events[kinds.index("context_compaction_started")]
-    started_data = started["params"]["data"]
-    assert started_data["used"] == COMPACTION_SIM_USED_TOKENS
-    assert started_data["total"] == COMPACTION_SIM_TOTAL_TOKENS
-
-    ended = events[-1]
-    ended_data = ended["params"]["data"]
-    assert ended_data["used"] == COMPACTION_SIM_AFTER_TOKENS
-    assert ended_data["total"] == COMPACTION_SIM_TOTAL_TOKENS
-    assert ended_data.get("failed", False) is False
-    assert isinstance(ended_data.get("summary"), str) and ended_data["summary"]
-    # The model summary follows the opencode anchored-summary template.
-    assert "## Objective" in ended_data["summary"]
-    assert "## Work State" in ended_data["summary"]
-    assert "## Next Move" in ended_data["summary"]
-    assert "## Relevant Files" in ended_data["summary"]
-
-    for evt in events:
-        assert evt["params"]["session_id"] == sid
-
-
-@pytest.mark.asyncio
-async def test_simulation_context_compact_requires_active_session():
-    handler = _make_handler()
-    ws = _FakeWS()
-
-    returned = await handler._dispatch(ws, "context.compact", "compact_2", {}, None)
-    assert returned is None
-
     errors = [m for m in ws.sent if "error" in m]
     assert len(errors) == 1
-    assert errors[0]["error"]["code"] == -32602
-    assert "No active session" in errors[0]["error"]["message"]
+    assert errors[0]["error"]["code"] == -32601
+    assert "Method not found" in errors[0]["error"]["message"]
 
 
 @pytest.mark.asyncio

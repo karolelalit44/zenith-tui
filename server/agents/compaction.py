@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from server.config.constants import ANSI_RE, CHARS_PER_TOKEN, MAX_TOOL_OUTPUT_BASELINE
+from server.config.constants import ANSI_RE, CHARS_PER_TOKEN, COMPACTION_KEEP_TAIL, MAX_TOOL_OUTPUT_BASELINE
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,51 @@ def compact_tool_output(
     stats.chars_removed = max(0, stats.original_chars - len(compacted))
     stats.tokens_saved = stats.chars_removed // CHARS_PER_TOKEN
     return (compacted, stats)
+
+
+def _group_start(history, i: int) -> int:
+    """Start index of the tool-result exchange ending just before ``history[i]``."""
+    j = i - 1
+    if history[j].role == "tool":
+        while j > 0 and history[j - 1].role == "tool":
+            j -= 1
+        if j > 0 and history[j - 1].role == "assistant":
+            j -= 1
+    return j
+
+
+def _find_compaction_cut(history, keep_tail: int = COMPACTION_KEEP_TAIL) -> int:
+    """Oldest message index to keep when compacting, never splitting a tool exchange."""
+    if len(history) <= keep_tail:
+        return 0
+    cut = len(history) - keep_tail
+    while cut > 0 and history[cut - 1].role == "assistant":
+        cut -= 1
+    return cut
+
+
+def _find_compaction_cut_budgeted(history, keep_tokens: int, count_fn) -> int:
+    """Oldest message index to keep so the recent tail fits ``keep_tokens``.
+
+    Walks backwards in whole tool-result exchanges (assistant + tool + reply
+    groups stay intact) until the accumulated tail would exceed the budget;
+    returns the index of the first kept message. ``0`` means the entire history
+    is summarized.
+    """
+    if not history:
+        return 0
+    i = len(history)
+    j = _group_start(history, i)
+    used = sum(count_fn(m.content) for m in history[j:i])
+    i = j
+    while i > 0:
+        j = _group_start(history, i)
+        group_tokens = sum(count_fn(m.content) for m in history[j:i])
+        if used + group_tokens > keep_tokens:
+            break
+        used += group_tokens
+        i = j
+    return i
 
 
 def prune_inflight_messages(

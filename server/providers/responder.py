@@ -136,8 +136,15 @@ def context_compaction_started(
     used: int = 0,
     total: int = 0,
     tokens: dict | None = None,
+    trigger: str = "automatic",
 ) -> Event:
-    data: dict = {"reason": reason, "used": used, "total": total}
+    data: dict = {
+        "reason": reason,
+        "used": used,
+        "total": total,
+        "trigger": trigger,
+        "status": "started",
+    }
     if tokens:
         data["tokens"] = tokens
     return event(
@@ -159,6 +166,9 @@ def context_compaction_ended(
     summary: str = "",
     tokens_before: dict | None = None,
     tokens_after: dict | None = None,
+    trigger: str = "automatic",
+    status: str = "completed",
+    error: str = "",
 ) -> Event:
     data: dict = {
         "reason": reason,
@@ -166,6 +176,8 @@ def context_compaction_ended(
         "total": total,
         "tokensSaved": tokens_saved,
         "summaryChars": summary_chars,
+        "trigger": trigger,
+        "status": status,
     }
     if summary:
         data["summary"] = summary
@@ -173,6 +185,8 @@ def context_compaction_ended(
         data["preserved"] = preserved
     if failed:
         data["failed"] = True
+    if error:
+        data["error"] = error
     if tokens_before:
         data["tokensBefore"] = tokens_before
     if tokens_after:
@@ -192,8 +206,9 @@ def context_compaction_phase(
     after_tokens: int | None = None,
     tokens_before: dict | None = None,
     tokens_after: dict | None = None,
+    trigger: str = "automatic",
 ) -> Event:
-    data: dict = {"phase": phase}
+    data: dict = {"phase": phase, "trigger": trigger}
     if label:
         data["label"] = label
     if before_tokens is not None:

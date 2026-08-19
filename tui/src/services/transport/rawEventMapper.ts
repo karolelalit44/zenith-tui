@@ -1,5 +1,6 @@
 import type {
   CompactionPhase,
+  CompactionStatus,
   ContextPreservation,
   ScenarioEvent,
   SubtaskItem,
@@ -169,6 +170,8 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         message: formatContextEventMessage('context_compaction_started', d),
         used: typeof d.used === 'number' ? d.used : undefined,
         total: typeof d.total === 'number' ? d.total : undefined,
+        trigger: d.trigger === 'automatic' || d.trigger === 'manual' ? d.trigger : undefined,
+        status: typeof d.status === 'string' ? (d.status as CompactionStatus) : undefined,
       };
 
     case 'context_compaction_ended':
@@ -183,6 +186,8 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         preserved: d.preserved && typeof d.preserved === 'object' ? (d.preserved as ContextPreservation) : undefined,
         summary: d.summary ? String(d.summary) : undefined,
         failed: typeof d.failed === 'boolean' ? d.failed : undefined,
+        trigger: d.trigger === 'automatic' || d.trigger === 'manual' ? d.trigger : undefined,
+        status: typeof d.status === 'string' ? (d.status as CompactionStatus) : undefined,
       };
 
     case 'context_compaction_phase':
@@ -193,6 +198,7 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         label: d.label ? String(d.label) : undefined,
         beforeTokens: typeof d.beforeTokens === 'number' ? d.beforeTokens : undefined,
         afterTokens: typeof d.afterTokens === 'number' ? d.afterTokens : undefined,
+        trigger: d.trigger === 'automatic' || d.trigger === 'manual' ? d.trigger : undefined,
       };
 
     case 'turn_manifest':

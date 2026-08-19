@@ -1,4 +1,4 @@
-import { render } from 'ink-testing-library';
+﻿import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { CompactionFlowBlock } from '../src/components/Display/Scenario/CompactionFlowBlock';
 import { ThemeProvider } from '../src/theme/ThemeContext';
@@ -44,7 +44,7 @@ describe('CompactionFlowBlock', () => {
     expect(frame).toContain('trimmed tool traces');
   });
 
-  it('renders the ready state as a compacted summary banner with tokens', () => {
+it('renders the ready state as a compacted summary banner with tokens', () => {
     const event: ContextCompactionFlowEvent = {
       ...baseEvent,
       phase: 'ready',
@@ -61,6 +61,42 @@ describe('CompactionFlowBlock', () => {
     expect(frame).toContain('Context compacted (manual)');
     expect(frame).toContain('128.0k → 43.0k tokens');
     expect(frame).toContain('saved 85.0k');
+  });
+
+  it('labels the banner with the structured automatic trigger', () => {
+    const event: ContextCompactionFlowEvent = {
+      ...baseEvent,
+      phase: 'ready',
+      trigger: 'automatic',
+      beforeTokens: 128_000,
+      afterTokens: 43_000,
+      tokensSaved: 85_000,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <CompactionFlowBlock event={event} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Context compacted (automatic)');
+  });
+
+  it('labels the banner with the structured manual trigger', () => {
+    const event: ContextCompactionFlowEvent = {
+      ...baseEvent,
+      phase: 'ready',
+      trigger: 'manual',
+      beforeTokens: 128_000,
+      afterTokens: 43_000,
+      tokensSaved: 85_000,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <CompactionFlowBlock event={event} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Context compacted (manual)');
   });
 
   it('renders the structured summary and preserved breakdown when ready', () => {

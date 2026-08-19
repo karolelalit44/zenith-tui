@@ -88,24 +88,74 @@ def handler(test_config, test_db, registry):
 
 class TestContextCommands:
     @pytest.mark.asyncio
-    async def test_compact_summarizes_and_clears_history(self, handler):
+    async def test_compact_summarizes_and_truncates_prefix(self, handler):
+        import datetime
+
         h, events = handler
         session = await h.session_repo.create(Session(title="Compact Test"))
-        for i in range(5):
+        turns = 5
+        base = datetime.datetime(2026, 1, 1, 12, 0, 0)
+        for i in range(turns):
             await h.message_repo.create(
-                Message(session_id=session.id, role="user", content=f"User prompt {i}")
+                Message(
+                    session_id=session.id,
+                    role="user",
+                    content=f"User prompt {i} " + "x" * 40000,
+                    created_at=base + datetime.timedelta(milliseconds=2 * i),
+                )
             )
             await h.message_repo.create(
-                Message(session_id=session.id, role="assistant", content=f"Assistant response {i}")
+                Message(
+                    session_id=session.id,
+                    role="assistant",
+                    content=f"Assistant response {i}",
+                    created_at=base + datetime.timedelta(milliseconds=2 * i + 1),
+                )
             )
         ws = _fake_ws({})
         await h.handlers._context_compact(ws, 1, session.id)
         assert any(e.kind == EventKind.CONTEXT_COMPACTION_STARTED for e in events)
-        assert any(e.kind == EventKind.CONTEXT_COMPACTION_ENDED for e in events)
+        ended = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTION_ENDED]
+        assert ended
+        assert not ended[-1].data.get("failed")
+        assert ended[-1].data.get("status") == "completed"
+        assert ended[-1].data.get("trigger") == "manual"
         loaded = await h.message_repo.get_by_session(session.id)
-        assert len(loaded) == 0
+        # Prefix is truncated but the recent tail survives — history is never wiped.
+        assert 0 < len(loaded) < turns * 2
+        assert loaded[-1].content == f"Assistant response {turns - 1}"
+        assert any("User prompt" in m.content for m in loaded)
         updated = await h.session_repo.get(session.id)
-        assert (updated.metadata or {}).get("summary")
+        summary = (updated.metadata or {}).get("summary")
+        assert summary
+        # The truncated representation is resumable: rebuilding context from the
+        # surviving tail + summary works.
+        from server.agents.context import ContextManager
+
+        rebuilt = ContextManager(h.config).build_messages(
+            loaded, "System.", "More.", "test-model", summary=summary
+        )
+        assert any("[Previous conversation summary]" in m.get("content", "") for m in rebuilt)
+
+    @pytest.mark.asyncio
+    async def test_compact_small_session_is_a_noop(self, handler):
+        h, events = handler
+        session = await h.session_repo.create(Session(title="Compact Small"))
+        for i in range(3):
+            await h.message_repo.create(
+                Message(session_id=session.id, role="user", content=f"Small prompt {i}")
+            )
+            await h.message_repo.create(
+                Message(session_id=session.id, role="assistant", content=f"Small reply {i}")
+            )
+        ws = _fake_ws({})
+        await h.handlers._context_compact(ws, 1, session.id)
+        ended = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTION_ENDED]
+        assert ended and not ended[-1].data.get("failed")
+        loaded = await h.message_repo.get_by_session(session.id)
+        assert len(loaded) == 6
+        updated = await h.session_repo.get(session.id)
+        assert not (updated.metadata or {}).get("summary")
 
     @pytest.mark.asyncio
     async def test_compact_no_session_returns_error(self, handler):

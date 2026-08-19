@@ -333,6 +333,32 @@ class MessageRepository:
             await s.execute(delete(MessageRecord).where(MessageRecord.session_id == session_id))
             await s.commit()
 
+    @safe_db("compact_history", table="messages")
+    async def compact_history(self, session_id: str, metadata: dict, delete_ids: list[str]) -> int:
+        """Atomic compaction primitive: persist the new summary and truncate the
+        summarized prefix in one transaction.
+
+        Only the messages whose ids are listed (the prefix represented by the
+        summary) are removed; the recent tail survives. A failure rolls back both
+        writes, so the conversation is never left truncated without its summary.
+        """
+        async with self.db.session() as s:
+            rec = await s.get(SessionRecord, session_id)
+            if rec is None:
+                return 0
+            deleted = 0
+            if delete_ids:
+                result = await s.execute(
+                    delete(MessageRecord).where(
+                        MessageRecord.session_id == session_id,
+                        MessageRecord.id.in_(delete_ids),
+                    )
+                )
+                deleted = result.rowcount or 0
+            rec.metadata_json = json.dumps(metadata)
+            await s.commit()
+            return deleted
+
     @safe_db("delete_messages", table="messages")
     async def delete_tool_results(self, session_id: str) -> int:
         async with self.db.session() as s:

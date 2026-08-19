@@ -5,12 +5,13 @@ import type { ScenarioListener, ScenarioRunner } from '../scenario/types';
 import { mapRawEvent } from './rawEventMapper';
 
 /**
- * Fixture-driven playback.
+ * Fixture-driven playback (tests only).
  *
- * `/compact` and the todo-board simulation do not need a backend: the exact
- * event streams live in `src/fixtures/*.json` and are played back through the
- * SAME `mapRawEvent` formatter used for live backend streams. Edit the JSON,
- * change the turn — tests emit the exact same events the renderer consumes.
+ * The production `/compact` flow now streams real backend events over the
+ * WebSocket; these fixtures remain as deterministic unit-test inputs. They are
+ * played back through the SAME `mapRawEvent` formatter used for live backend
+ * streams. Edit the JSON, change the turn — tests emit the exact same events
+ * the renderer consumes.
  */
 
 interface FixtureEntry {

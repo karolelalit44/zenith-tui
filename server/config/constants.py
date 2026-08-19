@@ -20,11 +20,6 @@ READ_ONLY_MODE = "read_only"
 
 READ_ONLY_TOOLS = ["file_read", "glob", "grep", "list_dir"]
 
-COMPACTION_SIM_TOTAL_TOKENS = 128_000
-COMPACTION_SIM_USED_TOKENS = 118_000
-COMPACTION_SIM_AFTER_TOKENS = 43_000
-COMPACTION_SIM_SUMMARY_CHARS = 12_000
-
 CHARS_PER_TOKEN = 4
 SUMMARY_FRAMING_TOKENS = 4
 MIN_OUTPUT_RESERVE_TOKENS = 8_000
@@ -32,6 +27,12 @@ HARD_STOP_USAGE_RATIO = 0.95
 CONTEXT_EXHAUSTED_MESSAGE = "Context window exhausted even after summarization"
 CONTEXT_EXHAUSTED_HINT = "Start a new session to free up context."
 COMPACTION_KEEP_TAIL = 8
+# Recent-history budget for compaction: keep this many tokens of the tail when
+# folding the older prefix into the summary. The band is clamped to the input
+# budget so small windows never request more than the context can hold.
+COMPACTION_KEEP_MIN_TOKENS = 8_000
+COMPACTION_KEEP_MAX_TOKENS = 20_000
+COMPACTION_KEEP_BUDGET_RATIO = 0.25
 SKIP_WARNING_CAP = 6
 SUMMARY_MIN_CHARS = 40
 BG_OUTPUT_TAIL = 800

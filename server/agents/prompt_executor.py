@@ -162,6 +162,15 @@ class PromptExecutor:
         self._summary_scheduler = RunningSummaryScheduler(
             config, provider, session_repo, message_repo
         )
+        from server.agents.compaction_service import CompactionService
+
+        self._compaction_service = CompactionService(
+            config,
+            provider,
+            context_manager=self._context_manager,
+            session_repo=session_repo,
+            message_repo=message_repo,
+        )
 
     def cancel_active(self) -> None:
         if self._active_task and (not self._active_task.done()):
@@ -456,7 +465,12 @@ class PromptExecutor:
                 and mode_config.sub_agent
             ):
                 logger.info("Spawning SubAgentLoop for session %s (plan→build handoff)", session_id)
-                sub_agent = SubAgentLoop(self._config, self._provider, self._tool_registry)
+                sub_agent = SubAgentLoop(
+                    self._config,
+                    self._provider,
+                    self._tool_registry,
+                    compaction_service=self._compaction_service,
+                )
                 async for event in sub_agent.run(
                     session_id=session_id,
                     plan_output=plan_context,
@@ -474,9 +488,16 @@ class PromptExecutor:
                 return
             context_manager = self._context_manager
             agent = RecoverableAgentLoop(
-                self._config, self._provider, context_manager, self._tool_registry
+                self._config,
+                self._provider,
+                context_manager,
+                self._tool_registry,
+                self._compaction_service,
             )
             db_session = await self._session_repo.get(session_id)
+            summary_at_start = (
+                (db_session.metadata or {}).get("summary") if db_session else None
+            )
             if db_session and db_session.metadata and db_session.metadata.get("summary"):
                 agent.set_summary(db_session.metadata["summary"])
                 logger.info(
@@ -690,17 +711,31 @@ class PromptExecutor:
             if (
                 agent
                 and agent.summary
-                and db_session
-                and db_session.metadata.get("summary") != agent.summary
+                and (db_session is None or summary_at_start != agent.summary)
             ):
-                db_session.metadata["summary"] = agent.summary
                 try:
-                    await self._session_repo.update(db_session)
-                    logger.info(
-                        "Persisted updated session summary (%d chars) for %s",
-                        len(agent.summary),
-                        session_id,
-                    )
+                    # Only apply the in-memory summary if no newer writer (manual
+                    # compaction or a background running summary) replaced it
+                    # while this turn was in flight: a stale result must never
+                    # overwrite newer session state.
+                    fresh = await self._session_repo.get(session_id)
+                    if fresh is None:
+                        if db_session is not None:
+                            db_session.metadata["summary"] = agent.summary
+                            await self._session_repo.update(db_session)
+                    elif (fresh.metadata or {}).get("summary") == summary_at_start:
+                        fresh.metadata["summary"] = agent.summary
+                        await self._session_repo.update(fresh)
+                        logger.info(
+                            "Persisted updated session summary (%d chars) for %s",
+                            len(agent.summary),
+                            session_id,
+                        )
+                    else:
+                        logger.info(
+                            "Skipped summary persist for %s: newer summary exists",
+                            session_id,
+                        )
                 except Exception as e:
                     logger.warning("Failed to persist session summary: %s", e)
             await self._persist_assistant_message(session_id, response_text, collected_events)

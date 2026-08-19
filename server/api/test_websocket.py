@@ -13,10 +13,6 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from server.config.constants import (
     BUILD_MODE,
-    COMPACTION_SIM_AFTER_TOKENS,
-    COMPACTION_SIM_SUMMARY_CHARS,
-    COMPACTION_SIM_TOTAL_TOKENS,
-    COMPACTION_SIM_USED_TOKENS,
     DEFAULT_CONTEXT_WINDOW,
     MAX_EVENT_OUTPUT,
     TEST_SIMULATION_DIR,
@@ -231,7 +227,6 @@ class TestSimulationHandler:
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
             "prompt.continue": lambda: self._prompt_continue(ws, rid, params, session_id),
             "prompt.cancel": lambda: self._prompt_cancel(ws, rid, params, session_id),
-            "context.compact": lambda: self._context_compact(ws, rid, session_id),
             "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id),
             "memory.list": lambda: self._memory_list(ws, rid),
             "provider.validate": lambda: self._provider_validate(ws, rid),
@@ -763,133 +758,6 @@ class TestSimulationHandler:
 
     async def _send(self, ws: WebSocket, event: Any) -> None:
         await ws.send_text(serialize_event(event))
-
-    async def _context_compact(self, ws, rid, session_id) -> None:
-        session = self._get_session(session_id)
-        if not session:
-            await ws.send_text(make_error_response(rid, -32602, "No active session"))
-            return
-
-        total = COMPACTION_SIM_TOTAL_TOKENS
-        used = COMPACTION_SIM_USED_TOKENS
-
-        await self._send(
-            ws,
-            r.context_compaction_started(
-                session_id=session_id,
-                reason="context pressure",
-                used=used,
-                total=total,
-            ),
-        )
-        await asyncio.sleep(0.35)
-
-        await self._send(
-            ws,
-            r.context_compaction_phase(
-                session_id=session_id,
-                phase="preserving",
-                label="Preserving important context",
-            ),
-        )
-        await asyncio.sleep(0.35)
-
-        tool_steps = ["bash_output", "file_read_output", "tool_result_traces"]
-        saved_per_step = 12_000 // len(tool_steps)
-        for tool in tool_steps:
-            await self._send(
-                ws,
-                r.context_compacted(
-                    tool,
-                    chars_removed=30_000,
-                    tokens_saved=saved_per_step,
-                    reason="compaction",
-                    session_id=session_id,
-                ),
-            )
-            await asyncio.sleep(0.25)
-
-        await self._send(
-            ws,
-            r.context_compaction_phase(
-                session_id=session_id,
-                phase="compacting",
-                label="Compacting context",
-                before_tokens=used,
-                after_tokens=COMPACTION_SIM_AFTER_TOKENS,
-            ),
-        )
-        await asyncio.sleep(0.3)
-
-        await self._send(
-            ws,
-            r.context_compaction_phase(
-                session_id=session_id,
-                phase="verifying",
-                label="Verifying preserved context",
-            ),
-        )
-        await asyncio.sleep(0.35)
-
-        await self._send(
-            ws,
-            r.context_compaction_ended(
-                session_id=session_id,
-                reason="completed",
-                used=COMPACTION_SIM_AFTER_TOKENS,
-                total=total,
-                tokens_saved=used - COMPACTION_SIM_AFTER_TOKENS,
-                summary_chars=COMPACTION_SIM_SUMMARY_CHARS,
-                preserved={
-                    "requirements": 12,
-                    "decisions": 7,
-                    "openTasks": 4,
-                    "findings": 3,
-                    "artifacts": 3,
-                    "agents": 2,
-                },
-                failed=False,
-                summary=(
-                    "## Objective\n"
-                    "- Make the zenith TUI /compact turn fully data-driven: a single JSON fixture holds "
-                    "the exact AI-model compaction output, a shared emitter replays it, and the same "
-                    "renderer consumes it in production and in tests.\n"
-                    "\n"
-                    "## Important Details\n"
-                    "- /compact replays `src/fixtures/compaction-output.json` locally through "
-                    "`emitCompactionFixture` — no backend dependency.\n"
-                    "- `mapRawEvent` lives in `src/services/transport/rawEventMapper.ts` and is shared by "
-                    "the live WebSocket stream and fixture playback, so formats stay byte-for-byte identical.\n"
-                    "- The lifecycle collapses into one `ContextCompactionFlowEvent`; "
-                    "`context_compaction_ended` is always terminal.\n"
-                    "\n"
-                    "## Work State\n"
-                    "### Completed\n"
-                    "- JSON-driven pipeline: fixture, rawEventMapper, fixtureEmitter, useScenario switch, "
-                    "App guard removal.\n"
-                    "- CompactionFlowBlock redesigned as a branded card: model, runtime, token transition, "
-                    "preserved metrics.\n"
-                    "\n"
-                    "### Active\n"
-                    "- None.\n"
-                    "\n"
-                    "### Blocked\n"
-                    "- None.\n"
-                    "\n"
-                    "## Next Move\n"
-                    "1. Render the summary body with TerminalMarkdown so structured sections display correctly.\n"
-                    "2. Mirror the structured summary in the live /ws/test simulation for parity.\n"
-                    "\n"
-                    "## Relevant Files\n"
-                    "- `tui/src/fixtures/compaction-output.json` — canonical compaction output.\n"
-                    "- `tui/src/services/transport/fixtureEmitter.ts` — shared emitter for runtime and tests.\n"
-                    "- `tui/src/components/Display/Scenario/CompactionFlowBlock.tsx` — the compaction turn card.\n"
-                    "- `server/api/test_websocket.py` — live compaction simulation."
-                ),
-            ),
-        )
-
-        await ws.send_text(make_response(rid, {"status": "compacted"}))
 
     async def _context_clear_tools(self, ws, rid, session_id) -> None:
         if not session_id:
