@@ -54,6 +54,12 @@ class Database:
 
         service = DatabaseStartupService(self.db_path)
         self.startup_result = service.run()
+        from server.persistence.crypto import encryption_enabled
+
+        if not encryption_enabled():
+            logger.info(
+                "Encryption at rest is NOT enabled (set ZENITH_ENCRYPTION_KEY to enable)"
+            )
         self._engine = create_async_engine(
             f"sqlite+aiosqlite:///{Path(self.db_path).resolve()}",
             echo=os.getenv("ZENITH_LOG_LEVEL", "").lower() == "debug",

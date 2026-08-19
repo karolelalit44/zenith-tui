@@ -3,19 +3,15 @@
  * convertHistoryToTurns (tui/src/utils/historyToTurns.ts), which App.tsx
  * handleSessionResume uses to restore history from backend messages.
  */
-import { describe, test, expect } from 'vitest';
-import { convertHistoryToTurns } from '../src/utils/historyToTurns';
+import { describe, expect, test } from 'vitest';
 import type { ScenarioEvent } from '../src/types/scenario';
+import { convertHistoryToTurns } from '../src/utils/historyToTurns';
 
 function makeUserMsg(id: string, content: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return { id, role: 'user', content, metadata: {}, created_at: new Date().toISOString(), ...extra };
 }
 
-function makeAssistantMsg(
-  id: string,
-  content: string,
-  events: unknown[] = [],
-): Record<string, unknown> {
+function makeAssistantMsg(id: string, content: string, events: unknown[] = []): Record<string, unknown> {
   return { id, role: 'assistant', content, metadata: {}, created_at: new Date().toISOString(), events };
 }
 

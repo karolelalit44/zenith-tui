@@ -28,6 +28,14 @@ interface CommandInputProps {
   mode?: ScenarioMode;
   totalTokens?: number;
   maxTokens?: number;
+  /** Cumulative run/API token usage (telemetry). */
+  runTokens?: number;
+  /** True when cumulative run usage is estimated, not provider-reported. */
+  runEstimated?: boolean;
+  /** Composed-context occupancy percent (0–100). */
+  contextPercent?: number;
+  /** True when the context window is a fallback estimate. */
+  windowEstimated?: boolean;
   workspaceName?: string;
   gitBranch?: string;
   onCancel?: () => void;
@@ -53,6 +61,10 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     mode = 'build',
     totalTokens = 0,
     maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
+    runTokens,
+    runEstimated,
+    contextPercent,
+    windowEstimated,
     workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
     gitBranch,
     onCancel,
@@ -174,6 +186,10 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             branch={activeBranch}
             totalTokens={totalTokens}
             effectiveMaxTokens={effectiveMaxTokens}
+            runTokens={runTokens}
+            runEstimated={runEstimated}
+            contextPercent={contextPercent}
+            windowEstimated={windowEstimated}
           />
         </Box>
       </Box>

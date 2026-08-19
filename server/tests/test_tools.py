@@ -153,12 +153,15 @@ class TestToolRegistry:
 BUILD_ONLY_TOOLS = [
     "bash",
     "agent",
-    "todo",
     "job_kill",
     "file_delete",
     "multi_edit",
     "lsp_rename",
 ]
+
+# Task tracking is deliberately available in plan mode (QA-5.6) so the agent
+# can manage its todo while investigating.
+PLAN_TRACKING_TOOLS = ["todo"]
 
 PLAN_WRITABLE_TOOLS = ["file_write", "file_edit"]
 
@@ -170,10 +173,16 @@ class TestModeGating:
         for name in BUILD_ONLY_TOOLS:
             assert name not in plan_names, f"{name} leaked into plan mode"
 
+    def test_plan_mode_includes_tracking_tools(self):
+        reg = create_default_registry()
+        plan_names = set(reg.list_tools_for_mode("plan"))
+        for name in PLAN_TRACKING_TOOLS:
+            assert name in plan_names, f"{name} missing from plan mode"
+
     def test_build_mode_includes_mutating_tools(self):
         reg = create_default_registry()
         build_names = set(reg.list_tools_for_mode("build"))
-        for name in BUILD_ONLY_TOOLS:
+        for name in BUILD_ONLY_TOOLS + PLAN_TRACKING_TOOLS:
             assert name in build_names, f"{name} missing from build mode"
 
     def test_plan_mode_offers_writable_plan_tools(self):
@@ -185,10 +194,17 @@ class TestModeGating:
     @pytest.mark.asyncio
     async def test_plan_mode_execution_rejects_leaked_tools(self):
         reg = create_default_registry()
-        for name in ("bash", "agent", "todo", "job_kill", "file_delete", "multi_edit"):
+        for name in ("bash", "agent", "job_kill", "file_delete", "multi_edit"):
             result = await reg.execute(name, {"command": "echo hi"}, ".", mode="plan")
             assert not result.success
             assert "not available" in result.error
+
+    @pytest.mark.asyncio
+    async def test_plan_mode_execution_allows_tracking_tools(self):
+        reg = create_default_registry()
+        result = await reg.execute("todo", {"action": "list"}, ".", mode="plan")
+        assert result.success
+        assert "not available" not in result.error
 
 
 class TestReadOnlyModeGating:
@@ -231,7 +247,7 @@ class TestReadOnlyModeGating:
             assert name in schema_names, f"{name} missing from read_only schemas"
 
     @pytest.mark.asyncio
-    async def test_read_only_mode_execution_rejects_build_only_tools(self):
+    async def test_read_only_mode_execution_rejects_execution_tools(self):
         reg = create_default_registry()
         for name in ("bash", "agent", "todo"):
             result = await reg.execute(name, {}, ".", mode="read_only")

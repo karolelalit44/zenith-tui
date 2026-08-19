@@ -68,16 +68,14 @@ def test_compact_rules_live_in_reference_file():
     rules = get_tier_prompt_enhancements(ModelTier.COMPACT)
     assert "file_read the tool reference file" in rules
     assert "NEVER output chat preambles" in TOOL_GUIDELINES_CONTENT
-    assert (
-        "Never call a tool twice with identical parameters in one turn" in TOOL_GUIDELINES_CONTENT
-    )
+    assert "Avoid redundant identical tool calls" in TOOL_GUIDELINES_CONTENT
     assert "Do not repeat a tool action without a reason" in TOOL_GUIDELINES_CONTENT
-    assert "output ONLY your final summary text and stop" in TOOL_GUIDELINES_CONTENT
+    assert "stop issuing tools" in TOOL_GUIDELINES_CONTENT
     assert "A tool call that already succeeded this turn will be skipped" in TOOL_GUIDELINES_CONTENT
 
 
 def test_large_model_rules_include_short_anti_loop_variant():
     for tier in (ModelTier.FLAGSHIP, ModelTier.REASONING):
         rules = get_tier_prompt_enhancements(tier)
-        assert "Never call a tool twice with identical parameters in one turn" in rules
+        assert "Avoid redundant identical tool calls" in rules
         assert "final summary" in rules

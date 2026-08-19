@@ -2,7 +2,11 @@ import type {
   CompactionPhase,
   CompactionStatus,
   ContextPreservation,
+  ContextUpdatedEvent,
+  RunStateSnapshot,
   ScenarioEvent,
+  SessionInfoEvent,
+  SessionSummarizedEvent,
   SubtaskItem,
   TodoBoardAction,
   TodoBoardChange,
@@ -10,6 +14,8 @@ import type {
   TodoLifecyclePhase,
   TodoPriority,
   TodoStatus,
+  TokenInfo,
+  TokenUsageRecordedEvent,
 } from '../../types/scenario';
 
 /**
@@ -21,6 +27,38 @@ import type {
 
 let idCounter = 0;
 export const uid = () => `evt_${Date.now()}_${++idCounter}`;
+
+/**
+ * Map the raw `success.tokenInfo` payload to the typed TokenInfo.
+ *
+ * Only finite numbers are accepted for the run/API telemetry fields and the
+ * fields are omitted entirely when absent from the wire — legacy SUCCESS
+ * events that predate `runTotal`/`windowEstimated` map to the exact same
+ * shape they always did, with safe defaults for the required fields.
+ */
+function mapTokenInfo(value: unknown): TokenInfo | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const ti = value as Record<string, unknown>;
+  const finiteNumber = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  const runTotal = finiteNumber(ti.runTotal);
+  const runPrompt = finiteNumber(ti.runPrompt);
+  const runCompletion = finiteNumber(ti.runCompletion);
+  return {
+    // Context occupancy (composed messages) — drives the context gauge.
+    used: Number(ti.used) || 0,
+    remaining: Number(ti.remaining) || 0,
+    total: Number(ti.total) || 0,
+    percent: Number(ti.percent) || 0,
+    // True when cumulative provider usage was unavailable (char-based estimate).
+    estimated: ti.estimated === true,
+    // Window/telemetry fields are optional: include only when actually present.
+    ...(ti.windowEstimated === true ? { windowEstimated: true } : {}),
+    ...(runTotal !== undefined ? { runTotal } : {}),
+    ...(runPrompt !== undefined ? { runPrompt } : {}),
+    ...(runCompletion !== undefined ? { runCompletion } : {}),
+  };
+}
 
 export function formatContextEventMessage(kind: string, d: Record<string, unknown>): string {
   const reason = d.reason ? String(d.reason) : 'context pressure';
@@ -38,9 +76,193 @@ export function formatContextEventMessage(kind: string, d: Record<string, unknow
   return `Context compaction ${verb}: ${used}/${total} tokens${pct}${saved} — ${reason}`;
 }
 
+const SESSION_STATUS_LABELS: Record<string, string> = {
+  session_created: 'Session created',
+  session_resumed: 'Session resumed',
+  session_state_changed: 'Session state changed',
+  session_paused: 'Session paused',
+  session_renamed: 'Session renamed',
+  session_error: 'Session error',
+  session_status: 'Session status',
+};
+
+/**
+ * Map a backend session lifecycle event into a lightweight status line. These
+ * are operational signals (dim status lines), never cards. The message is
+ * derived from kind + the fields the backend actually sent — never invented.
+ */
+export function mapSessionInfoEvent(
+  kind: string,
+  d: Record<string, unknown>,
+  id: string,
+): SessionInfoEvent | undefined {
+  if (!(kind in SESSION_STATUS_LABELS)) return undefined;
+  const baseLabel = SESSION_STATUS_LABELS[kind];
+  const parts: string[] = [];
+  if (kind === 'session_state_changed') {
+    const from = d.from_state !== undefined && d.from_state !== null ? String(d.from_state) : '';
+    const to = d.to_state !== undefined && d.to_state !== null ? String(d.to_state) : '';
+    if (from && to) parts.push(`${from} → ${to}`);
+    if (d.reason) parts.push(String(d.reason));
+  } else if (kind === 'session_status' && d.status) {
+    parts.push(String(d.status));
+  } else if (kind === 'session_renamed' && d.title) {
+    parts.push(`"${String(d.title)}"`);
+  } else if (kind === 'session_error' && d.error) {
+    parts.push(String(d.error));
+  }
+  const message = parts.length > 0 ? `${baseLabel}: ${parts.join(' · ')}` : baseLabel;
+  return {
+    kind: kind as SessionInfoEvent['kind'],
+    id,
+    sessionId: d.session_id !== undefined ? String(d.session_id) : undefined,
+    message,
+    fromState: d.from_state !== undefined ? String(d.from_state) : undefined,
+    toState: d.to_state !== undefined ? String(d.to_state) : undefined,
+    reason: d.reason !== undefined ? String(d.reason) : undefined,
+    title: d.title !== undefined ? String(d.title) : undefined,
+    error: d.error !== undefined ? String(d.error) : undefined,
+    status: d.status !== undefined ? String(d.status) : undefined,
+  };
+}
+
+function mapContextUpdatedEvent(d: Record<string, unknown>, id: string): ContextUpdatedEvent | undefined {
+  const used = typeof d.context_used === 'number' ? d.context_used : undefined;
+  const total = typeof d.context_window === 'number' ? d.context_window : undefined;
+  if (used === undefined || total === undefined || total <= 0) return undefined;
+  return {
+    kind: 'context_updated',
+    id,
+    sessionId: d.session_id !== undefined ? String(d.session_id) : undefined,
+    used,
+    total,
+    percent: typeof d.context_percent === 'number' ? d.context_percent : Math.round((used / total) * 100),
+  };
+}
+
+function mapTokenUsageRecordedEvent(d: Record<string, unknown>, id: string): TokenUsageRecordedEvent | undefined {
+  const totalTokens = typeof d.total_tokens === 'number' ? d.total_tokens : undefined;
+  if (totalTokens === undefined) return undefined;
+  return {
+    kind: 'token_usage_recorded',
+    id,
+    sessionId: d.session_id !== undefined ? String(d.session_id) : undefined,
+    totalTokens,
+    totalCost: typeof d.total_cost === 'number' ? d.total_cost : undefined,
+    addedTokens: typeof d.added_tokens === 'number' ? d.added_tokens : undefined,
+    addedCost: typeof d.added_cost === 'number' ? d.added_cost : undefined,
+  };
+}
+
+const _MAX_FINDINGS = 50;
+const _MAX_TODO_ITEMS = 50;
+const _MAX_PROGRESS = 24;
+
+function _stringList(value: unknown, cap: number): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim());
+  return items.length > 0 ? items.slice(0, cap) : undefined;
+}
+
+/**
+ * Parse the backend's authoritative SessionRunState snapshot into the typed
+ * shape. Only recognized fields are accepted and every field stays optional:
+ * nothing is fabricated for wire payloads the backend did not produce.
+ */
+function mapRunState(value: unknown): RunStateSnapshot | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const rs = value as Record<string, unknown>;
+  const finalValue =
+    rs.final && typeof rs.final === 'object'
+      ? {
+          kind:
+            typeof (rs.final as Record<string, unknown>).kind === 'string'
+              ? String((rs.final as Record<string, unknown>).kind)
+              : undefined,
+          message:
+            typeof (rs.final as Record<string, unknown>).message === 'string'
+              ? String((rs.final as Record<string, unknown>).message)
+              : undefined,
+          code: (rs.final as Record<string, unknown>).code,
+        }
+      : undefined;
+  const manifestValue =
+    rs.manifest && typeof rs.manifest === 'object'
+      ? {
+          created: _stringList((rs.manifest as Record<string, unknown>).created, 50),
+          modified: _stringList((rs.manifest as Record<string, unknown>).modified, 50),
+          remaining: _stringList((rs.manifest as Record<string, unknown>).remaining, 50),
+          completed: (rs.manifest as Record<string, unknown>).completed === true,
+          stalled: (rs.manifest as Record<string, unknown>).stalled === true,
+        }
+      : undefined;
+  const todoValue = Array.isArray(rs.todo)
+    ? rs.todo
+        .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+        .slice(0, _MAX_TODO_ITEMS)
+        .map((t) => ({
+          id: String(t.id || ''),
+          title: String(t.title || ''),
+          status: (t.status as TodoStatus) || 'todo',
+          priority: typeof t.priority === 'string' ? t.priority : undefined,
+        }))
+    : undefined;
+  const progressValue = Array.isArray(rs.progress)
+    ? rs.progress
+        .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+        .slice(0, _MAX_PROGRESS)
+        .map((p) => ({
+          label: String(p.label || ''),
+          seq: typeof p.seq === 'number' ? p.seq : undefined,
+          ts: typeof p.ts === 'number' ? p.ts : undefined,
+        }))
+    : undefined;
+
+  const snapshot: RunStateSnapshot = {};
+  if (typeof rs.status === 'string') snapshot.status = rs.status;
+  if (typeof rs.mode === 'string') snapshot.mode = rs.mode;
+  if (typeof rs.objective === 'string') snapshot.objective = rs.objective;
+  if (typeof rs.started_at === 'number') snapshot.startedAt = rs.started_at;
+  if (typeof rs.updated_at === 'number') snapshot.updatedAt = rs.updated_at;
+  if (finalValue && (finalValue.kind || finalValue.message)) snapshot.final = finalValue;
+  if (manifestValue) snapshot.manifest = manifestValue;
+  const findings = _stringList(rs.findings, _MAX_FINDINGS);
+  if (findings) snapshot.findings = findings;
+  if (todoValue && todoValue.length > 0) snapshot.todo = todoValue;
+  if (progressValue && progressValue.length > 0) snapshot.progress = progressValue;
+  return snapshot;
+}
+
+function mapSessionSummarizedEvent(d: Record<string, unknown>, id: string): SessionSummarizedEvent | undefined {
+  const runState = mapRunState(d.run_state);
+  const findings = _stringList(d.findings, _MAX_FINDINGS);
+  const summary = typeof d.summary === 'string' && d.summary.trim().length > 0 ? d.summary.trim() : undefined;
+  if (!runState && !findings && !summary) return undefined;
+  return {
+    kind: 'session_summarized',
+    id,
+    sessionId: d.session_id !== undefined ? String(d.session_id) : undefined,
+    summary,
+    findings: findings ?? runState?.findings,
+    runState,
+  };
+}
+
+function UnknownEvent(kind: string, id: string): ScenarioEvent {
+  return {
+    kind: 'warning',
+    id,
+    message: `[Unknown event: ${kind}]`,
+    code: 'UNKNOWN_EVENT',
+  } as ScenarioEvent;
+}
+
 export function mapRawEvent(kind: string, data: Record<string, unknown> | undefined, rpcId?: string): ScenarioEvent {
   const d = data || {};
   const id = rpcId || uid();
+
+  const sessionEvent = mapSessionInfoEvent(kind, d, id);
+  if (sessionEvent) return sessionEvent;
 
   switch (kind) {
     case 'thinking':
@@ -110,16 +332,7 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
           typeof d.iterations === 'number' ? d.iterations : typeof d.iteration === 'number' ? d.iteration : undefined,
         elapsedMs:
           typeof d.elapsedMs === 'number' ? d.elapsedMs : typeof d.duration === 'number' ? d.duration : undefined,
-        tokenInfo:
-          d.tokenInfo && typeof d.tokenInfo === 'object'
-            ? {
-                used: Number((d.tokenInfo as Record<string, unknown>).used) || 0,
-                remaining: Number((d.tokenInfo as Record<string, unknown>).remaining) || 0,
-                total: Number((d.tokenInfo as Record<string, unknown>).total) || 0,
-                percent: Number((d.tokenInfo as Record<string, unknown>).percent) || 0,
-                estimated: (d.tokenInfo as Record<string, unknown>).estimated === true,
-              }
-            : undefined,
+        tokenInfo: mapTokenInfo(d.tokenInfo),
       };
 
     case 'progress':
@@ -277,12 +490,26 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         elapsedMs: typeof d.elapsedMs === 'number' ? d.elapsedMs : undefined,
       };
 
+    case 'context_updated': {
+      const ctx = mapContextUpdatedEvent(d, id);
+      if (ctx) return ctx;
+      // Payload was not a usable occupancy snapshot — degrade gracefully.
+      return UnknownEvent(kind, id);
+    }
+
+    case 'token_usage_recorded': {
+      const tok = mapTokenUsageRecordedEvent(d, id);
+      if (tok) return tok;
+      return UnknownEvent(kind, id);
+    }
+
+    case 'session_summarized': {
+      const sum = mapSessionSummarizedEvent(d, id);
+      if (sum) return sum;
+      return UnknownEvent(kind, id);
+    }
+
     default:
-      return {
-        kind: 'warning',
-        id,
-        message: `[Unknown event: ${kind}]`,
-        code: 'UNKNOWN_EVENT',
-      } as ScenarioEvent;
+      return UnknownEvent(kind, id);
   }
 }

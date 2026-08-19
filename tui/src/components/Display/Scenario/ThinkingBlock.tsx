@@ -33,8 +33,28 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
   const [visibleCount, setVisibleCount] = useState(historical ? event.thoughts.length : 0);
 
   useEffect(() => {
-    setVisibleCount(event.thoughts.length);
-  }, [event.thoughts.length]);
+    // The backend emits the full reasoning in ONE thinking event at stream end.
+    // For a live (non-historical) expanded block, step through the thoughts one
+    // at a time so they stream in instead of flashing all at once; collapsed and
+    // historical blocks render the full set immediately.
+    if (historical || isCollapsed) {
+      setVisibleCount(event.thoughts.length);
+      return;
+    }
+    let timer: ReturnType<typeof setInterval> | null = null;
+    timer = setInterval(() => {
+      setVisibleCount((count) => {
+        if (count >= event.thoughts.length) {
+          if (timer) clearInterval(timer);
+          return count;
+        }
+        return count + 1;
+      });
+    }, 250);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [event.thoughts.length, historical, isCollapsed]);
 
   if (!hasRealReasoning(event)) {
     return null;

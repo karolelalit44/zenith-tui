@@ -16,7 +16,17 @@ export type EventKind =
   | 'context_compaction_flow'
   | 'agent_orchestration'
   | 'todo_board'
-  | 'todo_test';
+  | 'todo_test'
+  | 'session_created'
+  | 'session_resumed'
+  | 'session_state_changed'
+  | 'session_paused'
+  | 'session_renamed'
+  | 'session_error'
+  | 'session_status'
+  | 'session_summarized'
+  | 'context_updated'
+  | 'token_usage_recorded';
 
 export interface ThinkingThought {
   text: string;
@@ -55,12 +65,19 @@ export interface WarningEvent {
 }
 
 export interface TokenInfo {
+  /** Context occupancy (composed messages) — drives the context gauge. */
   used: number;
   remaining: number;
   total: number;
   percent: number;
   /** True when usage is estimated from characters, not reported by the provider. */
   estimated?: boolean;
+  /** True when the model's context window is unknown and a fallback was used. */
+  windowEstimated?: boolean;
+  /** Cumulative run/API usage (telemetry only — never used as context occupancy). */
+  runTotal?: number;
+  runPrompt?: number;
+  runCompletion?: number;
 }
 
 export interface SuccessEvent {
@@ -386,6 +403,118 @@ export interface TodoTestEvent {
   elapsedMs?: number;
 }
 
+/**
+ * Lightweight session lifecycle status line (e.g. "Session created", "Session
+ * resumed"). Backend session events carry a `session_id` plus a small number of
+ * fields; they are operational signals, so the UI renders them as dim status
+ * lines rather than prominent cards.
+ */
+export interface SessionInfoEvent {
+  kind:
+    | 'session_created'
+    | 'session_resumed'
+    | 'session_state_changed'
+    | 'session_paused'
+    | 'session_renamed'
+    | 'session_error'
+    | 'session_status';
+  id: string;
+  sessionId?: string;
+  /** Short human line summarizing the transition (derived from kind + fields). */
+  message: string;
+  fromState?: string;
+  toState?: string;
+  reason?: string;
+  title?: string;
+  error?: string;
+  /** Current run status when the backend broadcasts a `session_status` row. */
+  status?: string;
+}
+
+/**
+ * Composed-context occupancy snapshot pushed by the backend as context grows
+ * (`context_updated`). Purely informational: the authoritative frame for the
+ * gauge remains the SUCCESS `tokenInfo`. Not the same as cumulative run usage.
+ */
+export interface ContextUpdatedEvent {
+  kind: 'context_updated';
+  id: string;
+  sessionId?: string;
+  used: number;
+  total: number;
+  percent: number;
+}
+
+/**
+ * Provider-billed token accounting row pushed by the backend
+ * (`token_usage_recorded`). Cumulative API spend only — never the composed
+ * context occupancy. `totalTokens` is the provider-billed run total.
+ */
+export interface TokenUsageRecordedEvent {
+  kind: 'token_usage_recorded';
+  id: string;
+  sessionId?: string;
+  totalTokens: number;
+  totalCost?: number;
+  addedTokens?: number;
+  addedCost?: number;
+}
+
+/**
+ * Structured snapshot of the backend's authoritative SessionRunState. Every
+ * field is optional and the UI never fabricates values the wire did not carry.
+ * `final` is the terminal outcome record (kind/message/code) closed by a
+ * SUCCESS or ERROR event; `manifest` is the turn manifest's created/modified
+ * record; `todo` mirrors the session todo board.
+ */
+export interface RunStateSnapshot {
+  status?: string;
+  mode?: string;
+  objective?: string;
+  findings?: string[];
+  startedAt?: number;
+  updatedAt?: number;
+  final?: {
+    kind?: string;
+    message?: string;
+    code?: unknown;
+  };
+  manifest?: {
+    created?: string[];
+    modified?: string[];
+    remaining?: string[];
+    completed?: boolean;
+    stalled?: boolean;
+  };
+  todo?: {
+    id: string;
+    title: string;
+    status: TodoStatus;
+    priority?: string;
+  }[];
+  progress?: {
+    label: string;
+    seq?: number;
+    ts?: number;
+  }[];
+}
+
+/**
+ * End-of-run summary pushed by the backend (`session_summarized`). Carries the
+ * authoritative SessionRunState snapshot plus an optional human summary; the
+ * FinalSummaryCard renders from `runState`, never from prose.
+ */
+export interface SessionSummarizedEvent {
+  kind: 'session_summarized';
+  id: string;
+  sessionId?: string;
+  /** Optional human-readable summary (compact context summary, when present). */
+  summary?: string;
+  /** Convenience mirror of `runState.findings` (what the run discovered). */
+  findings?: string[];
+  runState?: RunStateSnapshot;
+}
+
 export type ScenarioEvent =
   | ThinkingEvent
   | MessageEvent
@@ -405,7 +534,11 @@ export type ScenarioEvent =
   | TurnManifestEvent
   | AgentOrchestrationEvent
   | TodoBoardEvent
-  | TodoTestEvent;
+  | TodoTestEvent
+  | SessionInfoEvent
+  | SessionSummarizedEvent
+  | ContextUpdatedEvent
+  | TokenUsageRecordedEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 

@@ -211,6 +211,9 @@ class TokenUsageRecord(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # QA-10: composed-context occupancy at record time — distinct from the
+    # provider-billed total_tokens above. 0 means "unknown" (pre-QA-10 rows).
+    context_occupancy: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     context_window: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     percent: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
     created_at: Mapped[str] = mapped_column(Text, nullable=False)

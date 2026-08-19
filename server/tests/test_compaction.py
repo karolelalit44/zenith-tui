@@ -6,10 +6,12 @@ from server.agents.compaction import (
     head_tail_trim,
     strip_ansi,
 )
-from server.agents.loop import (
-    AgentLoop,
+from server.agents.compaction import (
     _find_compaction_cut,
     _find_compaction_cut_budgeted,
+)
+from server.agents.loop import (
+    AgentLoop,
     _format_tool_result,
 )
 from server.config.constants import (

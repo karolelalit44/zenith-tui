@@ -112,7 +112,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
 
   // Trigger comes from the wire (`automatic` | `manual`); the TUI-invoked
   // path is manual, so an absent trigger falls back to the manual label.
-  const triggerLabel = event.trigger ? COMPACTION_TRIGGER_LABELS[event.trigger] ?? 'manual' : 'manual';
+  const triggerLabel = event.trigger ? (COMPACTION_TRIGGER_LABELS[event.trigger] ?? 'manual') : 'manual';
 
   const preserved =
     event.preserved && typeof event.preserved === 'object'

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,6 +11,11 @@ from typing import TYPE_CHECKING
 import server.providers.responder as r
 from server.agents.context import ContextManager
 from server.agents.recovery import RecoverableAgentLoop
+from server.agents.run_state import (
+    from_dict,
+    merge_run_state,
+    update_from_event,
+)
 from server.agents.running_summary import RunningSummaryScheduler
 from server.agents.sub_agent import SubAgentLoop
 from server.config.constants import (
@@ -36,6 +43,10 @@ logger = logging.getLogger(__name__)
 # When a worker turn produced files and its raw last-emitted text is this long, fold it into
 # a weak-model summary so the persisted assistant hand-off stays compact (§3.3 of the design).
 _HANDOFF_SUMMARY_CHARS = 800
+# Hard ceiling on the persisted assistant message. Guards against repeated
+# tool/reasoning noise ever becoming the canonical message (evidence-aware
+# finalization, QA-3).
+_HANDOFF_MAX_CHARS = 4000
 
 
 def _read_file_head(path: str | Path) -> bytes:
@@ -91,6 +102,13 @@ def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | N
     """
     parts: list[str] = []
     if manifest:
+        # Plan-mode artifact contract: a plan turn that did not write plan.md has
+        # remaining work, surfaced in the hand-off regardless of prose.
+        missing_plan = (manifest.get("plan_artifacts") or {}).get("missing") or []
+        if missing_plan:
+            parts.append(
+                "Plan artifacts not written: " + ", ".join(missing_plan)
+            )
         created = [str(p) for p in (manifest.get("created") or [])]
         modified = [str(p) for p in (manifest.get("modified") or [])]
         if created:
@@ -106,6 +124,20 @@ def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | N
                 parts.append("Remaining: " + snippet[:160])
     header = " | ".join(parts)
     body = (response_text or "").strip()
+    # The manifest is authoritative: a body that asserts work the manifest
+    # proves never happened is corrected before it can be persisted/rendered.
+    # Correction requires an actual manifest that shows no work — with no
+    # manifest there is no evidence to contradict, so prose is left untouched.
+    # A plan.md miss (QA-6.5) is a blocking correction even when other work
+    # (e.g. todo.md) happened.
+    missing_plan = (manifest or {}).get("plan_artifacts") or {}
+    blocking = (
+        "plan.md" in (missing_plan.get("missing") or [])
+        if isinstance(missing_plan, dict)
+        else False
+    )
+    if manifest is not None and (not _did_work(manifest) or blocking):
+        body = _rewrite_false_completion_claim(body, manifest)
     if header and body:
         return f"{header}\n\n{body}"
     if body:
@@ -117,6 +149,90 @@ def _did_work(manifest: dict | None) -> bool:
     if not manifest:
         return False
     return bool((manifest.get("created") or []) or (manifest.get("modified") or []))
+
+
+# ---------------------------------------------------------------------------
+# Evidence-aware finalization: the execution manifest is authoritative. A claim
+# in the model's prose (``Created X``, ``Fixed the bug``, ``Done``) that the
+# manifest does not back up is rewritten to a factual correction so the
+# persisted assistant message never asserts work that did not happen.
+# ---------------------------------------------------------------------------
+
+# Confident work-claims / completion signals that would be false when the
+# manifest records no created/modified files. Anchored to word boundaries and
+# matched case-insensitively.
+_COMPLETION_CLAIM_PATTERNS = (
+    r"\b(?:created|wrote|written|wrote out)\s+(?:the\s+)?(?:file|files)",
+    r"\b(?:created|wrote)\s+[`']?[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|toml|yaml|yml|md|txt|css|html)\b",
+    r"\b(?:fixed|resolved|solved|implemented|completed|finished|done)\b",
+    r"\bcreated\b.{0,80}\b(?:file|file[s]?)\b",
+    r"\bnew\s+file\b",
+)
+# A negative claim (``no file was created``) must not be corrected.
+_NEGATIVE_CLAIM_PATTERNS = (
+    r"\b(?:not|no)\s+(?:able\s+to\s+)?(?:create|write|implement|fix|resolve|complete|done)\b",
+    r"\bcouldn'?t\b",
+    r"\bwas\s+unable\b",
+    r"\bfailed\b",
+    r"\bdid\s+not\b",
+)
+
+
+def plan_claim_is_negative(response_text: str) -> bool:
+    """True when ``response_text`` explicitly denies completing the plan."""
+    text = (response_text or "").strip()
+    if not text:
+        return True
+    for pattern in _NEGATIVE_CLAIM_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _claim_contradicts_evidence(response_text: str) -> bool:
+    """True when ``response_text`` asserts work the manifest can prove never happened."""
+    text = (response_text or "").strip()
+    if not text:
+        return False
+    for negative in _NEGATIVE_CLAIM_PATTERNS:
+        if re.search(negative, text, flags=re.IGNORECASE):
+            return False
+    for pattern in _COMPLETION_CLAIM_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _rewrite_false_completion_claim(response_text: str, manifest: dict | None) -> str:
+    """Prefix a completion claim that contradicts the empty manifest.
+
+    Returns a corrected body of the form:
+        "[Not implemented] <original claim>. Evidence: no file was created or modified in this turn."
+    In plan mode, the correction names the missing plan artifact(s) when the
+    turn claimed a complete plan but did not write plan.md/todo.md.
+    """
+    text = (response_text or "").strip()
+    if not text or text.startswith("[Not implemented]"):
+        return text
+    # Plan-mode artifact contract (QA-6.5): a missing plan.md is evidence that
+    # positive plan-completion prose is a false claim — even when other work
+    # happened (e.g. only todo.md was written), a claimed plan.md still must be
+    # corrected.
+    missing_plan = (manifest or {}).get("plan_artifacts") or {}
+    missing = (missing_plan.get("missing") or []) if isinstance(missing_plan, dict) else []
+    if missing and not plan_claim_is_negative(text):
+        return f"[Not implemented] {text}\n\n(Plan artifacts not written: {', '.join(missing)}.)"
+    if not text or _did_work(manifest):
+        return text
+    if not _claim_contradicts_evidence(text):
+        return text
+    evidence = (
+        f"No file was created or modified in this turn"
+        f" (plan artifacts not written: {', '.join(missing)})."
+        if missing
+        else "No file was created or modified in this turn."
+    )
+    return f"[Not implemented] {text}\n\n({evidence})"
 
 
 def _handoff_messages(collected_events: list[Event], response_text: str) -> list[Message]:
@@ -343,6 +459,77 @@ class PromptExecutor:
         except Exception:
             logger.warning("Failed to save plan output for session %s", session_id)
 
+    async def _persist_run_state(
+        self,
+        session_id: str,
+        objective: str,
+        mode: str,
+        collected_events: list[Event],
+        ts: float,
+    ) -> dict | None:
+        """Fold this turn's executed events into the session's structured run state.
+
+        The run state is evidence-derived (executed tool events + turn manifest),
+        never inferred from model prose. It is stored under the additive
+        ``session.metadata["run_state"]`` key, so older sessions without it
+        initialize safely (QA-4). Returns the persisted snapshot (or None when
+        the session is absent), so callers can emit it to the frontend.
+        """
+        try:
+            session = await self._session_repo.get(session_id)
+            if session is None:
+                return None
+            previous = from_dict((session.metadata or {}).get("run_state"))
+            state = merge_run_state(previous, ts=ts)
+            state.objective = objective or state.objective
+            state.mode = mode
+            for ev in collected_events or []:
+                update_from_event(state, ev.kind, ev.data or {}, ev.timestamp)
+            # Session-scoped todos are authoritative; export them into run_state
+            # so plan artifacts (todo.md) render FROM this structured state.
+            try:
+                from server.agents.todo_state import get_todo_state
+
+                state.todo = get_todo_state(session_id).snapshot()
+            except Exception:
+                state.todo = list(state.todo)
+            self._render_todo_artifact(session, state.todo)
+            snapshot = state.to_dict()
+            session.metadata["run_state"] = snapshot
+            await self._session_repo.update(session)
+            logger.info(
+                "Persisted run state for session %s: status=%s tools=%d",
+                session_id,
+                state.status,
+                len(state.tool_history),
+            )
+            return snapshot
+        except Exception:
+            logger.exception("Failed to persist run state for session %s", session_id)
+            return None
+
+    def _render_todo_artifact(self, session, todos: list[dict]) -> None:
+        """Write ``todo.md`` from the structured todo snapshot (QA-5.8).
+
+        The artifact is only rendered when structured todos exist so a
+        model-authored ``todo.md`` is never clobbered by an empty board.
+        """
+        if not todos:
+            return
+        try:
+            from server.agents.todo_state import render_todo_markdown
+
+            root = Path(session.workspace_root or self._config.workspace_root)
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "todo.md").write_text(render_todo_markdown(todos), encoding="utf-8")
+            logger.info(
+                "Rendered todo.md artifact for session %s (%d todos)",
+                session.id,
+                len(todos),
+            )
+        except Exception:
+            logger.warning("Failed to render todo.md artifact for session %s", session.id)
+
     async def _persist_assistant_message(
         self, session_id: str, response_text: str, collected_events: list[Event]
     ) -> None:
@@ -353,14 +540,21 @@ class PromptExecutor:
                 return
             manifest = _turn_manifest_from_events(events)
             worked = _did_work(manifest)
-            handoff = _build_crafted_handoff(manifest, response_text)
-            if worked and response_text.strip() and len(response_text) > _HANDOFF_SUMMARY_CHARS:
-                summarized = await self._summarize_handoff(session_id, events, response_text)
+            body = response_text
+            if not worked:
+                # The manifest is authoritative: never persist prose that asserts
+                # files were created/modified when the execution record proves none were.
+                body = _rewrite_false_completion_claim(response_text, manifest)
+            handoff = _build_crafted_handoff(manifest, body)
+            if worked and body.strip() and len(body) > _HANDOFF_SUMMARY_CHARS:
+                summarized = await self._summarize_handoff(session_id, events, body)
                 if summarized:
                     handoff = _build_crafted_handoff(manifest, summarized)
             if not handoff:
                 # Never persist a placeholder when real work happened.
                 handoff = "[Cancelled by user]" if not worked else "[No summary recorded]"
+            if len(handoff) > _HANDOFF_MAX_CHARS:
+                handoff = handoff[:_HANDOFF_MAX_CHARS].rstrip() + "…"
             text_content = handoff.strip()
             if not text_content:
                 logger.info("Skipping blank assistant message for session %s", session_id)
@@ -495,9 +689,7 @@ class PromptExecutor:
                 self._compaction_service,
             )
             db_session = await self._session_repo.get(session_id)
-            summary_at_start = (
-                (db_session.metadata or {}).get("summary") if db_session else None
-            )
+            summary_at_start = (db_session.metadata or {}).get("summary") if db_session else None
             if db_session and db_session.metadata and db_session.metadata.get("summary"):
                 agent.set_summary(db_session.metadata["summary"])
                 logger.info(
@@ -597,9 +789,16 @@ class PromptExecutor:
                             token_repo = TokenUsageRepository(self._session_repo.db)
                             provider_name = getattr(self._provider, "name", "unknown")
                             model_name = getattr(self._provider, "model", "unknown")
+                            # QA-10: `used` is composed-context OCCUPANCY (gauge
+                            # input); runTotal/runPrompt/runCompletion are the
+                            # provider-billed run usage (spend). They are
+                            # persisted separately and never mixed.
                             used = ti.get("used", 0)
-                            prompt_t = ti.get("prompt_tokens", used)
-                            completion_t = ti.get("completion_tokens", 0)
+                            run_total = ti.get("runTotal", 0) or used
+                            prompt_t = ti.get("prompt_tokens", ti.get("runPrompt", run_total))
+                            completion_t = ti.get(
+                                "completion_tokens", ti.get("runCompletion", 0)
+                            )
                             cache_read_t = ti.get("cached_tokens", 0)
                             cache_creation_t = ti.get("cache_creation_tokens", 0)
                             ctx_window = ti.get("total", DEFAULT_CONTEXT_WINDOW)
@@ -610,7 +809,7 @@ class PromptExecutor:
                                         session_id=session_id,
                                         provider=provider_name,
                                         model=model_name,
-                                        total_tokens=used // _step_count,
+                                        total_tokens=run_total // _step_count,
                                         context_window=ctx_window,
                                         prompt_tokens=prompt_t // _step_count,
                                         completion_tokens=completion_t // _step_count,
@@ -620,13 +819,16 @@ class PromptExecutor:
                                         cache_creation_tokens=cache_creation_t // _step_count,
                                         step_index=s,
                                         estimated=estimated,
+                                        # Occupancy is a composed snapshot: only
+                                        # the final step of the turn carries it.
+                                        context_occupancy=used if s == _step_count else 0,
                                     )
                             elif not token_usage_recorded:
                                 await token_repo.record(
                                     session_id=session_id,
                                     provider=provider_name,
                                     model=model_name,
-                                    total_tokens=used,
+                                    total_tokens=run_total,
                                     context_window=ctx_window,
                                     prompt_tokens=prompt_t,
                                     completion_tokens=completion_t,
@@ -635,6 +837,7 @@ class PromptExecutor:
                                     cache_read_tokens=cache_read_t,
                                     cache_creation_tokens=cache_creation_t,
                                     estimated=estimated,
+                                    context_occupancy=used,
                                 )
                             token_usage_recorded = True
                             logger.info(
@@ -739,6 +942,30 @@ class PromptExecutor:
                 except Exception as e:
                     logger.warning("Failed to persist session summary: %s", e)
             await self._persist_assistant_message(session_id, response_text, collected_events)
+            persisted_state = None
+            try:
+                persisted_state = await self._persist_run_state(
+                    session_id, content, mode, collected_events, time.time()
+                )
+            except Exception:
+                logger.debug("Failed to persist run state for %s", session_id)
+            if manager and persisted_state and persisted_state.get("final"):
+                # Emit the authoritative end-of-run summary only when a terminal
+                # outcome closed this turn (SUCCESS/ERROR); the FinalSummaryCard
+                # renders FROM this snapshot, never from prose.
+                summary = (getattr(agent, "summary", None) or "").strip() or response_text.strip()
+                await manager.send_event(
+                    session_id,
+                    Event(
+                        kind=EventKind.SESSION_SUMMARIZED,
+                        session_id=session_id,
+                        data={
+                            "summary": summary,
+                            "findings": list(persisted_state.get("findings") or []),
+                            "run_state": persisted_state,
+                        },
+                    ),
+                )
             if self._workspace_repo:
                 try:
                     from server.agents.session_workspace import flush_to_db

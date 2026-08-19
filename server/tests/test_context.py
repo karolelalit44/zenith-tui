@@ -165,11 +165,13 @@ class _FakeUsageProvider:
 
 
 class TestUsageBasedTriggers:
-    def test_usage_tokens_prefers_provider_report(self):
+    def test_usage_tokens_ignores_provider_cumulative(self):
+        """Cumulative provider usage is run/API usage, never context occupancy."""
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
         provider = _FakeUsageProvider(total_tokens=9999)
         tokens = ctx.usage_tokens([], "gpt-4", provider)
-        assert tokens == 9999
+        assert tokens == ctx.usage_tokens([], "gpt-4")
+        assert tokens != 9999
 
     def test_usage_tokens_falls_back_to_estimation(self):
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
@@ -182,11 +184,25 @@ class TestUsageBasedTriggers:
         tokens = ctx.usage_tokens([{"role": "user", "content": "y " * 100}], "gpt-4", provider)
         assert tokens > 0
 
-    def test_should_summarize_when_used_near_limit(self):
-        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
+    def test_usage_tokens_composed_matches_provider_independent(self):
+        """Provider presence must not change the composed count."""
+        ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
+        messages = [{"role": "user", "content": "z " * 500}]
+        provider = _FakeUsageProvider(total_tokens=129_956)
+        assert ctx.usage_tokens(messages, "gpt-4") == ctx.usage_tokens(messages, "gpt-4", provider)
+
+    def test_should_summarize_when_composed_context_large(self):
+        config = AppSettings(
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW, context_compaction_threshold=0.5
+        )
         ctx = ContextManager(config)
+        # Push the composed count over the 50% watermark cheaply via aux tokens.
+        ctx.set_aux_tokens(70000)
+        assert ctx.should_summarize([{"role": "user", "content": "hi"}], "gpt-4") is True
+        # Cumulative provider usage alone must NOT trigger summarization.
+        ctx2 = ContextManager(config)
         provider = _FakeUsageProvider(total_tokens=120000)
-        assert ctx.should_summarize([], "gpt-4", provider) is True
+        assert ctx2.should_summarize([], "gpt-4", provider) is False
 
     def test_should_summarize_false_when_low_usage(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
@@ -194,14 +210,14 @@ class TestUsageBasedTriggers:
         provider = _FakeUsageProvider(total_tokens=1000)
         assert ctx.should_summarize([], "gpt-4", provider) is False
 
-    def test_get_token_info_uses_reported_usage(self):
+    def test_get_token_info_uses_composed_context(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
         ctx = ContextManager(config)
         provider = _FakeUsageProvider(total_tokens=64000)
         info = ctx.get_token_info([], "no-such-model", provider)
-        assert info.used == 64000
-        assert info.remaining == 64000
-        assert abs(info.percent - 0.5) < 0.01
+        assert info.used == ctx.usage_tokens([], "no-such-model")
+        assert info.used < 64000
+        assert info.remaining == info.total - info.used
 
 
 class TestCompactionWatermark:
@@ -210,27 +226,30 @@ class TestCompactionWatermark:
             max_context_tokens=DEFAULT_CONTEXT_WINDOW, context_compaction_threshold=0.5
         )
         ctx = ContextManager(config)
-        provider = _FakeUsageProvider(total_tokens=64000)
-        assert ctx.should_summarize([], "gpt-4", provider) is True
+        ctx.set_aux_tokens(70000)  # > 50% watermark of 64K
+        assert ctx.should_summarize([{"role": "user", "content": "hi"}], "gpt-4") is True
 
     def test_should_not_summarize_below_config_threshold(self):
         config = AppSettings(
-            max_context_tokens=DEFAULT_CONTEXT_WINDOW, context_compaction_threshold=0.6
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW, context_compaction_threshold=0.9
         )
         ctx = ContextManager(config)
-        provider = _FakeUsageProvider(total_tokens=64000)
-        assert ctx.should_summarize([], "gpt-4", provider) is False
+        ctx.set_aux_tokens(10000)  # well under the 90% watermark of ~115K
+        assert ctx.should_summarize([{"role": "user", "content": "hi"}], "gpt-4") is False
 
     def test_is_context_exhausted_at_hard_stop_ratio(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
         ctx = ContextManager(config)
+        # Cumulative provider usage must NOT signal exhaustion on an empty context.
         boundary = int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO)
+        assert ctx.is_context_exhausted([], "gpt-4", _FakeUsageProvider(total_tokens=boundary)) is False
+        # A genuinely oversized composed context does.
         assert (
-            ctx.is_context_exhausted([], "gpt-4", _FakeUsageProvider(total_tokens=boundary)) is True
-        )
-        assert (
-            ctx.is_context_exhausted([], "gpt-4", _FakeUsageProvider(total_tokens=boundary - 1))
-            is False
+            ctx.is_context_exhausted(
+                [{"role": "user", "content": "x " * int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO * 4)}],
+                "gpt-4",
+            )
+            is True
         )
 
     def test_is_context_exhausted_false_without_provider_report(self):

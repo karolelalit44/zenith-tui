@@ -1,5 +1,5 @@
-import { mapRawEvent } from '../services/transport/rawEventMapper';
 import type { ConversationTurn } from '../hooks/useConversation';
+import { mapRawEvent } from '../services/transport/rawEventMapper';
 import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
 
 /**
@@ -35,7 +35,7 @@ export function convertHistoryToTurns(
 }
 
 function createTurnFromUserMessage(msg: Record<string, unknown>, defaultMode: ScenarioMode): ConversationTurn {
-  const mode = (msg.metadata as Record<string, unknown>)?.mode as ScenarioMode || defaultMode;
+  const mode = ((msg.metadata as Record<string, unknown>)?.mode as ScenarioMode) || defaultMode;
   const created = msg.created_at ? String(msg.created_at) : undefined;
   return {
     id: `hist_${msg.id}`,

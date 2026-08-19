@@ -55,6 +55,77 @@ describe('ThinkingBlock', () => {
     );
     expect(lastFrame()).toBe('');
   });
+
+  it('renders all thoughts immediately when historical (expanded)', () => {
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't2',
+      thoughts: ['first', 'second', 'third'],
+      duration: 1200,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ thinkingCollapsed: false, isHistorical: true }} />
+      </ThemeProvider>,
+    );
+    expect(lastFrame()).toContain('first');
+    expect(lastFrame()).toContain('second');
+    expect(lastFrame()).toContain('third');
+  });
+
+  it('renders the first-thought preview when collapsed', () => {
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't2',
+      thoughts: ['first', 'second', 'third'],
+      duration: 1200,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ thinkingCollapsed: true, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+    expect(lastFrame()).toContain('first');
+    expect(lastFrame()).not.toContain('second');
+    expect(lastFrame()).not.toContain('third');
+  });
+});
+
+describe('ThinkingBlock streaming reveal (QA-9)', () => {
+  it('reveals a live expanded block one thought at a time', async () => {
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't3',
+      thoughts: ['alpha', 'beta', 'gamma'],
+      duration: 1200,
+    };
+    const { lastFrame, unmount } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ thinkingCollapsed: false, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+
+    // Live reveal runs on a real 250 ms interval; poll frames until each
+    // thought streams in (deterministic — no fake-timer/scheduler coupling).
+    const waitForThought = async (text: string) => {
+      const start = Date.now();
+      while (Date.now() - start < 5000) {
+        if ((lastFrame() || '').includes(text)) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`thought '${text}' never streamed in; frame: ${lastFrame()}`);
+    };
+
+    // The reveal is incremental: the full set never flashes at once.
+    expect(lastFrame()).not.toContain('alpha');
+    await waitForThought('alpha');
+    expect(lastFrame()).not.toContain('gamma');
+    await waitForThought('beta');
+    expect(lastFrame()).not.toContain('gamma');
+    await waitForThought('gamma');
+
+    unmount();
+  });
 });
 
 describe('ToolStepCard pending duration', () => {

@@ -9,15 +9,21 @@ from server.config.constants import (
     LOOP_DETECTION_WINDOW_SIZE,
     LOOP_IDENTICAL_CONSECUTIVE_LIMIT,
 )
+from server.toolkit.param_normalizer import canonicalize_path_values
 
 logger = logging.getLogger(__name__)
 
 
-def _compute_signature(tool_name: str, params: dict, result_output: str) -> str:
+def _compute_signature(
+    tool_name: str, params: dict, result_output: str, workspace_root: str | None = None
+) -> str:
+    canonical = (
+        canonicalize_path_values(params, workspace_root) if workspace_root else params
+    )
     h = hashlib.sha256()
     h.update(tool_name.encode("utf-8"))
     h.update(b"\x00")
-    h.update(json.dumps(params, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    h.update(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     h.update(b"\x00")
     h.update(result_output.encode("utf-8"))
     return h.hexdigest()
@@ -37,8 +43,14 @@ class LoopDetector:
         self._consecutive_sig: str | None = None
         self._consecutive_count = 0
 
-    def record(self, tool_name: str, params: dict, result_output: str) -> None:
-        sig = _compute_signature(tool_name, params, result_output)
+    def record(
+        self,
+        tool_name: str,
+        params: dict,
+        result_output: str,
+        workspace_root: str | None = None,
+    ) -> None:
+        sig = _compute_signature(tool_name, params, result_output, workspace_root)
         self._signatures.append(sig)
         if len(self._signatures) > self.window_size:
             self._signatures = self._signatures[-self.window_size :]

@@ -99,10 +99,21 @@ def turn_manifest(payload: dict, session_id: str) -> Event:
     return event(EventKind.TURN_MANIFEST, dict(payload), session_id)
 
 
-def progress(percent: int, status: str, session_id: str, iteration: int = 0) -> Event:
+def progress(
+    percent: int,
+    status: str,
+    session_id: str,
+    iteration: int = 0,
+    steps: list[dict] | None = None,
+) -> Event:
     return event(
         EventKind.PROGRESS,
-        {"percent": percent, "label": status, "steps": [], "iteration": iteration},
+        {
+            "percent": percent,
+            "label": status,
+            "steps": steps or [],
+            "iteration": iteration,
+        },
         session_id,
     )
 

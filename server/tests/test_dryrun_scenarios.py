@@ -7,15 +7,18 @@ from typing import Any
 
 import pytest
 
-from server.agents.compaction import compact_tool_output, head_tail_trim
+from server.agents.compaction import (
+    _find_compaction_cut,
+    _find_compaction_cut_budgeted,
+    _group_start,
+    compact_tool_output,
+    head_tail_trim,
+)
 from server.agents.loop import (
     AgentLoop,
     _all_calls_repeat,
     _build_manifest,
     _call_signature,
-    _find_compaction_cut,
-    _find_compaction_cut_budgeted,
-    _group_start,
     _has_verification_evidence,
     _most_common_count,
     _params_label,
@@ -1206,9 +1209,31 @@ class TestLoopHelperDryRun:
         assert m["completed"] is True and m["stalled"] is False
         assert m["created"] == ["made.txt"] and m["remaining"] == []
         assert m["files"] == [{"path": "made.txt", "exists": True, "size": 1}]
-        m2 = _build_manifest({"made.txt"}, [], False, True, "stuck", ws)
+        m2 = _build_manifest(set(), [], False, True, "stuck", ws)
         assert m2["completed"] is False and m2["stalled"] is True
-        assert m2["remaining"] == ["stuck"]
+        # No incomplete todos / no verification gap note possible; generic fallback.
+        assert m2["remaining"] == ["The turn ended without completing any work."]
+        # last_text is never authoritative for remaining (QA-8).
+        assert "stuck" not in m2["remaining"]
+
+    def test_build_manifest_remaining_from_todos(self, temp_dir):
+        ws = str(temp_dir)
+        # Incomplete session todos drive "remaining" (QA-8), never last_text.
+        todos = [
+            {"id": "t1", "title": "Fix auth", "status": "pending"},
+            {"id": "t2", "title": "Add tests", "status": "in_progress"},
+            {"id": "t3", "title": "Ship", "status": "completed"},
+            {"id": "t4", "title": "Docs", "status": "cancelled"},
+        ]
+        m = _build_manifest(set(), [], False, False, "I fixed auth now", ws, todos=todos)
+        assert m["remaining"] == ["Todo: Fix auth", "Todo: Add tests (in_progress)"], m["remaining"]
+        assert "I fixed auth now" not in m["remaining"]
+        # No incomplete todos -> empty remaining (completed or not).
+        m2 = _build_manifest(set(), [], True, False, "done", ws, todos=todos)
+        assert m2["remaining"] == []
+        # Completed todo statuses never surface.
+        m3 = _build_manifest(set(), [], False, False, "done", ws, todos=[])
+        assert m3["remaining"] == ["The turn ended without completing any work."]
 
     def test_build_manifest_verification_flag(self, temp_dir):
         ws = str(temp_dir)
@@ -1249,6 +1274,33 @@ class TestLoopHelperDryRun:
             verification=[{"tool": "bash", "output_len": 5, "seq": 3}],
         )
         assert stripped["checks"] == [{"tool": "bash", "output_len": 5}]
+
+    def test_build_manifest_plan_contract(self, temp_dir):
+        ws = str(temp_dir)
+        # Plan turn that claims completion but wrote NO artifact: not complete.
+        m = _build_manifest(
+            {"plan.md"}, ["plan.md"], True, False, "plan ready", ws, plan_mode=True
+        )
+        assert m["remaining"] == [
+            "Plan artifacts not written: plan.md, todo.md."
+        ], m["remaining"]
+        assert m["plan_artifacts"] == {
+            "plan_written": False,
+            "todo_written": False,
+            "missing": ["plan.md", "todo.md"],
+        }
+        # Written plan.md -> artifact present; remaining stays empty.
+        (temp_dir / "plan.md").write_text("# Plan", encoding="utf-8")
+        m2 = _build_manifest(
+            {"plan.md"}, ["plan.md"], True, False, "plan ready", ws, plan_mode=True
+        )
+        assert m2["remaining"] == [], m2["remaining"]
+        assert m2["plan_artifacts"]["missing"] == ["todo.md"]
+        assert m2["plan_artifacts"]["plan_written"] is True
+        # Non-plan mode never adds the contract.
+        m3 = _build_manifest({"plan.md"}, ["plan.md"], True, False, "plan ready", ws)
+        assert "plan_artifacts" not in m3
+        assert m3["remaining"] == []
 
     def test_has_verification_evidence(self):
         assert _has_verification_evidence([]) is False

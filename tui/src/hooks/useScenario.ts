@@ -32,7 +32,8 @@ export interface UseScenarioReturn {
   ) => void;
   abort: () => void;
   startCompaction: () => void;
-  lastSessionId: string | null;  setActiveSessionId: (id: string | null) => void;
+  lastSessionId: string | null;
+  setActiveSessionId: (id: string | null) => void;
   lastManifest: { manifest: TurnManifestEvent; originalPrompt: string } | null;
 }
 
@@ -365,16 +366,12 @@ export function useScenario(): UseScenarioReturn {
     }
 
     // Real RPC: stream the backend's compaction events live.
-    runnerRef.current = backendScenarioProvider.executeCompaction(
-      sessionIdRef.current,
-      handleEvent,
-      handleComplete,
-    );
+    runnerRef.current = backendScenarioProvider.executeCompaction(sessionIdRef.current, handleEvent, handleComplete);
 
     if (abortRequestedRef.current) {
       runnerRef.current?.abort();
     }
-  }, [connectToBackend, handleEvent, handleComplete, reportError, setLastSessionId]);
+  }, [connectToBackend, handleEvent, handleComplete, reportError]);
 
   const setActiveSessionId = useCallback((id: string | null) => {
     sessionIdRef.current = id;

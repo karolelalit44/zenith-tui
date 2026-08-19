@@ -44,7 +44,7 @@ describe('CompactionFlowBlock', () => {
     expect(frame).toContain('trimmed tool traces');
   });
 
-it('renders the ready state as a compacted summary banner with tokens', () => {
+  it('renders the ready state as a compacted summary banner with tokens', () => {
     const event: ContextCompactionFlowEvent = {
       ...baseEvent,
       phase: 'ready',

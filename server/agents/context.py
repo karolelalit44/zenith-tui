@@ -12,12 +12,14 @@ import os
 from dataclasses import dataclass
 
 from server.config.constants import (
+    BUILD_MODE,
     CHARS_PER_TOKEN,
     DEFAULT_CONTEXT_WINDOW,
     FILE_READ_TOOL,
     HARD_STOP_USAGE_RATIO,
     LARGE_CONTEXT_WINDOW,
     MIN_OUTPUT_RESERVE_TOKENS,
+    MODE_BUDGET_PROFILES,
     SESSION_STATE_MARKER,
     STALE_TOKEN_MULTIPLIER,
     SUMMARY_FRAMING_TOKENS,
@@ -84,16 +86,27 @@ def _extract_tool_read_path(content: str) -> str | None:
     return None
 
 
-def _get_model_context_window(model: str, fallback: int = DEFAULT_CONTEXT_WINDOW) -> int:
+def _lookup_model_context_window(model: str) -> int | None:
+    """Return the model's catalog context window, or ``None`` when unknown.
+
+    A ``None`` result means the window is an *estimate* (the caller falls back to
+    ``DEFAULT_CONTEXT_WINDOW``) and must never be presented as authoritative.
+    """
     try:
         cat = load_catalog()
         for prov in cat.get("providers", {}).values():
             for m in prov.get("models", []):
                 if m["id"] == model:
-                    return m.get("context_window", fallback)
+                    val = m.get("context_window", 0)
+                    return int(val) if val else None
     except Exception:
         pass
-    return fallback
+    return None
+
+
+def _get_model_context_window(model: str, fallback: int = DEFAULT_CONTEXT_WINDOW) -> int:
+    val = _lookup_model_context_window(model)
+    return fallback if val is None else val
 
 
 def _adaptive_reserve(model: str, context_window: int) -> int:
@@ -195,6 +208,7 @@ class TokenInfo:
     remaining: int
     total: int
     percent: float
+    window_estimated: bool = False
 
 
 _REPO_MAP_INSTANCES: dict[str, object] = {}
@@ -221,12 +235,22 @@ class ContextManager:
         self._last_t0_len = 0
         self._last_tiers: list[str] = []
         self._last_stale_count = 0
+        self._window_estimated = False
 
     def set_aux_tokens(self, tokens: int) -> None:
         self._aux_tokens = max(0, int(tokens))
 
+    @property
+    def context_window_estimated(self) -> bool:
+        """True when the active model's window is unknown and a fallback is used."""
+        return self._window_estimated
+
     def _resolve_context_window(self, model: str) -> int:
-        from_catalog = _get_model_context_window(model)
+        from_catalog = _lookup_model_context_window(model)
+        if from_catalog is None:
+            self._window_estimated = True
+            return min(DEFAULT_CONTEXT_WINDOW, self.config.max_context_tokens)
+        self._window_estimated = False
         return min(from_catalog, self.config.max_context_tokens)
 
     def _resolve_repo_map_tokens(self, model: str) -> int:
@@ -277,10 +301,16 @@ class ContextManager:
         memory: str | None = None,
         session_id: str | None = None,
         project_memory: str | None = None,
+        mode: str = BUILD_MODE,
     ) -> list[dict]:
         max_tokens = self._resolve_context_window(model)
         reserve = _adaptive_reserve(model, max_tokens)
         budget = max_tokens - reserve
+        # Mode-aware tier budgets (Gap #8): the history tier gets a per-mode
+        # share of the input budget so investigation modes retain more
+        # conversation context and read-only mode trims the tool-schema spend.
+        profile = MODE_BUDGET_PROFILES.get(mode, MODE_BUDGET_PROFILES[BUILD_MODE])
+        history_budget = int(budget * profile["history_pct"])
         self._last_t0_len = 1 if use_system_prompt else 0
         self._last_tiers = []
         messages: list[dict] = []
@@ -391,6 +421,11 @@ class ContextManager:
         last_key: tuple[str, str] | None = None
         stale_count = 0
         turn_counter = 0
+        # Map a tool result to the turn of its owning assistant tool-call
+        # message (the most recent preceding assistant entry with tool_calls).
+        # A tool result whose owner is evicted is an orphan and must be dropped.
+        owner_turn_by_entry: dict[int, int | None] = {}
+        _last_assistant_toolcall_turn: int | None = None
         for msg in history:
             if msg.role == "assistant" and (not msg.content) and (not msg.has_tool_calls):
                 continue
@@ -402,16 +437,30 @@ class ContextManager:
             last_key = key
             entry_dict = {"role": msg.role, "content": msg.content}
             entry_tokens = self.token_counter.count(msg.content, model)
+            # A tool result arrives two ways in persisted history: the live form
+            # (role=user, content prefixed ``[Tool:``) and the legacy form
+            # (role="tool"). Both are tool outputs. A ``role="tool"``/``[Tool:``
+            # entry that follows a plain user prompt (no assistant tool-call
+            # in between) is kept as-is; only those whose owning assistant
+            # tool-call message is evicted are dropped.
             is_tool = (
-                msg.role == "user"
-                and isinstance(msg.content, str)
-                and msg.content.startswith("[Tool:")
+                msg.role == "tool"
+                or (
+                    msg.role == "user"
+                    and isinstance(msg.content, str)
+                    and msg.content.startswith("[Tool:")
+                )
             )
+            if msg.role == "assistant" and msg.has_tool_calls:
+                _last_assistant_toolcall_turn = turn_counter + 1
             is_stale = False
             is_error = (
-                msg.role == "user"
-                and isinstance(msg.content, str)
-                and "Status: ERROR" in msg.content
+                msg.role == "tool"
+                or (
+                    msg.role == "user"
+                    and isinstance(msg.content, str)
+                    and "Status: ERROR" in msg.content
+                )
             )
             if session_id and is_tool:
                 path = _extract_tool_read_path(msg.content)
@@ -423,6 +472,7 @@ class ContextManager:
                         is_stale = True
                         stale_count += 1
             turn_counter += 1
+            owner_turn_by_entry[turn_counter] = _last_assistant_toolcall_turn
             history_entries.append(
                 HistoryEntry(
                     message=entry_dict,
@@ -446,13 +496,27 @@ class ContextManager:
         scored = sorted(history_entries, key=lambda e: e._score, reverse=True)
         included: list[HistoryEntry] = []
         for entry in scored:
-            if used + entry.tokens + pbuf > budget:
+            if used + entry.tokens + pbuf > history_budget:
                 continue
             included.append(entry)
             used += entry.tokens
         included.sort(key=lambda e: e.turn_index)
-        messages.extend(e.message for e in included)
-        self._last_tiers.extend([TIER_T4] * len(included))
+        # Drop tool results whose owning assistant tool-call message was evicted
+        # (they are meaningless on their own and mislead the model). Tool results
+        # without a tool-call owner (e.g. following a plain user prompt) are kept.
+        owner_included = {e.turn_index for e in included}
+        emitted: list[HistoryEntry] = []
+        for entry in included:
+            owner = owner_turn_by_entry.get(entry.turn_index)
+            if entry.is_tool_result and owner is not None and owner not in owner_included:
+                logger.info(
+                    "Dropping orphaned tool result (owning assistant tool-call evicted): turn %d",
+                    entry.turn_index,
+                )
+                continue
+            emitted.append(entry)
+        messages.extend(e.message for e in emitted)
+        self._last_tiers.extend([TIER_T4] * len(emitted))
         if not use_system_prompt:
             parts = [system_prompt]
             if repo_map_block:
@@ -522,18 +586,33 @@ class ContextManager:
         return used >= total * HARD_STOP_USAGE_RATIO
 
     def get_token_info(self, messages: list[dict], model: str, provider=None) -> TokenInfo:
-        used = self.usage_tokens(messages, model, provider)
+        used = self.usage_tokens_composed(messages, model)
         total = self._resolve_context_window(model)
         remaining = max(0, total - used)
         percent = used / total if total > 0 else 0.0
-        return TokenInfo(used=used, remaining=remaining, total=total, percent=percent)
+        return TokenInfo(
+            used=used,
+            remaining=remaining,
+            total=total,
+            percent=percent,
+            window_estimated=self._window_estimated,
+        )
 
     def usage_tokens(self, messages: list[dict], model: str, provider=None) -> int:
-        if provider is not None:
-            cum = getattr(provider, "_cumulative_usage", None) or {}
-            reported = int(cum.get("total_tokens") or 0)
-            if reported > 0:
-                return reported
+        """Composed-context occupancy (alias of :meth:`usage_tokens_composed`).
+
+        The ``provider`` argument is accepted for call-site compatibility but is
+        intentionally ignored: cumulative provider usage is *run/API usage*, not
+        context occupancy, and must never drive compaction or the context gauge.
+        """
+        return self.usage_tokens_composed(messages, model)
+
+    def usage_tokens_composed(self, messages: list[dict], model: str) -> int:
+        """Deterministic composed-context occupancy in tokens.
+
+        Counts the actual message list with the local token counter plus the
+        aux (tool-schema) budget. Never includes cumulative provider usage.
+        """
         return self.token_counter.count_messages(messages, model) + self._aux_tokens
 
     def count_tokens(self, text: str, model: str) -> int:

@@ -296,6 +296,25 @@ async def post_execution_hooks(
     tool_name: str, tool_params: dict, result: ToolResult, workspace_root: str, session_id: str
 ) -> list[Event]:
     events: list[Event] = []
+    # Todo mutations carry the full board snapshot in tool metadata; fold it into
+    # a `todo_board` event so the frontend board stays a pure function of events.
+    if tool_name == "todo" and result.success:
+        board = (result.metadata or {}).get("board")
+        if isinstance(board, list):
+            from server.domain.events import Event, EventKind
+
+            action = str((result.metadata or {}).get("action") or "snapshot")
+            events.append(
+                Event(
+                    kind=EventKind.TODO_BOARD,
+                    session_id=session_id,
+                    data={
+                        "action": action,
+                        "board": board,
+                        "message": result.output or "",
+                    },
+                )
+            )
     edited_path = tool_params.get("filepath") or tool_params.get("path") or ""
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:

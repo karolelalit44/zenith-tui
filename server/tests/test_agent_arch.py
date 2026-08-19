@@ -54,12 +54,12 @@ class TestLoopDetector:
 
 
 class TestSystemPromptBuilding:
-    def test_build_system_prompt_includes_direct_responses(self):
+    def test_build_system_prompt_direct_answers_need_no_tools(self):
         from server.agents.prompts import build_system_prompt
 
         prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
-        assert "reply with the answer in markdown" in prompt
-        assert "No tool calls" in prompt
+        assert "general knowledge needs none" in prompt
+        assert "Tools only when they add verified value" in prompt
 
     def test_build_system_prompt_omits_text_tool_schemas(self):
         from server.agents.prompts import build_system_prompt
@@ -91,7 +91,7 @@ class TestSystemPromptBuilding:
         build = build_system_prompt(workspace_root="/tmp/test", mode="build")
         assert "## BOUNDARY" in plan
         assert "plan.md" in plan and "todo.md" in plan
-        assert "## OBJECTIVE" in build
+        assert "## PRINCIPLES" in build
         assert "## BOUNDARY" not in build
         assert "Only writable files are plan.md and todo.md" not in build
 
@@ -100,21 +100,11 @@ class TestSystemPromptBuilding:
         from server.agents.prompts import build_system_prompt
 
         prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
-        assert "## CLASSIFY BEFORE ACTING" in prompt
-        assert "EXECUTE" in prompt
-        assert "PLAN/DESIGN" in prompt
-        assert "QUESTION" in prompt
+        assert "## INTENT" in prompt
+        assert "Execute by default" in prompt
+        assert "provide a plan without modifying anything" in prompt
+        assert "don't modify anything" in prompt
         assert "BUILD mode: EXECUTE" in prompt
-
-    def test_build_system_prompt_never_emits_bare_category(self):
-        """The model must never reply with only a category word (e.g. 'QUESTION')."""
-        from server.agents.prompts import build_system_prompt
-
-        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
-        assert "Silently pick one path, then act" in prompt
-        assert "Never answer with only a category word" in prompt
-        assert "QUESTION, PLAN, EXECUTE, PLANNING, AMBIGUOUS" in prompt
-        assert "Every reply delivers substance" in prompt
 
     def test_build_system_prompt_enforces_exact_names(self):
         """Fidelity regression: never re-spell the user's names; honor exact spellings."""
@@ -122,30 +112,44 @@ class TestSystemPromptBuilding:
 
         prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
         assert "exact names, paths, and spellings" in prompt
-        assert "Never assume" in prompt
+        assert "Don't invent facts or requirements" in prompt
 
     def test_build_system_prompt_anti_fabrication_and_scope(self):
-        """Regression: never invent facts/dates; create exactly one file per request; verify content."""
+        """Regression: never invent facts/dates; create exactly what was asked (no invented variants); verify content."""
         from server.agents.prompts import build_system_prompt
 
         prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
         assert "Never fabricate facts, dates, or values" in prompt
-        assert "one file per request, exact path and name, no invented variants" in prompt
+        assert "no invented variants or extra files" in prompt
         assert "Verify content, not tool success" in prompt
+
+    def test_build_system_prompt_resolves_conflicts_and_scales_depth(self):
+        """Regression: latest user message wins on conflict; reply depth matches the request."""
+        from server.agents.prompts import build_system_prompt
+
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "latest user message wins" in prompt
+        assert "Match the request" in prompt
+
+    def test_build_system_prompt_is_task_agnostic(self):
+        """Regression: the agent is general-purpose, not narrowed to coding tasks."""
+        from server.agents.prompts import build_system_prompt
+
+        prompt = build_system_prompt(workspace_root="/tmp/test", mode="build")
+        assert "code, configuration, documents, data" in prompt
+        assert "Not a task-specific tool" in prompt
+        assert "Follow-ups" in prompt
+        assert "repository" not in prompt
 
     def test_plan_system_prompt_classifies_intent(self):
         """In plan mode an execution-sounding request must become a PLAN, not code."""
         from server.agents.prompts import build_system_prompt
 
         prompt = build_system_prompt(workspace_root="/tmp/test", mode="plan")
-        assert "## CLASSIFY" in prompt
-        assert "Planning (default)" in prompt
         assert "PLANNING ONLY" in prompt
-        assert "Never execute" in prompt
-        assert "Silently pick one path, then produce it" in prompt
-        assert "Never answer with only a category word" in prompt
-        assert "PLANNING, PLAN, QUESTION" in prompt
-        assert "Every reply delivers substance" in prompt
+        assert "never implement or modify" in prompt
+        assert "## BOUNDARY" in prompt
+        assert "unresolved decisions" in prompt
 
     def test_plan_block_defers_to_latest_user_message(self):
         """A previously approved plan must not override a newer, conflicting user intent."""

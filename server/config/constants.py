@@ -20,6 +20,15 @@ READ_ONLY_MODE = "read_only"
 
 READ_ONLY_TOOLS = ["file_read", "glob", "grep", "list_dir"]
 
+# Per-mode context-budget allocation (Gap #8). Fractions of the input budget
+# (context window minus output reserve). History absorbs a larger share in
+# investigation-heavy modes; tool schemas get a smaller share in read_only.
+MODE_BUDGET_PROFILES = {
+    BUILD_MODE: {"tools_pct": 0.10, "history_pct": 0.40, "summary_pct": 0.05},
+    PLAN_MODE: {"tools_pct": 0.08, "history_pct": 0.50, "summary_pct": 0.05},
+    READ_ONLY_MODE: {"tools_pct": 0.05, "history_pct": 0.55, "summary_pct": 0.05},
+}
+
 CHARS_PER_TOKEN = 4
 SUMMARY_FRAMING_TOKENS = 4
 MIN_OUTPUT_RESERVE_TOKENS = 8_000
@@ -54,6 +63,9 @@ SESSION_STATE_OUTRO = (
 
 STALE_TOKEN_MULTIPLIER = 2
 HEAVY_TOOL_THRESHOLD_TOKENS = 5000
+HEAVY_TOOL_SUMMARY_MAX_CHARS = 2000
+HEAVY_OUTPUT_SUBDIR = "heavy-outputs"
+HEAVY_TOOL_MARKER_TEMPLATE = "Summary of output (full output available via file_read: {path}):"
 PROJECT_MEMORY_MAX_TOKENS = 500
 PROJECT_MEMORY_MAX_ENTRIES = 20
 

@@ -612,11 +612,16 @@ class TestSublinearGrowth:
 
     def test_input_tokens_stay_at_or_below_watermark_for_many_prompts(self, temp_dir: Path):
         window = DEFAULT_CONTEXT_WINDOW
+        # Gap #8 (mode budgets): build mode caps the history tier at 40% of the
+        # input budget, so a conversation-only workload can never reach the
+        # default 80% watermark. Lower the threshold to sit inside the
+        # achievable range so the compaction property is still exercised.
         cfg = AppSettings(
             workspace_root=str(temp_dir),
             max_context_tokens=window,
             repo_map_enabled=False,
             memory_enabled=False,
+            context_compaction_threshold=0.30,
         )
         ctx = ContextManager(cfg)
         ctx.token_counter._available = False
@@ -1812,3 +1817,107 @@ class TestMultiTierCacheBreakpoints:
         )
         bounds = ctx.tier_boundaries()
         assert bounds["t0_end"] <= bounds["t1_end"] <= bounds["t2_end"] <= bounds["t4_end"]
+
+
+class TestCacheSafeCompaction:
+    """Gap #5: the compaction summarizer request must reuse the main request's
+    cache prefix (system prompt + cached tiers) instead of invalidating it."""
+
+    async def _compact_with_recording_provider(self, temp_dir, messages):
+        from server.agents.compaction_service import CompactionService
+        from server.domain.message import Message
+
+        recorded: dict = {}
+
+        class _Recorder:
+            name = "fake-recorder"
+            model = "gpt-4"
+
+            async def complete(self, request, tools=None):
+                recorded["request"] = [dict(m) for m in request]
+                return "compacted summary"
+
+            async def validate(self) -> bool:
+                return True
+
+        provider = _Recorder()
+        cfg = _base_config(workspace_root=str(temp_dir))
+        cm = ContextManager(cfg)
+        service = CompactionService(cfg, provider, context_manager=cm)
+        history = [
+            Message(session_id="s1", role="user", content=f"old prompt {i} " + "x" * 1300)
+            for i in range(150)
+        ] + [Message(session_id="s1", role="assistant", content="old reply")]
+        outcome = await service.compact(
+            session_id="s1",
+            history=history,
+            messages=[dict(m) for m in messages],
+            previous_summary=None,
+        )
+        return outcome, recorded
+
+    @pytest.mark.asyncio
+    async def test_compaction_request_prepends_cache_prefix(self, temp_dir: Path):
+        cfg = _base_config(workspace_root=str(temp_dir))
+        loop = AgentLoop(config=cfg, provider=_CachingProvider())
+        loop._catalog_for_provider = staticmethod(
+            lambda provider_name: {"supports_prompt_caching": True, "adapter": "anthropic"}
+        )
+        messages = loop.context_manager.build_messages(
+            [Message(session_id="s1", role="user", content="old")],
+            SYSTEM_PROMPT,
+            "new",
+            "gpt-4",
+            summary="Prior context.",
+        )
+        cached = loop._apply_prompt_caching(messages)
+        outcome, recorded = await self._compact_with_recording_provider(temp_dir, cached)
+
+        assert not outcome.failed
+        request = recorded["request"]
+        assert request, "summarizer provider must be called"
+        assert request[0]["content"] == SYSTEM_PROMPT
+        assert any(m.get("cache_control") for m in request), "cache markers must survive into the prefix"
+        assert request[-1]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_compaction_prefix_ends_at_last_cache_marker(self, temp_dir: Path):
+        from server.agents.compaction_service import _cache_prefix_for
+
+        msgs = [
+            {"role": "system", "content": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
+            {"role": "system", "content": "tool schemas", "cache_control": {"type": "ephemeral"}},
+            {"role": "system", "content": "summary block"},
+            {"role": "user", "content": "history + prompt"},
+        ]
+        prefix = _cache_prefix_for(msgs)
+        assert len(prefix) == 2
+        assert prefix[-1]["content"] == "tool schemas"
+
+    @pytest.mark.asyncio
+    async def test_post_compaction_prompt_keeps_cache_markers(self, temp_dir: Path):
+        cfg = _base_config(workspace_root=str(temp_dir))
+        loop = AgentLoop(config=cfg, provider=_CachingProvider())
+        loop._catalog_for_provider = staticmethod(
+            lambda provider_name: {"supports_prompt_caching": True, "adapter": "anthropic"}
+        )
+        messages = loop.context_manager.build_messages(
+            [Message(session_id="s1", role="user", content="old")],
+            SYSTEM_PROMPT,
+            "new",
+            "gpt-4",
+            summary="Prior context.",
+        )
+        cached = loop._apply_prompt_caching(messages)
+        await self._compact_with_recording_provider(temp_dir, cached)
+        rebuilt = loop._apply_prompt_caching(
+            loop.context_manager.build_messages(
+                [Message(session_id="s1", role="user", content="old")],
+                SYSTEM_PROMPT,
+                "new after compaction",
+                "gpt-4",
+                summary="compacted summary",
+            )
+        )
+        assert rebuilt[0]["content"] == SYSTEM_PROMPT
+        assert rebuilt[0].get("cache_control") == {"type": "ephemeral"}

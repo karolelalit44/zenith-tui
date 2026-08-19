@@ -41,13 +41,15 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   const elapsedMs = reportedElapsedMs > 0 ? reportedElapsedMs : isLiveRunning ? tick * 100 : undefined;
   const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
 
-  // Used tokens calculation. Trust provider-reported usage only when it is a
-  // real, non-zero figure; fall back to the frontend estimate when usage is
-  // missing, zero, or estimated from characters.
+  // Used tokens calculation. `tokenInfo.used` is the composed-context occupancy
+  // reported by the backend and is authoritative whenever non-zero; `estimated`
+  // only describes the cumulative *run* usage and must not suppress it. Fall
+  // back to the frontend estimate only when usage is missing or zero.
   const reportedUsed = event.tokenInfo?.used ?? 0;
-  const usageIsUnknown = reportedUsed <= 0 || event.tokenInfo?.estimated === true || event.tokenInfo === undefined;
+  const usageIsUnknown = reportedUsed <= 0 || event.tokenInfo === undefined;
   const usedTokens = usageIsUnknown ? (turnEvents ? estimateTokensForEvents(turnEvents) : 0) : reportedUsed;
-  const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
+  const tokenIsEstimate = usageIsUnknown || event.tokenInfo?.estimated === true;
+  const tokenStr = usedTokens > 0 ? `${tokenIsEstimate ? '~' : ''}${formatTokenCount(usedTokens)} tokens` : '';
 
   const metricsParts: string[] = [];
   const iters =

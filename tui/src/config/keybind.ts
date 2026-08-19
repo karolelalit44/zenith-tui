@@ -71,7 +71,45 @@ const vimKeybindings: Record<string, string[]> = {};
 
 for (const action of keybindActions) {
   defaultKeybindings[action.id] = [action.keys[0]];
-  vimKeybindings[action.id] = action.keys.filter((k) => !['enter', 'space', 'escape', 'tab', 'shift+tab', 'ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+f', 'ctrl+p', 'ctrl+o', 'ctrl+,', 'ctrl+w', 'ctrl+s', 'ctrl+j', 'ctrl+k', 'ctrl+l', 'ctrl+r', 'ctrl+u', 'ctrl+d', 'ctrl+tab', 'ctrl+shift+tab', 'pageup', 'pagedown', 'home', 'end', 'delete', 'up', 'down', 'left', 'right', 'f1', '?'].includes(k));
+  vimKeybindings[action.id] = action.keys.filter(
+    (k) =>
+      ![
+        'enter',
+        'space',
+        'escape',
+        'tab',
+        'shift+tab',
+        'ctrl+a',
+        'ctrl+c',
+        'ctrl+v',
+        'ctrl+x',
+        'ctrl+f',
+        'ctrl+p',
+        'ctrl+o',
+        'ctrl+,',
+        'ctrl+w',
+        'ctrl+s',
+        'ctrl+j',
+        'ctrl+k',
+        'ctrl+l',
+        'ctrl+r',
+        'ctrl+u',
+        'ctrl+d',
+        'ctrl+tab',
+        'ctrl+shift+tab',
+        'pageup',
+        'pagedown',
+        'home',
+        'end',
+        'delete',
+        'up',
+        'down',
+        'left',
+        'right',
+        'f1',
+        '?',
+      ].includes(k),
+  );
 }
 
 export const keybindSchemes: Record<KeybindScheme, Record<string, string[]>> = {

@@ -182,6 +182,25 @@ def compact_live_tail(messages: list[dict]) -> None:
                 msg["time"] = "compacted"
 
 
+def _cache_prefix_for(messages: list[dict]) -> list[dict]:
+    """Longest cache-stable prefix of a composed message array.
+
+    Returns the messages up to and including the last ``cache_control``
+    breakpoint marker (end of the deepest cached tier). When the array has no
+    markers (e.g. non-caching provider or a bare history list) an empty prefix is
+    returned so callers fall back to the plain summarizer request.
+    """
+    if not messages:
+        return []
+    last_marker = -1
+    for i, m in enumerate(messages):
+        if isinstance(m, dict) and m.get("cache_control"):
+            last_marker = i
+    if last_marker < 0:
+        return []
+    return [dict(m) for m in messages[: last_marker + 1]]
+
+
 @dataclass
 class CompactionOutcome:
     """Structured result of one compaction operation."""
@@ -247,6 +266,7 @@ class CompactionService:
         reason: str = "automatic",
         previous_summary: str | None = None,
         emit: EmittingFn | None = None,
+        focus: str | None = None,
     ) -> CompactionOutcome:
         emit = emit or _noop_emit
         model = self._provider.model
@@ -337,7 +357,12 @@ class CompactionService:
                     summary = await ConversationSummarizer(
                         self._config, self._provider
                     ).summarize(
-                        prefix, model, session_id=session_id, previous_summary=previous_summary
+                        prefix,
+                        model,
+                        session_id=session_id,
+                        previous_summary=previous_summary,
+                        prefix=_cache_prefix_for(messages or []),
+                        focus=focus,
                     )
                 if not summary:
                     raise RuntimeError("summarization produced an empty result")

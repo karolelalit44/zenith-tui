@@ -13,8 +13,17 @@ export interface FooterLayoutInput {
   providerName: string;
   dir: string;
   branch: string;
+  /** Legacy cumulative count — used as the run-usage fallback when runTokens is omitted. */
   totalTokens?: number;
   effectiveMaxTokens?: number;
+  /** Cumulative run/API token usage (telemetry). Preferred over totalTokens. */
+  runTokens?: number;
+  /** True when the cumulative run usage is estimated, not provider-reported. */
+  runEstimated?: boolean;
+  /** Composed-context occupancy percent (0–100). Omitted → no gauge renders. */
+  contextPercent?: number;
+  /** True when the context-window denominator is a fallback estimate. */
+  windowEstimated?: boolean;
 }
 
 export interface FooterLayoutOutput {
@@ -34,47 +43,45 @@ export interface FooterLayoutOutput {
   scopeLabel: string;
 }
 
-export function formatTokenUsage(totalTokens: number, maxTokens: number): string {
-  let countStr = '0.0K';
-  if (totalTokens >= 1_000_000) {
-    countStr = `${(totalTokens / 1_000_000).toFixed(1)}M`;
-  } else if (totalTokens >= 1_000) {
-    countStr = `${(totalTokens / 1_000).toFixed(1)}K`;
-  } else if (totalTokens > 0) {
-    countStr = `${(totalTokens / 1000).toFixed(1)}K`;
-  } else {
-    countStr = '0.0K';
-  }
-
-  const pct = maxTokens > 0 ? Math.min(100, Math.round((totalTokens / maxTokens) * 100)) : 0;
-  return `${countStr} (${pct}%)`;
+/** Compact cumulative run/API token telemetry (e.g. 12.4K, 1.2M, 420). */
+export function formatRunTokens(count: number): string {
+  if (count <= 0) return '0';
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return String(count);
 }
 
 export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutput {
   const contentWidth = Math.max(24, input.columns - FOOTER_EDGE_PAD);
   const modeLabel = input.mode === 'plan' ? '[PLAN] ' : '[BUILD] ';
 
-  const tokenUsage =
-    typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0
-      ? formatTokenUsage(input.totalTokens ?? 0, input.effectiveMaxTokens)
-      : '';
+  // Cumulative run/API telemetry — the footer count is run usage, never the
+  // composed-context occupancy (which belongs in the gauge below).
+  const runCount = typeof input.runTokens === 'number' ? input.runTokens : (input.totalTokens ?? 0);
+  const hasRunUsage = runCount > 0 || typeof input.runTokens === 'number' || typeof input.totalTokens === 'number';
+  const tokenUsage = hasRunUsage ? `${input.runEstimated === true ? '~' : ''}${formatRunTokens(runCount)}` : '';
   const tokenCount = tokenUsage;
   const maxTokens =
     typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0 ? `${input.effectiveMaxTokens}` : '0';
   const scopeLabel = '';
 
-  const percent =
-    typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0
-      ? Math.min(100, Math.round(((input.totalTokens ?? 0) / input.effectiveMaxTokens) * 100))
-      : 0;
-  const filled = Math.max(0, Math.min(FOOTER_GAUGE_BLOCKS, Math.round((percent / 100) * FOOTER_GAUGE_BLOCKS)));
-  const gauge = `[${'█'.repeat(filled)}${'░'.repeat(FOOTER_GAUGE_BLOCKS - filled)}] ${percent}%`;
+  // Composed-context occupancy only — never mix cumulative run usage here.
+  // Without an explicit contextPercent the footer renders no gauge at all.
+  const gaugePercent =
+    typeof input.contextPercent === 'number' ? Math.max(0, Math.min(100, Math.round(input.contextPercent))) : null;
+  const filled = gaugePercent !== null ? Math.round((gaugePercent / 100) * FOOTER_GAUGE_BLOCKS) : 0;
+  const gauge =
+    gaugePercent !== null
+      ? `[${'█'.repeat(filled)}${'░'.repeat(FOOTER_GAUGE_BLOCKS - filled)}] ${input.windowEstimated === true ? '~' : ''}${gaugePercent}%`
+      : '';
+  const showGauge = gauge !== '';
 
   const cleanBranch = input.branch ? input.branch.replace(/^\(+|\)+$/g, '').trim() : '';
 
   const rawDir = getWorkspaceFolderName(input.dir);
 
-  const tokenWidth = tokenUsage.length + (tokenUsage ? 1 : 0);
+  const rightText = [gauge, tokenUsage].filter(Boolean).join(' ');
+  const tokenWidth = rightText.length + (rightText ? 1 : 0);
   const colonWidth = rawDir && cleanBranch ? 1 : 0;
   const fixedRight = tokenWidth + colonWidth + 1;
   const fixedLeft = modeLabel.length + 2;
@@ -119,7 +126,7 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     tokenUsage,
     maxTokens,
     gauge,
-    showGauge: false,
+    showGauge,
     scopeLabel,
   };
 }

@@ -109,7 +109,9 @@ class MethodHandlers:
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
             "prompt.continue": lambda: self._prompt_continue(ws, rid, params, session_id),
             "prompt.cancel": lambda: self._cancel_prompt(ws, rid, session_id),
-            "context.compact": lambda: self._context_compact(ws, rid, session_id),
+            "context.compact": lambda: self._context_compact(
+                ws, rid, session_id, focus=(params or {}).get("focus")
+            ),
             "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id),
             "provider.validate": lambda: self._provider_validate(ws, rid, params),
             "provider.models": lambda: self._provider_models(ws, rid, params),
@@ -581,7 +583,9 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"cancelled": cancelled}))
         return session_id
 
-    async def _context_compact(self, ws, rid, session_id) -> str | None:
+    async def _context_compact(
+        self, ws, rid, session_id, focus: str | None = None
+) -> str | None:
         if not session_id:
             await ws.send_text(make_error_response(rid, -32602, "No active session"))
             return None
@@ -616,6 +620,7 @@ class MethodHandlers:
             reason="manual",
             previous_summary=((session.metadata or {}).get("summary") or None),
             emit=_emit,
+            focus=focus,
         )
         if outcome.failed:
             await ws.send_text(

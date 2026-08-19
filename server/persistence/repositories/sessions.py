@@ -11,6 +11,7 @@ from server.domain.message import Message
 from server.domain.session import Session
 
 from ..connection import Database
+from ..crypto import decrypt_text, encrypt_text
 from ..models import MessageRecord, SessionRecord
 from ..safe import safe_db
 from .base import _iso
@@ -33,7 +34,7 @@ class SessionRepository:
                     updated_at=session.updated_at.isoformat(),
                     workspace_root=session.workspace_root,
                     is_active=session.is_active,
-                    metadata_json=json.dumps(session.metadata),
+                    metadata_json=encrypt_text(json.dumps(session.metadata)),
                     parent_session_id=session.parent_session_id,
                     plan_output=session.plan_output,
                     plan_approved_at=_iso(session.plan_approved_at),
@@ -67,7 +68,7 @@ class SessionRepository:
             updated_at=datetime.fromisoformat(r.updated_at),
             workspace_root=r.workspace_root,
             is_active=bool(r.is_active),
-            metadata=json.loads(r.metadata_json or "{}"),
+            metadata=json.loads(decrypt_text(r.metadata_json or "{}")),
             parent_session_id=r.parent_session_id,
             plan_output=r.plan_output or "",
             plan_approved_at=datetime.fromisoformat(r.plan_approved_at)
@@ -186,7 +187,7 @@ class SessionRepository:
             rec.state = session.state.value if hasattr(session.state, "value") else session.state
             rec.updated_at = session.updated_at.isoformat()
             rec.is_active = session.is_active
-            rec.metadata_json = json.dumps(session.metadata)
+            rec.metadata_json = encrypt_text(json.dumps(session.metadata))
             rec.parent_session_id = session.parent_session_id
             rec.plan_output = session.plan_output
             rec.plan_approved_at = _iso(session.plan_approved_at)
@@ -227,7 +228,7 @@ class SessionRepository:
                 updated_at=datetime.fromisoformat(rec.updated_at),
                 workspace_root=rec.workspace_root,
                 is_active=bool(rec.is_active),
-                metadata=json.loads(rec.metadata_json or "{}"),
+                metadata=json.loads(decrypt_text(rec.metadata_json or "{}")),
                 parent_session_id=rec.parent_session_id,
                 state=SessionState(rec.state or "created"),
                 plan_output=rec.plan_output or "",
@@ -265,11 +266,11 @@ class MessageRepository:
                     id=message.id,
                     session_id=message.session_id,
                     role=message.role,
-                    content=message.content,
+                    content=encrypt_text(message.content),
                     events_json=json.dumps(event_dicts),
                     token_count=message.token_count,
                     created_at=message.created_at.isoformat(),
-                    metadata_json=json.dumps(message.metadata),
+                    metadata_json=encrypt_text(json.dumps(message.metadata)),
                 )
             )
             srec = await s.get(SessionRecord, message.session_id)
@@ -306,11 +307,11 @@ class MessageRepository:
                     id=r.id,
                     session_id=r.session_id,
                     role=r.role,
-                    content=r.content,
+                    content=decrypt_text(r.content),
                     events=events,
                     token_count=r.token_count,
                     created_at=datetime.fromisoformat(r.created_at),
-                    metadata=json.loads(r.metadata_json or "{}"),
+                    metadata=json.loads(decrypt_text(r.metadata_json or "{}")),
                 )
             )
         return messages
@@ -355,7 +356,9 @@ class MessageRepository:
                     )
                 )
                 deleted = result.rowcount or 0
-            rec.metadata_json = json.dumps(metadata)
+            # The summary/metadata are stored encrypted-at-rest like all other
+            # session metadata; the raw prefix messages are simply removed.
+            rec.metadata_json = encrypt_text(json.dumps(metadata))
             await s.commit()
             return deleted
 

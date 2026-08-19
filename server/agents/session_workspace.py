@@ -38,6 +38,14 @@ class SessionFileRecord:
 
 
 _STORE: dict[str, dict[str, SessionFileRecord]] = {}
+# Per-session read cache: path -> {content_hash, output, ts}. A repeated read of
+# an unchanged file within the same session returns the cached output instead of
+# re-reading (and re-injecting) the full content. Cleared when the file changes.
+_READ_CACHE: dict[str, dict[str, dict]] = {}
+# Per-session full outputs of heavy tool calls (keyed by the relative path the
+# output was stored under). Survives only for the process lifetime; the file
+# itself is on disk under the workspace's hidden directory.
+_HEAVY_OUTPUTS: dict[str, dict[str, str]] = {}
 _LOCK = threading.Lock()
 
 
@@ -67,6 +75,7 @@ def record_write(session_id: str, path: str, content: str) -> None:
             rec.writes += 1
             rec.last_edited_at = now
         _session_map(session_id)[path] = rec
+        _READ_CACHE.get(session_id, {}).pop(path, None)
         _dirty_sessions.add(session_id)
 
 
@@ -81,6 +90,7 @@ def record_edit(session_id: str, path: str) -> None:
             rec.edits += 1
             rec.last_edited_at = now
         _session_map(session_id)[path] = rec
+        _READ_CACHE.get(session_id, {}).pop(path, None)
         _dirty_sessions.add(session_id)
 
 
@@ -115,6 +125,72 @@ def is_identical_replay(session_id: str, path: str, content: str) -> bool:
         return rec.content_hash == _content_hash(content)
 
 
+def store_cached_read(session_id: str, path: str, output: str, content_hash: str) -> None:
+    """Cache a successful file-read output under ``(session, path)``.
+
+    Only the exact content hash that produced ``output`` is stored; a later read
+    returns the cache only while the on-disk hash still matches.
+    """
+    with _LOCK:
+        _READ_CACHE.setdefault(session_id, {})[path] = {
+            "content_hash": content_hash,
+            "output": output,
+            "ts": _time.monotonic(),
+        }
+
+
+def store_cached_read_output(session_id: str, path: str, output: str) -> None:
+    """Convenience: cache ``output`` for ``path``, hashing it internally."""
+    store_cached_read(session_id, path, output, _content_hash(output))
+
+
+def cached_read_for(session_id: str, path: str, current_hash: str) -> str | None:
+    """Return the cached read output for ``path`` only while unchanged.
+
+    ``current_hash`` is the hash of the file's current content; the cache is
+    returned only when it matches the hash the cached output was produced from.
+    """
+    return get_cached_read(session_id, path, current_hash)
+
+
+def current_path_hash(path_text: str) -> str:
+    """Hash a text value (used to fingerprint a file's current content)."""
+    return _content_hash(path_text)
+
+
+def get_cached_read(session_id: str, path: str, content_hash: str) -> str | None:
+    """Return the cached read output for ``path`` if unchanged (hash matches)."""
+    with _LOCK:
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        if entry is None:
+            return None
+        if entry.get("content_hash") != content_hash:
+            _READ_CACHE.get(session_id, {}).pop(path, None)
+            return None
+        return entry.get("output")
+
+
+def invalidate_read_cache(session_id: str, path: str | None = None) -> None:
+    """Drop cached reads for a session (or a single path) after a mutation."""
+    with _LOCK:
+        if path is not None:
+            _READ_CACHE.get(session_id, {}).pop(path, None)
+        else:
+            _READ_CACHE.pop(session_id, None)
+
+
+def store_heavy_output(session_id: str, rel_path: str, output: str) -> None:
+    """Keep the full output of a heavy tool call for re-read within the session."""
+    with _LOCK:
+        _HEAVY_OUTPUTS.setdefault(session_id, {})[rel_path] = output
+
+
+def read_heavy_output(session_id: str, rel_path: str) -> str | None:
+    """Return the stored full output of a heavy tool call, or ``None``."""
+    with _LOCK:
+        return _HEAVY_OUTPUTS.get(session_id, {}).get(rel_path)
+
+
 def known_files(session_id: str) -> dict[str, SessionFileRecord]:
     with _LOCK:
         return dict(_session_map(session_id))
@@ -123,6 +199,7 @@ def known_files(session_id: str) -> dict[str, SessionFileRecord]:
 def reset_session(session_id: str) -> None:
     with _LOCK:
         _STORE.pop(session_id, None)
+        _READ_CACHE.pop(session_id, None)
         _dirty_sessions.discard(session_id)
 
 

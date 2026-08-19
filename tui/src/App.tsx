@@ -92,6 +92,11 @@ export const App: React.FC = () => {
     completedTurns,
     activeTurn,
     totalTokens,
+    runTokens,
+    runPrompt,
+    runCompletion,
+    runEstimated,
+    contextInfo,
     staticKey,
     addTurn,
     completeActiveTurn,
@@ -183,6 +188,7 @@ export const App: React.FC = () => {
   // so that each streamed event does not trigger a full CommandInput re-render.
   const lastTokenUpdateRef = useRef(0);
   const [liveTotalTokens, setLiveTotalTokens] = useState(totalTokens);
+  const [liveRunTokens, setLiveRunTokens] = useState(runTokens);
 
   // Derive the single consolidated compaction-flow state from the live event
   // stream so the footer token usage reflects the real, in-progress compaction.
@@ -199,17 +205,37 @@ export const App: React.FC = () => {
     };
   }, [compactionEvent]);
 
+  // Composed-context occupancy for the footer gauge: prefer the in-flight
+  // compaction totals, then the latest backend success snapshot. Never the
+  // cumulative run usage (`runTokens`).
+  const footerContextPercent = useMemo(() => {
+    if (footerContext && typeof footerContext.used === 'number' && footerContext.total && footerContext.total > 0) {
+      return Math.min(100, Math.round((footerContext.used / footerContext.total) * 100));
+    }
+    if (contextInfo && contextInfo.total > 0) {
+      return Math.max(0, Math.min(100, Math.round(contextInfo.percent * 100)));
+    }
+    return undefined;
+  }, [footerContext, contextInfo]);
+
+  const footerWindowEstimated = useMemo(() => {
+    if ((footerContext?.total ?? 0) > 0) return false;
+    return contextInfo?.windowEstimated === true;
+  }, [footerContext, contextInfo]);
+
   useEffect(() => {
     if (!isRunning) {
       setLiveTotalTokens(totalTokens);
+      setLiveRunTokens(runTokens);
       return;
     }
     const now = Date.now();
     if (now - lastTokenUpdateRef.current > 2000) {
       lastTokenUpdateRef.current = now;
       setLiveTotalTokens(totalTokens + estimateTokensForEvents(events));
+      setLiveRunTokens(runTokens + estimateTokensForEvents(events));
     }
-  }, [totalTokens, isRunning, events]);
+  }, [totalTokens, runTokens, isRunning, events]);
 
   useEffect(() => {
     // contentHeight tracks completed turns only; the live running block is
@@ -621,6 +647,10 @@ export const App: React.FC = () => {
               mode={selectedMode}
               totalTokens={footerContext?.used ?? liveTotalTokens}
               maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
+              runTokens={liveRunTokens}
+              runEstimated={runEstimated}
+              contextPercent={footerContextPercent}
+              windowEstimated={footerWindowEstimated}
               workspaceName={workspace}
               onCancel={handleCancel}
               onOpenHelp={handleOpenHelp}
@@ -668,6 +698,11 @@ export const App: React.FC = () => {
           selectedMode={selectedMode}
           totalTokens={totalTokens}
           events={events}
+          runTokens={runTokens}
+          runPrompt={runPrompt}
+          runCompletion={runCompletion}
+          runEstimated={runEstimated}
+          contextInfo={contextInfo}
           tokenUsageStats={tokenUsageStats}
           onSelectMode={handleModeSelect}
           onClose={closeOverlay}

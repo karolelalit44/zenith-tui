@@ -120,7 +120,7 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
       try {
         const result = await wsClient.resumeSession(s.id);
         onResume(s.id, s, result.messages);
-      } catch (err) {
+      } catch {
         if (mounted.current) {
           setResuming(false);
           setError('Failed to resume session.');
