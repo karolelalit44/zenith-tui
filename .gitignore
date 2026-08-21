@@ -9,6 +9,17 @@ __pycache__
 .venv
 .keys
 
+# Runtime-generated state
+memory/
+.zenith/
+scripts/e2e_logs/
+repro_*.txt
+
+# Test/lint scratch output (never commit generated run artifacts)
+tui/lint-*.txt
+tui/vitest-out*.txt
+server/tests/e2e_*.txt
+
 # Runtime data
 data/*
 data
