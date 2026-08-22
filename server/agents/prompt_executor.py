@@ -10,6 +10,11 @@ from typing import TYPE_CHECKING
 
 import server.providers.responder as r
 from server.agents.context import ContextManager
+from server.agents.delegation import (
+    CaptainOrchestrator,
+    RepositoryIntelligenceCache,
+    SpecialistRegistry,
+)
 from server.agents.recovery import RecoverableAgentLoop
 from server.agents.run_state import (
     from_dict,
@@ -287,6 +292,8 @@ class PromptExecutor:
             session_repo=session_repo,
             message_repo=message_repo,
         )
+        self._specialist_registry = SpecialistRegistry.default()
+        self._repo_intelligence_cache = RepositoryIntelligenceCache()
 
     def cancel_active(self) -> None:
         if self._active_task and (not self._active_task.done()):
@@ -630,6 +637,12 @@ class PromptExecutor:
         _original_model: str | None = None
         _original_temperature: float | None = None
         _original_max_tokens: int | None = None
+        # Bound before any early return (plan-ready / SubAgentLoop handoff):
+        # the finally block reads these, and an UnboundLocalError there would
+        # skip assistant-message persistence and terminal-event delivery.
+        agent: RecoverableAgentLoop | None = None
+        db_session = None
+        summary_at_start: str | None = None
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
@@ -665,13 +678,52 @@ class PromptExecutor:
                 )
 
             mode_config = AGENT_MODES.get(mode)
-            if (
+            sub_agent_handoff = (
                 mode == BUILD_MODE
                 and plan_context
                 and plan_approved
                 and mode_config
                 and mode_config.sub_agent
-            ):
+            )
+
+            # Captain delegation route: capability-driven dispatch to a
+            # specialist agent. Never hijacks plan mode, never competes with
+            # the plan->build SubAgentLoop handoff (trigger conditions are
+            # disjoint); non-matching prompts fall through to the normal loop.
+            if mode != PLAN_MODE and not sub_agent_handoff:
+                routed_definition = self._specialist_registry.route(content)
+                if routed_definition is not None:
+                    logger.info(
+                        "Captain delegating session=%s capability-route -> %s",
+                        session_id,
+                        routed_definition.id,
+                    )
+                    orchestrator = CaptainOrchestrator(
+                        self._config,
+                        self._provider,
+                        self._tool_registry,
+                        session_repo=self._session_repo,
+                        message_repo=self._message_repo,
+                        compaction_service=self._compaction_service,
+                        cache=self._repo_intelligence_cache,
+                    )
+                    async for event in orchestrator.investigate(
+                        content, routed_definition, session_id, history=history
+                    ):
+                        event_count += 1
+                        collected_events.append(event)
+                        if manager:
+                            await manager.send_event(session_id, event)
+                    if orchestrator.last_result is not None:
+                        response_text = orchestrator.last_result.summary
+                    logger.info(
+                        "Delegation complete session=%s result=%s",
+                        session_id,
+                        orchestrator.last_result.status if orchestrator.last_result else "none",
+                    )
+                    return
+
+            if sub_agent_handoff:
                 logger.info("Spawning SubAgentLoop for session %s (plan→build handoff)", session_id)
                 sub_agent = SubAgentLoop(
                     self._config,
@@ -928,7 +980,7 @@ class PromptExecutor:
             if _original_max_tokens is not None:
                 self._provider.max_tokens = _original_max_tokens
             if (
-                agent
+                agent is not None
                 and agent.summary
                 and (db_session is None or summary_at_start != agent.summary)
             ):

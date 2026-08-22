@@ -88,6 +88,35 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         const crewmatesMap = new Map<string, CrewmateAgent>();
         const timelineEntries: TimelineEntry[] = [];
 
+        // Fold raw sub-agent lifecycle kinds into the card timeline so the
+        // crewmate story stays in one place (no standalone rows).
+        const rawAgentEntries: TimelineEntry[] = [];
+        for (const e of events) {
+          if (e.kind === 'agent_spawned') {
+            rawAgentEntries.push({
+              timestamp: e.id,
+              message: `Spawned ${e.name} (${e.role})`,
+              type: 'info',
+            });
+          } else if (e.kind === 'agent_status') {
+            if (e.activity) {
+              rawAgentEntries.push({ timestamp: e.id, message: e.activity, type: 'info' });
+            }
+          } else if (e.kind === 'agent_complete') {
+            rawAgentEntries.push({
+              timestamp: e.id,
+              message: e.resultSummary || `${e.agentId} completed`,
+              type: 'success',
+            });
+          } else if (e.kind === 'agent_failed') {
+            rawAgentEntries.push({
+              timestamp: e.id,
+              message: e.error || `${e.agentId} failed`,
+              type: 'error',
+            });
+          }
+        }
+
         for (const oe of orchEvents) {
           if (oe.crewmates) {
             for (const cm of oe.crewmates) {
@@ -104,6 +133,13 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
                 timelineEntries.push(tl);
               }
             }
+          }
+        }
+        for (const tl of rawAgentEntries) {
+          if (
+            !timelineEntries.some((existing) => existing.timestamp === tl.timestamp && existing.message === tl.message)
+          ) {
+            timelineEntries.push(tl);
           }
         }
 
@@ -142,6 +178,14 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         } else if (e.kind === 'todo_test') {
           // The assertion/edge-case report is an internal test layer — the
           // rendered todo window shows the board only, so skip these events.
+        } else if (
+          e.kind === 'agent_spawned' ||
+          e.kind === 'agent_status' ||
+          e.kind === 'agent_complete' ||
+          e.kind === 'agent_failed'
+        ) {
+          // Raw sub-agent lifecycle kinds are folded into the consolidated
+          // orchestration card's timeline above; never render standalone.
         } else if (
           e.kind === 'context_compaction_started' ||
           e.kind === 'context_compaction_phase' ||

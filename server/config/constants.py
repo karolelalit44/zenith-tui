@@ -17,6 +17,7 @@ DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
 PLAN_MODE = "plan"
 READ_ONLY_MODE = "read_only"
+SCOUT_MODE = "scout"
 
 READ_ONLY_TOOLS = ["file_read", "glob", "grep", "list_dir"]
 

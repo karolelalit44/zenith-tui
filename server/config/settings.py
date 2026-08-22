@@ -8,6 +8,7 @@ from .constants import (
     PLAN_MODE,
     READ_ONLY_MODE,
     READ_ONLY_TOOLS,
+    SCOUT_MODE,
 )
 from .env import optional_env, optional_float, optional_int, optional_int_none
 from .providers import ProviderConfig
@@ -61,10 +62,22 @@ READ_ONLY_MODE_CONFIG = AgentModeConfig(
     sub_agent=False,
     tool_choice="none",
 )
+SCOUT_MODE_CONFIG = AgentModeConfig(
+    name=SCOUT_MODE,
+    allowed_tools=READ_ONLY_TOOLS,
+    allowed_mcp={},
+    description=(
+        "Read-only codebase investigation for delegated specialist agents "
+        "(Codebase Scout): evidence-gathering with no mutation or delegation."
+    ),
+    sub_agent=False,
+    tool_choice="auto",
+)
 AGENT_MODES: dict[str, AgentModeConfig] = {
     PLAN_MODE: PLAN_MODE_CONFIG,
     BUILD_MODE: BUILD_MODE_CONFIG,
     READ_ONLY_MODE: READ_ONLY_MODE_CONFIG,
+    SCOUT_MODE: SCOUT_MODE_CONFIG,
 }
 
 

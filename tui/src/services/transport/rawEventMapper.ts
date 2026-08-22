@@ -1,4 +1,8 @@
 import type {
+  AgentCompleteEvent,
+  AgentFailedEvent,
+  AgentSpawnedEvent,
+  AgentStatusEvent,
   CompactionPhase,
   CompactionStatus,
   ContextPreservation,
@@ -373,6 +377,50 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         timeline: Array.isArray(d.timeline) ? (d.timeline as any) : undefined,
         activeStep: d.activeStep ? String(d.activeStep) : undefined,
       };
+
+    case 'agent_spawned': {
+      const spawned: AgentSpawnedEvent = {
+        kind: 'agent_spawned',
+        id,
+        agentId: String(d.agent_id || ''),
+        name: String(d.name || ''),
+        role: String(d.role || ''),
+        taskId: String(d.task_id || ''),
+        capability: String(d.capability || ''),
+        parentSessionId: d.parent_session_id ? String(d.parent_session_id) : undefined,
+        model: d.model ? String(d.model) : undefined,
+      };
+      return spawned;
+    }
+
+    case 'agent_status':
+      return {
+        kind: 'agent_status',
+        id,
+        agentId: String(d.agent_id || ''),
+        status: String(d.status || ''),
+        activity: d.activity ? String(d.activity) : undefined,
+        progress: typeof d.progress === 'number' ? d.progress : undefined,
+      } satisfies AgentStatusEvent;
+
+    case 'agent_complete':
+      return {
+        kind: 'agent_complete',
+        id,
+        agentId: String(d.agent_id || ''),
+        taskId: String(d.task_id || ''),
+        resultSummary: d.result_summary ? String(d.result_summary) : undefined,
+        status: d.status ? String(d.status) : undefined,
+      } satisfies AgentCompleteEvent;
+
+    case 'agent_failed':
+      return {
+        kind: 'agent_failed',
+        id,
+        agentId: String(d.agent_id || ''),
+        taskId: String(d.task_id || ''),
+        error: d.error ? String(d.error) : undefined,
+      } satisfies AgentFailedEvent;
 
     case 'context_compacted':
       return {
