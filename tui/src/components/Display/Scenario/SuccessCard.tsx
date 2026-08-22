@@ -31,17 +31,39 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
     theme.colors.status.info,
   ];
 
-  // Duration in whole 1-second increments (updates only on 1s changes)
-  const elapsedMs = isLiveRunning ? tick * 100 : (event.elapsedMs ?? 0);
-  const durationStr = elapsedMs > 0 ? formatDuration(elapsedMs) : '';
+  // Duration in whole 1-second increments (updates only on 1s changes).
+  // Prefer the server-reported elapsedMs; the shared tick is a render signal,
+  // not a clock, so only fall back to it while a value is still missing.
+  // NOTE: the synthesized live status row carries elapsedMs: 0, which is a
+  // missing value, not a real measurement — a nullish-coalesce would treat 0
+  // as truthy and freeze the timer at zero, so compare explicitly.
+  const reportedElapsedMs = event.elapsedMs ?? 0;
+  const elapsedMs = reportedElapsedMs > 0 ? reportedElapsedMs : isLiveRunning ? tick * 100 : undefined;
+  const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
 
-  // Used tokens calculation
-  const usedTokens = event.tokenInfo?.used ?? (turnEvents ? estimateTokensForEvents(turnEvents) : 0);
-  const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
+  // Used tokens calculation. `tokenInfo.used` is the composed-context occupancy
+  // reported by the backend and is authoritative whenever non-zero; `estimated`
+  // only describes the cumulative *run* usage and must not suppress it. Fall
+  // back to the frontend estimate only when usage is missing or zero.
+  const reportedUsed = event.tokenInfo?.used ?? 0;
+  const usageIsUnknown = reportedUsed <= 0 || event.tokenInfo === undefined;
+  const usedTokens = usageIsUnknown ? (turnEvents ? estimateTokensForEvents(turnEvents) : 0) : reportedUsed;
+  const tokenIsEstimate = usageIsUnknown || event.tokenInfo?.estimated === true;
+  const tokenStr = usedTokens > 0 ? `${tokenIsEstimate ? '~' : ''}${formatTokenCount(usedTokens)} tokens` : '';
 
   const metricsParts: string[] = [];
-  if (event.iterations !== undefined) {
-    metricsParts.push(`${event.iterations} iter${event.iterations === 1 ? '' : 's'}`);
+  const iters =
+    event.iterations !== undefined
+      ? event.iterations
+      : !isLiveRunning
+        ? Math.max(
+            1,
+            turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1,
+          )
+        : undefined;
+
+  if (iters !== undefined) {
+    metricsParts.push(`${iters} iter${iters === 1 ? '' : 's'}`);
   }
   if (durationStr) {
     metricsParts.push(durationStr);

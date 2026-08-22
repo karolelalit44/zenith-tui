@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import React from 'react';
+import React, { useRef } from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import { getToolStepPrimaryParam, getToolStepStatusText, getToolVerbLabel } from '../../../constants/toolDisplay';
 import { useAnimationTick } from '../../../context/AnimationContext';
@@ -48,7 +48,17 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const { theme } = useTheme();
   const isPending = event.pending && context?.isRunning && !context?.isHistorical;
   const tick = useAnimationTick();
-  const elapsed = isPending ? tick : 0;
+
+  // Live elapsed time must measure from the tool step's own start, not from app
+  // mount (the shared animation tick only re-renders; it is not a clock).
+  const pendingStartRef = useRef<Map<string, number>>(new Map());
+  const startedAt = isPending ? (pendingStartRef.current.get(event.id) ?? Date.now()) : undefined;
+  if (isPending && startedAt !== undefined) {
+    pendingStartRef.current.set(event.id, startedAt);
+  } else {
+    pendingStartRef.current.delete(event.id);
+  }
+  const elapsedMs = isPending && startedAt !== undefined ? Date.now() - startedAt : 0;
 
   const primary = getToolStepPrimaryParam(event.tool, event.params);
 
@@ -109,7 +119,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       durMs !== undefined
         ? Math.max(1, Math.floor(durMs / 1000))
         : isPending
-          ? Math.max(1, Math.floor(elapsed / 10))
+          ? Math.max(1, Math.floor(elapsedMs / 1000))
           : 0;
     const duration = durSec > 0 ? formatDuration(durSec * 1000) : '';
 
@@ -223,7 +233,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             <Text color={theme.colors.text.bright} bold>
               {headerText}
             </Text>
-            <Text color={theme.colors.text.muted}> ({(elapsed / 10).toFixed(0)}s)</Text>
+            <Text color={theme.colors.text.muted}> ({Math.max(1, Math.floor(elapsedMs / 1000))}s)</Text>
           </>
         ) : isFileDelete ? (
           <Text color={isSuccess ? theme.colors.status.warning : theme.colors.status.error} bold>

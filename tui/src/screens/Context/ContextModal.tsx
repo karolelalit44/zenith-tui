@@ -1,7 +1,8 @@
 import { Box, Text, useInput } from 'ink';
-import React, { useMemo } from 'react';
+import React from 'react';
 import { ModalFooter } from '../../components/ui/ModalFooter';
 import { RoundedBox } from '../../components/ui/RoundedBox';
+import type { ContextInfoSnapshot } from '../../hooks/useConversation';
 import { useProvider } from '../../hooks/useProvider';
 import { estimateTokensForEvents, formatTokenCount } from '../../services/api/tokenEstimationService';
 import { WORKSPACE_FILES } from '../../services/fileExplorer';
@@ -12,9 +13,25 @@ interface ContextModalProps {
   totalTokens: number;
   runningEvents?: ScenarioEvent[];
   onClose: () => void;
+  /** Cumulative run/API token usage (telemetry). */
+  runTokens?: number;
+  runPrompt?: number;
+  runCompletion?: number;
+  runEstimated?: boolean;
+  /** Latest composed-context occupancy snapshot; preferred over estimates. */
+  contextInfo?: ContextInfoSnapshot | null;
 }
 
-export const ContextModal: React.FC<ContextModalProps> = ({ totalTokens, runningEvents = [], onClose }) => {
+export const ContextModal: React.FC<ContextModalProps> = ({
+  totalTokens,
+  runningEvents = [],
+  onClose,
+  runTokens = 0,
+  runPrompt,
+  runCompletion,
+  runEstimated = false,
+  contextInfo,
+}) => {
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
 
@@ -22,9 +39,17 @@ export const ContextModal: React.FC<ContextModalProps> = ({ totalTokens, running
   const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
   const maxTokens = activeModelInfo?.context_window || 200000;
 
-  const liveTokens = useMemo(() => {
-    return totalTokens + estimateTokensForEvents(runningEvents);
-  }, [totalTokens, runningEvents]);
+  // Composed-context occupancy only. Prefer the backend success snapshot; fall
+  // back to the live estimate solely for legacy runs that never reported it.
+  const composedSnapshot = contextInfo && contextInfo.total > 0 ? contextInfo : null;
+  const contextUsed = composedSnapshot ? composedSnapshot.used : totalTokens + estimateTokensForEvents(runningEvents);
+  const contextTotal = composedSnapshot ? composedSnapshot.total : maxTokens;
+  const windowEstimated = composedSnapshot ? composedSnapshot.windowEstimated : false;
+  // Raw occupancy ratio is kept before clamping so overflow (>100%) is
+  // surfaced explicitly instead of silently flattened to a full bar.
+  const rawPercent = Math.round((contextUsed / Math.max(1, contextTotal)) * 100);
+  const overflow = rawPercent > 100;
+  const contextPercent = Math.min(100, Math.max(0, rawPercent));
 
   useInput((_char, key) => {
     if (key.escape || key.return) {
@@ -32,7 +57,6 @@ export const ContextModal: React.FC<ContextModalProps> = ({ totalTokens, running
     }
   });
 
-  const contextPercent = Math.min(100, Math.round((liveTokens / maxTokens) * 100));
   const totalBlocks = 20;
   const filledBlocks = Math.max(0, Math.min(totalBlocks, Math.round((contextPercent / 100) * totalBlocks)));
   const bar = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
@@ -59,13 +83,40 @@ export const ContextModal: React.FC<ContextModalProps> = ({ totalTokens, running
             [CONTEXT USAGE]{' '}
           </Text>
           <Text color={theme.colors.text.bright} bold>
-            {formatTokenCount(liveTokens)} / {formatTokenCount(maxTokens)} ({contextPercent}%)
+            {formatTokenCount(contextUsed)} / {windowEstimated ? '~' : ''}
+            {formatTokenCount(contextTotal)} ({windowEstimated ? '~' : ''}
+            {contextPercent}%)
           </Text>
         </Box>
+
+        {overflow && (
+          <Box flexDirection="row" alignItems="center" marginBottom={1}>
+            <Text color={theme.colors.status.error} bold>
+              ⚠ OVERFLOW
+            </Text>
+            <Text color={theme.colors.text.muted}> composed context exceeds the window (raw {rawPercent}%)</Text>
+          </Box>
+        )}
 
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
           <Text color={theme.colors.status.success}>[{bar}]</Text>
         </Box>
+
+        {runTokens > 0 ? (
+          <Box flexDirection="row" alignItems="center" marginBottom={1}>
+            <Text color={theme.colors.text.muted} bold>
+              RUN USAGE{' '}
+            </Text>
+            <Text color={theme.colors.text.bright}>
+              {runEstimated ? '~' : ''}
+              {formatTokenCount(runTokens)}
+              {typeof runPrompt === 'number' && runPrompt > 0 ? ` · prompt ${formatTokenCount(runPrompt)}` : ''}
+              {typeof runCompletion === 'number' && runCompletion > 0
+                ? ` · completion ${formatTokenCount(runCompletion)}`
+                : ''}
+            </Text>
+          </Box>
+        ) : null}
 
         <Box
           flexDirection="row"

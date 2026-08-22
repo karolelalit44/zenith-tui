@@ -19,11 +19,16 @@ logger = logging.getLogger(__name__)
 
 class SubAgentLoop:
     def __init__(
-        self, config: AppSettings, provider: BaseProvider, tool_registry: ToolRegistry
+        self,
+        config: AppSettings,
+        provider: BaseProvider,
+        tool_registry: ToolRegistry,
+        compaction_service=None,
     ) -> None:
         self.config = config
         self.provider = provider
         self.tool_registry = tool_registry
+        self._compaction_service = compaction_service
 
     async def run(
         self,
@@ -36,7 +41,11 @@ class SubAgentLoop:
         child_session_id = await self._create_child_session(session_id, session_repo)
         context_manager = ContextManager(self.config)
         agent = RecoverableAgentLoop(
-            self.config, self.provider, context_manager, self.tool_registry
+            self.config,
+            self.provider,
+            context_manager,
+            self.tool_registry,
+            self._compaction_service,
         )
         if user_prompt and user_prompt.strip():
             sub_prompt = f"Implement this plan:\n\n{plan_output}\n\nUser request: {user_prompt}"

@@ -1,6 +1,7 @@
 import { Box } from 'ink';
 import React from 'react';
 import { ModelPickerFlow } from '../components/Model/ModelPickerFlow';
+import type { ContextInfoSnapshot } from '../hooks/useConversation';
 import type { OverlayType } from '../hooks/useOverlayManager';
 import { CompactionModal } from '../screens/Context/CompactionModal';
 import { ContextModal } from '../screens/Context/ContextModal';
@@ -22,11 +23,18 @@ interface OverlayRouterProps {
   totalTokens: number;
   events: ScenarioEvent[];
   tokenUsageStats?: TokenUsageStats | null;
+  /** Cumulative run/API token usage (telemetry). */
+  runTokens?: number;
+  runPrompt?: number;
+  runCompletion?: number;
+  runEstimated?: boolean;
+  /** Latest composed-context occupancy snapshot. */
+  contextInfo?: ContextInfoSnapshot | null;
   onSelectMode: (mode: ScenarioMode) => void;
   onClose: () => void;
   onComplete: () => void;
   onOpenProvider?: () => void;
-  onResumeSession?: (sessionId: string, summary: SessionSummary) => void;
+  onResumeSession?: (sessionId: string, summary: SessionSummary, messages?: Record<string, unknown>[]) => void;
   onCompactNow?: () => void;
 }
 
@@ -36,6 +44,11 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
   selectedMode,
   totalTokens,
   events,
+  runTokens,
+  runPrompt,
+  runCompletion,
+  runEstimated,
+  contextInfo,
   onSelectMode,
   onClose,
   onComplete,
@@ -64,7 +77,16 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
       )}
       {overlay === 'context' && (
         <Box flexDirection="column" marginTop={1} width="100%">
-          <ContextModal totalTokens={totalTokens} runningEvents={events} onClose={onClose} />
+          <ContextModal
+            totalTokens={totalTokens}
+            runningEvents={events}
+            onClose={onClose}
+            runTokens={runTokens}
+            runPrompt={runPrompt}
+            runCompletion={runCompletion}
+            runEstimated={runEstimated}
+            contextInfo={contextInfo}
+          />
         </Box>
       )}
       {overlay === 'compaction' && (
@@ -96,8 +118,8 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
         <Box flexDirection="column" marginTop={1} width="100%">
           <SessionBrowserModal
             onClose={onClose}
-            onResume={(id, summary) => {
-              onResumeSession?.(id, summary);
+            onResume={(id, summary, messages) => {
+              onResumeSession?.(id, summary, messages);
               onClose();
             }}
           />

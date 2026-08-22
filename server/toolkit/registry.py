@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 import uuid
 from typing import Any
@@ -9,6 +10,13 @@ from server.config.constants import BUILD_MODE
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
 
 logger = logging.getLogger(__name__)
+
+# Session id for the tool currently executing, taken from server-side state
+# (ToolContext), never from model-supplied input. Tools that need to be
+# session-scoped (e.g. the todo tool) read this instead of holding a global.
+current_tool_session_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "current_tool_session_id", default=None
+)
 
 
 class ToolRegistry:
@@ -125,7 +133,11 @@ class ToolRegistry:
             except Exception:
                 logger.exception("Middleware before_execute failed: %s", type(mw).__name__)
         try:
-            result = await tool.execute(params, workspace_root)
+            token = current_tool_session_id.set(ctx.session_id)
+            try:
+                result = await tool.execute(params, workspace_root)
+            finally:
+                current_tool_session_id.reset(token)
         except Exception as e:
             logger.exception("Tool execution failed: %s", tool_name)
             for mw in self._middleware:

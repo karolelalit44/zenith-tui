@@ -11,6 +11,7 @@ from server.domain.message import Message
 from server.providers.base import BaseProvider
 from server.toolkit.registry import ToolRegistry
 
+from .compaction_service import CompactionService
 from .context import ContextManager
 from .loop import AgentLoop
 
@@ -24,8 +25,9 @@ class RecoverableAgentLoop:
         provider: BaseProvider,
         context_manager: ContextManager | None = None,
         tool_registry: ToolRegistry | None = None,
+        compaction_service: CompactionService | None = None,
     ) -> None:
-        self.agent = AgentLoop(config, provider, context_manager, tool_registry)
+        self.agent = AgentLoop(config, provider, context_manager, tool_registry, compaction_service)
         self.config = config
         self.provider = provider
         self._last_error: str | None = None

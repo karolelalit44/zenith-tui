@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -15,8 +16,8 @@ class SessionExporter:
     ) -> str:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        safe_title = re.sub("[^\\w\\s-]", "", session.title)[:50].strip()
-        safe_title = re.sub("\\s+", "_", safe_title)
+        safe_title = re.sub(r"[^\w\s-]", "", session.title)[:50].strip()
+        safe_title = re.sub(r"\s+", "_", safe_title)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{safe_title}_{timestamp}.md"
         filepath = output_path / filename
@@ -26,6 +27,68 @@ class SessionExporter:
 
     def export_to_string(self, session: Session, messages: list[Message]) -> str:
         return "\n".join(self._build_markdown(session, messages))
+
+    def export_jsonl(
+        self, session: Session, messages: list[Message], output_dir: str = "zenith_exports"
+    ) -> str:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        safe_title = re.sub(r"[^\w\s-]", "", session.title)[:50].strip()
+        safe_title = re.sub(r"\s+", "_", safe_title)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{safe_title}_{timestamp}.jsonl"
+        filepath = output_path / filename
+        content = self.export_jsonl_string(session, messages)
+        filepath.write_text(content, encoding="utf-8")
+        return str(filepath)
+
+    def export_jsonl_string(self, session: Session, messages: list[Message]) -> str:
+        lines: list[str] = []
+        created_str = (
+            session.created_at.isoformat()
+            if isinstance(session.created_at, datetime)
+            else str(session.created_at)
+        )
+        updated_str = (
+            session.updated_at.isoformat()
+            if isinstance(session.updated_at, datetime)
+            else str(session.updated_at)
+        )
+        session_header = {
+            "type": "session",
+            "id": session.id,
+            "title": session.title,
+            "mode": getattr(session.mode, "value", str(session.mode)),
+            "created_at": created_str,
+            "updated_at": updated_str,
+            "model": session.model,
+            "provider": session.provider,
+            "total_tokens": session.total_tokens,
+            "metadata": session.metadata,
+        }
+        lines.append(json.dumps(session_header))
+        for msg in messages:
+            msg_created = (
+                msg.created_at.isoformat()
+                if isinstance(msg.created_at, datetime)
+                else str(msg.created_at)
+            )
+            msg_data = {
+                "type": "message",
+                "id": msg.id,
+                "session_id": msg.session_id,
+                "role": msg.role,
+                "content": msg.content,
+                "token_count": msg.token_count,
+                "created_at": msg_created,
+                "events": [
+                    ev.to_dict() if hasattr(ev, "to_dict") else vars(ev) for ev in msg.events
+                ]
+                if msg.events
+                else [],
+            }
+            lines.append(json.dumps(msg_data))
+        return "\n".join(lines)
 
     def _build_markdown(self, session: Session, messages: list[Message]) -> list[str]:
         lines = [

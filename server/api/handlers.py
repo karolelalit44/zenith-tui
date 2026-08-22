@@ -11,6 +11,7 @@ from server.config.settings import AGENT_MODES
 from server.domain.message import Message
 from server.persistence.connection import Database
 from server.persistence.repositories import MessageRepository, SessionRepository
+from server.persistence.repositories.workspace import SessionWorkspaceRepository
 from server.sessions.export import SessionExporter
 from server.sessions.service import DefaultSessionService, SessionService
 from server.skills.loader import SkillLoader
@@ -74,6 +75,7 @@ class MethodHandlers:
         self._permission_service: DefaultPermissionService | None = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
+        self._workspace_repo = SessionWorkspaceRepository(db)
 
     def reload_config(self) -> None:
         from server.config.loader import load_config
@@ -107,7 +109,9 @@ class MethodHandlers:
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
             "prompt.continue": lambda: self._prompt_continue(ws, rid, params, session_id),
             "prompt.cancel": lambda: self._cancel_prompt(ws, rid, session_id),
-            "context.compact": lambda: self._context_compact(ws, rid, session_id),
+            "context.compact": lambda: self._context_compact(
+                ws, rid, session_id, focus=(params or {}).get("focus")
+            ),
             "context.clear_tools": lambda: self._context_clear_tools(ws, rid, session_id),
             "provider.validate": lambda: self._provider_validate(ws, rid, params),
             "provider.models": lambda: self._provider_models(ws, rid, params),
@@ -116,6 +120,9 @@ class MethodHandlers:
             "workspace.diff": lambda: self._workspace_diff(ws, rid, params),
             "workspace.log": lambda: self._workspace_log(ws, rid, params),
             "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
+            "memory.list": lambda: self._memory_list(ws, rid, params),
+            "memory.add": lambda: self._memory_add(ws, rid, params),
+            "memory.delete": lambda: self._memory_delete(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
         }
         handler = handlers.get(method)
@@ -146,10 +153,8 @@ class MethodHandlers:
             model=params.get("model"),
             workspace_root=params.get("workspace_root"),
         )
-        if self.manager:
-            await self.manager.schedule_session_event(
-                session.id, "session.created", {"session_id": session.id, "title": session.title}
-            )
+        # session.created is published by DefaultSessionService.create via the
+        # domain event bus; emitting it here as well would duplicate delivery.
         await ws.send_text(make_response(rid, session.model_dump(mode="json")))
         return session.id
 
@@ -185,8 +190,14 @@ class MethodHandlers:
             return None
         try:
             session = await svc.resume(sid)
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("Resume rejected for session %s: %s", sid, exc)
+        try:
+            from server.agents.session_workspace import load_from_db
+
+            await load_from_db(sid, self._workspace_repo)
+        except Exception as exc:
+            logger.warning("Workspace hydration failed on resume for %s: %s", sid, exc)
         messages = await svc.get_history(sid)
         replayed = 0
         if self.manager:
@@ -233,10 +244,8 @@ class MethodHandlers:
             return
         svc = self._resolve_service()
         session = await svc.pause(session_id)
-        if self.manager:
-            await self.manager.schedule_session_event(
-                session_id, "session.paused", {"session_id": session_id}
-            )
+        # session.paused is published by DefaultSessionService.pause via the
+        # domain event bus.
         await ws.send_text(make_response(rid, session.model_dump(mode="json")))
 
     async def _session_archive(self, ws, rid, session_id) -> None:
@@ -254,6 +263,13 @@ class MethodHandlers:
             return
         svc = self._resolve_service()
         await svc.delete(sid)
+        try:
+            await self._workspace_repo.delete_session(sid)
+        except Exception as exc:
+            logger.warning("Workspace cleanup failed on delete for %s: %s", sid, exc)
+        from server.agents.session_workspace import reset_session
+
+        reset_session(sid)
         if self.manager:
             self.manager.drop_buffer(sid)
         await ws.send_text(make_response(rid, {"status": "deleted"}))
@@ -277,12 +293,8 @@ class MethodHandlers:
         svc = self._resolve_service()
         try:
             new_session = await svc.duplicate(sid, new_title=params.get("title"))
-            if self.manager:
-                await self.manager.schedule_session_event(
-                    new_session.id,
-                    "session.duplicated",
-                    {"session_id": new_session.id, "original_id": sid},
-                )
+            # session.duplicated is published by DefaultSessionService.duplicate
+            # via the domain event bus.
             await ws.send_text(make_response(rid, new_session.model_dump(mode="json")))
         except Exception as e:
             await ws.send_text(make_error_response(rid, -32603, f"Duplicate failed: {e}"))
@@ -424,14 +436,15 @@ class MethodHandlers:
 
     async def _persist_model_override(self, session_id, model_override) -> None:
         try:
-            session = await self.session_repo.get(session_id)
-            if session:
-                session.model = model_override
-                session.metadata = dict(session.metadata or {})
-                session.metadata["last_model"] = model_override
-                await self.session_repo.update(session)
-        except Exception:
-            logger.warning("Failed to persist model override for session %s", session_id)
+            # Targeted column + metadata writes: a stale whole-record update
+            # here could clobber concurrent token-count/summary writers.
+            if hasattr(self.session_repo, "set_model"):
+                await self.session_repo.set_model(session_id, model_override)
+                await self.session_repo.merge_metadata(
+                    session_id, {"last_model": model_override}
+                )
+        except Exception as exc:
+            logger.warning("Failed to persist model override for session %s: %s", session_id, exc)
 
     async def _prompt(self, ws, rid, params, session_id) -> str | None:
         from ..agents.prompt_executor import PromptExecutor
@@ -464,6 +477,11 @@ class MethodHandlers:
         if not ok:
             return session_id
         attachments = _normalize_attachments(params.get("attachments"))
+        from server.toolkit.executor import redact_pii
+
+        # Log-safe preview: secrets/PII stripped, hard length cap so prompt
+        # bodies never leak wholesale into logs.
+        content_preview = redact_pii(content[:200])
         logger.info(
             "PROMPT.RECEIVED provider=%s mode=%s session=%s content_len=%d model=%s temperature=%s max_tokens=%s attachments=%d content_preview=%r",
             provider_name,
@@ -474,13 +492,18 @@ class MethodHandlers:
             temperature,
             max_tokens,
             len(attachments),
-            content[:200],
+            content_preview,
         )
         resolved_session = await self._ensure_prompt_session(ws, rid, params, session_id, content)
         if resolved_session is None:
             return session_id
         session_id = resolved_session
         user_msg = Message(session_id=session_id, role="user", content=content)
+        user_msg.metadata["mode"] = params.get("mode", BUILD_MODE)
+        if temperature is not None:
+            user_msg.metadata["temperature"] = temperature
+        if max_tokens is not None:
+            user_msg.metadata["max_tokens"] = max_tokens
         if model_override:
             user_msg.metadata["model"] = model_override
         if attachments:
@@ -505,6 +528,7 @@ class MethodHandlers:
                 self.session_repo,
                 self.message_repo,
                 self.skill_loader,
+                workspace_repo=self._workspace_repo,
             )
             self._session_executors[session_id] = executor
             executor.run(
@@ -557,7 +581,9 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"cancelled": cancelled}))
         return session_id
 
-    async def _context_compact(self, ws, rid, session_id) -> str | None:
+    async def _context_compact(
+        self, ws, rid, session_id, focus: str | None = None
+) -> str | None:
         if not session_id:
             await ws.send_text(make_error_response(rid, -32602, "No active session"))
             return None
@@ -568,32 +594,56 @@ class MethodHandlers:
             return session_id
         session = await svc.require(session_id)
         history = await svc.get_history(session_id)
-        model = getattr(provider, "model", "?")
-        if self.manager:
-            await self.manager.send_event(
-                session_id, r.context_compaction_started(session_id, "manual")
-            )
-        try:
-            from server.agents.summarizer import ConversationSummarizer
 
-            previous = (session.metadata or {}).get("summary") or ""
-            summary = await ConversationSummarizer(self.config, provider).summarize(
-                history, model, session_id=session_id, previous_summary=previous
-            )
-            session.metadata["summary"] = summary
-            await svc.update(session)
-            await self.message_repo.delete_by_session(session_id)
+        async def _emit(event) -> None:
             if self.manager:
-                await self.manager.send_event(
-                    session_id,
-                    r.context_compaction_ended(
-                        session_id, "manual", tokens_saved=0, summary_chars=len(summary)
-                    ),
+                await self.manager.send_event(session_id, event)
+
+        from server.agents.compaction_service import CompactionService
+        from server.agents.context import ContextManager
+        from server.domain.events import CompactionTrigger
+
+        service = CompactionService(
+            self.config,
+            provider,
+            context_manager=ContextManager(self.config),
+            session_repo=self.session_repo,
+            message_repo=self.message_repo,
+        )
+        outcome = await service.compact(
+            session_id=session_id,
+            history=history,
+            messages=None,
+            trigger=CompactionTrigger.MANUAL,
+            reason="manual",
+            previous_summary=((session.metadata or {}).get("summary") or None),
+            emit=_emit,
+            focus=focus,
+        )
+        if outcome.failed:
+            await ws.send_text(
+                make_error_response(rid, -32603, f"Compaction failed: {outcome.error}")
+            )
+        elif outcome.skipped:
+            await ws.send_text(
+                make_response(
+                    rid, {"status": "skipped", "summary": "", "cleared": 0, "trigger": "manual"}
                 )
-            await ws.send_text(make_response(rid, {"summary": summary, "cleared": len(history)}))
-        except Exception as e:
-            logger.exception("Manual compact failed for session %s", session_id)
-            await ws.send_text(make_error_response(rid, -32603, f"Compaction failed: {e}"))
+            )
+        else:
+            await ws.send_text(
+                make_response(
+                    rid,
+                    {
+                        "summary": outcome.summary,
+                        "cleared": outcome.deleted,
+                        "kept_tail": outcome.kept_tail,
+                        "tokens_saved": outcome.tokens_saved,
+                        "trigger": outcome.trigger.value,
+                        "status": outcome.status.value,
+                    },
+                )
+            )
         return session_id
 
     async def _context_clear_tools(self, ws, rid, session_id) -> None:
@@ -673,3 +723,48 @@ class MethodHandlers:
         if self._session_service is not None:
             return self._session_service
         return DefaultSessionService(session_repo=self.session_repo, message_repo=self.message_repo)
+
+    async def _memory_list(self, ws, rid, params) -> None:
+        from server.sessions.memory import MemoryStore
+
+        store = MemoryStore(self.config.workspace_root)
+        text = store.load_plain()
+        await ws.send_text(make_response(rid, {"memory": text}))
+
+    async def _memory_add(self, ws, rid, params) -> None:
+        from server.sessions.memory import MemoryStore
+
+        key = params.get("key", "").strip()
+        value = params.get("value", "").strip()
+        if not key:
+            await ws.send_text(make_error_response(rid, -32602, "key is required"))
+            return
+        store = MemoryStore(self.config.workspace_root)
+        entry = f"- **{key}**: {value}" if value else f"- {key}"
+        store.append_project(entry)
+        await ws.send_text(make_response(rid, {"status": "ok", "key": key}))
+
+    async def _memory_delete(self, ws, rid, params) -> None:
+        from server.sessions.memory import MemoryStore
+
+        key = params.get("key", "").strip()
+        if not key:
+            await ws.send_text(make_error_response(rid, -32602, "key is required"))
+            return
+        store = MemoryStore(self.config.workspace_root)
+        project_path = store.project_path()
+        if not project_path.exists():
+            await ws.send_text(make_response(rid, {"deleted": False}))
+            return
+        text = project_path.read_text(encoding="utf-8", errors="replace")
+        lines = text.split("\n")
+        new_lines = []
+        deleted = False
+        for line in lines:
+            if key in line and line.strip().startswith("-"):
+                deleted = True
+                continue
+            new_lines.append(line)
+        if deleted:
+            project_path.write_text("\n".join(new_lines), encoding="utf-8")
+        await ws.send_text(make_response(rid, {"deleted": deleted}))

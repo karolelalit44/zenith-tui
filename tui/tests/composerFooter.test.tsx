@@ -82,7 +82,7 @@ describe('ComposerFooter', () => {
     restore();
   });
 
-  it('renders the token count and context percentage in the "78.8K (39%)" format', () => {
+  it('renders cumulative run usage and composed-context gauge as separate figures', () => {
     const restore = stubColumns(120);
     seedModel();
 
@@ -95,11 +95,43 @@ describe('ComposerFooter', () => {
         branch="fix/ser-tu-communication-n-separations"
         totalTokens={78_800}
         effectiveMaxTokens={200_000}
+        runTokens={12_400}
+        contextPercent={39}
       />,
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('78.8K (39%)');
+    // The footer count is cumulative run/API usage...
+    expect(frame).toContain('12.4K');
+    expect(frame).not.toContain('78.8K');
+    // ...while the gauge shows only composed-context occupancy.
+    expect(frame).toContain('[████░░░░░░] 39%');
+    restore();
+  });
+
+  it('marks estimated run usage and estimated context window with a tilde', () => {
+    const restore = stubColumns(120);
+    seedModel();
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        totalTokens={78_800}
+        effectiveMaxTokens={200_000}
+        runTokens={12_400}
+        runEstimated={true}
+        contextPercent={39}
+        windowEstimated={true}
+      />,
+    );
+
+    const frame = app.lastFrame();
+    expect(frame).toContain('~12.4K');
+    expect(frame).toContain('[████░░░░░░] ~39%');
     restore();
   });
 
@@ -148,6 +180,39 @@ describe('ComposerFooter', () => {
         layout.provider.length +
         (layout.dirText ? layout.dirText.length : 0) +
         (layout.branchText ? layout.branchText.length + 1 : 0) +
+        (layout.gauge ? layout.gauge.length + 1 : 0) +
+        layout.tokenUsage.length;
+
+      expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
+    }
+  });
+
+  it('computeFooterLayout budgets the composed-context gauge width', () => {
+    for (const columns of [80, 100, 120, 160]) {
+      const layout = computeFooterLayout({
+        columns,
+        mode: 'build',
+        chip: nvidiaModel,
+        providerName: 'NVIDIA AI',
+        dir: '.../code/zenith-frontend-tui',
+        branch: 'fix/ser-tu-communication-n-separations',
+        totalTokens: 12_400,
+        effectiveMaxTokens: 128_000,
+        runTokens: 12_400,
+        runEstimated: true,
+        contextPercent: 100,
+        windowEstimated: true,
+      });
+
+      const contentWidth = columns - 4;
+      const renderedWidth =
+        layout.modeLabel.length +
+        2 +
+        layout.chip.length +
+        layout.provider.length +
+        (layout.dirText ? layout.dirText.length : 0) +
+        (layout.branchText ? layout.branchText.length + 1 : 0) +
+        (layout.gauge ? layout.gauge.length + 1 : 0) +
         layout.tokenUsage.length;
 
       expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
@@ -166,6 +231,8 @@ describe('ComposerFooter', () => {
       });
 
       expect(layout.tokenUsage).toBe('');
+      expect(layout.gauge).toBe('');
+      expect(layout.showGauge).toBe(false);
     }
   });
 });

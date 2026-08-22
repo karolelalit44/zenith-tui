@@ -5,12 +5,14 @@ import { ProgressBar } from '../src/components/Display/Scenario/ProgressBar';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
 import { SuccessCard } from '../src/components/Display/Scenario/SuccessCard';
 import { ThinkingBlock } from '../src/components/Display/Scenario/ThinkingBlock';
+import { ToolStepCard } from '../src/components/Display/Scenario/ToolStepCard';
 import { UserMessageBlock } from '../src/components/Display/Scenario/UserMessageBlock';
 import { modelStore } from '../src/services/providers/ModelStore';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type {
   MessageEvent,
   ProgressEvent,
+  ScenarioEvent,
   SuccessEvent,
   ThinkingEvent,
   ToolStepEvent,
@@ -52,6 +54,102 @@ describe('ThinkingBlock', () => {
       </ThemeProvider>,
     );
     expect(lastFrame()).toBe('');
+  });
+
+  it('renders all thoughts immediately when historical (expanded)', () => {
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't2',
+      thoughts: ['first', 'second', 'third'],
+      duration: 1200,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ thinkingCollapsed: false, isHistorical: true }} />
+      </ThemeProvider>,
+    );
+    expect(lastFrame()).toContain('first');
+    expect(lastFrame()).toContain('second');
+    expect(lastFrame()).toContain('third');
+  });
+
+  it('renders the first-thought preview when collapsed', () => {
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't2',
+      thoughts: ['first', 'second', 'third'],
+      duration: 1200,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ thinkingCollapsed: true, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+    expect(lastFrame()).toContain('first');
+    expect(lastFrame()).not.toContain('second');
+    expect(lastFrame()).not.toContain('third');
+  });
+});
+
+describe('ThinkingBlock streaming reveal (QA-9)', () => {
+  it('reveals a live expanded block one thought at a time', async () => {
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't3',
+      thoughts: ['alpha', 'beta', 'gamma'],
+      duration: 1200,
+    };
+    const { lastFrame, unmount } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ thinkingCollapsed: false, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+
+    // Live reveal runs on a real 250 ms interval; poll frames until each
+    // thought streams in (deterministic — no fake-timer/scheduler coupling).
+    const waitForThought = async (text: string) => {
+      const start = Date.now();
+      while (Date.now() - start < 5000) {
+        if ((lastFrame() || '').includes(text)) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`thought '${text}' never streamed in; frame: ${lastFrame()}`);
+    };
+
+    // The reveal is incremental: the full set never flashes at once.
+    expect(lastFrame()).not.toContain('alpha');
+    await waitForThought('alpha');
+    expect(lastFrame()).not.toContain('gamma');
+    await waitForThought('beta');
+    expect(lastFrame()).not.toContain('gamma');
+    await waitForThought('gamma');
+
+    unmount();
+  });
+});
+
+describe('ToolStepCard pending duration', () => {
+  it('starts the live timer at the step itself, not app mount (shows ~ 1 s on first render)', () => {
+    const event: ToolStepEvent = {
+      kind: 'tool_step',
+      id: 'bash-1',
+      tool: 'bash',
+      params: { command: 'Get-Date -Format "yyyy-MM-dd"' },
+      success: false,
+      output: '',
+      error: '',
+      metadata: {},
+      text: undefined,
+      pending: true,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ToolStepCard event={event} context={{ isRunning: true, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('~ 1 s');
+    expect(frame).toContain('Get-Date');
   });
 });
 
@@ -153,6 +251,76 @@ describe('SuccessCard manifest enrichment', () => {
       </ThemeProvider>,
     );
     expect(lastFrame()).toContain('✓ Turn complete');
+  });
+});
+
+describe('SuccessCard token usage and duration', () => {
+  const renderSuccess = (event: SuccessEvent, turnEvents?: ScenarioEvent[]) =>
+    render(
+      <ThemeProvider>
+        <SuccessCard event={event} turnEvents={turnEvents} />
+      </ThemeProvider>,
+    );
+
+  it('shows provider-reported token usage when used > 0', () => {
+    const success: SuccessEvent = {
+      kind: 'success',
+      id: 's1',
+      message: 'done',
+      tokenInfo: { used: 1500, remaining: 98000, total: 100000, percent: 0.015 },
+    };
+    const { lastFrame } = renderSuccess(success);
+    expect(lastFrame()).toContain('1.5k tokens');
+  });
+
+  it('shows the turn duration from elapsedMs on a completed turn', () => {
+    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done', elapsedMs: 3200 };
+    const { lastFrame } = renderSuccess(success);
+    expect(lastFrame()).toContain('3 s');
+  });
+
+  it('does not show a fabricated duration when elapsedMs is missing', () => {
+    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done' };
+    const { lastFrame } = renderSuccess(success);
+    expect(lastFrame()).not.toContain(' s');
+  });
+
+  it('falls back to the frontend estimate when tokenInfo is missing', () => {
+    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done' };
+    const turnEvents: ScenarioEvent[] = [
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'A fairly long assistant response that carries enough characters to exceed zero tokens.',
+        partial: false,
+      },
+      {
+        kind: 'thinking',
+        id: 't1',
+        thoughts: ['Some internal reasoning text spanning many characters so the estimate is meaningful.'],
+      },
+    ];
+    const { lastFrame } = renderSuccess(success, turnEvents);
+    expect(lastFrame()).toContain('tokens');
+  });
+
+  it('falls back to the estimate when tokenInfo.used is zero (estimated usage)', () => {
+    const success: SuccessEvent = {
+      kind: 'success',
+      id: 's1',
+      message: 'done',
+      tokenInfo: { used: 0, remaining: 0, total: 0, percent: 0, estimated: true },
+    };
+    const turnEvents: ScenarioEvent[] = [
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'A long message body used to drive the estimation fallback path forward.',
+        partial: false,
+      },
+    ];
+    const { lastFrame } = renderSuccess(success, turnEvents);
+    expect(lastFrame()).toContain('tokens');
   });
 });
 

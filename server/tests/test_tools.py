@@ -153,12 +153,15 @@ class TestToolRegistry:
 BUILD_ONLY_TOOLS = [
     "bash",
     "agent",
-    "todo",
     "job_kill",
     "file_delete",
     "multi_edit",
     "lsp_rename",
 ]
+
+# Task tracking is deliberately available in plan mode (QA-5.6) so the agent
+# can manage its todo while investigating.
+PLAN_TRACKING_TOOLS = ["todo"]
 
 PLAN_WRITABLE_TOOLS = ["file_write", "file_edit"]
 
@@ -170,10 +173,16 @@ class TestModeGating:
         for name in BUILD_ONLY_TOOLS:
             assert name not in plan_names, f"{name} leaked into plan mode"
 
+    def test_plan_mode_includes_tracking_tools(self):
+        reg = create_default_registry()
+        plan_names = set(reg.list_tools_for_mode("plan"))
+        for name in PLAN_TRACKING_TOOLS:
+            assert name in plan_names, f"{name} missing from plan mode"
+
     def test_build_mode_includes_mutating_tools(self):
         reg = create_default_registry()
         build_names = set(reg.list_tools_for_mode("build"))
-        for name in BUILD_ONLY_TOOLS:
+        for name in BUILD_ONLY_TOOLS + PLAN_TRACKING_TOOLS:
             assert name in build_names, f"{name} missing from build mode"
 
     def test_plan_mode_offers_writable_plan_tools(self):
@@ -185,10 +194,82 @@ class TestModeGating:
     @pytest.mark.asyncio
     async def test_plan_mode_execution_rejects_leaked_tools(self):
         reg = create_default_registry()
-        for name in ("bash", "agent", "todo", "job_kill", "file_delete", "multi_edit"):
+        for name in ("bash", "agent", "job_kill", "file_delete", "multi_edit"):
             result = await reg.execute(name, {"command": "echo hi"}, ".", mode="plan")
             assert not result.success
             assert "not available" in result.error
+
+    @pytest.mark.asyncio
+    async def test_plan_mode_execution_allows_tracking_tools(self):
+        reg = create_default_registry()
+        result = await reg.execute("todo", {"action": "list"}, ".", mode="plan")
+        assert result.success
+        assert "not available" not in result.error
+
+
+class TestReadOnlyModeGating:
+    READ_ONLY_MUTATION_TOOLS = [
+        "file_write",
+        "file_edit",
+        "file_delete",
+        "bash",
+        "agent",
+        "todo",
+        "job_kill",
+        "multi_edit",
+        "lsp_rename",
+    ]
+
+    def test_read_only_mode_schemas_exclude_all_mutation_tools(self):
+        reg = create_default_registry()
+        from server.config.settings import READ_ONLY_MODE_CONFIG
+
+        schemas = reg.get_schemas_for_mode(
+            "read_only",
+            allowed_mcp={},
+            allowed_tools=READ_ONLY_MODE_CONFIG.allowed_tools,
+        )
+        schema_names = {s["name"] for s in schemas}
+        for name in self.READ_ONLY_MUTATION_TOOLS:
+            assert name not in schema_names, f"{name} leaked into read_only schemas"
+
+    def test_read_only_mode_includes_pure_read_tools(self):
+        reg = create_default_registry()
+        from server.config.settings import READ_ONLY_MODE_CONFIG
+
+        schemas = reg.get_schemas_for_mode(
+            "read_only",
+            allowed_mcp={},
+            allowed_tools=READ_ONLY_MODE_CONFIG.allowed_tools,
+        )
+        schema_names = {s["name"] for s in schemas}
+        for name in ("file_read", "glob", "grep", "list_dir"):
+            assert name in schema_names, f"{name} missing from read_only schemas"
+
+    @pytest.mark.asyncio
+    async def test_read_only_mode_execution_rejects_execution_tools(self):
+        reg = create_default_registry()
+        for name in ("bash", "agent", "todo"):
+            result = await reg.execute(name, {}, ".", mode="read_only")
+            assert not result.success
+            assert "not available" in result.error
+
+    def test_read_only_openai_tools_match_seed(self):
+        from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
+        from server.agents.validation import schemas_to_openai_tools
+        from server.config.settings import READ_ONLY_MODE_CONFIG
+
+        reg = create_default_registry()
+        resolver = SchemaResolver(
+            reg, seed=build_mode_tool_seed(READ_ONLY_MODE_CONFIG.allowed_tools)
+        )
+        tools = schemas_to_openai_tools(resolver.schemas("read_only"))
+        names = {t["function"]["name"] for t in tools}
+        expected = set(READ_ONLY_MODE_CONFIG.allowed_tools) | {
+            "discover_capabilities",
+            "get_tool_definition",
+        }
+        assert names == expected
 
 
 class TestPlanWriteGuard:
@@ -522,6 +603,43 @@ class TestFileDeleteTool:
         assert result.metadata.get("entries", 0) == 3
 
 
+class TestBraceExpansion:
+    def test_no_braces_passthrough(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("**/*.py") == ["**/*.py"]
+
+    def test_single_group(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("*.{py,ts}") == ["*.py", "*.ts"]
+
+    def test_multiple_groups_cartesian(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("src/{a,b}/**/*.{py,ts}") == [
+            "src/a/**/*.py",
+            "src/a/**/*.ts",
+            "src/b/**/*.py",
+            "src/b/**/*.ts",
+        ]
+
+    def test_nested_groups(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("{a,{b,c}}.py") == ["a.py", "b.py", "c.py"]
+
+    def test_unbalanced_braces_passthrough(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("{broken.py") == ["{broken.py"]
+
+    def test_dedupe_overlapping(self):
+        from server.toolkit.brace_expand import expand_braces
+
+        assert expand_braces("{a,a}.py") == ["a.py"]
+
+
 class TestGlobTool:
     @pytest.mark.asyncio
     async def test_glob_matches(self, temp_dir):
@@ -551,6 +669,29 @@ class TestGlobTool:
         assert result.metadata["count"] == 2
 
     @pytest.mark.asyncio
+    async def test_glob_brace_expansion(self, temp_dir):
+        (temp_dir / "a.py").write_text("")
+        (temp_dir / "b.ts").write_text("")
+        (temp_dir / "c.tsx").write_text("")
+        (temp_dir / "d.txt").write_text("")
+        tool = GlobTool()
+        result = await tool.execute({"pattern": "*.{ts,tsx}"}, str(temp_dir))
+        assert result.success
+        assert result.metadata["count"] == 2
+        assert {Path(f).name for f in result.metadata["files"]} == {"b.ts", "c.tsx"}
+
+    @pytest.mark.asyncio
+    async def test_glob_brace_expansion_recursive(self, temp_dir):
+        (temp_dir / "sub").mkdir()
+        (temp_dir / "sub" / "deep.py").write_text("")
+        (temp_dir / "sub" / "deep.ts").write_text("")
+        (temp_dir / "top.js").write_text("")
+        tool = GlobTool()
+        result = await tool.execute({"pattern": "**/*.{py,ts}"}, str(temp_dir))
+        assert result.success
+        assert result.metadata["count"] == 2
+
+    @pytest.mark.asyncio
     async def test_glob_caps_overflowing_results(self, temp_dir, monkeypatch):
         import server.toolkit.tools.glob as glob_mod
 
@@ -562,7 +703,7 @@ class TestGlobTool:
         assert result.success
         assert result.metadata["count"] == 5, "count reports the true total"
         assert len(result.metadata["files"]) == 2, "returned list must be capped"
-        assert "more matches omitted" in result.output
+        assert "Showing 2 of 5 matches" in result.output
 
 
 class TestGrepTool:
@@ -590,6 +731,39 @@ class TestGrepTool:
         result = await tool.execute({"pattern": "hello", "include": "*.py"}, str(temp_dir))
         assert result.success
         assert result.metadata["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_grep_include_brace_expansion(self, temp_dir):
+        (temp_dir / "a.ts").write_text("const x = 'hello'")
+        (temp_dir / "b.tsx").write_text("const x = 'hello'")
+        (temp_dir / "c.md").write_text("hello there")
+        tool = GrepTool()
+        result = await tool.execute({"pattern": "hello", "include": "*.{ts,tsx}"}, str(temp_dir))
+        assert result.success
+        assert result.metadata["count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_grep_broad_search_prunes_excluded_dirs(self, temp_dir):
+        import server.toolkit.tools.grep as grep_mod
+
+        (temp_dir / "keep.py").write_text("needle in keep")
+        excluded = temp_dir / "node_modules"
+        excluded.mkdir()
+        (excluded / "bloat.py").write_text("needle in node_modules")
+
+        searched = []
+
+        def _spy(path, *_a, **_k):
+            searched.append(Path(path))
+            yield from []
+
+        grep_mod._iter_source_files = _spy
+        tool = GrepTool()
+        result = await tool.execute({"pattern": "needle"}, str(temp_dir))
+        assert result.success
+        assert not any("node_modules" in str(p) for p in searched), (
+            "excluded dir must not be traversed"
+        )
 
     @pytest.mark.asyncio
     async def test_grep_invalid_regex(self, temp_dir):

@@ -1,6 +1,24 @@
 from server.agents.loop import _format_tool_result
+from server.domain.events import EventKind
 from server.providers.parser import parse_tool_calls
 from server.toolkit.base import ToolResult
+
+
+class TestResponderSuccess:
+    def test_success_carries_elapsed_ms(self):
+        from server.providers.responder import success
+
+        evt = success("done", "s1", iterations=3, elapsed_ms=4250)
+        assert evt.kind == EventKind.SUCCESS
+        assert evt.data["elapsedMs"] == 4250
+        assert evt.data["duration"] == 4250
+
+    def test_success_without_elapsed_omits_duration_fields(self):
+        from server.providers.responder import success
+
+        evt = success("done", "s1", iterations=1)
+        assert "elapsedMs" not in evt.data
+        assert "duration" not in evt.data
 
 
 class TestParseToolCalls:

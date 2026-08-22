@@ -185,3 +185,80 @@ def _single(registry, name: str) -> int:
 
     tool = registry.get(name)
     return estimate_tool_schema_tokens(tool.get_schema(), tool.description, "gpt-4o")
+
+
+class TestSchemaMinimality:
+    """Task 4.2: the schema payload sent to the provider per mode is minimal
+    (seed only), and on-demand escalation grows the set without exceeding the cap."""
+
+    def _build_openai_tools(self, seed: list[str], mode: str) -> list[dict]:
+        registry = create_default_registry()
+        resolver = SchemaResolver(registry, seed=build_mode_tool_seed(seed))
+        from server.agents.validation import schemas_to_openai_tools
+
+        return schemas_to_openai_tools(resolver.schemas(mode))
+
+    def test_build_mode_schema_set_matches_seed(self):
+        tools = self._build_openai_tools(CORE_BUILD_TOOLS, BUILD_MODE)
+        names = {t["function"]["name"] for t in tools}
+        expected = set(CORE_BUILD_TOOLS) | {
+            DISCOVER_CAPABILITIES_TOOL,
+            GET_TOOL_DEFINITION_TOOL,
+        }
+        assert names == expected
+
+    def test_plan_mode_schema_set_matches_seed(self):
+        tools = self._build_openai_tools(CORE_PLAN_TOOLS, PLAN_MODE)
+        names = {t["function"]["name"] for t in tools}
+        expected = set(CORE_PLAN_TOOLS) | {
+            DISCOVER_CAPABILITIES_TOOL,
+            GET_TOOL_DEFINITION_TOOL,
+        }
+        assert names == expected
+
+    def test_build_mode_excludes_non_seed_tools(self):
+        tools = self._build_openai_tools(CORE_BUILD_TOOLS, BUILD_MODE)
+        names = {t["function"]["name"] for t in tools}
+        for name in (
+            "websearch",
+            "webfetch",
+            "file_delete",
+            "todo",
+            "multi_edit",
+            "agent",
+            "lsp_rename",
+            "job_kill",
+        ):
+            assert name not in names, f"{name} leaked into build-mode seed"
+
+    def test_escalation_adds_tool_to_openai_tools(self):
+        registry = create_default_registry()
+        resolver = SchemaResolver(registry, seed=build_mode_tool_seed(CORE_BUILD_TOOLS))
+        from server.agents.validation import schemas_to_openai_tools
+
+        before = schemas_to_openai_tools(resolver.schemas(BUILD_MODE))
+        before_names = {t["function"]["name"] for t in before}
+        assert "websearch" not in before_names
+
+        resolver.request_tool("websearch")
+        after = schemas_to_openai_tools(resolver.schemas(BUILD_MODE))
+        after_names = {t["function"]["name"] for t in after}
+        assert "websearch" in after_names
+
+    def test_escalation_never_exceeds_max_active_cap(self):
+        registry = create_default_registry()
+        resolver = SchemaResolver(registry, seed=build_mode_tool_seed(CORE_BUILD_TOOLS))
+        from server.agents.validation import schemas_to_openai_tools
+
+        all_buildable = [
+            n
+            for n in registry.list_tools()
+            if registry.get(n)
+            and not (registry.get(n).modes and BUILD_MODE not in registry.get(n).modes)
+        ]
+        for name in all_buildable:
+            resolver.request_tool(name)
+        active = resolver.active_names()
+        assert len(active) <= MAX_ACTIVE_TOOLS_PER_TURN
+        tools = schemas_to_openai_tools(resolver.schemas(BUILD_MODE))
+        assert len(tools) <= MAX_ACTIVE_TOOLS_PER_TURN

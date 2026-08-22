@@ -1,5 +1,5 @@
 from server.agents.context import ContextManager, TokenInfo
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
+from server.config.constants import DEFAULT_CONTEXT_WINDOW, HARD_STOP_USAGE_RATIO
 from server.config.settings import AppSettings
 from server.domain.message import Message, ToolCall
 
@@ -29,7 +29,44 @@ class TestContextManager:
         assert messages[0]["content"] == "You are helpful."
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"] == "How are you?"
-        assert len(messages) == 4
+        # Phase 2: the previous user *prompt* is never re-sent; only the latest is (T5).
+        assert len(messages) == 3
+        contents = [m["content"] for m in messages]
+        assert "Hello" not in contents
+        assert contents[-1] == "How are you?"
+
+    def test_build_messages_drops_older_user_prompts_keeps_latest(self):
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        history = [
+            Message(session_id="s1", role="user", content="OLD prompt 1"),
+            Message(session_id="s1", role="assistant", content="Interim assistant"),
+            Message(session_id="s1", role="user", content="OLD prompt 2"),
+            Message(session_id="s1", role="assistant", content="worker hand-off"),
+        ]
+        messages = ctx.build_messages(history, "System.", "LATEST.", "gpt-4")
+        assert "LATEST." in [m["content"] for m in messages]
+        assert messages[-1]["content"] == "LATEST."
+        # No old user prompt may appear in the *history-derived* portion (everything before T5).
+        for m in messages[:-1]:
+            if m["role"] == "user":
+                assert "[Tool:" in m["content"] or m["content"] in (
+                    "[Previous conversation summary]",
+                )
+        # Assistant hand-off / worker content is preserved.
+        assert any(m["role"] == "assistant" for m in messages)
+
+    def test_build_messages_keeps_tool_result_that_is_role_user(self):
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        history = [
+            Message(session_id="s1", role="user", content="OLD prompt"),
+            Message(session_id="s1", role="user", content="[Tool: bash | Status: SUCCESS] done"),
+        ]
+        messages = ctx.build_messages(history, "System.", "Continue.", "gpt-4")
+        joined = " ".join(str(m.get("content")) for m in messages)
+        assert "[Tool: bash" in joined  # tool result preserved
+        assert "OLD prompt" not in joined  # real prompt dropped
 
     def test_build_messages_with_summary(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
@@ -93,13 +130,13 @@ class TestContextManager:
                 assert roles[i - 1] == "assistant"
 
     def test_should_summarize(self):
-        config = AppSettings(max_context_tokens=100, summary_threshold=0.5)
+        config = AppSettings(max_context_tokens=100, context_compaction_threshold=0.5)
         ctx = ContextManager(config)
         messages = [{"role": "user", "content": "x " * 200}]
         assert ctx.should_summarize(messages, "gpt-4") is True
 
     def test_should_not_summarize_small_context(self):
-        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, summary_threshold=0.8)
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
         ctx = ContextManager(config)
         messages = [{"role": "user", "content": "Hello"}]
         assert ctx.should_summarize(messages, "gpt-4") is False
@@ -128,11 +165,13 @@ class _FakeUsageProvider:
 
 
 class TestUsageBasedTriggers:
-    def test_usage_tokens_prefers_provider_report(self):
+    def test_usage_tokens_ignores_provider_cumulative(self):
+        """Cumulative provider usage is run/API usage, never context occupancy."""
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
         provider = _FakeUsageProvider(total_tokens=9999)
         tokens = ctx.usage_tokens([], "gpt-4", provider)
-        assert tokens == 9999
+        assert tokens == ctx.usage_tokens([], "gpt-4")
+        assert tokens != 9999
 
     def test_usage_tokens_falls_back_to_estimation(self):
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
@@ -145,11 +184,25 @@ class TestUsageBasedTriggers:
         tokens = ctx.usage_tokens([{"role": "user", "content": "y " * 100}], "gpt-4", provider)
         assert tokens > 0
 
-    def test_should_summarize_when_used_near_limit(self):
-        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
+    def test_usage_tokens_composed_matches_provider_independent(self):
+        """Provider presence must not change the composed count."""
+        ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
+        messages = [{"role": "user", "content": "z " * 500}]
+        provider = _FakeUsageProvider(total_tokens=129_956)
+        assert ctx.usage_tokens(messages, "gpt-4") == ctx.usage_tokens(messages, "gpt-4", provider)
+
+    def test_should_summarize_when_composed_context_large(self):
+        config = AppSettings(
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW, context_compaction_threshold=0.5
+        )
         ctx = ContextManager(config)
+        # Push the composed count over the 50% watermark cheaply via aux tokens.
+        ctx.set_aux_tokens(70000)
+        assert ctx.should_summarize([{"role": "user", "content": "hi"}], "gpt-4") is True
+        # Cumulative provider usage alone must NOT trigger summarization.
+        ctx2 = ContextManager(config)
         provider = _FakeUsageProvider(total_tokens=120000)
-        assert ctx.should_summarize([], "gpt-4", provider) is True
+        assert ctx2.should_summarize([], "gpt-4", provider) is False
 
     def test_should_summarize_false_when_low_usage(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
@@ -157,11 +210,49 @@ class TestUsageBasedTriggers:
         provider = _FakeUsageProvider(total_tokens=1000)
         assert ctx.should_summarize([], "gpt-4", provider) is False
 
-    def test_get_token_info_uses_reported_usage(self):
+    def test_get_token_info_uses_composed_context(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
         ctx = ContextManager(config)
         provider = _FakeUsageProvider(total_tokens=64000)
         info = ctx.get_token_info([], "no-such-model", provider)
-        assert info.used == 64000
-        assert info.remaining == 64000
-        assert abs(info.percent - 0.5) < 0.01
+        assert info.used == ctx.usage_tokens([], "no-such-model")
+        assert info.used < 64000
+        assert info.remaining == info.total - info.used
+
+
+class TestCompactionWatermark:
+    def test_should_summarize_follows_config_threshold(self):
+        config = AppSettings(
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW, context_compaction_threshold=0.5
+        )
+        ctx = ContextManager(config)
+        ctx.set_aux_tokens(70000)  # > 50% watermark of 64K
+        assert ctx.should_summarize([{"role": "user", "content": "hi"}], "gpt-4") is True
+
+    def test_should_not_summarize_below_config_threshold(self):
+        config = AppSettings(
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW, context_compaction_threshold=0.9
+        )
+        ctx = ContextManager(config)
+        ctx.set_aux_tokens(10000)  # well under the 90% watermark of ~115K
+        assert ctx.should_summarize([{"role": "user", "content": "hi"}], "gpt-4") is False
+
+    def test_is_context_exhausted_at_hard_stop_ratio(self):
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
+        ctx = ContextManager(config)
+        # Cumulative provider usage must NOT signal exhaustion on an empty context.
+        boundary = int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO)
+        assert ctx.is_context_exhausted([], "gpt-4", _FakeUsageProvider(total_tokens=boundary)) is False
+        # A genuinely oversized composed context does.
+        assert (
+            ctx.is_context_exhausted(
+                [{"role": "user", "content": "x " * int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO * 4)}],
+                "gpt-4",
+            )
+            is True
+        )
+
+    def test_is_context_exhausted_false_without_provider_report(self):
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
+        ctx = ContextManager(config)
+        assert ctx.is_context_exhausted([{"role": "user", "content": "hi"}], "gpt-4") is False

@@ -16,19 +16,58 @@ CONTEXT_SUMMARY_THRESHOLD = 0.85
 DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
 PLAN_MODE = "plan"
+READ_ONLY_MODE = "read_only"
 
-COMPACTION_SIM_TOTAL_TOKENS = 128_000
-COMPACTION_SIM_USED_TOKENS = 118_000
-COMPACTION_SIM_AFTER_TOKENS = 43_000
-COMPACTION_SIM_SUMMARY_CHARS = 12_000
+READ_ONLY_TOOLS = ["file_read", "glob", "grep", "list_dir"]
+
+# Per-mode context-budget allocation (Gap #8). Fractions of the input budget
+# (context window minus output reserve). History absorbs a larger share in
+# investigation-heavy modes; tool schemas get a smaller share in read_only.
+MODE_BUDGET_PROFILES = {
+    BUILD_MODE: {"tools_pct": 0.10, "history_pct": 0.40, "summary_pct": 0.05},
+    PLAN_MODE: {"tools_pct": 0.08, "history_pct": 0.50, "summary_pct": 0.05},
+    READ_ONLY_MODE: {"tools_pct": 0.05, "history_pct": 0.55, "summary_pct": 0.05},
+}
 
 CHARS_PER_TOKEN = 4
 SUMMARY_FRAMING_TOKENS = 4
+MIN_OUTPUT_RESERVE_TOKENS = 8_000
+HARD_STOP_USAGE_RATIO = 0.95
+CONTEXT_EXHAUSTED_MESSAGE = "Context window exhausted even after summarization"
+CONTEXT_EXHAUSTED_HINT = "Start a new session to free up context."
 COMPACTION_KEEP_TAIL = 8
+# Recent-history budget for compaction: keep this many tokens of the tail when
+# folding the older prefix into the summary. The band is clamped to the input
+# budget so small windows never request more than the context can hold.
+COMPACTION_KEEP_MIN_TOKENS = 8_000
+COMPACTION_KEEP_MAX_TOKENS = 20_000
+COMPACTION_KEEP_BUDGET_RATIO = 0.25
 SKIP_WARNING_CAP = 6
 SUMMARY_MIN_CHARS = 40
 BG_OUTPUT_TAIL = 800
 MANIFEST_CHECKS_CAP = 5
+RUNNING_SUMMARY_MESSAGE_LIMIT = 50
+SESSION_STATE_MAX_TOKENS = 400
+SESSION_STATE_MAX_FILES = 50
+SESSION_STATE_MARKER = "[Session state]"
+SESSION_STATE_HASH_PREFIX_LEN = 10
+SESSION_STATE_ENTRY_MAX_CHARS = 200
+SESSION_STATE_INTRO = (
+    "Files you already created or modified earlier in this session (they exist on "
+    "disk; do not re-create or re-write them unless you are changing them):"
+)
+SESSION_STATE_OUTRO = (
+    "If you need to modify one of these, read it first (file_read), then use "
+    "file_edit for a targeted change."
+)
+
+STALE_TOKEN_MULTIPLIER = 2
+HEAVY_TOOL_THRESHOLD_TOKENS = 5000
+HEAVY_TOOL_SUMMARY_MAX_CHARS = 2000
+HEAVY_OUTPUT_SUBDIR = "heavy-outputs"
+HEAVY_TOOL_MARKER_TEMPLATE = "Summary of output (full output available via file_read: {path}):"
+PROJECT_MEMORY_MAX_TOKENS = 500
+PROJECT_MEMORY_MAX_ENTRIES = 20
 
 SMALL_CONTEXT_WINDOW = 32_000
 LARGE_CONTEXT_WINDOW = 200_000
@@ -159,10 +198,45 @@ MAX_TOOL_OUTPUT_TIERS = (
 
 ATTACHMENT_MAX_FILE = 512 * 1024
 ATTACHMENT_MAX_TOTAL = 2 * 1024 * 1024
-GLOB_MAX_RESULTS = 500
-GLOB_MAX_OUTPUT_CHARS = 40_000
+
+DEFAULT_SEARCH_EXCLUDED_DIRS = (
+    ".git",
+    ".svn",
+    ".hg",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+    "coverage",
+    ".gemini",
+    ".idea",
+    ".vscode",
+)
+DEFAULT_SEARCH_EXCLUDED_FILES = (
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "poetry.lock",
+    "Cargo.lock",
+)
+GLOB_MAX_RESULTS = 100
+GLOB_MAX_OUTPUT_CHARS = 10_000
+GREP_MAX_RESULTS = 100
+GREP_MAX_OUTPUT_CHARS = 10_000
+GREP_MAX_FILES = 200
+BROAD_PATTERN_THRESHOLD = 50
+EPHEMERAL_TOOL_WINDOW_SIZE = 2
+TOOL_DIGEST_MAX_CHARS = 300
+DEFAULT_FILE_READ_LINES = 250
 MAX_FILE_CHARS = 8000
 MAX_FILE_READ_LINES = 1000
+TOOL_MAX_OUTPUT_CHARS = 15_000
 MAX_SKILLS_IN_PROMPT = 20
 SKILL_ROOTS = ("skills", "agents/skills", ".zenith/skills", ".agent/skills")
 FUZZY_THRESHOLD = 0.85

@@ -3,7 +3,12 @@ from __future__ import annotations
 from server.agents.context import ContextManager
 from server.config.constants import DEFAULT_CONTEXT_WINDOW
 from server.config.settings import AppSettings
+from server.domain.message import Message
 from server.sessions.memory import MemoryStore
+
+
+def _resumed_history():
+    return [Message(session_id="s1", role="user", content="Earlier prompt")]
 
 
 class TestMemoryStore:
@@ -64,10 +69,24 @@ class TestMemoryInContext:
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
-        messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
+        messages = cm.build_messages(_resumed_history(), "SYS", "hi", "test-model", repo_map="")
         assert any(m["role"] == "system" and "<memory>" in m["content"] for m in messages)
         memory_msg = next(m for m in messages if "<memory>" in m["content"])
         assert "FastAPI + Ink" in memory_msg["content"]
+
+    def test_memory_not_injected_on_fresh_session(self, temp_dir):
+        MemoryStore(temp_dir).append("prev", "The stack is FastAPI + Ink.")
+        config = AppSettings(
+            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
+            repo_map_enabled=False,
+            db_path=str(temp_dir / "test.db"),
+            workspace_root=str(temp_dir),
+        )
+        cm = ContextManager(config)
+        messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
+        assert all("<memory>" not in m["content"] for m in messages)
+        assert len(messages) == 2
+        assert messages[-1]["content"] == "hi"
 
     def test_memory_disabled(self, temp_dir):
         MemoryStore(temp_dir).append("prev", "should not load")
@@ -79,7 +98,7 @@ class TestMemoryInContext:
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
-        messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
+        messages = cm.build_messages(_resumed_history(), "SYS", "hi", "test-model", repo_map="")
         assert all("<memory>" not in m["content"] for m in messages)
         assert cm.get_memory() == ""
 
@@ -92,7 +111,7 @@ class TestMemoryInContext:
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
-        messages = cm.build_messages([], "SYS", "hi", "test-model", repo_map="")
+        messages = cm.build_messages(_resumed_history(), "SYS", "hi", "test-model", repo_map="")
         assert all("<memory>" not in m["content"] for m in messages)
         assert messages[-1]["content"] == "hi"
 
@@ -106,7 +125,12 @@ class TestMemoryInContext:
         )
         cm = ContextManager(config)
         messages = cm.build_messages(
-            [], "SYS", "hi", "test-model", use_system_prompt=False, repo_map=""
+            _resumed_history(),
+            "SYS",
+            "hi",
+            "test-model",
+            use_system_prompt=False,
+            repo_map="",
         )
         assert all(m["role"] != "system" for m in messages)
         assert "<memory>" in messages[0]["content"]

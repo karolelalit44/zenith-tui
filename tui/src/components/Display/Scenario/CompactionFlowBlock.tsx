@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React, { useEffect, useRef } from 'react';
-import { COMPACTION_PHASE_ORDER } from '../../../config/context';
+import { COMPACTION_PHASE_ORDER, COMPACTION_TRIGGER_LABELS } from '../../../config/context';
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { formatTokenCount } from '../../../services/api/tokenEstimationService';
@@ -110,6 +110,10 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
       ? `saved ${formatTokenCount(event.tokensSaved)} tokens`
       : null;
 
+  // Trigger comes from the wire (`automatic` | `manual`); the TUI-invoked
+  // path is manual, so an absent trigger falls back to the manual label.
+  const triggerLabel = event.trigger ? (COMPACTION_TRIGGER_LABELS[event.trigger] ?? 'manual') : 'manual';
+
   const preserved =
     event.preserved && typeof event.preserved === 'object'
       ? (event.preserved as Record<string, number | undefined>)
@@ -183,12 +187,29 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
             <Text color={theme.colors.text.muted}>Conversation unchanged.</Text>
           </Box>
         </>
+      ) : event.status === 'skipped' && !event.failed ? (
+        <>
+          {/* ── Skipped: backend reported nothing was compacted (no fake success) ── */}
+          <Box flexDirection="row" alignItems="center" paddingLeft={2} marginTop={0}>
+            <Box width={2} flexShrink={0}>
+              <Text color={theme.colors.status.info} bold>
+                ·
+              </Text>
+            </Box>
+            <Text color={theme.colors.status.info} bold>
+              Nothing to compact — context fits the current window
+            </Text>
+          </Box>
+          <Box paddingLeft={2}>
+            <Text color={theme.colors.text.muted}>Conversation unchanged.</Text>
+          </Box>
+        </>
       ) : (
         <>
-          {/* ── Completion banner: manual compaction summary strip ── */}
+          {/* ── Completion banner: trigger + token transition ── */}
           <Box paddingLeft={2} marginTop={0}>
             <Text color={theme.colors.status.success} bold wrap="truncate-end">
-              ✻ Context compacted (manual) · {[transitionStr, savedStr].filter(Boolean).join(' · ')} ✻
+              ✻ Context compacted ({triggerLabel}) · {[transitionStr, savedStr].filter(Boolean).join(' · ')} ✻
             </Text>
           </Box>
 

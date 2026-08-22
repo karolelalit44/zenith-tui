@@ -101,7 +101,14 @@ class ConnectionManager(TransportService):
         buf = self.event_buffers.setdefault(session_id, [])
         buf.append(payload)
         if len(buf) > self.max_buffered_events:
-            buf[: len(buf) - self.max_buffered_events] = []
+            # Front-eviction shifts every remaining index down; adjust the
+            # replay marker recorded at disconnect() accordingly or the next
+            # reconnect would replay an offset slice (duplicates/gaps).
+            excess = len(buf) - self.max_buffered_events
+            del buf[:excess]
+            marked = self._disconnect_at.get(session_id)
+            if marked is not None:
+                self._disconnect_at[session_id] = max(0, marked - excess)
         await self._persist_event(session_id, event, seq)
         ws = self.connections.get(session_id)
         if ws:
@@ -205,6 +212,14 @@ class ZenithHandler:
         from server.sessions.service import DefaultSessionService
 
         self.manager = ConnectionManager()
+        # C-F03: DefaultSessionService publishes domain events on this bus;
+        # without a live subscriber every _publish call is a silent no-op and
+        # only session.created/paused/duplicated ever reached clients (via the
+        # ad-hoc schedule_session_event path, now removed).
+        from server.domain.events import AsyncEventBus
+
+        self._event_bus = AsyncEventBus()
+        self._bus_task: asyncio.Task | None = None
         self.handlers = MethodHandlers(config, db, registry, self.tool_registry)
         self.handlers._permission_service = self.permission_service
         self.handlers.manager = self.manager
@@ -216,10 +231,41 @@ class ZenithHandler:
             sync_event_repo=SyncEventRepository(db),
             status_history_repo=SessionStatusHistoryRepository(db),
             draft_repo=DraftRepository(db),
+            event_bus=self._event_bus,
             hooks=config.hooks,
         )
         self.handlers._session_service = self._session_service
         self.manager.set_session_service(self._session_service)
+
+    def _ensure_event_bus_bridge(self) -> None:
+        """Drain the domain-event bus into connected WebSocket clients.
+
+        Started lazily on the first handle() call so the bridge task always
+        has a running loop (ZenithHandler may be constructed outside one).
+        """
+
+        if self._bus_task is not None and not self._bus_task.done():
+            return
+
+        async def _bridge() -> None:
+            subscription = self._event_bus.subscribe()
+            while True:
+                event = await subscription.next()
+                if event is None:
+                    break
+                if not event.session_id:
+                    continue
+                try:
+                    await self.manager.send_event(event.session_id, event)
+                except Exception as exc:
+                    logger.warning(
+                        "Event-bus delivery failed (session=%s kind=%s): %s",
+                        event.session_id,
+                        event.kind,
+                        exc,
+                    )
+
+        self._bus_task = asyncio.ensure_future(_bridge())
 
     def _reload_config(self) -> None:
         self.handlers.reload_config()
@@ -233,6 +279,7 @@ class ZenithHandler:
         return self.handlers.message_repo
 
     async def handle(self, websocket: WebSocket) -> None:
+        self._ensure_event_bus_bridge()
         session_id = None
         ping_task = None
         try:

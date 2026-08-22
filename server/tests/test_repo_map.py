@@ -8,8 +8,13 @@ import pytest
 from server.agents.context import ContextManager
 from server.config.constants import CHARS_PER_TOKEN, DEFAULT_CONTEXT_WINDOW
 from server.config.settings import AppSettings
+from server.domain.message import Message
 from server.providers.token_counter import TokenCounter
 from server.workspace.repo_map import RepoMap
+
+
+def _resumed_history():
+    return [Message(session_id="s1", role="user", content="Earlier prompt")]
 
 
 def _write(workspace: Path, rel: str, content: str) -> None:
@@ -87,7 +92,7 @@ def test_build_messages_injects_repo_map(sample_workspace):
     config = _make_config(sample_workspace)
     cm = ContextManager(config)
     messages = cm.build_messages(
-        history=[],
+        _resumed_history(),
         system_prompt="SYS",
         new_prompt="hi",
         model="test-model",
@@ -99,11 +104,26 @@ def test_build_messages_injects_repo_map(sample_workspace):
     assert messages[-1]["content"] == "hi"
 
 
-def test_build_messages_merges_map_when_no_system_role(sample_workspace):
+def test_build_messages_does_not_inject_repo_map_on_fresh_session(sample_workspace):
     config = _make_config(sample_workspace)
     cm = ContextManager(config)
     messages = cm.build_messages(
         history=[],
+        system_prompt="SYS",
+        new_prompt="hi",
+        model="test-model",
+        repo_map="src/main.py:\n main (line 1)",
+    )
+    assert len(messages) == 2
+    assert all("<repo_map>" not in m["content"] for m in messages)
+    assert messages[-1]["content"] == "hi"
+
+
+def test_build_messages_merges_map_when_no_system_role(sample_workspace):
+    config = _make_config(sample_workspace)
+    cm = ContextManager(config)
+    messages = cm.build_messages(
+        _resumed_history(),
         system_prompt="SYS",
         new_prompt="hi",
         model="test-model",
@@ -144,13 +164,17 @@ def test_repo_map_tokens_counted_in_budget(sample_workspace):
     cm = ContextManager(config)
     info_before = cm.get_token_info(
         cm.build_messages(
-            history=[], system_prompt="SYS", new_prompt="hi", model="test-model", repo_map=""
+            _resumed_history(),
+            system_prompt="SYS",
+            new_prompt="hi",
+            model="test-model",
+            repo_map="",
         ),
         "test-model",
     )
     info_with = cm.get_token_info(
         cm.build_messages(
-            history=[],
+            _resumed_history(),
             system_prompt="SYS",
             new_prompt="hi",
             model="test-model",

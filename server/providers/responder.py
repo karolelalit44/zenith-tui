@@ -80,11 +80,18 @@ def warning(message: str, session_id: str, code: str = "", extra: dict | None = 
 
 
 def success(
-    message: str, session_id: str, iterations: int = 0, token_info: dict | None = None
+    message: str,
+    session_id: str,
+    iterations: int = 0,
+    token_info: dict | None = None,
+    elapsed_ms: int | None = None,
 ) -> Event:
     data: dict = {"message": message, "iterations": iterations}
     if token_info:
         data["tokenInfo"] = token_info
+    if elapsed_ms is not None:
+        data["elapsedMs"] = elapsed_ms
+        data["duration"] = elapsed_ms
     return event(EventKind.SUCCESS, data, session_id)
 
 
@@ -92,10 +99,21 @@ def turn_manifest(payload: dict, session_id: str) -> Event:
     return event(EventKind.TURN_MANIFEST, dict(payload), session_id)
 
 
-def progress(percent: int, status: str, session_id: str, iteration: int = 0) -> Event:
+def progress(
+    percent: int,
+    status: str,
+    session_id: str,
+    iteration: int = 0,
+    steps: list[dict] | None = None,
+) -> Event:
     return event(
         EventKind.PROGRESS,
-        {"percent": percent, "label": status, "steps": [], "iteration": iteration},
+        {
+            "percent": percent,
+            "label": status,
+            "steps": steps or [],
+            "iteration": iteration,
+        },
         session_id,
     )
 
@@ -124,11 +142,25 @@ def context_compacted(
 
 
 def context_compaction_started(
-    session_id: str, reason: str, used: int = 0, total: int = 0
+    session_id: str,
+    reason: str,
+    used: int = 0,
+    total: int = 0,
+    tokens: dict | None = None,
+    trigger: str = "automatic",
 ) -> Event:
+    data: dict = {
+        "reason": reason,
+        "used": used,
+        "total": total,
+        "trigger": trigger,
+        "status": "started",
+    }
+    if tokens:
+        data["tokens"] = tokens
     return event(
         EventKind.CONTEXT_COMPACTION_STARTED,
-        {"reason": reason, "used": used, "total": total},
+        data,
         session_id,
     )
 
@@ -143,6 +175,11 @@ def context_compaction_ended(
     preserved: dict | None = None,
     failed: bool = False,
     summary: str = "",
+    tokens_before: dict | None = None,
+    tokens_after: dict | None = None,
+    trigger: str = "automatic",
+    status: str = "completed",
+    error: str = "",
 ) -> Event:
     data: dict = {
         "reason": reason,
@@ -150,6 +187,8 @@ def context_compaction_ended(
         "total": total,
         "tokensSaved": tokens_saved,
         "summaryChars": summary_chars,
+        "trigger": trigger,
+        "status": status,
     }
     if summary:
         data["summary"] = summary
@@ -157,6 +196,12 @@ def context_compaction_ended(
         data["preserved"] = preserved
     if failed:
         data["failed"] = True
+    if error:
+        data["error"] = error
+    if tokens_before:
+        data["tokensBefore"] = tokens_before
+    if tokens_after:
+        data["tokensAfter"] = tokens_after
     return event(
         EventKind.CONTEXT_COMPACTION_ENDED,
         data,
@@ -170,14 +215,21 @@ def context_compaction_phase(
     label: str = "",
     before_tokens: int | None = None,
     after_tokens: int | None = None,
+    tokens_before: dict | None = None,
+    tokens_after: dict | None = None,
+    trigger: str = "automatic",
 ) -> Event:
-    data: dict = {"phase": phase}
+    data: dict = {"phase": phase, "trigger": trigger}
     if label:
         data["label"] = label
     if before_tokens is not None:
         data["beforeTokens"] = before_tokens
     if after_tokens is not None:
         data["afterTokens"] = after_tokens
+    if tokens_before:
+        data["tokensBefore"] = tokens_before
+    if tokens_after:
+        data["tokensAfter"] = tokens_after
     return event(
         EventKind.CONTEXT_COMPACTION_PHASE,
         data,

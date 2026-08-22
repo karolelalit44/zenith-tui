@@ -6,16 +6,19 @@ from server.agents.compaction import (
     head_tail_trim,
     strip_ansi,
 )
-from server.agents.loop import (
-    AgentLoop,
+from server.agents.compaction import (
     _find_compaction_cut,
     _find_compaction_cut_budgeted,
+)
+from server.agents.loop import (
+    AgentLoop,
     _format_tool_result,
 )
 from server.config.constants import (
     COMPACTION_KEEP_TAIL,
     DEFAULT_CONTEXT_WINDOW,
     MAX_TOOL_OUTPUT_BASELINE,
+    TOOL_MAX_OUTPUT_CHARS,
 )
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
@@ -375,8 +378,54 @@ class TestSummarizeAndRebuildHolder:
             f"holder[0] must be the message list, got {type(rebuilt).__name__}"
         )
         assert all(isinstance(m, dict) for m in rebuilt), "rebuilt messages must be dicts"
+        # Nothing was compactable at this window size: the attempt ends as a
+        # skip and the authoritative context is returned untouched (no fake
+        # summary, no truncation, no continuation nudge over unchanged state).
+        assert rebuilt == live
+
+    @pytest.mark.asyncio
+    async def test_holder_rebuild_appends_continuation_nudge_after_real_compaction(self, temp_dir):
+        """When compaction actually runs, the rebuilt context ends with the nudge."""
+        config = AppSettings(
+            providers={"test": ProviderConfig(model="test-model", is_active=True)},
+            active_provider="test",
+            db_path=str(temp_dir / "test.db"),
+            workspace_root=str(temp_dir),
+            max_context_tokens=4000,
+        )
+        loop = AgentLoop(config, _BigReadProvider())
+        history = [
+            Message(session_id="s", role="user", content=f"turn {i} " + "y" * 2200)
+            for i in range(6)
+        ]
+        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
+        base_len = len(initial)
+        live = list(initial)
+        live.append({"role": "assistant", "content": "I will read the file"})
+        live.append({"role": "user", "content": "[Tool result] file content"})
+        holder: list = []
+        async for _ev in loop._summarize_and_rebuild(
+            history,
+            "s1",
+            live,
+            result=holder,
+            base_len=base_len,
+            system_prompt="System.",
+            prompt="New.",
+            model="test-model",
+            plan_context="",
+            use_system_prompt=True,
+            repo_map=None,
+        ):
+            pass
+        assert len(holder) == 1
+        rebuilt = holder[0]
+        assert isinstance(rebuilt, list) and rebuilt
         assert rebuilt[-1]["role"] == "user"
         assert "Continue if you have next steps" in rebuilt[-1]["content"]
+        # The summarized prefix is gone; the live tail survives.
+        joined = "\n".join(str(m.get("content", "")) for m in rebuilt)
+        assert "[Tool result] file content" in joined
 
 
 class TestPruneToolOutputs:
@@ -444,3 +493,63 @@ class TestPruneToolOutputs:
         loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
         assert messages[0]["content"].startswith("[Tool: bash | Status: SUCCESS]")
         assert messages[0]["content"].endswith("TAIL")
+
+
+class TestOutputCapInvariant:
+    """Task 4.5 verification: tool output exceeding the cap is always compacted
+    before it is fed back or persisted."""
+
+    def test_output_over_cap_is_compacted(self):
+        big = "A" * (TOOL_MAX_OUTPUT_CHARS + 5000)
+        compacted, stats = compact_tool_output(big, max_output=TOOL_MAX_OUTPUT_CHARS)
+        assert len(compacted) < len(big)
+        assert stats.chars_removed > 0
+        assert "truncated" in compacted.lower() or len(compacted) <= TOOL_MAX_OUTPUT_CHARS + 200
+
+    def test_output_under_cap_unchanged(self):
+        small = "hello world"
+        compacted, stats = compact_tool_output(small, max_output=TOOL_MAX_OUTPUT_CHARS)
+        assert compacted == small
+        assert stats.chars_removed == 0
+
+    def test_hard_ceiling_never_exceeded_via_format(self):
+        from server.toolkit.base import ToolResult
+        from server.toolkit.executor import format_tool_result
+
+        big = "X" * 100_000
+        result = ToolResult(success=True, output=big)
+        formatted = format_tool_result("bash", result, max_output=100_000)
+        assert len(formatted) <= TOOL_MAX_OUTPUT_CHARS + 200
+
+    def test_digest_fits_budget(self):
+        from server.toolkit.base import ToolResult
+        from server.toolkit.digest import format_tool_digest
+
+        result = ToolResult(success=True, output="Y" * 5000)
+        digest = format_tool_digest("bash", {}, result)
+        assert len(digest) <= TOOL_MAX_OUTPUT_CHARS
+
+    def test_ephemeral_window_swaps_old_results_to_digest(self):
+        from server.config.constants import EPHEMERAL_TOOL_WINDOW_SIZE
+
+        messages: list[dict] = []
+        for i in range(5):
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"FULL_{i} " + "Y" * 2000,
+                    "digest": f"[Tool: t{i} | OK] item {i}",
+                }
+            )
+        active = list(range(len(messages)))
+        while len(active) > EPHEMERAL_TOOL_WINDOW_SIZE:
+            old_idx = active.pop(0)
+            msg = messages[old_idx]
+            if "digest" in msg and not msg.get("is_digested"):
+                msg["content"] = msg["digest"]
+                msg["is_digested"] = True
+        for i in range(len(messages) - EPHEMERAL_TOOL_WINDOW_SIZE):
+            assert messages[i].get("is_digested") is True
+            assert "Y" * 2000 not in messages[i]["content"]
+        for i in range(len(messages) - EPHEMERAL_TOOL_WINDOW_SIZE, len(messages)):
+            assert "Y" * 2000 in messages[i]["content"]

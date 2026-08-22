@@ -39,6 +39,7 @@ import { useTheme } from './theme/ThemeContext';
 import type { ScenarioEvent, ScenarioMode, TurnManifestEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
+import { convertHistoryToTurns } from './utils/historyToTurns';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 
 /**
@@ -91,15 +92,22 @@ export const App: React.FC = () => {
     completedTurns,
     activeTurn,
     totalTokens,
+    runTokens,
+    runPrompt,
+    runCompletion,
+    runEstimated,
+    contextInfo,
     staticKey,
     addTurn,
     completeActiveTurn,
     abortActiveTurn,
     clearTurns,
+    loadTurns,
     remountStatic,
   } = useConversation();
 
   const termDims = useTerminalDimensions(remountStatic);
+  const contentWidth = termDims.columns ? Math.max(30, termDims.columns - 2) : '100%';
 
   const { scrollState, scrollUp, scrollDown, scrollToTop, scrollToBottom, resetScroll, updateContentHeight } =
     useScrollState();
@@ -180,6 +188,7 @@ export const App: React.FC = () => {
   // so that each streamed event does not trigger a full CommandInput re-render.
   const lastTokenUpdateRef = useRef(0);
   const [liveTotalTokens, setLiveTotalTokens] = useState(totalTokens);
+  const [liveRunTokens, setLiveRunTokens] = useState(runTokens);
 
   // Derive the single consolidated compaction-flow state from the live event
   // stream so the footer token usage reflects the real, in-progress compaction.
@@ -196,17 +205,37 @@ export const App: React.FC = () => {
     };
   }, [compactionEvent]);
 
+  // Composed-context occupancy for the footer gauge: prefer the in-flight
+  // compaction totals, then the latest backend success snapshot. Never the
+  // cumulative run usage (`runTokens`).
+  const footerContextPercent = useMemo(() => {
+    if (footerContext && typeof footerContext.used === 'number' && footerContext.total && footerContext.total > 0) {
+      return Math.min(100, Math.round((footerContext.used / footerContext.total) * 100));
+    }
+    if (contextInfo && contextInfo.total > 0) {
+      return Math.max(0, Math.min(100, Math.round(contextInfo.percent * 100)));
+    }
+    return undefined;
+  }, [footerContext, contextInfo]);
+
+  const footerWindowEstimated = useMemo(() => {
+    if ((footerContext?.total ?? 0) > 0) return false;
+    return contextInfo?.windowEstimated === true;
+  }, [footerContext, contextInfo]);
+
   useEffect(() => {
     if (!isRunning) {
       setLiveTotalTokens(totalTokens);
+      setLiveRunTokens(runTokens);
       return;
     }
     const now = Date.now();
     if (now - lastTokenUpdateRef.current > 2000) {
       lastTokenUpdateRef.current = now;
       setLiveTotalTokens(totalTokens + estimateTokensForEvents(events));
+      setLiveRunTokens(runTokens + estimateTokensForEvents(events));
     }
-  }, [totalTokens, isRunning, events]);
+  }, [totalTokens, runTokens, isRunning, events]);
 
   useEffect(() => {
     // contentHeight tracks completed turns only; the live running block is
@@ -224,9 +253,23 @@ export const App: React.FC = () => {
   }, [isRunning, activeTurn?.isComplete, resetScroll]);
 
   const handleCompact = useCallback(() => {
+    // Never start a compaction underneath a streaming turn: the backend
+    // serializes against the live context and a concurrent request would
+    // silently interleave with it.
+    if (isRunning) {
+      addTurn('/compact', selectedMode);
+      completeActiveTurn([
+        {
+          kind: 'warning',
+          id: `evt_compact_busy_${Date.now()}`,
+          message: 'Cannot compact while a turn is running — wait for it to finish or press ESC.',
+        } as ScenarioEvent,
+      ]);
+      return;
+    }
     addTurn('/compact', selectedMode);
     startCompaction();
-  }, [addTurn, selectedMode, startCompaction]);
+  }, [addTurn, selectedMode, startCompaction, isRunning, completeActiveTurn]);
 
   const handleClearTools = useCallback(() => {
     if (!lastSessionId) return;
@@ -261,11 +304,16 @@ export const App: React.FC = () => {
   }, []);
 
   const handleSessionResume = useCallback(
-    (sessionId: string, _summary: SessionSummary) => {
+    (sessionId: string, _summary: SessionSummary, messages?: Record<string, unknown>[]) => {
       setActiveSessionId(sessionId);
-      clearTurns();
+      const turns = convertHistoryToTurns(messages ?? [], selectedMode);
+      if (turns.length > 0) {
+        loadTurns(turns);
+      } else {
+        clearTurns();
+      }
     },
-    [setActiveSessionId, clearTurns],
+    [setActiveSessionId, clearTurns, loadTurns, selectedMode],
   );
 
   const handleCancel = useCallback(() => {
@@ -274,10 +322,17 @@ export const App: React.FC = () => {
     setRetryTarget(null);
   }, [abort, abortActiveTurn, eventsRef]);
 
+  const handleNewChat = useCallback(() => {
+    setActiveSessionId(null);
+    clearTurns();
+    setRetryTarget(null);
+    setContinueTarget(null);
+  }, [setActiveSessionId, clearTurns]);
+
   const commandCtx = useMemo<CommandRunContext>(
     () => ({
       openOverlay,
-      clearTurns,
+      clearTurns: handleNewChat,
       clearTools: handleClearTools,
       setMode: handleModeSelect,
       openModelPicker: () => openOverlay('models'),
@@ -289,7 +344,7 @@ export const App: React.FC = () => {
     }),
     [
       openOverlay,
-      clearTurns,
+      handleNewChat,
       handleClearTools,
       handleModeSelect,
       handleSetShowPalette,
@@ -311,6 +366,10 @@ export const App: React.FC = () => {
       }
 
       const sel = modelStore.current;
+      // A prompt while a turn is streaming would overwrite the active runner
+      // without aborting it (lost stream, orphaned backend task). Commands
+      // (incl. /cancel) were already dispatched above; plain prompts wait.
+      if (isRunning) return;
       const providerInfo = sel ? providerRepository.getProviderInfo(sel.providerID) : undefined;
       const selConfigured = Boolean(
         providerInfo &&
@@ -333,7 +392,17 @@ export const App: React.FC = () => {
       setHistoryExpanded(false);
       startScenario(trimmed, selectedMode, providerId, modelId, attachments);
     },
-    [selectedMode, startScenario, activeProvider.id, addTurn, clearInput, commandCtx, addHistory, attachments],
+    [
+      selectedMode,
+      startScenario,
+      activeProvider.id,
+      addTurn,
+      clearInput,
+      commandCtx,
+      addHistory,
+      attachments,
+      isRunning,
+    ],
   );
 
   useTerminalKeyboard({
@@ -347,7 +416,7 @@ export const App: React.FC = () => {
     closeAllOverlays,
     abort,
     abortActiveTurn,
-    clearTurns,
+    clearTurns: handleNewChat,
     onToggleThinking: toggleThinking,
     scrollUp,
     scrollDown,
@@ -526,7 +595,7 @@ export const App: React.FC = () => {
 
             // type === 'response'
             return (
-              <Box key={item.id} flexDirection="column" width="100%">
+              <Box key={item.id} flexDirection="column" width={contentWidth}>
                 <ScenarioRenderer
                   events={item.turn.events}
                   isRunning={false}
@@ -543,7 +612,7 @@ export const App: React.FC = () => {
         {/* ── Dynamic area: only the live streaming response ─────────── */}
         {/* No UserMessageBlock here — it's already committed to Static.  */}
         {(isRunning || (activeTurn && !activeTurn.isComplete)) && (
-          <Box flexDirection="column" width="100%">
+          <Box flexDirection="column" width={contentWidth}>
             <ScenarioRenderer
               events={events}
               isRunning={isRunning}
@@ -606,6 +675,10 @@ export const App: React.FC = () => {
               mode={selectedMode}
               totalTokens={footerContext?.used ?? liveTotalTokens}
               maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
+              runTokens={liveRunTokens}
+              runEstimated={runEstimated}
+              contextPercent={footerContextPercent}
+              windowEstimated={footerWindowEstimated}
               workspaceName={workspace}
               onCancel={handleCancel}
               onOpenHelp={handleOpenHelp}
@@ -653,6 +726,11 @@ export const App: React.FC = () => {
           selectedMode={selectedMode}
           totalTokens={totalTokens}
           events={events}
+          runTokens={runTokens}
+          runPrompt={runPrompt}
+          runCompletion={runCompletion}
+          runEstimated={runEstimated}
+          contextInfo={contextInfo}
           tokenUsageStats={tokenUsageStats}
           onSelectMode={handleModeSelect}
           onClose={closeOverlay}

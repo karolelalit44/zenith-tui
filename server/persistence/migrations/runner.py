@@ -90,15 +90,56 @@ def stamp(db_path: str, version: str, title: str = "") -> None:
         conn.close()
 
 
+def _split_sql_statements(script: str) -> list[str]:
+    """Split a SQL script into individually executable statements.
+
+    Uses ``sqlite3.complete_statement`` so ``CREATE TRIGGER ... BEGIN ... END``
+    bodies are kept intact. Comment-only/whitespace fragments are dropped.
+    """
+    statements: list[str] = []
+    buffer: list[str] = []
+    for ch in script:
+        buffer.append(ch)
+        if ch == ";" and sqlite3.complete_statement("".join(buffer)):
+            statements.append("".join(buffer))
+            buffer = []
+    remainder = "".join(buffer).strip()
+    if remainder:
+        statements.append(remainder)
+
+    executable: list[str] = []
+    for stmt in statements:
+        body = "\n".join(
+            line for line in stmt.splitlines() if not line.strip().startswith("--")
+        ).strip()
+        if body:
+            executable.append(stmt.strip())
+    return executable
+
+
 def _apply_file(db_path: str, migration: MigrationInfo) -> None:
+    """Apply one migration atomically: DDL + tracking stamp commit together.
+
+    ``executescript`` would implicitly COMMIT any open transaction before
+    running, letting a later failure leave applied DDL with no stamp (or vice
+    versa); executing statements one-by-one inside an explicit transaction
+    avoids both half-applied states.
+    """
+    script = migration["path"].read_text(encoding="utf-8")
     conn = sqlite3.connect(db_path)
     try:
-        conn.executescript(migration["path"].read_text(encoding="utf-8"))
-        conn.execute(
-            f"INSERT INTO {TRACKING_TABLE} (version, title, applied_at) VALUES (?, ?, ?)",
-            (migration["version"], migration["title"], datetime.now().isoformat()),
-        )
-        conn.commit()
+        conn.execute("BEGIN")
+        try:
+            for stmt in _split_sql_statements(script):
+                conn.execute(stmt)
+            conn.execute(
+                f"INSERT INTO {TRACKING_TABLE} (version, title, applied_at) VALUES (?, ?, ?)",
+                (migration["version"], migration["title"], datetime.now().isoformat()),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     finally:
         conn.close()
 

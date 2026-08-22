@@ -325,6 +325,27 @@ test('Full Plan Scenario shows backend error', async () => {
   unmount();
 });
 
+test('/clear and /new slash commands filter and execute', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = mountApp();
+
+  await waitForReady(lastFrame);
+
+  // /clear
+  stdin.write('/clear');
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]') && f.includes('/clear'));
+  stdin.write('\r');
+  await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]'));
+
+  // /new
+  stdin.write('/new');
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]') && f.includes('/new'));
+  stdin.write('\r');
+  await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]'));
+
+  unmount();
+});
+
 // ── Startup Error / Setup Flow Tests ──────────────────────────────
 
 test('App shows SetupWizard when backend is unavailable', async () => {

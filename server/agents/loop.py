@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import time
 from collections import Counter
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -12,20 +14,28 @@ from server.config.constants import (
     BG_OUTPUT_TAIL,
     BUILD_MODE,
     CHARS_PER_TOKEN,
-    COMPACTION_KEEP_TAIL,
-    CONTEXT_SUMMARY_THRESHOLD,
+    CONTEXT_EXHAUSTED_HINT,
+    CONTEXT_EXHAUSTED_MESSAGE,
+    EPHEMERAL_TOOL_WINDOW_SIZE,
     FILE_DELETE_TOOL,
     FILE_EDIT_TOOL,
     FILE_OVERWRITE_PARAM,
+    FILE_READ_TOOL,
     FILE_WRITE_TOOL,
     GET_TOOL_DEFINITION_TOOL,
-    LARGE_CONTEXT_WINDOW,
+    HARD_STOP_USAGE_RATIO,
+    HEAVY_OUTPUT_SUBDIR,
+    HEAVY_TOOL_MARKER_TEMPLATE,
+    HEAVY_TOOL_SUMMARY_MAX_CHARS,
+    HEAVY_TOOL_THRESHOLD_TOKENS,
     MANIFEST_CHECKS_CAP,
+    MODE_BUDGET_PROFILES,
     PLAN_MODE,
     POLL_TOOLS,
     SKIP_WARNING_CAP,
     SUMMARY_MIN_CHARS,
     TERMINAL_TOOL,
+    TOOL_GUIDELINES_DIR,
 )
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.domain import FinishReason
@@ -35,7 +45,9 @@ from server.domain.message import Message
 from server.providers import responder as r
 from server.providers.base import BaseProvider
 from server.providers.parser import UnifiedResponseFormatter
-from server.toolkit.param_normalizer import normalize_file_params
+from server.toolkit.digest import format_tool_digest
+from server.toolkit.base import ToolResult
+from server.toolkit.param_normalizer import canonicalize_path_values, normalize_file_params
 from server.toolkit.path_validator import validate_path
 from server.toolkit.registry import ToolRegistry
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
@@ -51,11 +63,29 @@ from ..toolkit.executor import (
     validate_tool_rejection,
 )
 from .compaction import compact_tool_output, head_tail_trim
+from .compaction_service import (
+    CompactionService,
+    CompactionTrigger,
+    compact_live_tail,
+    prune_tool_outputs,
+)
 from .context import ContextManager, _adaptive_reserve, _get_model_context_window
 from .llm_stream import StreamState, stream_completion
 from .loop_detection import LoopDetector
 from .prompts import build_plan_system_prompt, build_system_prompt
-from .session_workspace import is_identical_replay, known_files, record_edit, record_write
+from .run_state import _activity_label
+from .session_state import render_session_state
+from .session_workspace import (
+    cached_read_for,
+    current_path_hash,
+    is_identical_replay,
+    record_edit,
+    record_read,
+    record_write,
+    store_cached_read_output,
+    store_heavy_output,
+)
+from .summarizer import ConversationSummarizer
 from .validation import reflection_error_limit, schemas_to_openai_tools
 
 _format_tool_result = format_tool_result
@@ -66,10 +96,13 @@ def _result_present(messages: list[dict], content: str) -> bool:
     return any(m.get("content") == content for m in messages)
 
 
-def _call_signature(tool_name: str, params: dict) -> tuple[str, str]:
+def _call_signature(
+    tool_name: str, params: dict, workspace_root: str | None = None
+) -> tuple[str, str]:
+    canonical = canonicalize_path_values(params, workspace_root) if workspace_root else params
     return (
         tool_name,
-        json.dumps(params, sort_keys=True, separators=(",", ":"), default=str),
+        json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str),
     )
 
 
@@ -90,6 +123,49 @@ def _params_label(params: dict) -> str:
     return ""
 
 
+_PLAN_ARTIFACTS = ("plan.md", "todo.md")
+
+
+def _scan_plan_artifacts(workspace_root: str | None) -> dict:
+    """Stat the plan artifacts on disk — the evidence for the plan-mode contract.
+
+    A plan turn is only complete when ``plan.md`` (and ideally ``todo.md``) was
+    actually written to the workspace root. ``created_files`` is not sufficient
+    evidence: the model may claim completion without writing the artifact, so we
+    check the authoring tool's outcome and confirm the file exists on disk.
+    """
+    root = Path(workspace_root or ".")
+    exists = {name: (root / name).is_file() for name in _PLAN_ARTIFACTS}
+    return {
+        "plan_written": exists["plan.md"],
+        "todo_written": exists["todo.md"],
+        "missing": [name for name in _PLAN_ARTIFACTS if not exists[name]],
+    }
+
+
+_INCOMPLETE_TODO_STATUSES = ("pending", "in_progress", "blocked", "failed")
+
+
+def _incomplete_todo_titles(todos: list[dict] | None) -> list[str]:
+    """Incomplete-todo titles for the manifest ``remaining`` (QA-8).
+
+    Structured state is authoritative: ``remaining`` comes from session todos
+    that are not done/cancelled — never the model's last message or hard-coded
+    heuristics.
+    """
+    if not todos:
+        return []
+    out: list[str] = []
+    for t in todos:
+        status = str((t or {}).get("status") or "")
+        title = str((t or {}).get("title") or "").strip()
+        if not title or status in ("completed", "cancelled"):
+            continue
+        if status in _INCOMPLETE_TODO_STATUSES:
+            out.append(f"Todo: {title} ({status})" if status != "pending" else f"Todo: {title}")
+    return out
+
+
 def _build_manifest(
     created_files: set[str],
     files_edited: list[str],
@@ -98,7 +174,17 @@ def _build_manifest(
     last_text: str = "",
     workspace_root: str | None = None,
     verification: list[dict] | None = None,
+    plan_mode: bool = False,
+    todos: list[dict] | None = None,
 ) -> dict:
+    """Evidence-derived turn manifest (QA-3/QA-8).
+
+    ``created``/``modified`` come from executed tool success, never prose.
+    ``remaining`` comes from structured state — incomplete session todos plus a
+    verification-gap note when work happened — never the model's last message.
+    In plan mode the manifest also carries the plan-artifact contract
+    (``plan_artifacts``) and corrects ``remaining`` when plan.md was not written.
+    """
     created = sorted(created_files)
     modified = sorted(p for p in files_edited if p not in created_files)
     completed = bool(task_completed and not stall_finalized)
@@ -106,22 +192,14 @@ def _build_manifest(
     verified = True if not changed else _has_verification_evidence(verification or [])
     remaining: list[str] = []
     if not completed:
-        text = (last_text or "").strip()
-        if text:
-            remaining = [text]
-        elif created_files and not verified:
-            remaining = ["Files were written but no verification evidence was produced."]
-        elif created_files:
-            remaining = [
-                "Files were written and verified, but the turn ended without a final summary."
-            ]
+        # Structured state first: incomplete todos + verification gaps. The
+        # model's last text is never authoritative for "remaining".
+        remaining = _incomplete_todo_titles(todos)
+        if created_files and not verified:
+            remaining.append("Files were written but no verification evidence was produced.")
         elif files_edited and not verified:
-            remaining = ["Files were modified but no verification evidence was produced."]
-        elif files_edited:
-            remaining = [
-                "Files were modified and verified, but the turn ended without a final summary."
-            ]
-        else:
+            remaining.append("Files were modified but no verification evidence was produced.")
+        if not remaining:
             remaining = ["The turn ended without completing any work."]
     payload: dict = {
         "created": created,
@@ -134,6 +212,18 @@ def _build_manifest(
             {k: v for k, v in (c or {}).items() if k != "seq"} for c in (verification or [])
         ],
     }
+    if plan_mode:
+        artifacts = _scan_plan_artifacts(workspace_root)
+        payload["plan_artifacts"] = artifacts
+        # The plan.md requirement is the hard half of the contract: a plan turn
+        # that did not leave plan.md on disk has remaining work regardless of the
+        # model's prose. todo.md is recommended but not blocking — its absence is
+        # reported in plan_artifacts.missing but does not force remaining.
+        if artifacts["missing"] and "plan.md" in artifacts["missing"]:
+            label = "Plan artifacts not written: " + ", ".join(artifacts["missing"]) + "."
+            if label not in remaining:
+                remaining.append(label)
+            payload["remaining"] = remaining
     files: list[dict] = []
     if created_files:
         root = Path(workspace_root or ".")
@@ -151,13 +241,45 @@ def _build_manifest(
     return payload
 
 
-def _all_calls_repeat(valid_calls: list[dict], executed: set[tuple[str, str]]) -> bool:
+_STRIP_PAYLOAD_MIN_VALUE = 200
+_WRITE_PAYLOAD_RE = re.compile(r'([\'"]content[\'"]\s*:\s*)([\'"].*?[\'"])', re.DOTALL)
+
+
+def _strip_write_payload_from_assistant_messages(messages: list[dict], file_path: str) -> None:
+    def _replace(match: re.Match) -> str:
+        value = match.group(2)
+        # Only rewrite genuine embedded payloads; short quoted values are
+        # almost certainly prose discussing the file, not the file body.
+        if len(value) >= _STRIP_PAYLOAD_MIN_VALUE:
+            return f'{match.group(1)}"[content omitted; file written]"'
+        return match.group(0)
+
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            if (
+                isinstance(content, str)
+                and file_path in content
+                and len(content) > 500
+                and ('"content":' in content or "'content':" in content)
+            ):
+                msg["content"] = _WRITE_PAYLOAD_RE.sub(_replace, content)
+            break
+
+
+def _all_calls_repeat(
+    valid_calls: list[dict], executed: set[tuple[str, str]], workspace_root: str | None = None
+) -> bool:
     if not valid_calls or not executed:
         return False
     for tc in valid_calls:
         if tc["tool"] in POLL_TOOLS:
             return False
-        sig = _call_signature(tc["tool"], normalize_file_params(tc.get("params", {}), tc["tool"]))
+        sig = _call_signature(
+            tc["tool"],
+            normalize_file_params(tc.get("params", {}), tc["tool"]),
+            workspace_root,
+        )
         if sig not in executed:
             return False
     return True
@@ -171,9 +293,10 @@ def _most_common_count(items: list[str]) -> int:
 
 def _has_verification_evidence(checks: list[dict], after_seq: int | None = None) -> bool:
     for check in checks or []:
-        if (check.get("output_len") or 0) > 0:
-            if after_seq is None or (check.get("seq") or 0) >= after_seq:
-                return True
+        if (check.get("output_len") or 0) > 0 and (
+            after_seq is None or (check.get("seq") or 0) >= after_seq
+        ):
+            return True
     return False
 
 
@@ -186,42 +309,6 @@ def _pending_background_completions() -> list:
         return []
 
 
-def _find_compaction_cut(history, keep_tail: int = COMPACTION_KEEP_TAIL) -> int:
-    if len(history) <= keep_tail:
-        return 0
-    cut = len(history) - keep_tail
-    while cut > 0 and history[cut - 1].role == "assistant":
-        cut -= 1
-    return cut
-
-
-def _group_start(history, i: int) -> int:
-    j = i - 1
-    if history[j].role == "tool":
-        while j > 0 and history[j - 1].role == "tool":
-            j -= 1
-        if j > 0 and history[j - 1].role == "assistant":
-            j -= 1
-    return j
-
-
-def _find_compaction_cut_budgeted(history, keep_tokens: int, count_fn) -> int:
-    if not history:
-        return 0
-    i = len(history)
-    j = _group_start(history, i)
-    used = sum(count_fn(m.content) for m in history[j:i])
-    i = j
-    while i > 0:
-        j = _group_start(history, i)
-        group_tokens = sum(count_fn(m.content) for m in history[j:i])
-        if used + group_tokens > keep_tokens:
-            break
-        used += group_tokens
-        i = j
-    return i
-
-
 class AgentLoop:
     def __init__(
         self,
@@ -229,16 +316,101 @@ class AgentLoop:
         provider: BaseProvider,
         context_manager: ContextManager | None = None,
         tool_registry: ToolRegistry | None = None,
+        compaction_service: CompactionService | None = None,
     ) -> None:
         self.config = config
         self.provider = provider
         self.context_manager = context_manager or ContextManager(config)
         self.tool_registry = tool_registry
+        self._compaction_service = compaction_service
         self._summary: str | None = None
         self._loop_detector = LoopDetector()
         self._accept_sequence: int = 0
         self._cancel_sequence: int = -1
         self._last_emitted_message: str | None = None
+        self._compacted_this_turn = False
+        self._compacted_message_count = 0
+        self._last_compaction_outcome = None
+        self._heavy_tools_summarized = 0
+        self._heavy_seq = 0
+
+    def _get_compaction_service(self) -> CompactionService:
+        if self._compaction_service is None:
+            self._compaction_service = CompactionService(
+                self.config, self.provider, self.context_manager
+            )
+        return self._compaction_service
+
+    def _try_cached_read(self, session_id: str, tool_params: dict) -> str | None:
+        """Return the cached read output for a file_read call when unchanged.
+
+        A second read of the same file within the same session, when the file's
+        content hash matches the last read, returns the cached output instead of
+        re-reading and re-injecting the full content. Returns ``None`` when there
+        is no usable cache (first read, changed file, invalid path).
+        """
+        p = tool_params.get("filepath") or tool_params.get("path") or ""
+        if not p:
+            return None
+        try:
+            resolved = validate_path(p, self.config.workspace_root)
+            if resolved is None or not resolved.exists() or resolved.is_dir():
+                return None
+            current = resolved.read_text(encoding="utf-8", errors="replace")
+            return cached_read_for(session_id, p, current_path_hash(current))
+        except (OSError, ValueError):
+            return None
+
+    async def _maybe_summarize_heavy_output(
+        self, session_id: str, tool_name: str, result: ToolResult
+    ) -> str | None:
+        """Isolate a heavy tool output from the main context window.
+
+        When a successful tool result exceeds ``HEAVY_TOOL_THRESHOLD_TOKENS`` the
+        full output is written under the workspace's hidden directory, tracked in
+        the session workspace (so the agent can re-read it with ``file_read``),
+        and ``result.output`` is replaced by a terse weak-model summary. Returns
+        the relative path of the stored full output, or ``None`` when the output
+        is light (or cannot be isolated).
+        """
+        output = (result.output or "") if result.success else ""
+        if not output:
+            return None
+        if tool_name == FILE_READ_TOOL:
+            # file_read output is already on disk and re-readable; the cached-read
+            # + staleness system governs it. Summarizing would corrupt the read
+            # cache, so heavy file reads stay as-is.
+            return None
+        if len(output) // CHARS_PER_TOKEN < HEAVY_TOOL_THRESHOLD_TOKENS:
+            return None
+        self._heavy_seq += 1
+        slug = f"{session_id[:8]}-{self._heavy_seq}-{tool_name}"
+        rel = f"{TOOL_GUIDELINES_DIR}/{HEAVY_OUTPUT_SUBDIR}/{slug}.txt"
+        abs_path = Path(self.config.workspace_root) / rel
+        try:
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_text(output, encoding="utf-8")
+            record_write(session_id, rel, output)
+            store_cached_read_output(session_id, rel, output)
+            store_heavy_output(session_id, rel, output)
+        except OSError:
+            logger.warning("Failed to store heavy output for session %s: %s", session_id, rel)
+            return None
+        summary = await ConversationSummarizer(self.config, self.provider).summarize_output(
+            output, tool_name
+        )
+        if not summary:
+            summary, _ = head_tail_trim(output, HEAVY_TOOL_SUMMARY_MAX_CHARS)
+        marker = HEAVY_TOOL_MARKER_TEMPLATE.format(path=rel)
+        result.output = f"{marker}\n{summary}"
+        self._heavy_tools_summarized += 1
+        logger.info(
+            "Summarized heavy tool output: tool=%s chars=%d stored=%s",
+            tool_name,
+            len(output),
+            rel,
+        )
+        return rel
 
     def accept(self) -> int:
         self._accept_sequence += 1
@@ -261,6 +433,13 @@ class AgentLoop:
         ctx = _get_model_context_window(model)
         return max(10, min(ctx // 2000, 150))
 
+    def _mode_tools_budget(self, model: str, mode: str) -> int:
+        """Cap the on-band tool-schema token budget for ``mode`` (Gap #8)."""
+        ctx = min(_get_model_context_window(model), self.config.max_context_tokens)
+        reserve = _adaptive_reserve(model, ctx)
+        profile = MODE_BUDGET_PROFILES.get(mode, MODE_BUDGET_PROFILES[BUILD_MODE])
+        return int(max(0, ctx - reserve) * profile["tools_pct"])
+
     async def process_prompt(
         self,
         prompt: str,
@@ -273,6 +452,9 @@ class AgentLoop:
         repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
         sequence = self.accept()
+        self._run_started_at = time.monotonic()
+        self._heavy_tools_summarized = 0
+        self._heavy_seq = 0
         _reset_usage = getattr(self.provider, "_reset_cumulative_usage", None)
         if callable(_reset_usage):
             _reset_usage()
@@ -308,6 +490,8 @@ class AgentLoop:
         sequence: int = 0,
         repo_map: str | None = None,
     ) -> AsyncIterator[Event]:
+        self._compacted_this_turn = False
+        self._compacted_message_count = 0
         provider_name = getattr(self.provider, "name", "")
         model = self.provider.model
         ws = self.config.workspace_root
@@ -338,7 +522,9 @@ class AgentLoop:
             )
             registered_tools = set(resolver.active_names())
             openai_tools = schemas_to_openai_tools(active_schemas)
-        self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
+        self.context_manager.set_aux_tokens(
+            min(resolver.schema_tokens(model), self._mode_tools_budget(model, mode))
+        )
         model_use_system_prompt = True
         if not model_use_system_prompt:
             logger.info(
@@ -354,6 +540,9 @@ class AgentLoop:
             plan_block=plan_context,
             use_system_prompt=model_use_system_prompt,
             repo_map=repo_map,
+            session_id=session_id,
+            project_memory=self._load_project_memory(),
+            mode=mode,
         )
         self._inject_session_state(messages, session_id)
         base_len = len(messages)
@@ -374,10 +563,46 @@ class AgentLoop:
                 plan_context=plan_context,
                 use_system_prompt=model_use_system_prompt,
                 repo_map=repo_map,
+                mode=mode,
             ):
                 yield _ev
             messages = _rebuild_holder[0]
+        if self.context_manager.is_context_exhausted(messages, model, self.provider):
+            yield r.turn_manifest(
+                _build_manifest(
+                    set(),
+                    [],
+                    False,
+                    False,
+                    "",
+                    self.config.workspace_root,
+                    [],
+                    plan_mode=(mode == PLAN_MODE),
+                ),
+                session_id,
+            )
+            yield r.error(
+                CONTEXT_EXHAUSTED_MESSAGE,
+                session_id,
+                code="CONTEXT_EXHAUSTED",
+                action="retry",
+                hint=CONTEXT_EXHAUSTED_HINT,
+            )
+            return
         if self.is_cancelled(sequence):
+            yield r.turn_manifest(
+                _build_manifest(
+                    set(),
+                    [],
+                    False,
+                    False,
+                    "",
+                    self.config.workspace_root,
+                    [],
+                    plan_mode=(mode == PLAN_MODE),
+                ),
+                session_id,
+            )
             yield r.warning("Request was cancelled before starting", session_id, code="CANCELLED")
             return
         messages = self._apply_prompt_caching(messages)
@@ -407,6 +632,7 @@ class AgentLoop:
         failed_calls: set[tuple[str, str]] = set()
         stall_count = 0
         stall_finalized = False
+        progress_steps: list[dict] = []
         written_paths: set[str] = set()
         path_write_attempts: list[str] = []
         path_attempt_this_iter = False
@@ -418,6 +644,16 @@ class AgentLoop:
         last_evidence_seq = 0
         prior_replay_blocks = 0
         _total_completion_chars = 0
+        active_tool_result_indices: list[int] = []
+
+        def _session_todos() -> list[dict]:
+            """Session-scoped todo snapshot for manifest remaining (QA-8)."""
+            try:
+                from server.agents.todo_state import get_todo_state
+
+                return get_todo_state(session_id).snapshot()
+            except Exception:
+                return []
 
         def _with_manifest(ev: Event) -> Event:
             if isinstance(ev.data, dict) and "manifest" not in ev.data:
@@ -429,13 +665,50 @@ class AgentLoop:
                     self._last_emitted_message or "",
                     self.config.workspace_root,
                     post_write_checks,
+                    plan_mode=(mode == PLAN_MODE),
+                    todos=_session_todos(),
                 )
             return ev
+
+        def _emit_progress(tool_name: str, success: bool) -> Event:
+            """A PROGRESS event derived from an executed tool (QA-7).
+
+            The label comes from the tool's activity label — never fabricated
+            narration — and ``steps`` accumulates the turn's tool activity so the
+            frontend ProgressBar can render a live checklist.
+            """
+            label = _activity_label(tool_name, len(progress_steps) + 1)
+            progress_steps.append(
+                {
+                    "label": label,
+                    "status": "done" if success else "error",
+                    "tool": tool_name,
+                }
+            )
+            done = sum(1 for s in progress_steps if s["status"] == "done")
+            percent = round(done * 100 / len(progress_steps))
+            return r.progress(
+                percent, label, session_id, iteration=iteration, steps=list(progress_steps)
+            )
 
         try:
             safety_iterations = self._resolve_safety_iterations(model)
             while iteration < safety_iterations:
                 if self.is_cancelled(sequence):
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                            plan_mode=(mode == PLAN_MODE),
+                            todos=_session_todos(),
+                        ),
+                        session_id,
+                    )
                     yield r.warning("Request cancelled", session_id, code="CANCELLED")
                     return
                 if task_completed and post_comp_iterations >= 1:
@@ -444,23 +717,12 @@ class AgentLoop:
                 path_attempt_this_iter = False
                 if task_completed:
                     post_comp_iterations += 1
-                token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                if token_info.percent > CONTEXT_SUMMARY_THRESHOLD:
+                token_info = self.context_manager.get_token_info(messages, model)
+                if token_info.percent >= self.config.context_compaction_threshold and (
+                    not self._compacted_this_turn or len(messages) > self._compacted_message_count
+                ):
                     logger.warning(
                         "Context window %.1f%% full — summarizing", token_info.percent * 100
-                    )
-                    yield r.warning(
-                        "Context approaching limit, summarizing...",
-                        session_id,
-                        code="CONTEXT",
-                        extra={
-                            "tokenInfo": {
-                                "used": token_info.used,
-                                "remaining": token_info.remaining,
-                                "total": token_info.total,
-                                "percent": token_info.percent,
-                            }
-                        },
                     )
                     _rebuild_holder = []
                     async for ev in self._summarize_and_rebuild(
@@ -475,18 +737,19 @@ class AgentLoop:
                         plan_context=plan_context,
                         use_system_prompt=model_use_system_prompt,
                         repo_map=repo_map,
+                        mode=mode,
                     ):
                         yield ev
                     messages = _rebuild_holder[0]
-                    token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                    if token_info.percent > 0.95:
+                    token_info = self.context_manager.get_token_info(messages, model)
+                    if token_info.percent > HARD_STOP_USAGE_RATIO:
                         yield _with_manifest(
                             r.error(
-                                "Context window exhausted even after summarization",
+                                CONTEXT_EXHAUSTED_MESSAGE,
                                 session_id,
                                 code="CONTEXT_EXHAUSTED",
                                 action="retry",
-                                hint="Start a new session to free up context.",
+                                hint=CONTEXT_EXHAUSTED_HINT,
                             )
                         )
                         return
@@ -528,9 +791,37 @@ class AgentLoop:
                             turn_errored = True
                         yield event
                 except ZenithError:
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                            plan_mode=(mode == PLAN_MODE),
+                            todos=_session_todos(),
+                        ),
+                        session_id,
+                    )
                     return
                 if turn_errored:
                     consecutive_failures += 1
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                            plan_mode=(mode == PLAN_MODE),
+                            todos=_session_todos(),
+                        ),
+                        session_id,
+                    )
                     return
                 if context_exceeded:
                     logger.info("Context exceeded at runtime — summarizing")
@@ -552,11 +843,12 @@ class AgentLoop:
                         plan_context=plan_context,
                         use_system_prompt=model_use_system_prompt,
                         repo_map=repo_map,
+                        mode=mode,
                     ):
                         yield ev
                     messages = _rebuild_holder[0]
-                    token_info = self.context_manager.get_token_info(messages, model, self.provider)
-                    if token_info.percent > 0.95:
+                    token_info = self.context_manager.get_token_info(messages, model)
+                    if token_info.percent > HARD_STOP_USAGE_RATIO:
                         yield _with_manifest(
                             r.error(
                                 "Context window exhausted even after summarization",
@@ -583,12 +875,11 @@ class AgentLoop:
                     len(clean_response or ""),
                     finish_reason,
                 )
-                if clean_response:
-                    if clean_response != self._last_emitted_message:
-                        yield r.message_event(
-                            clean_response, session_id, partial=False, iteration=iteration
-                        )
-                        self._last_emitted_message = clean_response
+                if clean_response and clean_response != self._last_emitted_message:
+                    yield r.message_event(
+                        clean_response, session_id, partial=False, iteration=iteration
+                    )
+                    self._last_emitted_message = clean_response
                 if finish_reason == FinishReason.LENGTH:
                     logger.info("FinishReason=LENGTH on turn %d — continuing response", iteration)
                     if iteration >= safety_iterations * 2:
@@ -619,8 +910,22 @@ class AgentLoop:
                     task_completed = True
                     break
                 if not self.tool_registry:
-                    yield r.error("No tool registry available", session_id)
-                    break
+                    yield r.turn_manifest(
+                        _build_manifest(
+                            created_files,
+                            files_edited,
+                            task_completed,
+                            stall_finalized,
+                            self._last_emitted_message or "",
+                            self.config.workspace_root,
+                            post_write_checks,
+                            plan_mode=(mode == PLAN_MODE),
+                            todos=_session_todos(),
+                        ),
+                        session_id,
+                    )
+                    yield _with_manifest(r.error("No tool registry available", session_id))
+                    return
                 if self.tool_registry:
                     for tc in tool_calls:
                         t_name = tc.get("tool")
@@ -649,7 +954,9 @@ class AgentLoop:
                         prev_names = set(registered_tools)
                         registered_tools = set(new_active)
                         openai_tools = resolver.openai_tools(mode, allowed_mcp=allowed_mcp)
-                        self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
+                        self.context_manager.set_aux_tokens(
+                            min(resolver.schema_tokens(model), self._mode_tools_budget(model, mode))
+                        )
                         logger.info(
                             "Tool set changed mid-turn: added=%s removed=%s",
                             sorted(registered_tools - prev_names),
@@ -674,7 +981,7 @@ class AgentLoop:
                     messages.extend(msgs)
                     continue
                 messages.append({"role": "assistant", "content": response_text or "[tool calls]"})
-                if _all_calls_repeat(valid_calls, executed_calls):
+                if _all_calls_repeat(valid_calls, executed_calls, self.config.workspace_root):
                     _repeat_text = (clean_response or "").strip()
                     if (
                         _repeat_text
@@ -708,7 +1015,7 @@ class AgentLoop:
                 for tc in valid_calls:
                     tool_name = tc["tool"]
                     tool_params = normalize_file_params(tc.get("params", {}), tc["tool"])
-                    sig = _call_signature(tool_name, tool_params)
+                    sig = _call_signature(tool_name, tool_params, self.config.workspace_root)
                     blocked_write = False
                     if sig in executed_calls and tool_name not in POLL_TOOLS:
                         failed_flag = " [failed]" if sig in failed_calls else ""
@@ -769,11 +1076,16 @@ class AgentLoop:
                         target = tool_params.get("path") or ""
                         if target:
                             resolved = validate_path(target, ws)
-                            if resolved is not None and resolved.exists():
-                                if not self.config.auto_risky:
-                                    reject_msg = f"File delete denied: '{target}'."
+                            if (
+                                resolved is not None
+                                and resolved.exists()
+                                and not self.config.auto_risky
+                            ):
+                                reject_msg = f"File delete denied: '{target}'."
                     if reject_msg:
-                        reject_sig = _call_signature(tool_name, tool_params)
+                        reject_sig = _call_signature(
+                            tool_name, tool_params, self.config.workspace_root
+                        )
                         if reject_sig not in warned_rejects:
                             warned_rejects.add(reject_sig)
                             yield r.warning(
@@ -801,6 +1113,47 @@ class AgentLoop:
                             )
                             return
                         continue
+                    if tool_name == FILE_READ_TOOL:
+                        cached_output = self._try_cached_read(session_id, tool_params)
+                        if cached_output is not None:
+                            yield r.tool_call(tool_name, tool_params, session_id)
+                            tools_used = True
+                            newly_executed = True
+                            result = ToolResult(
+                                success=True,
+                                output=cached_output,
+                                metadata={"cached": True},
+                            )
+                            yield r.tool_result(
+                                tool_name,
+                                True,
+                                session_id,
+                                output=cached_output,
+                                metadata=build_tool_metadata(
+                                    tool_name,
+                                    tool_params,
+                                    result,
+                                    0,
+                                    ws,
+                                ),
+                            )
+                            yield _emit_progress(tool_name, True)
+                            _model_ctx = _get_model_context_window(model)
+                            _result_limit = _dynamic_max_output(_model_ctx)
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": format_tool_result(tool_name, result, _result_limit),
+                                    "cached_read": True,
+                                }
+                            )
+                            p = tool_params.get("filepath") or tool_params.get("path") or ""
+                            if p:
+                                record_read(session_id, p)
+                            executed_calls.add(
+                                _call_signature(tool_name, tool_params, self.config.workspace_root)
+                            )
+                            continue
                     yield r.tool_call(tool_name, tool_params, session_id)
                     tools_used = True
                     newly_executed = True
@@ -812,6 +1165,7 @@ class AgentLoop:
                         mode,
                         allowed_mcp=mode_config.allowed_mcp if mode_config else None,
                     )
+                    await self._maybe_summarize_heavy_output(session_id, tool_name, result)
                     yield r.tool_result(
                         tool_name,
                         result.success,
@@ -822,6 +1176,7 @@ class AgentLoop:
                             tool_name, tool_params, result, duration_ms, ws
                         ),
                     )
+                    yield _emit_progress(tool_name, result.success)
                     if result.stop_turn:
                         logger.info("Tool '%s' requested stop_turn", tool_name)
                         stop_turn = True
@@ -858,17 +1213,12 @@ class AgentLoop:
                             return
                     else:
                         consecutive_failures = 0
-                    _ti = self.context_manager.get_token_info(messages, model, self.provider)
+                    _ti = self.context_manager.get_token_info(messages, model)
                     _remaining = _ti.total - _ti.used
-                    _threshold = (
-                        20000 if _ti.total >= LARGE_CONTEXT_WINDOW else int(_ti.total * 0.2)
-                    )
-                    if _remaining <= _threshold and _remaining > 0:
-                        yield r.warning(
-                            f"Context approaching limit ({_ti.percent * 100:.0f}%), summarizing...",
-                            session_id,
-                            code="CONTEXT",
-                            extra={"tokenInfo": vars(_ti)},
+                    _reserve = _adaptive_reserve(model, _ti.total)
+                    if _remaining <= _reserve and _remaining > 0:
+                        logger.warning(
+                            "Context approaching limit (%.0f%%), summarizing...", _ti.percent * 100
                         )
                         _rebuild_holder = []
                         async for ev in self._summarize_and_rebuild(
@@ -883,19 +1233,20 @@ class AgentLoop:
                             plan_context=plan_context,
                             use_system_prompt=model_use_system_prompt,
                             repo_map=repo_map,
+                            mode=mode,
                         ):
                             yield ev
                         messages = _rebuild_holder[0]
-                        _ti2 = self.context_manager.get_token_info(messages, model, self.provider)
-                        if _ti2.percent > 0.95:
+                        _ti2 = self.context_manager.get_token_info(messages, model)
+                        if _ti2.percent > HARD_STOP_USAGE_RATIO:
                             yield _with_manifest(
                                 r.error(
-                                    f"Too many errors ({consecutive_failures}).",
+                                    CONTEXT_EXHAUSTED_MESSAGE,
                                     session_id,
-                                    code="REFLECTION_LIMIT",
+                                    code="CONTEXT_EXHAUSTED",
                                     recoverable=True,
                                     action="retry",
-                                    hint="Adjust the prompt and retry.",
+                                    hint=CONTEXT_EXHAUSTED_HINT,
                                 )
                             )
                             return
@@ -914,6 +1265,9 @@ class AgentLoop:
                                 record_write(session_id, p, tool_params.get("content", ""))
                             elif tool_name == FILE_EDIT_TOOL:
                                 record_edit(session_id, p)
+                            elif tool_name == FILE_READ_TOOL:
+                                record_read(session_id, p)
+                                store_cached_read_output(session_id, p, result.output or "")
                             if tool_name in (FILE_EDIT_TOOL, FILE_WRITE_TOOL):
                                 files_edited.append(p)
                             change_seq += 1
@@ -952,14 +1306,33 @@ class AgentLoop:
                             original_chars=cstats.original_chars,
                             compacted_chars=cstats.compacted_chars,
                         )
+                    digest_str = format_tool_digest(tool_name, tool_params, result)
                     messages.append(
                         {
                             "role": "user",
                             "content": format_tool_result(tool_name, result, result_limit),
+                            "digest": digest_str,
                         }
                     )
+                    active_tool_result_indices.append(len(messages) - 1)
+                    if len(active_tool_result_indices) > EPHEMERAL_TOOL_WINDOW_SIZE:
+                        for old_idx in active_tool_result_indices[:-EPHEMERAL_TOOL_WINDOW_SIZE]:
+                            if 0 <= old_idx < len(messages):
+                                old_msg = messages[old_idx]
+                                if "digest" in old_msg and not old_msg.get("is_digested"):
+                                    old_msg["content"] = old_msg["digest"]
+                                    old_msg["is_digested"] = True
+                    if tool_name == FILE_WRITE_TOOL and result.success:
+                        p_written = tool_params.get("filepath") or tool_params.get("path") or ""
+                        if p_written:
+                            _strip_write_payload_from_assistant_messages(messages, p_written)
                     executed_results[sig] = messages[-1]["content"]
-                    self._loop_detector.record(tool_name, tool_params, messages[-1]["content"])
+                    self._loop_detector.record(
+                        tool_name,
+                        tool_params,
+                        messages[-1]["content"],
+                        self.config.workspace_root,
+                    )
                 if skipped_calls:
                     new_skips = [s for s in skipped_calls if s not in warned_skips]
                     if new_skips:
@@ -1101,6 +1474,7 @@ class AgentLoop:
             1, _total_completion_chars // 4
         )
         is_estimated = cum_usage.get("total_tokens", 0) == 0
+        tier_breakdown = self.context_manager.token_breakdown(messages).to_dict()
         if mode == BUILD_MODE and tools_used and (not created_files):
             yield r.warning(
                 "Build completed but no files were created. The model output text instead of using file_write.",
@@ -1128,117 +1502,101 @@ class AgentLoop:
             self._last_emitted_message or "",
             self.config.workspace_root,
             post_write_checks,
+            plan_mode=(mode == PLAN_MODE),
+            todos=_session_todos(),
         )
         yield r.turn_manifest(manifest, session_id)
+        if mode == PLAN_MODE:
+            # Plan-mode artifact contract: never report a successful, complete
+            # plan when the writable artifact (plan.md) was not actually written
+            # — the output must be honest about the miss.
+            missing = (manifest.get("plan_artifacts") or {}).get("missing") or []
+            # Only plan.md is the blocking artifact: todo.md absence is reported
+            # but does not invalidate a plan that was actually written.
+            if "plan.md" in missing and not manifest.get("stalled"):
+                success_message += (
+                    "\n[Not implemented] Plan artifact not written: plan.md. "
+                    "The plan output above is a proposal only; run in plan mode "
+                    "again to write plan.md."
+                )
+        _started_at = getattr(self, "_run_started_at", None)
+        elapsed_ms = (
+            round((time.monotonic() - _started_at) * 1000) if _started_at is not None else None
+        )
         yield _with_manifest(
             r.success(
                 success_message,
                 session_id,
                 iteration,
                 {
+                    # Context occupancy (composed messages) — drives the gauge.
                     "used": token_info.used,
                     "remaining": token_info.remaining,
                     "total": token_info.total,
                     "percent": round(token_info.percent, 3),
+                    # Run/API usage (cumulative provider spend) — telemetry only.
+                    "runTotal": cum_usage.get("total_tokens", 0),
+                    "runPrompt": cum_usage.get("prompt_tokens", 0),
+                    "runCompletion": cum_usage.get("completion_tokens", 0),
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
                     "cached_tokens": cum_usage.get("cached_tokens", 0),
                     "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
                     "estimated": is_estimated,
+                    "windowEstimated": bool(
+                        getattr(self.context_manager, "context_window_estimated", False)
+                    ),
                     "mode": mode,
+                    "ttft_ms": getattr(self.provider, "_last_ttft_ms", None),
+                    "tierBreakdown": tier_breakdown,
+                    "stale_reads_evicted": self.context_manager._last_stale_count,
+                    "heavy_tools_summarized": self._heavy_tools_summarized,
+                    "cache_hit_rate": round(
+                        cum_usage.get("cached_tokens", 0) / max(prompt_tokens, 1),
+                        4,
+                    ),
                 },
+                elapsed_ms=elapsed_ms,
             )
         )
 
     async def _maybe_summarize(self, history, session_id, messages=None, reason="automatic"):
-        from server.agents.summarizer import ConversationSummarizer
+        """Route one automatic compaction through the canonical service.
 
-        model = self.provider.model
-        token_info = (
-            self.context_manager.get_token_info(messages or [], model, self.provider)
-            if messages
-            else None
+        Events are forwarded to the caller via the generator; the outcome is
+        kept on ``self._last_compaction_outcome``.
+        """
+        emitted: list[Event] = []
+
+        async def _emit(ev: Event) -> None:
+            emitted.append(ev)
+
+        outcome = await self._get_compaction_service().compact(
+            session_id=session_id,
+            history=history,
+            messages=messages,
+            trigger=CompactionTrigger.AUTOMATIC,
+            reason=reason,
+            previous_summary=self._summary,
+            emit=_emit,
         )
-        used = token_info.used if token_info else 0
-        total = token_info.total if token_info else 0
-        yield r.context_compaction_started(session_id, reason, used, total)
-        yield r.warning("Context approaching limit, summarizing...", session_id, code="CONTEXT")
-        try:
-            if messages:
-                pruned = self._prune_tool_outputs(messages)
-                if pruned["count"]:
-                    yield r.context_compacted(
-                        "context",
-                        pruned["chars_removed"],
-                        pruned["tokens_saved"],
-                        f"pruned {pruned['count']} old tool result(s)",
-                        session_id,
-                    )
-            ctx = min(_get_model_context_window(model), self.config.max_context_tokens)
-            reserve = _adaptive_reserve(model, ctx)
-            keep_tokens = max(8000, min(20000, int(max(0, ctx - reserve) * 0.25)))
-            cut = _find_compaction_cut_budgeted(
-                history,
-                keep_tokens,
-                lambda m: self.context_manager.count_tokens(getattr(m, "content", str(m)), model),
-            )
-            target = history[:cut] if cut > 0 else history
-            self._summary = await ConversationSummarizer(self.config, self.provider).summarize(
-                target, model, session_id=session_id, previous_summary=self._summary
-            )
-            tokens_saved = 0
-            if messages:
-                target_tokens = sum(
-                    self.context_manager.count_tokens(getattr(m, "content", str(m)), model)
-                    for m in target
-                )
-                tokens_saved = max(
-                    0, target_tokens - self.context_manager.count_tokens(self._summary, model)
-                )
-            yield r.context_compaction_ended(
-                session_id,
-                reason,
-                used,
-                total,
-                tokens_saved=tokens_saved,
-                summary_chars=len(self._summary),
-            )
-            yield r.warning("Context summarized", session_id, code="CONTEXT")
-        except Exception as e:
-            yield r.warning(f"Summarization failed: {e}", session_id, code="CONTEXT")
+        self._last_compaction_outcome = outcome
+        if not outcome.failed and not outcome.skipped:
+            self._summary = outcome.summary or self._summary
+        for ev in emitted:
+            yield ev
 
     def _prune_tool_outputs(
-        self, messages: list[dict], keep_turns: int = 2, max_output: int = 2000
+        self,
+        messages: list[dict],
+        keep_turns: int = 2,
+        max_output: int = 2000,
+        force_intraturn: bool = False,
     ) -> dict:
-        stats: dict = {"count": 0, "chars_removed": 0, "tokens_saved": 0}
-        if not messages:
-            return stats
-        turns = 0
-        boundary = 0
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "user":
-                turns += 1
-                if turns > keep_turns:
-                    boundary = i + 1
-                    break
-        for msg in messages[:boundary]:
-            content = msg.get("content", "")
-            if not isinstance(content, str) or not content.startswith("[Tool:"):
-                continue
-            if msg.get("time") == "compacted":
-                continue
-            lines = content.split("\n", 1)
-            head = lines[0]
-            rest = lines[1] if len(lines) > 1 else ""
-            if len(rest) <= max_output:
-                continue
-            compacted_rest, _ = head_tail_trim(rest, max_output)
-            msg["content"] = head + "\n" + compacted_rest
-            msg["time"] = "compacted"
-            stats["count"] += 1
-            stats["chars_removed"] += len(rest) - len(compacted_rest)
-            stats["tokens_saved"] += (len(rest) - len(compacted_rest)) // CHARS_PER_TOKEN
-        return stats
+        """Compress old tool-result messages (delegates to the shared pipeline)."""
+        return prune_tool_outputs(
+            messages, keep_turns=keep_turns, max_output=max_output, force_intraturn=force_intraturn
+        )
 
     def _rebuild_messages(
         self,
@@ -1251,6 +1609,8 @@ class AgentLoop:
         plan_context: str,
         use_system_prompt: bool,
         repo_map: str | None,
+        session_id: str | None = None,
+        mode: str = BUILD_MODE,
     ) -> list[dict]:
         live_tail = messages[base_len:]
         rebuilt = self.context_manager.build_messages(
@@ -1262,16 +1622,27 @@ class AgentLoop:
             plan_block=plan_context,
             use_system_prompt=use_system_prompt,
             repo_map=repo_map,
+            session_id=session_id,
+            mode=mode,
         )
         if live_tail:
-            rebuilt.extend(live_tail)
+            compacted_tail = []
+            for msg in live_tail:
+                if not isinstance(msg, dict):
+                    continue
+                compacted_tail.append(dict(msg))
+            compact_live_tail(compacted_tail)
+
+            rebuilt.extend(compacted_tail)
             rebuilt.append(
                 {
                     "role": "user",
                     "content": "Continue if you have next steps, or stop and ask for clarification for how to proceed.",
                 }
             )
-            logger.info("Replayed live turn after compaction: %d messages", len(live_tail))
+            logger.info(
+                "Replayed compacted live turn after compaction: %d messages", len(live_tail)
+            )
         sanitized = [m for m in rebuilt if isinstance(m, dict)]
         dropped = len(rebuilt) - len(sanitized)
         if dropped:
@@ -1296,22 +1667,36 @@ class AgentLoop:
         plan_context,
         use_system_prompt,
         repo_map,
+        mode: str = BUILD_MODE,
     ) -> AsyncIterator[Event]:
         async for ev in self._maybe_summarize(history, session_id, messages):
             yield ev
+        outcome = self._last_compaction_outcome
+        if outcome is None or outcome.failed or outcome.skipped:
+            # Nothing changed: keep the authoritative context untouched.
+            result.append(list(messages))
+            return
+        # Only the recent tail (the part not represented by the summary) is
+        # re-fed into the rebuilt context; the summarized prefix is dropped.
+        cut = max(0, outcome.cut)
+        tail_history = history[cut:] if cut > 0 else []
+        self._compacted_this_turn = True
         result.append(
             self._rebuild_messages(
                 messages,
                 base_len,
-                history,
+                tail_history,
                 system_prompt,
                 prompt,
                 model,
                 plan_context,
                 use_system_prompt,
                 repo_map,
+                session_id=session_id,
+                mode=mode,
             )
         )
+        self._compacted_message_count = len(result[-1])
 
     def _get_tool_schemas(self) -> list[dict]:
         return self.tool_registry.get_schemas() if self.tool_registry else []
@@ -1329,10 +1714,18 @@ class AgentLoop:
         if catalog.get("adapter") == "gemini":
             return messages
         cached = [dict(msg) for msg in messages]
-        for i in range(min(2, len(cached))):
-            cached[i]["cache_control"] = {"type": "ephemeral"}
-        if len(cached) >= 1:
-            cached[-1]["cache_control"] = {"type": "ephemeral"}
+        boundaries = self.context_manager.tier_boundaries()
+        breakpoint_indices = []
+        if boundaries["t0_end"] > 0:
+            breakpoint_indices.append(boundaries["t0_end"])
+        if boundaries["t1_end"] > boundaries["t0_end"]:
+            breakpoint_indices.append(boundaries["t1_end"])
+        if boundaries["t2_end"] > boundaries["t1_end"]:
+            breakpoint_indices.append(boundaries["t2_end"])
+        breakpoint_indices = breakpoint_indices[:4]
+        for idx in breakpoint_indices:
+            if 0 <= idx - 1 < len(cached):
+                cached[idx - 1]["cache_control"] = {"type": "ephemeral"}
         return cached
 
     @staticmethod
@@ -1346,25 +1739,22 @@ class AgentLoop:
 
     @staticmethod
     def _inject_session_state(messages: list[dict], session_id: str) -> None:
-        existing = known_files(session_id)
-        if not existing:
+        content = render_session_state(session_id)
+        if content is None:
             return
-        lines = [
-            (
-                "[Session state] Files you already created or modified earlier in this session "
-                "(they exist on disk; do not re-create or re-write them unless you are changing "
-                "them):"
-            )
-        ]
-        for path in sorted(existing):
-            rec = existing[path]
-            lines.append(f"- {path} ({rec.size} bytes, content hash {rec.content_hash[:10]})")
-        lines.append(
-            "If you need to modify one of these, read it first (file_read), then use "
-            "file_edit for a targeted change."
-        )
-        state_msg = {"role": "system", "content": "\n".join(lines)}
+        state_msg = {"role": "system", "content": content}
         idx = 1
         while idx < len(messages) and messages[idx].get("role") == "system":
             idx += 1
         messages.insert(idx, state_msg)
+
+    def _load_project_memory(self) -> str:
+        from server.sessions.memory import MemoryStore
+
+        try:
+            store = MemoryStore(self.config.workspace_root)
+            if store.project_path().exists():
+                return store.project_path().read_text(encoding="utf-8", errors="replace").strip()
+        except Exception:
+            logger.debug("Failed to load project memory", exc_info=True)
+        return ""

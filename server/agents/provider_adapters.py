@@ -53,16 +53,16 @@ def get_tier_prompt_enhancements(tier: ModelTier) -> str:
             "1. Output your thought process inside reasoning blocks if supported by your API.\n"
             "2. ALWAYS output your complete final answer, plan, or user response in the message "
             "content body payload outside thinking blocks.\n"
-            "3. Never call a tool twice with identical parameters in one turn. When complete, "
-            "output your final summary text and stop.\n"
+            "3. Avoid redundant identical tool calls; retry only when there is a reason, such "
+            "as a transient failure. When complete, output your final summary text and stop.\n"
             "</reasoning_model_rules>\n"
         )
     else:
         return (
             "<flagship_model_rules>\n"
             "ANTI-LOOP RULES:\n"
-            "1. Never call a tool twice with identical parameters in one turn. If you must retry, "
-            "change the parameters or explain why.\n"
+            "1. Avoid redundant identical tool calls; retry only when there is a reason, such as "
+            "a transient failure, and alter the approach when appropriate.\n"
             "2. When the task is complete, output your final summary text and stop - do not emit "
             "tool calls.\n"
             "</flagship_model_rules>\n"

@@ -39,6 +39,63 @@ describe('consolidateCompactionEvents captures model context numbers', () => {
     expect(flow?.tokensSaved).toBe(75_000);
   });
 
+  it('carries the structured trigger and status from wire events', () => {
+    const flow = consolidateCompactionEvents([
+      {
+        kind: 'context_compaction_started',
+        id: 'evt_1',
+        message: 'started',
+        used: 118_000,
+        total: 128_000,
+        trigger: 'automatic',
+        status: 'started',
+      },
+      {
+        kind: 'context_compaction_phase',
+        id: 'evt_2',
+        phase: 'compacting',
+        trigger: 'automatic',
+      },
+      {
+        kind: 'context_compaction_ended',
+        id: 'evt_3',
+        message: 'finished',
+        used: 43_000,
+        total: 128_000,
+        tokensSaved: 75_000,
+        failed: false,
+        trigger: 'automatic',
+        status: 'completed',
+      },
+    ]);
+
+    expect(flow?.trigger).toBe('automatic');
+    expect(flow?.status).toBe('completed');
+    expect(flow?.phase).toBe('ready');
+  });
+
+  it('keeps the manual trigger from the ended event when phase events omit it', () => {
+    const flow = consolidateCompactionEvents([
+      {
+        kind: 'context_compaction_started',
+        id: 'evt_1',
+        message: 'started',
+        trigger: 'manual',
+      },
+      {
+        kind: 'context_compaction_ended',
+        id: 'evt_2',
+        message: 'finished',
+        failed: false,
+        trigger: 'manual',
+        status: 'completed',
+      },
+    ]);
+
+    expect(flow?.trigger).toBe('manual');
+    expect(flow?.status).toBe('completed');
+  });
+
   it('tracks the live before→after transition from phase events', () => {
     const flow = consolidateCompactionEvents([
       {
