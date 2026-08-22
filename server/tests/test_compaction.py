@@ -378,8 +378,54 @@ class TestSummarizeAndRebuildHolder:
             f"holder[0] must be the message list, got {type(rebuilt).__name__}"
         )
         assert all(isinstance(m, dict) for m in rebuilt), "rebuilt messages must be dicts"
+        # Nothing was compactable at this window size: the attempt ends as a
+        # skip and the authoritative context is returned untouched (no fake
+        # summary, no truncation, no continuation nudge over unchanged state).
+        assert rebuilt == live
+
+    @pytest.mark.asyncio
+    async def test_holder_rebuild_appends_continuation_nudge_after_real_compaction(self, temp_dir):
+        """When compaction actually runs, the rebuilt context ends with the nudge."""
+        config = AppSettings(
+            providers={"test": ProviderConfig(model="test-model", is_active=True)},
+            active_provider="test",
+            db_path=str(temp_dir / "test.db"),
+            workspace_root=str(temp_dir),
+            max_context_tokens=4000,
+        )
+        loop = AgentLoop(config, _BigReadProvider())
+        history = [
+            Message(session_id="s", role="user", content=f"turn {i} " + "y" * 2200)
+            for i in range(6)
+        ]
+        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
+        base_len = len(initial)
+        live = list(initial)
+        live.append({"role": "assistant", "content": "I will read the file"})
+        live.append({"role": "user", "content": "[Tool result] file content"})
+        holder: list = []
+        async for _ev in loop._summarize_and_rebuild(
+            history,
+            "s1",
+            live,
+            result=holder,
+            base_len=base_len,
+            system_prompt="System.",
+            prompt="New.",
+            model="test-model",
+            plan_context="",
+            use_system_prompt=True,
+            repo_map=None,
+        ):
+            pass
+        assert len(holder) == 1
+        rebuilt = holder[0]
+        assert isinstance(rebuilt, list) and rebuilt
         assert rebuilt[-1]["role"] == "user"
         assert "Continue if you have next steps" in rebuilt[-1]["content"]
+        # The summarized prefix is gone; the live tail survives.
+        joined = "\n".join(str(m.get("content", "")) for m in rebuilt)
+        assert "[Tool result] file content" in joined
 
 
 class TestPruneToolOutputs:

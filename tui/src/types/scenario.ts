@@ -415,6 +415,10 @@ export interface SessionInfoEvent {
     | 'session_resumed'
     | 'session_state_changed'
     | 'session_paused'
+    | 'session_duplicated'
+    | 'session_archived'
+    | 'session_deleted'
+    | 'session_restored'
     | 'session_renamed'
     | 'session_error'
     | 'session_status';
@@ -427,6 +431,8 @@ export interface SessionInfoEvent {
   reason?: string;
   title?: string;
   error?: string;
+  /** Original session id for `session_duplicated`. */
+  originalId?: string;
   /** Current run status when the backend broadcasts a `session_status` row. */
   status?: string;
 }

@@ -68,6 +68,10 @@ async def _noop_emit(_event: Event) -> None:
 
 # Per-session registries shared across every service instance (the loop and the
 # RPC handler use separate instances but must agree on ordering).
+# _generations is bumped at the START of each compaction attempt; a result may
+# only be persisted/applied while its generation is still current (re-checked
+# immediately before the DB commit and again before the in-memory apply), so a
+# slow, superseded compaction can never clobber newer session state.
 _generations: dict[str, int] = {}
 _in_progress: dict[str, bool] = {}
 # Serialize summarizer LLM calls so they never interleave with a streaming turn
@@ -221,6 +225,7 @@ class CompactionOutcome:
     pruned: dict = field(default_factory=dict)
     deleted: int = 0
     error: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def failed(self) -> bool:
@@ -229,6 +234,10 @@ class CompactionOutcome:
     @property
     def skipped(self) -> bool:
         return self.status == CompactionStatus.SKIPPED
+
+    @property
+    def has_warnings(self) -> bool:
+        return bool(self.warnings)
 
 
 class CompactionService:
@@ -252,6 +261,26 @@ class CompactionService:
         return self._context_manager.count_tokens(
             getattr(message, "content", str(message)), self._provider.model
         )
+
+    def _count_memoized(
+        self, history: list[Message], memo: dict[int, int]
+    ) -> Callable[[Message], int]:
+        """Counting function with a per-compaction-call cache.
+
+        The same messages are counted repeatedly across the cut search,
+        prefix totals and post-apply breakdowns; tokenization dominates
+        compaction latency on large histories.
+        """
+
+        def _count(message: Message) -> int:
+            key = id(message)
+            cached = memo.get(key)
+            if cached is None:
+                cached = self._count(message)
+                memo[key] = cached
+            return cached
+
+        return _count
 
     def _context_window(self, model: str) -> int:
         return min(_get_model_context_window(model), self._config.max_context_tokens)
@@ -293,7 +322,9 @@ class CompactionService:
                 if messages
                 else None
             )
-            used = token_info.used if token_info else sum(self._count(m) for m in history)
+            memo: dict[int, int] = {}
+            count = self._count_memoized(history, memo)
+            used = token_info.used if token_info else sum(count(m) for m in history)
             total = (
                 token_info.total if token_info else self._context_window(model)
             )
@@ -347,11 +378,41 @@ class CompactionService:
             reserve = _adaptive_reserve(model, ctx)
             keep_tokens = _compaction_keep_tokens(max(0, ctx - reserve))
             cut = _find_compaction_cut_budgeted(
-                history, keep_tokens, self._count
+                history, keep_tokens, count
             )
             outcome.cut = cut
             outcome.kept_tail = max(0, len(history) - cut)
             prefix = history[:cut]
+            if not prefix and not pruned.get("count", 0):
+                # Nothing can be safely summarized AND tool-output pruning found
+                # nothing to shrink: the operation would be a no-op. Report a
+                # skip instead of fabricating a summary or truncating anything.
+                # (A prune-only pass -- cut==0 but pruned["count"]>0 -- still
+                # falls through and completes, applying the shrunken candidate.)
+                logger.info(
+                    "Compaction skipped for %s: no summarizable prefix "
+                    "(cut=0, history=%d)",
+                    session_id,
+                    len(history),
+                )
+                outcome.status = CompactionStatus.SKIPPED
+                outcome.completed_at = time.time()
+                await emit(
+                    r.context_compaction_ended(
+                        session_id,
+                        reason,
+                        used,
+                        total,
+                        tokens_saved=0,
+                        summary_chars=0,
+                        summary="",
+                        tokens_before=before_tiers,
+                        tokens_after=None,
+                        trigger=trigger.value,
+                        status=outcome.status.value,
+                    )
+                )
+                return outcome
             if prefix:
                 async with _summarize_lock:
                     summary = await ConversationSummarizer(
@@ -368,7 +429,7 @@ class CompactionService:
                     raise RuntimeError("summarization produced an empty result")
                 outcome.summary = summary
                 outcome.summary_chars = len(summary)
-                prefix_tokens = sum(self._count(m) for m in prefix)
+                prefix_tokens = sum(count(m) for m in prefix)
                 summary_tokens = self._context_manager.count_tokens(summary, model)
                 outcome.tokens_saved = max(0, prefix_tokens - summary_tokens) + pruned[
                     "tokens_saved"
@@ -399,42 +460,68 @@ class CompactionService:
                         outcome.deleted,
                         outcome.kept_tail,
                     )
-            if messages and candidate is not None:
-                messages[:] = candidate
-            after_tiers = (
-                self._context_manager.token_breakdown(messages or []).to_dict()
-                if messages
-                else None
-            )
-            await emit(
-                r.context_compaction_phase(
-                    session_id,
-                    "verifying",
-                    "Verifying token savings & rebuilt context...",
-                    before_tokens=used,
-                    after_tokens=outcome.used_after,
-                    tokens_before=before_tiers,
-                    tokens_after=after_tiers,
-                    trigger=trigger.value,
+            # Durable state is committed above this line. Failures in the
+            # remaining steps (in-memory apply, telemetry emission) must NOT
+            # downgrade the outcome to FAILED: the DB already holds the new
+            # summary plus the truncated history, so reporting failure would
+            # leave a live session on its full context while a resumed one
+            # sees the compacted form. Such problems are recorded as warnings
+            # on a COMPLETED outcome instead. Persistence failures themselves
+            # propagate to the outer handler and surface as FAILED.
+            try:
+                if messages and candidate is not None:
+                    if _generations.get(session_id) == generation:
+                        messages[:] = candidate
+                    else:
+                        outcome.warnings.append(
+                            "generation advanced before apply; in-memory context left unchanged"
+                        )
+                after_tiers = (
+                    self._context_manager.token_breakdown(messages or []).to_dict()
+                    if messages
+                    else None
                 )
-            )
+                await emit(
+                    r.context_compaction_phase(
+                        session_id,
+                        "verifying",
+                        "Verifying token savings & rebuilt context...",
+                        before_tokens=used,
+                        after_tokens=outcome.used_after,
+                        tokens_before=before_tiers,
+                        tokens_after=after_tiers,
+                        trigger=trigger.value,
+                    )
+                )
+            except Exception as apply_err:
+                logger.warning(
+                    "Post-persist compaction step failed for %s: %s", session_id, apply_err
+                )
+                outcome.warnings.append(f"post-persist step failed: {apply_err}")
+                after_tiers = None
             outcome.status = CompactionStatus.COMPLETED
             outcome.completed_at = time.time()
-            await emit(
-                r.context_compaction_ended(
-                    session_id,
-                    reason,
-                    used,
-                    total,
-                    tokens_saved=outcome.tokens_saved,
-                    summary_chars=outcome.summary_chars,
-                    summary=outcome.summary,
-                    tokens_before=before_tiers,
-                    tokens_after=after_tiers,
-                    trigger=trigger.value,
-                    status=outcome.status.value,
+            try:
+                await emit(
+                    r.context_compaction_ended(
+                        session_id,
+                        reason,
+                        used,
+                        total,
+                        tokens_saved=outcome.tokens_saved,
+                        summary_chars=outcome.summary_chars,
+                        summary=outcome.summary,
+                        tokens_before=before_tiers,
+                        tokens_after=after_tiers,
+                        trigger=trigger.value,
+                        status=outcome.status.value,
+                    )
                 )
-            )
+            except Exception as emit_err:
+                logger.warning(
+                    "Compaction end-event delivery failed for %s: %s", session_id, emit_err
+                )
+                outcome.warnings.append(f"end-event delivery failed: {emit_err}")
             return outcome
         except Exception as e:
             logger.warning("Compaction failed for session %s: %s", session_id, e)

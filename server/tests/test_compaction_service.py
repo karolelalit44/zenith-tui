@@ -317,7 +317,113 @@ async def test_restart_resume_uses_compacted_state(db, service, test_config):
         previous_summary=summary,
         emit=lambda ev: asyncio.sleep(0),
     )
-    # The truncated history already fits the budget: no-op completion.
-    assert second.status == CompactionStatus.COMPLETED
+    # The truncated history already fits the budget: nothing summarizable,
+    # so the service must report a skip (never fabricate a summary, never
+    # truncate, and never let the caller rebuild context from an empty tail).
+    assert second.status == CompactionStatus.SKIPPED
     assert second.cut == 0
     assert second.deleted == 0
+
+
+@pytest.mark.asyncio
+async def test_persistence_failure_marks_outcome_failed(db, service, test_config, monkeypatch):
+    """C-F04: if the durable persist step fails, the outcome is FAILED."""
+    svc, session_repo, message_repo = service
+    session = await session_repo.create(Session(title="PersistFail"))
+    await _seed_turns(message_repo, session.id)
+
+    async def boom(session_id, metadata, delete_ids):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(message_repo, "compact_history", boom)
+    events = []
+
+    async def emit(ev):
+        events.append(ev)
+
+    history = await message_repo.get_by_session(session.id)
+    outcome = await svc.compact(
+        session_id=session.id,
+        history=history,
+        trigger=CompactionTrigger.MANUAL,
+        reason="manual",
+        emit=emit,
+    )
+    assert outcome.status == CompactionStatus.FAILED
+    assert "disk on fire" in (outcome.error or "")
+    ended = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTION_ENDED]
+    assert ended and ended[-1].data.get("status") == "failed"
+    # Nothing was persisted.
+    loaded = await message_repo.get_by_session(session.id)
+    assert len(loaded) == len(history)
+    updated = await session_repo.get(session.id)
+    assert not (updated.metadata or {}).get("summary")
+
+
+@pytest.mark.asyncio
+async def test_post_persist_emit_failure_stays_completed_with_warnings(
+    db, service, test_config, monkeypatch
+):
+    """C-F04: failures after the durable boundary warn but keep COMPLETED."""
+    svc, session_repo, message_repo = service
+    session = await session_repo.create(Session(title="EmitFail"))
+    await _seed_turns(message_repo, session.id)
+
+    real_compact_history = message_repo.compact_history
+
+    async def compact_then_bump(session_id, metadata, delete_ids):
+        deleted = await real_compact_history(session_id, metadata, delete_ids)
+        # A newer compaction generation starts before the apply step runs.
+        import server.agents.compaction_service as cs
+
+        cs._generations[session_id] = cs._generations.get(session_id, 0) + 1
+        return deleted
+
+    monkeypatch.setattr(message_repo, "compact_history", compact_then_bump)
+    live_messages = [{"role": "user", "content": f"turn {i}"} for i in range(6)]
+    outcome = await svc.compact(
+        session_id=session.id,
+        history=await message_repo.get_by_session(session.id),
+        messages=live_messages,
+        trigger=CompactionTrigger.MANUAL,
+        reason="manual",
+        emit=lambda ev: asyncio.sleep(0),
+    )
+    # Durable state committed -> COMPLETED with a warning about the skipped apply.
+    assert outcome.status == CompactionStatus.COMPLETED
+    assert outcome.has_warnings
+    assert any("generation advanced" in w for w in outcome.warnings)
+    # The in-memory list was left untouched because its generation is stale.
+    assert len(live_messages) == 6
+    loaded = await message_repo.get_by_session(session.id)
+    assert len(loaded) == outcome.kept_tail
+    updated = await session_repo.get(session.id)
+    assert (updated.metadata or {}).get("summary") == "summarized"
+
+
+@pytest.mark.asyncio
+async def test_end_event_delivery_failure_recorded_as_warning(db, service, test_config, monkeypatch):
+    """A raising emit for the end event must not fail the compaction."""
+    from server.domain.events import EventKind as EK
+
+    svc, session_repo, message_repo = service
+    session = await session_repo.create(Session(title="EndEmitFail"))
+    await _seed_turns(message_repo, session.id)
+
+    async def emit(ev):
+        if ev.kind == EK.CONTEXT_COMPACTION_ENDED:
+            raise RuntimeError("socket gone")
+        # started/phase events swallowed
+
+    outcome = await svc.compact(
+        session_id=session.id,
+        history=await message_repo.get_by_session(session.id),
+        trigger=CompactionTrigger.MANUAL,
+        reason="manual",
+        emit=emit,
+    )
+    assert outcome.status == CompactionStatus.COMPLETED
+    assert outcome.has_warnings
+    assert any("end-event delivery failed" in w for w in outcome.warnings)
+    loaded = await message_repo.get_by_session(session.id)
+    assert len(loaded) == outcome.kept_tail

@@ -81,6 +81,10 @@ const SESSION_STATUS_LABELS: Record<string, string> = {
   session_resumed: 'Session resumed',
   session_state_changed: 'Session state changed',
   session_paused: 'Session paused',
+  session_duplicated: 'Session duplicated',
+  session_archived: 'Session archived',
+  session_deleted: 'Session deleted',
+  session_restored: 'Session restored',
   session_renamed: 'Session renamed',
   session_error: 'Session error',
   session_status: 'Session status',
@@ -106,8 +110,10 @@ export function mapSessionInfoEvent(
     if (d.reason) parts.push(String(d.reason));
   } else if (kind === 'session_status' && d.status) {
     parts.push(String(d.status));
-  } else if (kind === 'session_renamed' && d.title) {
+  } else if ((kind === 'session_renamed' || kind === 'session_created') && d.title) {
     parts.push(`"${String(d.title)}"`);
+  } else if (kind === 'session_duplicated' && d.original_id) {
+    parts.push(`from ${String(d.original_id)}`);
   } else if (kind === 'session_error' && d.error) {
     parts.push(String(d.error));
   }
@@ -122,6 +128,7 @@ export function mapSessionInfoEvent(
     reason: d.reason !== undefined ? String(d.reason) : undefined,
     title: d.title !== undefined ? String(d.title) : undefined,
     error: d.error !== undefined ? String(d.error) : undefined,
+    originalId: d.original_id !== undefined ? String(d.original_id) : undefined,
     status: d.status !== undefined ? String(d.status) : undefined,
   };
 }

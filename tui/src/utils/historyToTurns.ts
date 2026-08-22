@@ -56,8 +56,12 @@ function createTurnFromUserMessage(msg: Record<string, unknown>, defaultMode: Sc
 
 function buildEventsFromAssistantMessage(msg: Record<string, unknown>): ScenarioEvent[] {
   const rawEvents = Array.isArray(msg.events) ? (msg.events as Record<string, unknown>[]) : [];
+  // Streaming partials are transient render state, never durable content: the
+  // final non-partial MESSAGE event carries the full text. Replaying the
+  // persisted partial chunks would duplicate every assistant message block.
   const events = rawEvents
     .filter((ev): ev is Record<string, unknown> => Boolean(ev && typeof ev === 'object' && ev.kind))
+    .filter((ev) => !(ev.kind === 'message' && (ev.data as Record<string, unknown>)?.partial === true))
     .map((ev) => mapRawEvent(String(ev.kind), (ev.data as Record<string, unknown>) || {}, String(ev.id)));
 
   if (events.length === 0) {

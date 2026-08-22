@@ -164,11 +164,27 @@ class TestEncryptionAtRest:
         assert decrypt_text("plain") == "plain"
         crypto._fernet.cache_clear()
 
-    def test_encrypted_value_without_key_passes_through(self, plain_cfg, caplog):
+    def test_encrypted_value_without_key_raises(self, plain_cfg):
+        from server.persistence.crypto import DecryptionError
         from server.persistence import crypto
 
         crypto._fernet.cache_clear()
         raw = ENCRYPTED_PREFIX + "garbage"
-        assert decrypt_text(raw) == raw
-        assert "ZENITH_ENCRYPTION_KEY is not set" in caplog.text
+        with pytest.raises(DecryptionError, match="ZENITH_ENCRYPTION_KEY is not set"):
+            decrypt_text(raw)
+        crypto._fernet.cache_clear()
+
+    def test_wrong_key_raises_decryption_error(self, temp_dir, monkeypatch):
+        from server.persistence.crypto import DecryptionError
+        from server.persistence import crypto
+
+        monkeypatch.setenv(ENCRYPTION_KEY_ENV, TEST_KEY)
+        crypto._fernet.cache_clear()
+        cipher = encrypt_text("top secret")
+        monkeypatch.setenv(ENCRYPTION_KEY_ENV, "a-completely-different-passphrase")
+        crypto._fernet.cache_clear()
+        with pytest.raises(DecryptionError, match="key mismatch"):
+            decrypt_text(cipher)
+        # Plaintext values still pass through untouched.
+        assert decrypt_text("plain") == "plain"
         crypto._fernet.cache_clear()

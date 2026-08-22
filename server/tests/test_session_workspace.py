@@ -58,7 +58,8 @@ def test_record_edit_keeps_last_known_hash():
     # hash; a re-write of the ORIGINAL content is still a replay.
     assert is_identical_replay("s4", "a.py", "v1") is True
     rec = known_files("s4")["a.py"]
-    assert rec.edits == 1 and rec.writes == 0
+    # The initial record_write counts as one write; the edit adds one more.
+    assert rec.edits == 1 and rec.writes == 1
 
 
 def test_sessions_are_isolated():

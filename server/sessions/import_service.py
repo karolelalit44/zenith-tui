@@ -105,12 +105,29 @@ class SessionImporter:
         if session_obj is None:
             raise ValueError("No session record found in JSONL file")
 
-        # Persist session and messages into database
+        # Persist session and messages into database. Re-importing an export of
+        # the same session must not duplicate its messages: skip records whose
+        # ids are already persisted (and duplicates within the file itself).
         existing = await self.session_repo.get(session_obj.id)
         if existing is None:
             await self.session_repo.create(session_obj)
 
-        for msg in messages:
-            await self.message_repo.append(msg)
+        existing_ids: set[str] = set()
+        if existing is not None:
+            try:
+                existing_msgs = await self.message_repo.get_by_session(existing.id)
+                existing_ids = {m.id for m in existing_msgs}
+            except Exception:
+                existing_ids = set()
 
-        return session_obj, messages
+        imported: list[Message] = []
+        seen_in_file: set[str] = set()
+        for msg in messages:
+            if msg.id is not None:
+                if msg.id in existing_ids or msg.id in seen_in_file:
+                    continue
+                seen_in_file.add(msg.id)
+            await self.message_repo.append(msg)
+            imported.append(msg)
+
+        return session_obj, imported

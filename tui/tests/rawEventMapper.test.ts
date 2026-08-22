@@ -159,6 +159,26 @@ describe('rawEventMapper session/context/token (QA-9)', () => {
     expect(created.kind).toBe('session_created');
   });
 
+  it('maps the lifecycle statuses added with session duplication (C-F23 labels)', () => {
+    for (const kind of ['session_duplicated', 'session_archived', 'session_deleted', 'session_restored'] as const) {
+      const evt = mapRawEvent(kind, { session_id: 's9' }, `evt_${kind}`);
+      expect(evt.kind).toBe(kind);
+      if (evt.kind !== kind) return;
+      expect((evt as { message: string }).message.toLowerCase()).not.toContain('unknown');
+      expect((evt as { message: string }).message.length).toBeGreaterThan(0);
+    }
+
+    const dup = mapRawEvent(
+      'session_duplicated',
+      { session_id: 's-copy', title: 'Copy', original_id: 's-orig' },
+      'evt_dup',
+    );
+    expect(dup.kind).toBe('session_duplicated');
+    if (dup.kind !== 'session_duplicated') return;
+    expect(dup.message).toContain('s-orig');
+    expect(dup.originalId).toBe('s-orig');
+  });
+
   it('maps session_renamed and session_error with their fields', () => {
     const renamed = mapRawEvent('session_renamed', { title: 'New Name' }, 'evt_ren');
     expect(renamed.kind).toBe('session_renamed');

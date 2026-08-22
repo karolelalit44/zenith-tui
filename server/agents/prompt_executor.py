@@ -476,10 +476,10 @@ class PromptExecutor:
         the session is absent), so callers can emit it to the frontend.
         """
         try:
-            session = await self._session_repo.get(session_id)
-            if session is None:
+            current = await self._session_repo.get_metadata(session_id)
+            if current is None:
                 return None
-            previous = from_dict((session.metadata or {}).get("run_state"))
+            previous = from_dict((current or {}).get("run_state"))
             state = merge_run_state(previous, ts=ts)
             state.objective = objective or state.objective
             state.mode = mode
@@ -493,10 +493,17 @@ class PromptExecutor:
                 state.todo = get_todo_state(session_id).snapshot()
             except Exception:
                 state.todo = list(state.todo)
-            self._render_todo_artifact(session, state.todo)
+            workspace_root = None
+            if hasattr(self._session_repo, "get_workspace_root"):
+                workspace_root = await self._session_repo.get_workspace_root(session_id)
+            if workspace_root is None:
+                session_row = await self._session_repo.get(session_id)
+                workspace_root = session_row.workspace_root if session_row else None
+            self._render_todo_artifact(workspace_root, session_id, state.todo)
             snapshot = state.to_dict()
-            session.metadata["run_state"] = snapshot
-            await self._session_repo.update(session)
+            # Metadata-only targeted write: never a whole-record update, so a
+            # concurrent token-count/model writer cannot be clobbered here.
+            await self._session_repo.merge_metadata(session_id, {"run_state": snapshot})
             logger.info(
                 "Persisted run state for session %s: status=%s tools=%d",
                 session_id,
@@ -508,7 +515,7 @@ class PromptExecutor:
             logger.exception("Failed to persist run state for session %s", session_id)
             return None
 
-    def _render_todo_artifact(self, session, todos: list[dict]) -> None:
+    def _render_todo_artifact(self, workspace_root: str | None, session_id: str, todos) -> None:
         """Write ``todo.md`` from the structured todo snapshot (QA-5.8).
 
         The artifact is only rendered when structured todos exist so a
@@ -519,16 +526,16 @@ class PromptExecutor:
         try:
             from server.agents.todo_state import render_todo_markdown
 
-            root = Path(session.workspace_root or self._config.workspace_root)
+            root = Path(workspace_root or self._config.workspace_root)
             root.mkdir(parents=True, exist_ok=True)
             (root / "todo.md").write_text(render_todo_markdown(todos), encoding="utf-8")
             logger.info(
                 "Rendered todo.md artifact for session %s (%d todos)",
-                session.id,
+                session_id,
                 len(todos),
             )
         except Exception:
-            logger.warning("Failed to render todo.md artifact for session %s", session.id)
+            logger.warning("Failed to render todo.md artifact for session %s", session_id)
 
     async def _persist_assistant_message(
         self, session_id: str, response_text: str, collected_events: list[Event]
@@ -613,6 +620,13 @@ class PromptExecutor:
         event_count = 0
         token_usage_recorded = False
         _step_count = 0
+        # C-F02: terminal events (SUCCESS/ERROR) are held back until the
+        # end-of-run SESSION_SUMMARIZED snapshot has been persisted and sent.
+        # The TUI client finalizes and unsubscribes on the first terminal
+        # event, so forwarding SUCCESS/ERROR before the summary means the
+        # summary is silently dropped (and never replayed, since it was not
+        # part of the persisted message either).
+        _pending_terminal: list[Event] = []
         _original_model: str | None = None
         _original_temperature: float | None = None
         _original_max_tokens: int | None = None
@@ -875,7 +889,10 @@ class PromptExecutor:
                 else:
                     logger.info("  OTHER: %s", str(event.data)[:200])
                 if manager:
-                    await manager.send_event(session_id, event)
+                    if event.kind in (EventKind.SUCCESS, EventKind.ERROR):
+                        _pending_terminal.append(event)
+                    else:
+                        await manager.send_event(session_id, event)
                 if event.kind == EventKind.MESSAGE and (not event.data.get("partial")):
                     response_text += event.data.get("text", "")
             completed_ok = True
@@ -901,8 +918,7 @@ class PromptExecutor:
             error_event = Event(
                 kind=EventKind.ERROR, data={"message": str(e)}, session_id=session_id
             )
-            if manager:
-                await manager.send_event(session_id, error_event)
+            _pending_terminal.append(error_event)
             collected_events.append(error_event)
         finally:
             if _original_model is not None:
@@ -920,15 +936,18 @@ class PromptExecutor:
                     # Only apply the in-memory summary if no newer writer (manual
                     # compaction or a background running summary) replaced it
                     # while this turn was in flight: a stale result must never
-                    # overwrite newer session state.
-                    fresh = await self._session_repo.get(session_id)
-                    if fresh is None:
-                        if db_session is not None:
-                            db_session.metadata["summary"] = agent.summary
-                            await self._session_repo.update(db_session)
-                    elif (fresh.metadata or {}).get("summary") == summary_at_start:
-                        fresh.metadata["summary"] = agent.summary
-                        await self._session_repo.update(fresh)
+                    # overwrite newer session state. Metadata-only targeted
+                    # write — never a stale whole-record update.
+                    current = await self._session_repo.get_metadata(session_id)
+                    if current is None:
+                        logger.info(
+                            "Skipped summary persist for %s: session no longer exists",
+                            session_id,
+                        )
+                    elif (current or {}).get("summary") in (summary_at_start, None, ""):
+                        await self._session_repo.merge_metadata(
+                            session_id, {"summary": agent.summary}
+                        )
                         logger.info(
                             "Persisted updated session summary (%d chars) for %s",
                             len(agent.summary),
@@ -941,7 +960,10 @@ class PromptExecutor:
                         )
                 except Exception as e:
                     logger.warning("Failed to persist session summary: %s", e)
-            await self._persist_assistant_message(session_id, response_text, collected_events)
+            # C-F02 ordering: compute the end-of-run snapshot BEFORE persisting
+            # the assistant message so SESSION_SUMMARIZED is part of the
+            # persisted event trail (replayable on resume), then deliver it to
+            # the live client BEFORE any terminal event.
             persisted_state = None
             try:
                 persisted_state = await self._persist_run_state(
@@ -949,23 +971,28 @@ class PromptExecutor:
                 )
             except Exception:
                 logger.debug("Failed to persist run state for %s", session_id)
-            if manager and persisted_state and persisted_state.get("final"):
-                # Emit the authoritative end-of-run summary only when a terminal
-                # outcome closed this turn (SUCCESS/ERROR); the FinalSummaryCard
-                # renders FROM this snapshot, never from prose.
+            summarized_event: Event | None = None
+            if persisted_state and persisted_state.get("final"):
+                # The authoritative end-of-run summary; FinalSummaryCard renders
+                # FROM this snapshot, never from prose.
                 summary = (getattr(agent, "summary", None) or "").strip() or response_text.strip()
-                await manager.send_event(
-                    session_id,
-                    Event(
-                        kind=EventKind.SESSION_SUMMARIZED,
-                        session_id=session_id,
-                        data={
-                            "summary": summary,
-                            "findings": list(persisted_state.get("findings") or []),
-                            "run_state": persisted_state,
-                        },
-                    ),
+                summarized_event = Event(
+                    kind=EventKind.SESSION_SUMMARIZED,
+                    session_id=session_id,
+                    data={
+                        "summary": summary,
+                        "findings": list(persisted_state.get("findings") or []),
+                        "run_state": persisted_state,
+                    },
                 )
+                collected_events.append(summarized_event)
+            await self._persist_assistant_message(session_id, response_text, collected_events)
+            if manager and summarized_event is not None:
+                await manager.send_event(session_id, summarized_event)
+            if manager:
+                for terminal in _pending_terminal:
+                    await manager.send_event(session_id, terminal)
+                _pending_terminal.clear()
             if self._workspace_repo:
                 try:
                     from server.agents.session_workspace import flush_to_db

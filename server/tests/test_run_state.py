@@ -202,6 +202,7 @@ class TestPromptExecutorPersistence:
                 self.created_messages = []
                 self.token_usage = []
                 self.budget = {"active": False, "max_monthly_cost": 0}
+                self.metadata = {}
 
             async def get(self, session_id):
                 if self.session is None:
@@ -212,6 +213,13 @@ class TestPromptExecutorPersistence:
 
             async def update(self, session):
                 return session
+
+            async def get_metadata(self, session_id):
+                return dict(self.metadata)
+
+            async def merge_metadata(self, session_id, updates):
+                self.metadata.update(updates)
+                return dict(self.metadata)
 
             async def add_tokens(self, session_id, tokens):
                 return self.session
@@ -280,8 +288,8 @@ class TestPromptExecutorPersistence:
         assert snapshot is not None
         assert snapshot["status"] == "completed"
         assert snapshot["final"]["kind"] == "success"
-        assert repo.session is not None
-        run_state = (repo.session.metadata or {}).get("run_state")
+        # Run state is persisted through the targeted merge_metadata path.
+        run_state = (repo.metadata or {}).get("run_state")
         assert run_state is not None
         assert run_state["status"] == "completed"
         assert run_state["mode"] == "build"
@@ -299,6 +307,7 @@ class TestPromptExecutorPersistence:
         class _Repo:
             def __init__(self):
                 self.session = None
+                self.metadata = {}
 
             async def get(self, session_id):
                 if self.session is None:
@@ -309,6 +318,13 @@ class TestPromptExecutorPersistence:
 
             async def update(self, session):
                 return session
+
+            async def get_metadata(self, session_id):
+                return dict(self.metadata)
+
+            async def merge_metadata(self, session_id, updates):
+                self.metadata.update(updates)
+                return dict(self.metadata)
 
             async def add_tokens(self, session_id, tokens):
                 return self.session

@@ -33,8 +33,10 @@ import websockets  # noqa: E402
 
 WS_URL = os.environ.get("ZENITH_WS_URL", "ws://127.0.0.1:8765/ws")
 SCRIPT_DIR = Path(__file__).resolve().parent
-LOG_FILE = SCRIPT_DIR / "e2e_context_log.txt"
-SESSION_ID_FILE = SCRIPT_DIR / "e2e_session_id.txt"
+# Shared with part1: artifacts go to the gitignored scripts/e2e_logs/ scratch.
+LOG_DIR = SCRIPT_DIR.parent.parent / "scripts" / "e2e_logs"
+LOG_FILE = LOG_DIR / "e2e_context_log.txt"
+SESSION_ID_FILE = LOG_DIR / "e2e_session_id.txt"
 
 # ── helpers (shared with Part 1) ────────────────────────────────────────────
 

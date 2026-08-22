@@ -187,6 +187,23 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
             <Text color={theme.colors.text.muted}>Conversation unchanged.</Text>
           </Box>
         </>
+      ) : event.status === 'skipped' && !event.failed ? (
+        <>
+          {/* ── Skipped: backend reported nothing was compacted (no fake success) ── */}
+          <Box flexDirection="row" alignItems="center" paddingLeft={2} marginTop={0}>
+            <Box width={2} flexShrink={0}>
+              <Text color={theme.colors.status.info} bold>
+                ·
+              </Text>
+            </Box>
+            <Text color={theme.colors.status.info} bold>
+              Nothing to compact — context fits the current window
+            </Text>
+          </Box>
+          <Box paddingLeft={2}>
+            <Text color={theme.colors.text.muted}>Conversation unchanged.</Text>
+          </Box>
+        </>
       ) : (
         <>
           {/* ── Completion banner: trigger + token transition ── */}

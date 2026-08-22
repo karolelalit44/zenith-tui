@@ -241,7 +241,19 @@ def _build_manifest(
     return payload
 
 
+_STRIP_PAYLOAD_MIN_VALUE = 200
+_WRITE_PAYLOAD_RE = re.compile(r'([\'"]content[\'"]\s*:\s*)([\'"].*?[\'"])', re.DOTALL)
+
+
 def _strip_write_payload_from_assistant_messages(messages: list[dict], file_path: str) -> None:
+    def _replace(match: re.Match) -> str:
+        value = match.group(2)
+        # Only rewrite genuine embedded payloads; short quoted values are
+        # almost certainly prose discussing the file, not the file body.
+        if len(value) >= _STRIP_PAYLOAD_MIN_VALUE:
+            return f'{match.group(1)}"[content omitted; file written]"'
+        return match.group(0)
+
     for msg in reversed(messages):
         if msg.get("role") == "assistant":
             content = msg.get("content", "")
@@ -251,12 +263,7 @@ def _strip_write_payload_from_assistant_messages(messages: list[dict], file_path
                 and len(content) > 500
                 and ('"content":' in content or "'content':" in content)
             ):
-                msg["content"] = re.sub(
-                    r'([\'"]content[\'"]\s*:\s*)[\'"].*?[\'"]',
-                    r'\1"[content omitted; file written]"',
-                    content,
-                    flags=re.DOTALL,
-                )
+                msg["content"] = _WRITE_PAYLOAD_RE.sub(_replace, content)
             break
 
 
@@ -735,7 +742,7 @@ class AgentLoop:
                         yield ev
                     messages = _rebuild_holder[0]
                     token_info = self.context_manager.get_token_info(messages, model)
-                    if token_info.percent >= HARD_STOP_USAGE_RATIO:
+                    if token_info.percent > HARD_STOP_USAGE_RATIO:
                         yield _with_manifest(
                             r.error(
                                 CONTEXT_EXHAUSTED_MESSAGE,
@@ -836,6 +843,7 @@ class AgentLoop:
                         plan_context=plan_context,
                         use_system_prompt=model_use_system_prompt,
                         repo_map=repo_map,
+                        mode=mode,
                     ):
                         yield ev
                     messages = _rebuild_holder[0]
@@ -1233,12 +1241,12 @@ class AgentLoop:
                         if _ti2.percent > HARD_STOP_USAGE_RATIO:
                             yield _with_manifest(
                                 r.error(
-                                    f"Too many errors ({consecutive_failures}).",
+                                    CONTEXT_EXHAUSTED_MESSAGE,
                                     session_id,
-                                    code="REFLECTION_LIMIT",
+                                    code="CONTEXT_EXHAUSTED",
                                     recoverable=True,
                                     action="retry",
-                                    hint="Adjust the prompt and retry.",
+                                    hint=CONTEXT_EXHAUSTED_HINT,
                                 )
                             )
                             return
@@ -1670,7 +1678,7 @@ class AgentLoop:
             return
         # Only the recent tail (the part not represented by the summary) is
         # re-fed into the rebuilt context; the summarized prefix is dropped.
-        cut = outcome.cut if outcome.cut > 0 else 0
+        cut = max(0, outcome.cut)
         tail_history = history[cut:] if cut > 0 else []
         self._compacted_this_turn = True
         result.append(

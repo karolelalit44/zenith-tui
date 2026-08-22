@@ -253,9 +253,23 @@ export const App: React.FC = () => {
   }, [isRunning, activeTurn?.isComplete, resetScroll]);
 
   const handleCompact = useCallback(() => {
+    // Never start a compaction underneath a streaming turn: the backend
+    // serializes against the live context and a concurrent request would
+    // silently interleave with it.
+    if (isRunning) {
+      addTurn('/compact', selectedMode);
+      completeActiveTurn([
+        {
+          kind: 'warning',
+          id: `evt_compact_busy_${Date.now()}`,
+          message: 'Cannot compact while a turn is running — wait for it to finish or press ESC.',
+        } as ScenarioEvent,
+      ]);
+      return;
+    }
     addTurn('/compact', selectedMode);
     startCompaction();
-  }, [addTurn, selectedMode, startCompaction]);
+  }, [addTurn, selectedMode, startCompaction, isRunning, completeActiveTurn]);
 
   const handleClearTools = useCallback(() => {
     if (!lastSessionId) return;
@@ -352,6 +366,10 @@ export const App: React.FC = () => {
       }
 
       const sel = modelStore.current;
+      // A prompt while a turn is streaming would overwrite the active runner
+      // without aborting it (lost stream, orphaned backend task). Commands
+      // (incl. /cancel) were already dispatched above; plain prompts wait.
+      if (isRunning) return;
       const providerInfo = sel ? providerRepository.getProviderInfo(sel.providerID) : undefined;
       const selConfigured = Boolean(
         providerInfo &&
@@ -374,7 +392,17 @@ export const App: React.FC = () => {
       setHistoryExpanded(false);
       startScenario(trimmed, selectedMode, providerId, modelId, attachments);
     },
-    [selectedMode, startScenario, activeProvider.id, addTurn, clearInput, commandCtx, addHistory, attachments],
+    [
+      selectedMode,
+      startScenario,
+      activeProvider.id,
+      addTurn,
+      clearInput,
+      commandCtx,
+      addHistory,
+      attachments,
+      isRunning,
+    ],
   );
 
   useTerminalKeyboard({

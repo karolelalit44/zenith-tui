@@ -121,4 +121,27 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const turns = convertHistoryToTurns(messages, mode);
     expect(turns[0].mode).toBe('plan');
   });
+
+  test('partial message events are dropped on resume (C-F10)', () => {
+    // A turn that was interrupted mid-stream leaves a trailing partial
+    // message event; replaying it would render a phantom streaming bubble.
+    const persisted = [
+      { kind: 'message', id: 'evt_p1', data: { text: 'partial answer...', partial: true } },
+      { kind: 'message', id: 'evt_f1', data: { text: 'full answer' } },
+    ];
+    const messages = [makeUserMsg('u1', 'Go'), makeAssistantMsg('a1', '', persisted)];
+    const turns = convertHistoryToTurns(messages, mode);
+    expect(turns).toHaveLength(1);
+    const msgs = turns[0].events.filter((e) => e.kind === 'message');
+    expect(msgs.map((e) => e.id)).toEqual(['evt_f1']);
+  });
+
+  test('a trailing partial-only assistant message yields no phantom response', () => {
+    const persisted = [{ kind: 'message', id: 'evt_only_partial', data: { text: 'stream cut here', partial: true } }];
+    const messages = [makeUserMsg('u1', 'Go'), makeAssistantMsg('a1', '', persisted)];
+    const turns = convertHistoryToTurns(messages, mode);
+    expect(turns).toHaveLength(1);
+    // Only the synthetic completion marker survives; the partial text is gone.
+    expect(turns[0].events.map((e) => e.kind)).toEqual(['success']);
+  });
 });

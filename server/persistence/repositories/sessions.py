@@ -95,6 +95,56 @@ class SessionRepository:
             rec = await s.get(SessionRecord, session_id)
             return self._record_to_session(rec) if rec else None
 
+    @safe_db("set_session_model", table="sessions")
+    async def set_model(self, session_id: str, model: str | None) -> bool:
+        """Targeted update of the model column (no whole-record rewrite)."""
+        async with self.db.session() as s:
+            result = await s.execute(
+                update(SessionRecord)
+                .where(SessionRecord.id == session_id)
+                .values(model=model, updated_at=datetime.now().isoformat())
+            )
+            await s.commit()
+            return result.rowcount > 0
+
+    @safe_db("merge_session_metadata", table="sessions")
+    async def merge_metadata(self, session_id: str, updates: dict) -> dict | None:
+        """Merge ``updates`` into the persisted metadata of one session.
+
+        The read-modify-write touches ONLY the metadata column and happens
+        inside a single transaction with no intervening awaits, so concurrent
+        writers of other fields (token counters, model overrides) can no
+        longer be clobbered by a stale whole-record update. Returns the new
+        merged mapping, or None when the session does not exist.
+        """
+        if not updates:
+            return await self.get_metadata(session_id)
+        async with self.db.session() as s:
+            rec = await s.get(SessionRecord, session_id)
+            if rec is None:
+                return None
+            try:
+                current = json.loads(decrypt_text(rec.metadata_json or "{}"))
+            except Exception:
+                current = {}
+            if not isinstance(current, dict):
+                current = {}
+            current.update(updates)
+            rec.metadata_json = encrypt_text(json.dumps(current))
+            await s.commit()
+            return current
+
+    @safe_db("get_session_metadata", table="sessions")
+    async def get_metadata(self, session_id: str) -> dict | None:
+        async with self.db.session() as s:
+            rec = await s.get(SessionRecord, session_id)
+            if rec is None:
+                return None
+            try:
+                return json.loads(decrypt_text(rec.metadata_json or "{}"))
+            except Exception:
+                return {}
+
     @safe_db("list_sessions", table="sessions")
     async def list_active(self) -> list[Session]:
         async with self.db.session() as s:

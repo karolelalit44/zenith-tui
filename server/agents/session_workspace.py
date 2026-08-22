@@ -34,19 +34,39 @@ class SessionFileRecord:
     edits: int = 0
     last_read_at: float = 0.0
     last_edited_at: float = 0.0
-    created_at: float = field(default_factory=_time.monotonic)
+    # Wall-clock epoch seconds: these fields are persisted to DB columns and
+    # compared across process restarts; monotonic clocks are meaningless there.
+    created_at: float = field(default_factory=_time.time)
 
 
 _STORE: dict[str, dict[str, SessionFileRecord]] = {}
 # Per-session read cache: path -> {content_hash, output, ts}. A repeated read of
 # an unchanged file within the same session returns the cached output instead of
 # re-reading (and re-injecting) the full content. Cleared when the file changes.
+# Bounded per session (oldest entries evicted) so long-lived sessions cannot
+# grow it without limit.
 _READ_CACHE: dict[str, dict[str, dict]] = {}
 # Per-session full outputs of heavy tool calls (keyed by the relative path the
 # output was stored under). Survives only for the process lifetime; the file
-# itself is on disk under the workspace's hidden directory.
+# itself is on disk under the workspace's hidden directory. Also bounded.
 _HEAVY_OUTPUTS: dict[str, dict[str, str]] = {}
+_MAX_READ_CACHE_ENTRIES = 200
+_MAX_HEAVY_OUTPUT_ENTRIES = 100
 _LOCK = threading.Lock()
+
+
+def _bound_entries(store: dict, session_id: str, cap: int) -> None:
+    """Evict oldest-inserted entries for a session beyond ``cap``.
+
+    Caller must hold ``_LOCK``. Dicts preserve insertion order, so popping
+    from the front approximates FIFO eviction, which matches how these caches
+    are used (recent reads/outputs are the ones worth keeping).
+    """
+    entries = store.get(session_id)
+    if entries is None:
+        return
+    while len(entries) > cap:
+        entries.pop(next(iter(entries)))
 
 
 def _content_hash(content: str) -> str:
@@ -59,7 +79,7 @@ def _session_map(session_id: str) -> dict[str, SessionFileRecord]:
 
 def record_write(session_id: str, path: str, content: str) -> None:
     """Record that ``path`` was written with this exact content this session."""
-    now = _time.monotonic()
+    now = _time.time()
     with _LOCK:
         rec = _session_map(session_id).get(path)
         if rec is None:
@@ -67,6 +87,7 @@ def record_write(session_id: str, path: str, content: str) -> None:
                 path=path,
                 content_hash=_content_hash(content),
                 size=len(content.encode("utf-8")),
+                writes=1,
                 last_edited_at=now,
             )
         else:
@@ -76,27 +97,29 @@ def record_write(session_id: str, path: str, content: str) -> None:
             rec.last_edited_at = now
         _session_map(session_id)[path] = rec
         _READ_CACHE.get(session_id, {}).pop(path, None)
-        _dirty_sessions.add(session_id)
+        _mark_dirty_locked(session_id)
 
 
 def record_edit(session_id: str, path: str) -> None:
     """Mark ``path`` as modified this session (keeps the last known hash)."""
-    now = _time.monotonic()
+    now = _time.time()
     with _LOCK:
         rec = _session_map(session_id).get(path)
         if rec is None:
-            rec = SessionFileRecord(path=path, content_hash="", size=0, last_edited_at=now)
+            rec = SessionFileRecord(
+                path=path, content_hash="", size=0, edits=1, last_edited_at=now
+            )
         else:
             rec.edits += 1
             rec.last_edited_at = now
         _session_map(session_id)[path] = rec
         _READ_CACHE.get(session_id, {}).pop(path, None)
-        _dirty_sessions.add(session_id)
+        _mark_dirty_locked(session_id)
 
 
 def record_read(session_id: str, path: str) -> None:
     """Mark ``path`` as read this session for staleness tracking."""
-    now = _time.monotonic()
+    now = _time.time()
     with _LOCK:
         rec = _session_map(session_id).get(path)
         if rec is None:
@@ -104,7 +127,7 @@ def record_read(session_id: str, path: str) -> None:
         else:
             rec.last_read_at = now
         _session_map(session_id)[path] = rec
-        _dirty_sessions.add(session_id)
+        _dirty_sessions_add_locked(session_id)
 
 
 def is_stale(session_id: str, path: str) -> bool:
@@ -137,6 +160,7 @@ def store_cached_read(session_id: str, path: str, output: str, content_hash: str
             "output": output,
             "ts": _time.monotonic(),
         }
+        _bound_entries(_READ_CACHE, session_id, _MAX_READ_CACHE_ENTRIES)
 
 
 def store_cached_read_output(session_id: str, path: str, output: str) -> None:
@@ -183,6 +207,7 @@ def store_heavy_output(session_id: str, rel_path: str, output: str) -> None:
     """Keep the full output of a heavy tool call for re-read within the session."""
     with _LOCK:
         _HEAVY_OUTPUTS.setdefault(session_id, {})[rel_path] = output
+        _bound_entries(_HEAVY_OUTPUTS, session_id, _MAX_HEAVY_OUTPUT_ENTRIES)
 
 
 def read_heavy_output(session_id: str, rel_path: str) -> str | None:
@@ -200,15 +225,31 @@ def reset_session(session_id: str) -> None:
     with _LOCK:
         _STORE.pop(session_id, None)
         _READ_CACHE.pop(session_id, None)
+        _HEAVY_OUTPUTS.pop(session_id, None)
         _dirty_sessions.discard(session_id)
+        _dirty_epochs.pop(session_id, None)
 
 
 _dirty_sessions: set[str] = set()
+# Monotonic per-session counter bumped on every mutation. flush_to_db uses it
+# to detect writes that landed while an upsert was in flight: without this,
+# mark_clean after a slow await would silently discard those newer changes.
+_dirty_epochs: dict[str, int] = {}
+
+
+def _dirty_sessions_add_locked(session_id: str) -> None:
+    """Register a mutation (caller holds ``_LOCK``): dirty flag + epoch bump."""
+    _dirty_sessions.add(session_id)
+    _dirty_epochs[session_id] = _dirty_epochs.get(session_id, 0) + 1
+
+
+def _mark_dirty_locked(session_id: str) -> None:
+    _dirty_sessions_add_locked(session_id)
 
 
 def _mark_dirty(session_id: str) -> None:
     with _LOCK:
-        _dirty_sessions.add(session_id)
+        _mark_dirty_locked(session_id)
 
 
 def get_dirty_sessions() -> set[str]:
@@ -223,12 +264,36 @@ def mark_clean(session_id: str) -> None:
         _dirty_sessions.discard(session_id)
 
 
+def _snapshot_epoch(session_id: str) -> int:
+    with _LOCK:
+        return _dirty_epochs.get(session_id, 0)
+
+
+def _mark_clean_if_unchanged(session_id: str, epoch: int) -> bool:
+    """Clear the dirty flag only if no mutation happened since ``epoch``.
+
+    Returns True when the flag was cleared; False means newer writes are
+    still pending and must be flushed by a later call.
+    """
+    with _LOCK:
+        if _dirty_epochs.get(session_id, 0) != epoch:
+            return False
+        _dirty_sessions.discard(session_id)
+        return True
+
+
 async def flush_to_db(session_id: str, repo) -> None:
     """Persist all workspace records for ``session_id`` to the DB.
 
     ``repo`` must be a ``SessionWorkspaceRepository`` instance.  This is a
     no-op when there are no dirty records for the session.
+
+    Concurrency: the record snapshot is taken before the await; if another
+    turn mutates the workspace while ``upsert_batch`` is in flight, the
+    post-flush clean-up only clears the dirty flag when nothing changed in
+    the meantime (C-F07 lost-update guard).
     """
+    start_epoch = _snapshot_epoch(session_id)
     if session_id not in get_dirty_sessions():
         return
     records = known_files(session_id)
@@ -236,8 +301,8 @@ async def flush_to_db(session_id: str, repo) -> None:
         try:
             await repo.delete_session(session_id)
         except Exception:
-            logger.debug("flush_to_db: failed to delete workspace for %s", session_id)
-        mark_clean(session_id)
+            logger.warning("flush_to_db: failed to delete workspace for %s", session_id)
+        _mark_clean_if_unchanged(session_id, start_epoch)
         return
     batch = [
         {
@@ -253,9 +318,10 @@ async def flush_to_db(session_id: str, repo) -> None:
     ]
     try:
         await repo.upsert_batch(session_id, batch)
-        mark_clean(session_id)
-    except Exception:
-        logger.debug("flush_to_db: failed to persist workspace for %s", session_id)
+    except Exception as exc:
+        logger.warning("flush_to_db: failed to persist workspace for %s: %s", session_id, exc)
+        return
+    _mark_clean_if_unchanged(session_id, start_epoch)
 
 
 async def load_from_db(session_id: str, repo) -> None:

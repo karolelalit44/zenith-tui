@@ -45,7 +45,11 @@ class RunningSummaryScheduler:
         self._session_repo = session_repo
         self._message_repo = message_repo
         self._generations: dict[str, int] = {}
+        # Latest scheduled task per session (superseded tasks stay in
+        # _inflight until they finish — dropping them here would let them
+        # escape drain() while still holding the DB/provider open).
         self._tasks: dict[str, asyncio.Task] = {}
+        self._inflight: set[asyncio.Task] = set()
         self._serialize = asyncio.Lock()
 
     def schedule(self, session_id: str) -> None:
@@ -61,15 +65,23 @@ class RunningSummaryScheduler:
         self._generations[session_id] = generation
         task = asyncio.get_running_loop().create_task(self._run(session_id, generation))
         self._tasks[session_id] = task
+        self._inflight.add(task)
+        task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        self._inflight.discard(task)
+        for sid, current in list(self._tasks.items()):
+            if current is task:
+                self._tasks.pop(sid, None)
 
     async def drain(self) -> None:
         """Await all in-flight background summaries (test seam).
 
         A completed turn schedules the summary fire-and-forget, so tests must
         drain before teardown or the background task can still hold the DB open.
+        Includes superseded tasks that were replaced by a newer schedule().
         """
-        pending = list(self._tasks.values())
-        self._tasks.clear()
+        pending = [t for t in self._inflight if not t.done()]
         for task in pending:
             try:
                 await task

@@ -28,6 +28,16 @@ _PBKDF2_SALT = b"zenith-session-encryption"
 _PBKDF2_ITERATIONS = 200_000
 
 
+class DecryptionError(RuntimeError):
+    """A stored value is encrypted but cannot be decrypted.
+
+    Raised instead of silently returning the ciphertext blob: feeding raw
+    Fernet tokens into ``json.loads`` / model context produces confusing
+    downstream failures (or silent corruption), while this makes the root
+    cause — a lost or mismatched key — explicit and actionable.
+    """
+
+
 def encryption_enabled() -> bool:
     return bool(optional_env(ENCRYPTION_KEY_ENV))
 
@@ -64,15 +74,24 @@ def encrypt_text(text: str) -> str:
 
 
 def decrypt_text(text: str) -> str:
-    """Decrypt an at-rest value; plaintext and malformed values pass through."""
+    """Decrypt an at-rest value; plaintext values pass through unchanged.
+
+    Values carrying the encrypted prefix are authenticated data: if the key
+    is missing or wrong, raise :class:`DecryptionError` rather than returning
+    the opaque ciphertext (which would fail later with a misleading error or,
+    worse, reach the model as garbage).
+    """
     if not text or not text.startswith(ENCRYPTED_PREFIX):
         return text
     fernet = _fernet()
     if fernet is None:
-        logger.warning("Encrypted value found but ZENITH_ENCRYPTION_KEY is not set")
-        return text
+        raise DecryptionError(
+            "Stored value is encrypted but ZENITH_ENCRYPTION_KEY is not set; "
+            "restore the original key to read this data"
+        )
     try:
         return fernet.decrypt(text[len(ENCRYPTED_PREFIX) :].encode("ascii")).decode("utf-8")
-    except (InvalidToken, ValueError, UnicodeDecodeError):
-        logger.warning("Failed to decrypt stored value (key mismatch?); returning raw")
-        return text
+    except (InvalidToken, ValueError, UnicodeDecodeError) as exc:
+        raise DecryptionError(
+            "Failed to decrypt stored value: key mismatch or corrupted ciphertext"
+        ) from exc
