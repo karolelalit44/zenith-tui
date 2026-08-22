@@ -234,7 +234,9 @@ class LspClient:
         uri = Path(file_path).as_uri()
         params = {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
         try:
-            result = await self._send_request("textDocument/definition", params, timeout=LSP_REQUEST_TIMEOUT)
+            result = await self._send_request(
+                "textDocument/definition", params, timeout=LSP_REQUEST_TIMEOUT
+            )
         except Exception:
             result = None
         await self.did_close(file_path)
@@ -277,7 +279,9 @@ class LspClient:
             "newName": new_name,
         }
         try:
-            result = await self._send_request("textDocument/rename", params, timeout=LSP_REQUEST_TIMEOUT)
+            result = await self._send_request(
+                "textDocument/rename", params, timeout=LSP_REQUEST_TIMEOUT
+            )
         except Exception:
             result = None
         await self.did_close(file_path)

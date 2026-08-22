@@ -117,8 +117,8 @@ class TestToolInventory:
     def test_mode_declarations(self):
         inventory = {e.name: e for e in build_inventory(create_default_registry())}
         assert inventory["file_read"].modes == []
-        assert inventory["file_write"].modes == ["build"]
-        assert inventory["file_edit"].modes == ["build"]
+        assert inventory["file_write"].modes == []
+        assert inventory["file_edit"].modes == []
         assert inventory["bash"].modes == ["build"]
 
     def test_permission_and_concurrency(self):

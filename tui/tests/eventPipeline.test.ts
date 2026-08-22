@@ -112,11 +112,21 @@ describe('Event field correctness', () => {
     }
   });
 
-  it('success has message, iterations, and tokenInfo', () => {
+  it('success has message, iterations, and tokenInfo (composed + run telemetry)', () => {
     const result = makeEvent('success', {
       message: 'Done',
       iterations: 3,
-      tokenInfo: { used: 500, remaining: 127500, total: 128000, percent: 0.0039 },
+      tokenInfo: {
+        used: 500,
+        remaining: 127500,
+        total: 128000,
+        percent: 0.0039,
+        estimated: false,
+        windowEstimated: false,
+        runTotal: 600,
+        runPrompt: 250,
+        runCompletion: 350,
+      },
     });
     expect(result.kind).toBe('success');
     if (result.kind === 'success') {
@@ -124,6 +134,29 @@ describe('Event field correctness', () => {
       expect(result.iterations).toBe(3);
       expect(result.tokenInfo).toBeDefined();
       expect(result.tokenInfo?.used).toBe(500);
+      expect(result.tokenInfo?.remaining).toBe(127500);
+      expect(result.tokenInfo?.total).toBe(128000);
+      expect(result.tokenInfo?.percent).toBe(0.0039);
+      expect(result.tokenInfo?.windowEstimated).toBe(false);
+      expect(result.tokenInfo?.runTotal).toBe(600);
+      expect(result.tokenInfo?.runPrompt).toBe(250);
+      expect(result.tokenInfo?.runCompletion).toBe(350);
+    }
+  });
+
+  it('legacy success without run telemetry keeps optional tokenInfo fields absent', () => {
+    const result = makeEvent('success', {
+      message: 'Done',
+      tokenInfo: { used: 100, remaining: 900, total: 1000, percent: 0.1 },
+    });
+    expect(result.kind).toBe('success');
+    if (result.kind === 'success') {
+      expect(result.tokenInfo).toBeDefined();
+      expect(result.tokenInfo?.used).toBe(100);
+      expect(result.tokenInfo?.runTotal).toBeUndefined();
+      expect(result.tokenInfo?.runPrompt).toBeUndefined();
+      expect(result.tokenInfo?.runCompletion).toBeUndefined();
+      expect(result.tokenInfo?.windowEstimated).toBeUndefined();
     }
   });
 

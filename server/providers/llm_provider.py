@@ -363,7 +363,8 @@ def _get_model_config(name: str, model_id: str) -> dict:
                         "max_output_tokens", min(ctx // 4, MAX_OUTPUT_TOKENS_CLAMP)
                     ),
                     "default_temperature": m.get(
-                        "default_temperature", 0.0 if caps.get("reasoning") else DEFAULT_LLM_TEMPERATURE
+                        "default_temperature",
+                        0.0 if caps.get("reasoning") else DEFAULT_LLM_TEMPERATURE,
                     ),
                     "supports_temperature": caps.get("supports_temperature", True),
                     "enable_thinking": caps.get("thinking", False),
@@ -407,7 +408,6 @@ def _resolve_min_request_interval(provider_name: str) -> float:
 
 
 class _RequestThrottle:
-
     def __init__(self, min_interval: float, jitter: float = REQUEST_THROTTLE_JITTER):
         self.min_interval = max(0.0, min_interval)
         self.jitter = jitter
@@ -602,9 +602,7 @@ class LLMProvider(BaseProvider):
         import litellm
 
         self._reset_cumulative_usage()
-        kwargs = self._build_completion_kwargs(
-            messages, tools, stream=False, model_override=model
-        )
+        kwargs = self._build_completion_kwargs(messages, tools, stream=False, model_override=model)
         messages_chars = sum(
             len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in messages
         )
@@ -758,10 +756,11 @@ class LLMProvider(BaseProvider):
         async for chunk in stream:
             if first_chunk_time is None:
                 first_chunk_time = time.monotonic()
+                self._last_ttft_ms = round((first_chunk_time - t0) * 1000)
                 logger.info(
                     "API FIRST CHUNK model=%s time_to_first_chunk=%.0fms",
                     self._litellm_model,
-                    (first_chunk_time - t0) * 1000,
+                    self._last_ttft_ms,
                 )
             chunk_count += 1
             delta = chunk.choices[0].delta if chunk.choices else None

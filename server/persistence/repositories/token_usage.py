@@ -63,10 +63,15 @@ class TokenUsageRepository:
         cache_creation_tokens: int = 0,
         step_index: int = -1,
         estimated: bool = False,
+        context_occupancy: int = 0,
     ) -> str:
         from datetime import datetime as _dt
 
-        percent = total_tokens / context_window * 100 if context_window > 0 else 0.0
+        # QA-10: occupancy is the composed-context snapshot; total_tokens is the
+        # provider-billed run usage. When occupancy is unknown (legacy callers /
+        # pre-QA-10 rows) fall back to total_tokens so percent stays meaningful.
+        occupancy = context_occupancy if context_occupancy > 0 else total_tokens
+        percent = occupancy / context_window * 100 if context_window > 0 else 0.0
         price = self._resolve_price(provider, model)
         if estimated:
             cost_usd = 0.0
@@ -99,6 +104,7 @@ class TokenUsageRepository:
                     cache_creation_tokens=cache_creation_tokens,
                     step_index=step_index,
                     estimated=estimated,
+                    context_occupancy=context_occupancy,
                 )
             )
             await s.commit()
@@ -386,7 +392,15 @@ class TokenUsageRepository:
             final_row = (
                 (
                     await s.execute(
-                        select(TokenUsageRecord.total_tokens.label("final_context"))
+                        select(
+                            # QA-10: final_context is the composed OCCUPANCY at the
+                            # last recorded turn; fall back to the billed total for
+                            # legacy rows recorded before occupancy existed.
+                            func.coalesce(
+                                func.nullif(TokenUsageRecord.context_occupancy, 0),
+                                TokenUsageRecord.total_tokens,
+                            ).label("final_context")
+                        )
                         .where(
                             TokenUsageRecord.session_id == session_id,
                             TokenUsageRecord.step_index == -1,

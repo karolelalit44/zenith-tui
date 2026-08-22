@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time as _time
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from server.config.constants import (
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
     TERMINAL_TOOL,
+    TOOL_MAX_OUTPUT_CHARS,
 )
 from server.domain.events import Event
 from server.providers import responder as r
@@ -39,6 +41,23 @@ def redact_tool_params(tool_params: dict) -> dict:
         else:
             redacted[key] = value
     return redacted
+
+
+_SECRET_PATTERNS = [
+    (
+        re.compile(r"(?:api[_-]?key|token|secret|password|credential)\s*[=:]\s*\S+", re.IGNORECASE),
+        "***",
+    ),
+    (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "***"),
+    (re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{20,}"), "Bearer ***"),
+]
+
+
+def redact_pii(text: str) -> str:
+    """Strip common secret/PII patterns from text before persistence."""
+    for pat, replacement in _SECRET_PATTERNS:
+        text = pat.sub(replacement, text)
+    return text
 
 
 def validate_tool_calls(
@@ -66,10 +85,11 @@ def format_tool_result(
 ) -> str:
     from server.agents.compaction import compact_tool_output
 
+    effective_max = min(max_output, TOOL_MAX_OUTPUT_CHARS)
     status = "SUCCESS" if result.success else "FAILED"
     lines = [f"[Tool: {tool_name} | Status: {status}]"]
     if result.output:
-        compacted, _stats = compact_tool_output(result.output, max_output=max_output)
+        compacted, _stats = compact_tool_output(result.output, max_output=effective_max)
         lines.append(compacted)
     if result.error:
         lines.append(f"Error: {result.error}")
@@ -276,6 +296,25 @@ async def post_execution_hooks(
     tool_name: str, tool_params: dict, result: ToolResult, workspace_root: str, session_id: str
 ) -> list[Event]:
     events: list[Event] = []
+    # Todo mutations carry the full board snapshot in tool metadata; fold it into
+    # a `todo_board` event so the frontend board stays a pure function of events.
+    if tool_name == "todo" and result.success:
+        board = (result.metadata or {}).get("board")
+        if isinstance(board, list):
+            from server.domain.events import Event, EventKind
+
+            action = str((result.metadata or {}).get("action") or "snapshot")
+            events.append(
+                Event(
+                    kind=EventKind.TODO_BOARD,
+                    session_id=session_id,
+                    data={
+                        "action": action,
+                        "board": board,
+                        "message": result.output or "",
+                    },
+                )
+            )
     edited_path = tool_params.get("filepath") or tool_params.get("path") or ""
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:
@@ -292,9 +331,7 @@ async def post_execution_hooks(
             if pitfall:
                 events.append(r.warning(pitfall, session_id, code="SECURITY"))
 
-            lint_result = await run_lint(
-                edited_path, workspace_root, fix=AUTO_LINT_FIX_ENABLED
-            )
+            lint_result = await run_lint(edited_path, workspace_root, fix=AUTO_LINT_FIX_ENABLED)
             if lint_result and (not lint_result.success):
                 lint_msg = format_lint_result(lint_result)
                 if lint_msg:

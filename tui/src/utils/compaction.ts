@@ -1,5 +1,7 @@
 import type {
   CompactionPhase,
+  CompactionStatus,
+  CompactionTrigger,
   ContextCompactionFlowEvent,
   ContextPreservation,
   ScenarioEvent,
@@ -41,6 +43,8 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
   let preserved: ContextPreservation | undefined;
   let summary: string | undefined;
   let failed: boolean | undefined;
+  let trigger: CompactionTrigger | undefined;
+  let status: CompactionStatus | undefined;
   const notes: string[] = [];
 
   for (const evt of present) {
@@ -53,6 +57,8 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
         totalTokens = evt.total;
       }
       if (hasPhaseEvent === false) phase = 'preparing';
+      if (evt.trigger && trigger === undefined) trigger = evt.trigger;
+      if (evt.status) status = evt.status;
     } else if (evt.kind === 'context_compaction_phase') {
       hasPhaseEvent = true;
       sourceId = evt.id;
@@ -60,6 +66,7 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
       if (evt.phase === 'failed') failed = true;
       if (typeof evt.beforeTokens === 'number') beforeTokens = evt.beforeTokens;
       if (typeof evt.afterTokens === 'number') afterTokens = evt.afterTokens;
+      if (evt.trigger && trigger === undefined) trigger = evt.trigger;
     } else if (evt.kind === 'context_compacted') {
       sourceId = evt.id;
       if (!hasPhaseEvent && phase === 'preparing') phase = 'compacting';
@@ -83,6 +90,8 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
         failed = true;
         phase = 'failed';
       }
+      if (evt.trigger && trigger === undefined) trigger = evt.trigger;
+      if (evt.status) status = evt.status;
     }
   }
 
@@ -99,5 +108,7 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
     summary,
     notes,
     failed,
+    trigger,
+    status,
   };
 }

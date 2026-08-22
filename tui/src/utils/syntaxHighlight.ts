@@ -1,4 +1,4 @@
-import { highlight } from 'cli-highlight';
+import { highlight, supportsLanguage } from 'cli-highlight';
 import type { Theme } from '../theme/theme';
 
 /**
@@ -63,7 +63,8 @@ function resolveFgColor(code: number, theme: Theme): string {
 export function highlightCode(source: string, theme: Theme, language?: string): SyntaxSegment[] {
   let ansi: string;
   try {
-    ansi = language ? highlight(source, { language }) : highlight(source);
+    const validLang = language && supportsLanguage(language) ? language : undefined;
+    ansi = validLang ? highlight(source, { language: validLang }) : highlight(source);
   } catch {
     return source ? [{ text: source, color: theme.colors.text.ethereal }] : [];
   }

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
+    DEFAULT_FILE_READ_LINES,
+    MAX_FILE_READ_LINES,
     PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
@@ -11,10 +14,49 @@ from server.config.constants import (
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
 
+_OUTLINE_PATTERN = re.compile(
+    r"^(?:"
+    r"\s*(?:async\s+)?def\s+[A-Za-z_0-9]+"  # Python def / async def
+    r"|\s*class\s+[A-Za-z_0-9]+"  # Python/JS/TS class
+    r"|\s*(?:export\s+)?(?:async\s+)?function\s+[A-Za-z_0-9]+"  # JS/TS function
+    r"|\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z_0-9]+\s*=\s*(?:async\s*)?\("  # JS/TS arrow func
+    r"|\s*(?:export\s+)?(?:interface|type|enum)\s+[A-Za-z_0-9]+"  # TS types/interfaces
+    r"|\s*(?:pub\s+)?(?:fn|struct|enum|impl|trait)\s+[A-Za-z_0-9]+"  # Rust
+    r"|\s*func\s+(?:\([^)]+\)\s+)?[A-Za-z_0-9]+"  # Go func
+    r"|#{1,4}\s+.+"  # Markdown headings
+    r")"
+)
+
+
+def _extract_file_outline(lines: list[str], rel_path: str) -> str:
+    outline_entries: list[str] = []
+    for i, line in enumerate(lines, 1):
+        stripped = line.rstrip()
+        if _OUTLINE_PATTERN.match(stripped):
+            preview = stripped.strip()
+            if len(preview) > 120:
+                preview = preview[:117] + "..."
+            outline_entries.append(f"L{i:4d}: {preview}")
+
+    if not outline_entries:
+        sample_count = min(30, len(lines))
+        return (
+            f"File outline for {rel_path} ({len(lines)} total lines, no explicit class/function symbols detected):\n"
+            + "\n".join(f"L{i:4d}: {lines[i - 1].strip()}" for i in range(1, sample_count + 1))
+        )
+
+    return (
+        f"Symbol outline for {rel_path} ({len(outline_entries)} symbols found across {len(lines)} lines):\n"
+        + "\n".join(outline_entries)
+    )
+
 
 class FileReadTool(BaseTool):
     name = "file_read"
-    description = "Read file contents"
+    description = (
+        "Read file contents by line range or inspect symbol outline. "
+        "Default limit is 250 lines; pass offset to paginate."
+    )
     requires_mode = None
     capability_id = "file_read"
     read_only = True
@@ -28,6 +70,7 @@ class FileReadTool(BaseTool):
         "inspect",
         "open file",
         "contents",
+        "outline",
     )
 
     def get_schema(self) -> dict:
@@ -40,7 +83,16 @@ class FileReadTool(BaseTool):
                     "description": "Start line (0-indexed)",
                     "default": 0,
                 },
-                "limit": {"type": "integer", "description": "Max lines", "default": 2000},
+                "limit": {
+                    "type": "integer",
+                    "description": f"Max lines to read (default {DEFAULT_FILE_READ_LINES}, capped at {MAX_FILE_READ_LINES})",
+                    "default": DEFAULT_FILE_READ_LINES,
+                },
+                "outline": {
+                    "type": "boolean",
+                    "description": "If true, returns file outline/symbols with line numbers instead of full content",
+                    "default": False,
+                },
             },
             "required": ["path"],
         }
@@ -50,23 +102,56 @@ class FileReadTool(BaseTool):
         resolved = validate_path(rel_path, workspace_root)
         if resolved is None:
             return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
-        offset = params.get("offset", 0)
-        limit = params.get("limit", 2000)
         if not resolved.exists():
             return ToolResult(success=False, error=f"File not found: {rel_path}")
         if resolved.is_dir():
             return ToolResult(success=False, error=f"Path is a directory: {rel_path}")
+
         try:
             content = resolved.read_text(encoding="utf-8", errors="replace")
             lines = content.split("\n")
+            total_lines = len(lines)
+
+            if params.get("outline", False):
+                outline_text = _extract_file_outline(lines, rel_path)
+                return ToolResult(
+                    success=True,
+                    output=outline_text,
+                    metadata={
+                        "total_lines": total_lines,
+                        "outline": True,
+                        "path": str(resolved),
+                    },
+                )
+
+            offset = max(0, int(params.get("offset", 0)))
+            raw_limit = params.get("limit")
+            limit = (
+                min(int(raw_limit), MAX_FILE_READ_LINES)
+                if raw_limit is not None
+                else DEFAULT_FILE_READ_LINES
+            )
+
             selected = lines[offset : offset + limit]
-            numbered = "\n".join((f"{i + offset + 1}: {line}" for i, line in enumerate(selected)))
+            numbered = "\n".join(f"{i + offset + 1}: {line}" for i, line in enumerate(selected))
+
+            truncated = (offset + len(selected)) < total_lines
+            if truncated:
+                next_offset = offset + len(selected)
+                notice = (
+                    f"\n\n... (Showing lines {offset + 1}-{next_offset} of {total_lines} total lines. "
+                    f"To read further, pass offset={next_offset}) ..."
+                )
+                numbered += notice
+
             return ToolResult(
                 success=True,
                 output=numbered,
                 metadata={
-                    "total_lines": len(lines),
+                    "total_lines": total_lines,
                     "showing": len(selected),
+                    "offset": offset,
+                    "truncated": truncated,
                     "path": str(resolved),
                 },
             )

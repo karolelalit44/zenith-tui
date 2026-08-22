@@ -97,8 +97,18 @@ export const commandRegistry: CommandDef[] = [
     id: 'clear',
     slash: '/clear',
     title: '/clear',
-    description: 'Clear conversation history and free up context',
+    description: 'Clear conversation and start a new chat',
     category: 'Session',
+    keywords: ['new', 'reset', 'fresh', 'chat', 'session', 'clear'],
+    run: (ctx) => ctx.clearTurns(),
+  },
+  {
+    id: 'new',
+    slash: '/new',
+    title: '/new',
+    description: 'Start a new chat session',
+    category: 'Session',
+    keywords: ['clear', 'reset', 'fresh', 'chat', 'session', 'new'],
     run: (ctx) => ctx.clearTurns(),
   },
   {
@@ -168,9 +178,17 @@ export const commandRegistry: CommandDef[] = [
   {
     id: 'clear_conversation',
     title: 'Clear conversation',
-    description: 'Reset the conversation history',
+    description: 'Reset conversation and start a new chat',
     category: 'Session',
     keybind: 'clear_turns',
+    run: (ctx) => ctx.clearTurns(),
+  },
+  {
+    id: 'new_chat',
+    title: 'New chat',
+    description: 'Start a new chat session',
+    category: 'Session',
+    keywords: ['clear', 'reset', 'fresh', 'session'],
     run: (ctx) => ctx.clearTurns(),
   },
   {

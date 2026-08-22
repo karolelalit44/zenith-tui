@@ -4,7 +4,6 @@ from difflib import SequenceMatcher, unified_diff
 from typing import Any
 
 from server.config.constants import (
-    BUILD_MODE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     FUZZY_THRESHOLD,
     PERMISSION_WRITE,
@@ -59,7 +58,7 @@ def _fuzzy_find(content: str, old: str) -> tuple[str, float] | None:
 class FileEditTool(BaseTool):
     name = "file_edit"
     description = "Edit file via search-replace"
-    requires_mode = BUILD_MODE
+    requires_mode = None
     capability_id = "file_edit"
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION

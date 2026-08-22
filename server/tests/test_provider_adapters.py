@@ -54,23 +54,28 @@ def test_detect_model_tier_unknown_defaults_to_flagship():
 def test_get_tier_prompt_enhancements():
     compact_rules = get_tier_prompt_enhancements(ModelTier.COMPACT)
     assert "<compact_model_rules>" in compact_rules
-    assert "NEVER output chat preambles" in compact_rules
+    assert "Compact model rules" in compact_rules
+    assert "no chat preambles" in compact_rules
     reasoning_rules = get_tier_prompt_enhancements(ModelTier.REASONING)
     assert "<reasoning_model_rules>" in reasoning_rules
     flagship_rules = get_tier_prompt_enhancements(ModelTier.FLAGSHIP)
     assert "<flagship_model_rules>" in flagship_rules
 
 
-def test_compact_rules_include_anti_loop_rules():
+def test_compact_rules_live_in_reference_file():
+    from server.agents.prompts import TOOL_GUIDELINES_CONTENT
+
     rules = get_tier_prompt_enhancements(ModelTier.COMPACT)
-    assert "Never call a tool twice with identical parameters in one turn" in rules
-    assert "Never write the same file path twice in one turn" in rules
-    assert "output ONLY your final summary text and stop" in rules
-    assert "A tool call that already succeeded this turn will be skipped" in rules
+    assert "file_read the tool reference file" in rules
+    assert "NEVER output chat preambles" in TOOL_GUIDELINES_CONTENT
+    assert "Avoid redundant identical tool calls" in TOOL_GUIDELINES_CONTENT
+    assert "Do not repeat a tool action without a reason" in TOOL_GUIDELINES_CONTENT
+    assert "stop issuing tools" in TOOL_GUIDELINES_CONTENT
+    assert "A tool call that already succeeded this turn will be skipped" in TOOL_GUIDELINES_CONTENT
 
 
 def test_large_model_rules_include_short_anti_loop_variant():
     for tier in (ModelTier.FLAGSHIP, ModelTier.REASONING):
         rules = get_tier_prompt_enhancements(tier)
-        assert "Never call a tool twice with identical parameters in one turn" in rules
+        assert "Avoid redundant identical tool calls" in rules
         assert "final summary" in rules

@@ -11,6 +11,7 @@ from server.domain.message import Message
 from server.domain.session import Session
 
 from ..connection import Database
+from ..crypto import decrypt_text, encrypt_text
 from ..models import MessageRecord, SessionRecord
 from ..safe import safe_db
 from .base import _iso
@@ -33,7 +34,7 @@ class SessionRepository:
                     updated_at=session.updated_at.isoformat(),
                     workspace_root=session.workspace_root,
                     is_active=session.is_active,
-                    metadata_json=json.dumps(session.metadata),
+                    metadata_json=encrypt_text(json.dumps(session.metadata)),
                     parent_session_id=session.parent_session_id,
                     plan_output=session.plan_output,
                     plan_approved_at=_iso(session.plan_approved_at),
@@ -67,7 +68,7 @@ class SessionRepository:
             updated_at=datetime.fromisoformat(r.updated_at),
             workspace_root=r.workspace_root,
             is_active=bool(r.is_active),
-            metadata=json.loads(r.metadata_json or "{}"),
+            metadata=json.loads(decrypt_text(r.metadata_json or "{}")),
             parent_session_id=r.parent_session_id,
             plan_output=r.plan_output or "",
             plan_approved_at=datetime.fromisoformat(r.plan_approved_at)
@@ -93,6 +94,56 @@ class SessionRepository:
         async with self.db.session() as s:
             rec = await s.get(SessionRecord, session_id)
             return self._record_to_session(rec) if rec else None
+
+    @safe_db("set_session_model", table="sessions")
+    async def set_model(self, session_id: str, model: str | None) -> bool:
+        """Targeted update of the model column (no whole-record rewrite)."""
+        async with self.db.session() as s:
+            result = await s.execute(
+                update(SessionRecord)
+                .where(SessionRecord.id == session_id)
+                .values(model=model, updated_at=datetime.now().isoformat())
+            )
+            await s.commit()
+            return result.rowcount > 0
+
+    @safe_db("merge_session_metadata", table="sessions")
+    async def merge_metadata(self, session_id: str, updates: dict) -> dict | None:
+        """Merge ``updates`` into the persisted metadata of one session.
+
+        The read-modify-write touches ONLY the metadata column and happens
+        inside a single transaction with no intervening awaits, so concurrent
+        writers of other fields (token counters, model overrides) can no
+        longer be clobbered by a stale whole-record update. Returns the new
+        merged mapping, or None when the session does not exist.
+        """
+        if not updates:
+            return await self.get_metadata(session_id)
+        async with self.db.session() as s:
+            rec = await s.get(SessionRecord, session_id)
+            if rec is None:
+                return None
+            try:
+                current = json.loads(decrypt_text(rec.metadata_json or "{}"))
+            except Exception:
+                current = {}
+            if not isinstance(current, dict):
+                current = {}
+            current.update(updates)
+            rec.metadata_json = encrypt_text(json.dumps(current))
+            await s.commit()
+            return current
+
+    @safe_db("get_session_metadata", table="sessions")
+    async def get_metadata(self, session_id: str) -> dict | None:
+        async with self.db.session() as s:
+            rec = await s.get(SessionRecord, session_id)
+            if rec is None:
+                return None
+            try:
+                return json.loads(decrypt_text(rec.metadata_json or "{}"))
+            except Exception:
+                return {}
 
     @safe_db("list_sessions", table="sessions")
     async def list_active(self) -> list[Session]:
@@ -130,6 +181,8 @@ class SessionRepository:
         async with self.db.session() as s:
             rows = (await s.execute(stmt)).scalars().all()
             return [self._record_to_session(r) for r in rows]
+
+    list = list_all
 
     @safe_db("list_sessions", table="sessions")
     async def get_summaries(self, limit: int = 10, include_archived: bool = False) -> list[dict]:
@@ -184,7 +237,7 @@ class SessionRepository:
             rec.state = session.state.value if hasattr(session.state, "value") else session.state
             rec.updated_at = session.updated_at.isoformat()
             rec.is_active = session.is_active
-            rec.metadata_json = json.dumps(session.metadata)
+            rec.metadata_json = encrypt_text(json.dumps(session.metadata))
             rec.parent_session_id = session.parent_session_id
             rec.plan_output = session.plan_output
             rec.plan_approved_at = _iso(session.plan_approved_at)
@@ -225,7 +278,7 @@ class SessionRepository:
                 updated_at=datetime.fromisoformat(rec.updated_at),
                 workspace_root=rec.workspace_root,
                 is_active=bool(rec.is_active),
-                metadata=json.loads(rec.metadata_json or "{}"),
+                metadata=json.loads(decrypt_text(rec.metadata_json or "{}")),
                 parent_session_id=rec.parent_session_id,
                 state=SessionState(rec.state or "created"),
                 plan_output=rec.plan_output or "",
@@ -263,11 +316,11 @@ class MessageRepository:
                     id=message.id,
                     session_id=message.session_id,
                     role=message.role,
-                    content=message.content,
+                    content=encrypt_text(message.content),
                     events_json=json.dumps(event_dicts),
                     token_count=message.token_count,
                     created_at=message.created_at.isoformat(),
-                    metadata_json=json.dumps(message.metadata),
+                    metadata_json=encrypt_text(json.dumps(message.metadata)),
                 )
             )
             srec = await s.get(SessionRecord, message.session_id)
@@ -277,6 +330,8 @@ class MessageRepository:
                 srec.updated_at = datetime.now().isoformat()
             await s.commit()
         return message
+
+    append = create
 
     @safe_db("get_messages", table="messages")
     async def get_by_session(self, session_id: str, limit: int = 50) -> list[Message]:
@@ -302,11 +357,11 @@ class MessageRepository:
                     id=r.id,
                     session_id=r.session_id,
                     role=r.role,
-                    content=r.content,
+                    content=decrypt_text(r.content),
                     events=events,
                     token_count=r.token_count,
                     created_at=datetime.fromisoformat(r.created_at),
-                    metadata=json.loads(r.metadata_json or "{}"),
+                    metadata=json.loads(decrypt_text(r.metadata_json or "{}")),
                 )
             )
         return messages
@@ -328,6 +383,34 @@ class MessageRepository:
         async with self.db.session() as s:
             await s.execute(delete(MessageRecord).where(MessageRecord.session_id == session_id))
             await s.commit()
+
+    @safe_db("compact_history", table="messages")
+    async def compact_history(self, session_id: str, metadata: dict, delete_ids: list[str]) -> int:
+        """Atomic compaction primitive: persist the new summary and truncate the
+        summarized prefix in one transaction.
+
+        Only the messages whose ids are listed (the prefix represented by the
+        summary) are removed; the recent tail survives. A failure rolls back both
+        writes, so the conversation is never left truncated without its summary.
+        """
+        async with self.db.session() as s:
+            rec = await s.get(SessionRecord, session_id)
+            if rec is None:
+                return 0
+            deleted = 0
+            if delete_ids:
+                result = await s.execute(
+                    delete(MessageRecord).where(
+                        MessageRecord.session_id == session_id,
+                        MessageRecord.id.in_(delete_ids),
+                    )
+                )
+                deleted = result.rowcount or 0
+            # The summary/metadata are stored encrypted-at-rest like all other
+            # session metadata; the raw prefix messages are simply removed.
+            rec.metadata_json = encrypt_text(json.dumps(metadata))
+            await s.commit()
+            return deleted
 
     @safe_db("delete_messages", table="messages")
     async def delete_tool_results(self, session_id: str) -> int:

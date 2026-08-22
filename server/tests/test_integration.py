@@ -104,7 +104,7 @@ class TestAgentWorkflow:
             "file_write", {"path": "x", "content": "y"}, ".", mode="plan"
         )
         assert not result.success
-        assert "not available" in result.error
+        assert "only allows writing plan.md or todo.md" in result.error
 
     class _PostCompletionProvider(BaseProvider):
         def __init__(self):
@@ -450,9 +450,7 @@ class TestRepeatedCallTermination:
             "No new tool was executed this iteration" in (e.data.get("message") or "")
             for e in warnings
         ), "a final summary with a stray repeated call must be accepted as completion, not stalled"
-        manifests = [
-            e for e in events if e.kind == EventKind.TURN_MANIFEST
-        ]
+        manifests = [e for e in events if e.kind == EventKind.TURN_MANIFEST]
         assert manifests, "a completed turn must emit a turn_manifest"
         final_manifest = manifests[-1].data
         assert final_manifest.get("completed") is True, "the turn must report completed"
@@ -993,6 +991,71 @@ class TestStallGuard:
         # The graceful stall summary must list what was written.
         success = [e for e in events if e.kind == EventKind.SUCCESS]
         assert success and "Stopped after" in (success[0].data.get("message") or "")
+
+    class _RecoveringProvider(BaseProvider):
+        """Re-writes the same path (blocked), then verifies the written file and
+        produces a final summary. The path-stuck detector must NOT finalize while
+        the model is still making new progress."""
+
+        def __init__(self):
+            super().__init__("recover", "recover-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            n = self.call_count
+            if n == 1:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "artifact/README.md", '
+                    '"content": "Artifacts"}}\n```'
+                )
+            if n == 2:
+                return (
+                    '```tool\n{"tool": "file_write", "params": {"path": "artifact/README.md", '
+                    '"content": "Artifacts"}}\n'
+                    '{"tool": "file_write", "params": {"path": "artifact/README.md", '
+                    '"content": "Artifacts"}}\n```'
+                )
+            if n == 3:
+                return (
+                    '```tool\n{"tool": "file_read", "params": {"path": "artifact/README.md"}}\n```'
+                )
+            return "Done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self):
+            return True
+
+        async def list_models(self):
+            return ["recover-model"]
+
+    @pytest.mark.asyncio
+    async def test_new_progress_after_blocked_rewrites_is_not_stalled(self, test_config):
+        root = Path(test_config.workspace_root)
+        agent = AgentLoop(
+            test_config,
+            self._RecoveringProvider(),
+            tool_registry=create_default_registry(),
+        )
+        events = []
+        async for event in agent.process_prompt("Create the artifact folder", "s1", [], "build"):
+            events.append(event)
+        assert (root / "artifact" / "README.md").read_text(encoding="utf-8") == "Artifacts"
+        warnings = [e for e in events if e.kind == EventKind.WARNING]
+        assert not any("kept re-writing" in (e.data.get("message") or "") for e in warnings), (
+            "moving on to a new tool must not trigger the path-stuck finalize"
+        )
+        assert events[-1].kind == EventKind.SUCCESS
+        assert not any(e.kind == EventKind.ERROR for e in events)
+        success = [e for e in events if e.kind == EventKind.SUCCESS]
+        manifest = success[0].data.get("manifest") or {}
+        assert manifest.get("completed") is True, manifest
+        assert manifest.get("remaining") == [], manifest
+        assert manifest.get("verified") is True, manifest
 
 
 class TestErrorRecovery:

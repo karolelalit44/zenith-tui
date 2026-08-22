@@ -203,7 +203,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         return;
       }
 
-      const isTerminalEvent = (kind === 'success' && typeof data?.iterations === 'number') || kind === 'error';
+      const isTerminalEvent = (kind === 'success' && !data?.tool) || kind === 'error';
 
       if (isTerminalEvent && partialMessageIndex !== null) {
         onEvent(
@@ -258,13 +258,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       lastEventKind = kind;
 
-      let isTerminal = false;
-      if (kind === 'success') {
-        const hasIterations = typeof data?.iterations === 'number';
-        isTerminal = hasIterations;
-      } else if (kind === 'error') {
-        isTerminal = true;
-      }
+      const isTerminal = (kind === 'success' && !data?.tool) || kind === 'error';
 
       if (isTerminal) {
         finalize();

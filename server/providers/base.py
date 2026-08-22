@@ -5,7 +5,11 @@ from collections.abc import AsyncIterator
 
 from pydantic import BaseModel, Field
 
-from server.config.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
+from server.config.constants import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TEMPERATURE,
+)
 from server.domain.domain import FinishReason
 from server.domain.message import ToolCall
 

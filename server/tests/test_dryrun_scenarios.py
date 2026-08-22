@@ -7,15 +7,18 @@ from typing import Any
 
 import pytest
 
-from server.agents.compaction import compact_tool_output, head_tail_trim
+from server.agents.compaction import (
+    _find_compaction_cut,
+    _find_compaction_cut_budgeted,
+    _group_start,
+    compact_tool_output,
+    head_tail_trim,
+)
 from server.agents.loop import (
     AgentLoop,
     _all_calls_repeat,
     _build_manifest,
     _call_signature,
-    _find_compaction_cut,
-    _find_compaction_cut_budgeted,
-    _group_start,
     _has_verification_evidence,
     _most_common_count,
     _params_label,
@@ -43,12 +46,10 @@ from server.toolkit.executor import (
     validate_tool_rejection,
 )
 
-
-_PY = ("python" if " " in sys.executable else sys.executable.replace("\\", "/"))
+_PY = "python" if " " in sys.executable else sys.executable.replace("\\", "/")
 
 
 class _DryRunProvider(BaseProvider):
-
     def __init__(self, scripts, name="dryrun", model="test-model"):
         super().__init__(name, model)
         self.scripts = list(scripts)
@@ -175,13 +176,42 @@ SCENARIOS: list[dict] = [
         "prompt": "Say hello",
         "scripts": ["Hello there!"],
         "checks": [
-            ("exactly one full message", lambda e, p, c: _require(e, "message count", len(_full_messages(e)) == 1)),
-            ("message text matches", lambda e, p, c: _require(e, "text", _full_messages(e)[0] == "Hello there!")),
-            ("no tool events", lambda e, p, c: _require(e, "no tools", not any(x.kind in (EventKind.TOOL_CALL, EventKind.TOOL_RESULT) for x in e))),
-            ("manifest completed", lambda e, p, c: _require(e, "manifest", bool(_manifests(e) and _manifests(e)[-1].get("completed") is True))),
-            ("manifest not stalled", lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is False)),
-            ("no created files", lambda e, p, c: _require(e, "created", _manifests(e)[-1].get("created") == [])),
-            ("terminal success only", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "exactly one full message",
+                lambda e, p, c: _require(e, "message count", len(_full_messages(e)) == 1),
+            ),
+            (
+                "message text matches",
+                lambda e, p, c: _require(e, "text", _full_messages(e)[0] == "Hello there!"),
+            ),
+            (
+                "no tool events",
+                lambda e, p, c: _require(
+                    e,
+                    "no tools",
+                    not any(x.kind in (EventKind.TOOL_CALL, EventKind.TOOL_RESULT) for x in e),
+                ),
+            ),
+            (
+                "manifest completed",
+                lambda e, p, c: _require(
+                    e,
+                    "manifest",
+                    bool(_manifests(e) and _manifests(e)[-1].get("completed") is True),
+                ),
+            ),
+            (
+                "manifest not stalled",
+                lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is False),
+            ),
+            (
+                "no created files",
+                lambda e, p, c: _require(e, "created", _manifests(e)[-1].get("created") == []),
+            ),
+            (
+                "terminal success only",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
         ],
     },
@@ -193,12 +223,58 @@ SCENARIOS: list[dict] = [
             "Done.",
         ],
         "checks": [
-            ("file created with content", lambda e, p, c: _require(e, "content", (Path(c.workspace_root) / "out.txt").read_text(encoding="utf-8") == "hello")),
-            ("one tool_call for file_write", lambda e, p, c: _require(e, "calls", sum(1 for x in e if x.kind == EventKind.TOOL_CALL and x.data.get("tool") == "file_write") == 1)),
-            ("one successful tool_result", lambda e, p, c: _require(e, "results", sum(1 for x in e if x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "file_write" and x.data.get("success")) == 1)),
-            ("manifest created lists file", lambda e, p, c: _require(e, "created", "out.txt" in _manifests(e)[-1].get("created", []))),
-            ("manifest files exists", lambda e, p, c: _require(e, "files", _manifests(e)[-1].get("files", [{}])[0].get("exists") is True)),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "file created with content",
+                lambda e, p, c: _require(
+                    e,
+                    "content",
+                    (Path(c.workspace_root) / "out.txt").read_text(encoding="utf-8") == "hello",
+                ),
+            ),
+            (
+                "one tool_call for file_write",
+                lambda e, p, c: _require(
+                    e,
+                    "calls",
+                    sum(
+                        1
+                        for x in e
+                        if x.kind == EventKind.TOOL_CALL and x.data.get("tool") == "file_write"
+                    )
+                    == 1,
+                ),
+            ),
+            (
+                "one successful tool_result",
+                lambda e, p, c: _require(
+                    e,
+                    "results",
+                    sum(
+                        1
+                        for x in e
+                        if x.kind == EventKind.TOOL_RESULT
+                        and x.data.get("tool") == "file_write"
+                        and x.data.get("success")
+                    )
+                    == 1,
+                ),
+            ),
+            (
+                "manifest created lists file",
+                lambda e, p, c: _require(
+                    e, "created", "out.txt" in _manifests(e)[-1].get("created", [])
+                ),
+            ),
+            (
+                "manifest files exists",
+                lambda e, p, c: _require(
+                    e, "files", _manifests(e)[-1].get("files", [{}])[0].get("exists") is True
+                ),
+            ),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
         ],
     },
@@ -210,10 +286,32 @@ SCENARIOS: list[dict] = [
             "The file is missing, nothing to do.",
         ],
         "checks": [
-            ("failed tool_result emitted", lambda e, p, c: _require(e, "result", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "file_read" and x.data.get("success") is False for x in e))),
-            ("no REFLECTION_LIMIT", lambda e, p, c: _require(e, "limit", not any((x.data.get("code") or "") == "REFLECTION_LIMIT" for x in _errors(e)))),
+            (
+                "failed tool_result emitted",
+                lambda e, p, c: _require(
+                    e,
+                    "result",
+                    any(
+                        x.kind == EventKind.TOOL_RESULT
+                        and x.data.get("tool") == "file_read"
+                        and x.data.get("success") is False
+                        for x in e
+                    ),
+                ),
+            ),
+            (
+                "no REFLECTION_LIMIT",
+                lambda e, p, c: _require(
+                    e,
+                    "limit",
+                    not any((x.data.get("code") or "") == "REFLECTION_LIMIT" for x in _errors(e)),
+                ),
+            ),
             ("no errors at all", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -224,10 +322,27 @@ SCENARIOS: list[dict] = [
             "All set.",
         ],
         "checks": [
-            ("hallucinated warning once", lambda e, p, c: _require(e, "warning", sum(1 for m in _warnings(e) if "Hallucinated tools ignored" in m) == 1)),
-            ("nothing executed", lambda e, p, c: _require(e, "executed", not any(x.kind in (EventKind.TOOL_CALL, EventKind.TOOL_RESULT) for x in e))),
+            (
+                "hallucinated warning once",
+                lambda e, p, c: _require(
+                    e,
+                    "warning",
+                    sum(1 for m in _warnings(e) if "Hallucinated tools ignored" in m) == 1,
+                ),
+            ),
+            (
+                "nothing executed",
+                lambda e, p, c: _require(
+                    e,
+                    "executed",
+                    not any(x.kind in (EventKind.TOOL_CALL, EventKind.TOOL_RESULT) for x in e),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -240,12 +355,36 @@ SCENARIOS: list[dict] = [
             "Ok, leaving it as is.",
         ],
         "checks": [
-            ("overwrite warning once", lambda e, p, c: _require(e, "warning", sum(1 for m in _warnings(e) if "File overwrite denied" in m) == 1)),
-            ("file unchanged", lambda e, p, c: _require(e, "content", (Path(c.workspace_root) / "existing.txt").read_text(encoding="utf-8") == "original")),
-            ("nothing executed", lambda e, p, c: _require(e, "executed", not any(x.kind == EventKind.TOOL_CALL for x in e))),
-            ("manifest created empty", lambda e, p, c: _require(e, "created", _manifests(e)[-1].get("created") == [])),
+            (
+                "overwrite warning once",
+                lambda e, p, c: _require(
+                    e, "warning", sum(1 for m in _warnings(e) if "File overwrite denied" in m) == 1
+                ),
+            ),
+            (
+                "file unchanged",
+                lambda e, p, c: _require(
+                    e,
+                    "content",
+                    (Path(c.workspace_root) / "existing.txt").read_text(encoding="utf-8")
+                    == "original",
+                ),
+            ),
+            (
+                "nothing executed",
+                lambda e, p, c: _require(
+                    e, "executed", not any(x.kind == EventKind.TOOL_CALL for x in e)
+                ),
+            ),
+            (
+                "manifest created empty",
+                lambda e, p, c: _require(e, "created", _manifests(e)[-1].get("created") == []),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -257,10 +396,27 @@ SCENARIOS: list[dict] = [
             "Fine, skipped.",
         ],
         "checks": [
-            ("command denied warning once", lambda e, p, c: _require(e, "warning", sum(1 for m in _warnings(e) if "Command denied" in m) == 1)),
-            ("no bash executed", lambda e, p, c: _require(e, "bash", not any(x.kind == EventKind.TOOL_CALL and x.data.get("tool") == "bash" for x in e))),
+            (
+                "command denied warning once",
+                lambda e, p, c: _require(
+                    e, "warning", sum(1 for m in _warnings(e) if "Command denied" in m) == 1
+                ),
+            ),
+            (
+                "no bash executed",
+                lambda e, p, c: _require(
+                    e,
+                    "bash",
+                    not any(
+                        x.kind == EventKind.TOOL_CALL and x.data.get("tool") == "bash" for x in e
+                    ),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -273,11 +429,29 @@ SCENARIOS: list[dict] = [
             "Ok.",
         ],
         "checks": [
-            ("delete denied warning once", lambda e, p, c: _require(e, "warning", sum(1 for m in _warnings(e) if "File delete denied" in m) == 1)),
-            ("file survives", lambda e, p, c: _require(e, "file", (Path(c.workspace_root) / "victim.txt").exists())),
-            ("nothing executed", lambda e, p, c: _require(e, "executed", not any(x.kind == EventKind.TOOL_CALL for x in e))),
+            (
+                "delete denied warning once",
+                lambda e, p, c: _require(
+                    e, "warning", sum(1 for m in _warnings(e) if "File delete denied" in m) == 1
+                ),
+            ),
+            (
+                "file survives",
+                lambda e, p, c: _require(
+                    e, "file", (Path(c.workspace_root) / "victim.txt").exists()
+                ),
+            ),
+            (
+                "nothing executed",
+                lambda e, p, c: _require(
+                    e, "executed", not any(x.kind == EventKind.TOOL_CALL for x in e)
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -288,30 +462,98 @@ SCENARIOS: list[dict] = [
             "Done.",
         ],
         "checks": [
-            ("first write wins", lambda e, p, c: _require(e, "content", (Path(c.workspace_root) / "a.txt").read_text(encoding="utf-8") == "v1")),
-            ("rewrite blocked warning", lambda e, p, c: _require(e, "warning", _has_warning(e, "File rewrite blocked"))),
-            ("only one execution", lambda e, p, c: _require(e, "executed", sum(1 for x in e if x.kind == EventKind.TOOL_CALL and x.data.get("tool") == "file_write") == 1)),
+            (
+                "first write wins",
+                lambda e, p, c: _require(
+                    e,
+                    "content",
+                    (Path(c.workspace_root) / "a.txt").read_text(encoding="utf-8") == "v1",
+                ),
+            ),
+            (
+                "rewrite blocked warning",
+                lambda e, p, c: _require(e, "warning", _has_warning(e, "File rewrite blocked")),
+            ),
+            (
+                "only one execution",
+                lambda e, p, c: _require(
+                    e,
+                    "executed",
+                    sum(
+                        1
+                        for x in e
+                        if x.kind == EventKind.TOOL_CALL and x.data.get("tool") == "file_write"
+                    )
+                    == 1,
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
         "name": "S09_stall_finalize",
         "desc": "Repeated identical call: executes once, warns once each, finalizes with stalled manifest.",
         "scripts": [
-            ("Done. The file has been created successfully.\n```tool\n"
-            '{"tool": "file_read", "params": {"path": "test.txt"}}\n```')
+            (
+                "Done. The file has been created successfully.\n```tool\n"
+                '{"tool": "file_read", "params": {"path": "test.txt"}}\n```'
+            )
         ],
         "checks": [
             ("bounded calls", lambda e, p, c: _require(e, "calls", p.call_count <= 3)),
-            ("skip warning exactly once", lambda e, p, c: _require(e, "skip", sum(1 for m in _warnings(e) if "Skipped calls already completed" in m) == 1)),
-            ("stall guidance once", lambda e, p, c: _require(e, "stall", sum(1 for m in _warnings(e) if "No new tool was executed this iteration" in m) == 1)),
-            ("finalize warning once", lambda e, p, c: _require(e, "finalize", sum(1 for m in _warnings(e) if "No new tool work for several consecutive iterations" in m) == 1)),
-            ("manifest stalled", lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is True)),
-            ("manifest remaining", lambda e, p, c: _require(e, "remaining", bool(_manifests(e)[-1].get("remaining")))),
-            ("final answer once", lambda e, p, c: _require(e, "answer", len([t for t in _full_messages(e) if t.startswith("Done.")]) == 1)),
+            (
+                "skip warning exactly once",
+                lambda e, p, c: _require(
+                    e,
+                    "skip",
+                    sum(1 for m in _warnings(e) if "Skipped calls already completed" in m) == 1,
+                ),
+            ),
+            (
+                "stall guidance once",
+                lambda e, p, c: _require(
+                    e,
+                    "stall",
+                    sum(1 for m in _warnings(e) if "No new tool was executed this iteration" in m)
+                    == 1,
+                ),
+            ),
+            (
+                "finalize warning once",
+                lambda e, p, c: _require(
+                    e,
+                    "finalize",
+                    sum(
+                        1
+                        for m in _warnings(e)
+                        if "No new tool work for several consecutive iterations" in m
+                    )
+                    == 1,
+                ),
+            ),
+            (
+                "manifest stalled",
+                lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is True),
+            ),
+            (
+                "manifest remaining",
+                lambda e, p, c: _require(e, "remaining", bool(_manifests(e)[-1].get("remaining"))),
+            ),
+            (
+                "final answer once",
+                lambda e, p, c: _require(
+                    e, "answer", len([t for t in _full_messages(e) if t.startswith("Done.")]) == 1
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -320,22 +562,78 @@ SCENARIOS: list[dict] = [
         "scripts": [""],
         "skip_invariants": True,
         "checks": [
-            ("EMPTY_RESPONSE error present", lambda e, p, c: _require(e, "code", any((x.data.get("code") or "") == "EMPTY_RESPONSE" for x in _errors(e)))),
-            ("error is recoverable+retry", lambda e, p, c: _require(e, "meta", all(x.data.get("recoverable") is True and x.data.get("action") == "retry" for x in _errors(e) if (x.data.get("code") or "") == "EMPTY_RESPONSE"))),
-            ("no success banner", lambda e, p, c: _require(e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e))),
-            ("terminal event is the error", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.ERROR)),
+            (
+                "EMPTY_RESPONSE error present",
+                lambda e, p, c: _require(
+                    e,
+                    "code",
+                    any((x.data.get("code") or "") == "EMPTY_RESPONSE" for x in _errors(e)),
+                ),
+            ),
+            (
+                "error is recoverable+retry",
+                lambda e, p, c: _require(
+                    e,
+                    "meta",
+                    all(
+                        x.data.get("recoverable") is True and x.data.get("action") == "retry"
+                        for x in _errors(e)
+                        if (x.data.get("code") or "") == "EMPTY_RESPONSE"
+                    ),
+                ),
+            ),
+            (
+                "no success banner",
+                lambda e, p, c: _require(
+                    e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e)
+                ),
+            ),
+            (
+                "terminal event is the error",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.ERROR),
+            ),
         ],
     },
     {
         "name": "S11_provider_rate_limit",
         "desc": "A provider rate-limit error surfaces RATE_LIMIT, never a success banner.",
-        "scripts": [{"raise": RateLimitError("daily quota", provider="dryrun", retry_after=3600, recoverable=False)}],
+        "scripts": [
+            {
+                "raise": RateLimitError(
+                    "daily quota", provider="dryrun", retry_after=3600, recoverable=False
+                )
+            }
+        ],
         "skip_invariants": True,
         "checks": [
-            ("RATE_LIMIT error present", lambda e, p, c: _require(e, "code", any((x.data.get("code") or "") == "RATE_LIMIT" for x in _errors(e)))),
-            ("no EMPTY_RESPONSE", lambda e, p, c: _require(e, "empty", not any((x.data.get("code") or "") == "EMPTY_RESPONSE" for x in _errors(e)))),
-            ("no success banner", lambda e, p, c: _require(e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e))),
-            ("terminal event is the error", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.ERROR)),
+            (
+                "RATE_LIMIT error present",
+                lambda e, p, c: _require(
+                    e, "code", any((x.data.get("code") or "") == "RATE_LIMIT" for x in _errors(e))
+                ),
+            ),
+            (
+                "no EMPTY_RESPONSE",
+                lambda e, p, c: _require(
+                    e,
+                    "empty",
+                    not any((x.data.get("code") or "") == "EMPTY_RESPONSE" for x in _errors(e)),
+                ),
+            ),
+            (
+                "no success banner",
+                lambda e, p, c: _require(
+                    e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e)
+                ),
+            ),
+            (
+                "turn_manifest emitted",
+                lambda e, p, c: _require(e, "manifest", bool(_manifests(e))),
+            ),
+            (
+                "error present",
+                lambda e, p, c: _require(e, "error", any(x.kind == EventKind.ERROR for x in e)),
+            ),
         ],
     },
     {
@@ -347,15 +645,32 @@ SCENARIOS: list[dict] = [
             "Done.",
         ],
         "checks": [
-            ("tool executed on following turn", lambda e, p, c: _require(e, "content", (Path(c.workspace_root) / "len.txt").read_text(encoding="utf-8") == "ok")),
-            ("no LENGTH_EXCEEDED", lambda e, p, c: _require(e, "length", not any((x.data.get("code") or "") == "LENGTH_EXCEEDED" for x in _errors(e)))),
+            (
+                "tool executed on following turn",
+                lambda e, p, c: _require(
+                    e,
+                    "content",
+                    (Path(c.workspace_root) / "len.txt").read_text(encoding="utf-8") == "ok",
+                ),
+            ),
+            (
+                "no LENGTH_EXCEEDED",
+                lambda e, p, c: _require(
+                    e,
+                    "length",
+                    not any((x.data.get("code") or "") == "LENGTH_EXCEEDED" for x in _errors(e)),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
-        "name": "S13_plan_mode_read_only",
-        "desc": "Plan mode: write tools are not offered; a direct write call cannot create files.",
+        "name": "S13_plan_mode_write_boundary",
+        "desc": "Plan mode: writes are offered but restricted to plan.md/todo.md; a source write is blocked by the plan guard.",
         "mode": "plan",
         "prompt": "Analyze the project",
         "scripts": [
@@ -363,12 +678,40 @@ SCENARIOS: list[dict] = [
             "Plan complete.",
         ],
         "checks": [
-            ("no file created", lambda e, p, c: _require(e, "file", not (Path(c.workspace_root) / "p.txt").exists())),
-            ("file_write not offered", lambda e, p, c: _require(e, "offered", p.offered_tools is not None and "file_write" not in p.offered_tools)),
-            ("read tools offered", lambda e, p, c: _require(e, "read", "file_read" in (p.offered_tools or []))),
-            ("write call blocked by mode gate", lambda e, p, c: _require(e, "gated", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "file_write" and x.data.get("success") is False for x in e))),
+            (
+                "no file created",
+                lambda e, p, c: _require(
+                    e, "file", not (Path(c.workspace_root) / "p.txt").exists()
+                ),
+            ),
+            (
+                "file_write offered",
+                lambda e, p, c: _require(
+                    e, "offered", p.offered_tools is not None and "file_write" in p.offered_tools
+                ),
+            ),
+            (
+                "read tools offered",
+                lambda e, p, c: _require(e, "read", "file_read" in (p.offered_tools or [])),
+            ),
+            (
+                "write call blocked by plan guard",
+                lambda e, p, c: _require(
+                    e,
+                    "gated",
+                    any(
+                        x.kind == EventKind.TOOL_RESULT
+                        and x.data.get("tool") == "file_write"
+                        and x.data.get("success") is False
+                        for x in e
+                    ),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -379,10 +722,33 @@ SCENARIOS: list[dict] = [
             "Ok, file did not exist.",
         ],
         "checks": [
-            ("multi_edit executed", lambda e, p, c: _require(e, "executed", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "multi_edit" for x in e))),
-            ("no hallucinated warning for multi_edit", lambda e, p, c: _require(e, "hallucinated", not any("Hallucinated tools ignored" in m and "multi_edit" in m for m in _warnings(e)))),
+            (
+                "multi_edit executed",
+                lambda e, p, c: _require(
+                    e,
+                    "executed",
+                    any(
+                        x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "multi_edit"
+                        for x in e
+                    ),
+                ),
+            ),
+            (
+                "no hallucinated warning for multi_edit",
+                lambda e, p, c: _require(
+                    e,
+                    "hallucinated",
+                    not any(
+                        "Hallucinated tools ignored" in m and "multi_edit" in m
+                        for m in _warnings(e)
+                    ),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -394,34 +760,73 @@ SCENARIOS: list[dict] = [
             "The file is big; done.",
         ],
         "checks": [
-            ("read succeeded", lambda e, p, c: _require(e, "read", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "file_read" and x.data.get("success") for x in e))),
-            ("context_compacted emitted", lambda e, p, c: _require(e, "compacted", any(x.kind == EventKind.CONTEXT_COMPACTED for x in e))),
+            (
+                "read succeeded",
+                lambda e, p, c: _require(
+                    e,
+                    "read",
+                    any(
+                        x.kind == EventKind.TOOL_RESULT
+                        and x.data.get("tool") == "file_read"
+                        and x.data.get("success")
+                        for x in e
+                    ),
+                ),
+            ),
+            (
+                "context_compacted emitted",
+                lambda e, p, c: _require(
+                    e, "compacted", any(x.kind == EventKind.CONTEXT_COMPACTED for x in e)
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
         "name": "S16_cancel_before_start",
-        "desc": "A pre-cancelled request yields the pre-start cancellation warning and no success.",
+        "desc": "A pre-cancelled request yields turn_manifest + cancellation warning.",
         "cancel_before_start": True,
         "scripts": ["Hello"],
         "skip_invariants": True,
         "checks": [
-            ("cancelled warning", lambda e, p, c: _require(e, "warning", _has_warning(e, "Request was cancelled before starting"))),
-            ("no success", lambda e, p, c: _require(e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e))),
+            (
+                "cancelled warning",
+                lambda e, p, c: _require(
+                    e, "warning", _has_warning(e, "Request was cancelled before starting")
+                ),
+            ),
+            (
+                "turn_manifest emitted",
+                lambda e, p, c: _require(e, "manifest", bool(_manifests(e))),
+            ),
         ],
     },
     {
         "name": "S17_cancel_mid_loop",
-        "desc": "Cancelling mid-turn stops the loop at the next iteration boundary (top-of-loop cancel check).",
-        "scripts": ['```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```', "More work later."],
+        "desc": "Cancelling mid-turn stops the loop and emits turn_manifest + cancellation warning.",
+        "scripts": [
+            '```tool\n{"tool": "file_read", "params": {"path": "test.txt"}}\n```',
+            "More work later.",
+        ],
         "cancel_after": 2,
         "skip_invariants": True,
         "checks": [
-            ("cancelled warning", lambda e, p, c: _require(e, "warning", _has_warning(e, "Request cancelled"))),
-            ("no success", lambda e, p, c: _require(e, "no-success", not any(x.kind == EventKind.SUCCESS for x in e))),
-            ("no turn manifest", lambda e, p, c: _require(e, "manifest", not _manifests(e))),
-            ("loop stopped before next turn", lambda e, p, c: _require(e, "calls", p.call_count <= 1)),
+            (
+                "cancelled warning",
+                lambda e, p, c: _require(e, "warning", _has_warning(e, "Request cancelled")),
+            ),
+            (
+                "turn_manifest emitted",
+                lambda e, p, c: _require(e, "manifest", bool(_manifests(e))),
+            ),
+            (
+                "loop stopped before next turn",
+                lambda e, p, c: _require(e, "calls", p.call_count <= 1),
+            ),
         ],
     },
     {
@@ -433,9 +838,23 @@ SCENARIOS: list[dict] = [
             "I read the file.",
         ],
         "checks": [
-            ("NO_FILES_CREATED warning", lambda e, p, c: _require(e, "warning", any((x.data.get("code") or "") == "NO_FILES_CREATED" for x in e if x.kind == EventKind.WARNING))),
+            (
+                "NO_FILES_CREATED warning",
+                lambda e, p, c: _require(
+                    e,
+                    "warning",
+                    any(
+                        (x.data.get("code") or "") == "NO_FILES_CREATED"
+                        for x in e
+                        if x.kind == EventKind.WARNING
+                    ),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -446,11 +865,32 @@ SCENARIOS: list[dict] = [
             "Done.",
         ],
         "checks": [
-            ("lint warning emitted", lambda e, p, c: _require(e, "lint", _has_warning(e, "Lint issues detected"))),
-            ("lint warning carries LINT code", lambda e, p, c: _require(e, "code", any((x.data.get("code") or "") == "LINT" and "Lint issues detected" in (x.data.get("message") or "") for x in e if x.kind == EventKind.WARNING))),
-            ("file written anyway", lambda e, p, c: _require(e, "file", (Path(c.workspace_root) / "bad.py").exists())),
+            (
+                "lint warning emitted",
+                lambda e, p, c: _require(e, "lint", _has_warning(e, "Lint issues detected")),
+            ),
+            (
+                "lint warning carries LINT code",
+                lambda e, p, c: _require(
+                    e,
+                    "code",
+                    any(
+                        (x.data.get("code") or "") == "LINT"
+                        and "Lint issues detected" in (x.data.get("message") or "")
+                        for x in e
+                        if x.kind == EventKind.WARNING
+                    ),
+                ),
+            ),
+            (
+                "file written anyway",
+                lambda e, p, c: _require(e, "file", (Path(c.workspace_root) / "bad.py").exists()),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -461,11 +901,30 @@ SCENARIOS: list[dict] = [
             "Done.",
         ],
         "checks": [
-            ("no lint warning emitted", lambda e, p, c: _require(e, "lint", not _has_warning(e, "Lint issues detected"))),
-            ("file written anyway", lambda e, p, c: _require(e, "file", (Path(c.workspace_root) / "fixable.py").exists())),
-            ("auto-fix removed unused import", lambda e, p, c: _require(e, "fixed", "import math" not in (Path(c.workspace_root) / "fixable.py").read_text(encoding="utf-8"))),
+            (
+                "no lint warning emitted",
+                lambda e, p, c: _require(e, "lint", not _has_warning(e, "Lint issues detected")),
+            ),
+            (
+                "file written anyway",
+                lambda e, p, c: _require(
+                    e, "file", (Path(c.workspace_root) / "fixable.py").exists()
+                ),
+            ),
+            (
+                "auto-fix removed unused import",
+                lambda e, p, c: _require(
+                    e,
+                    "fixed",
+                    "import math"
+                    not in (Path(c.workspace_root) / "fixable.py").read_text(encoding="utf-8"),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -476,11 +935,31 @@ SCENARIOS: list[dict] = [
             "Done.",
         ],
         "checks": [
-            ("unverified note in success", lambda e, p, c: _require(e, "unverified", any(x.kind == EventKind.SUCCESS and "Files changed but not verified" in (x.data.get("message") or "") for x in e))),
-            ("manifest verified false", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is False)),
-            ("manifest checks empty", lambda e, p, c: _require(e, "checks", _manifests(e)[-1].get("checks") == [])),
+            (
+                "unverified note in success",
+                lambda e, p, c: _require(
+                    e,
+                    "unverified",
+                    any(
+                        x.kind == EventKind.SUCCESS
+                        and "Files changed but not verified" in (x.data.get("message") or "")
+                        for x in e
+                    ),
+                ),
+            ),
+            (
+                "manifest verified false",
+                lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is False),
+            ),
+            (
+                "manifest checks empty",
+                lambda e, p, c: _require(e, "checks", _manifests(e)[-1].get("checks") == []),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -491,11 +970,35 @@ SCENARIOS: list[dict] = [
             "Verified it.",
         ],
         "checks": [
-            ("manifest verified true", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is True)),
-            ("read recorded as check", lambda e, p, c: _require(e, "check", any(c.get("tool") == "file_read" for c in _manifests(e)[-1].get("checks", [])))),
-            ("no unverified note", lambda e, p, c: _require(e, "no-unverified", not any(x.kind == EventKind.SUCCESS and "Files changed but not verified" in (x.data.get("message") or "") for x in e))),
+            (
+                "manifest verified true",
+                lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is True),
+            ),
+            (
+                "read recorded as check",
+                lambda e, p, c: _require(
+                    e,
+                    "check",
+                    any(c.get("tool") == "file_read" for c in _manifests(e)[-1].get("checks", [])),
+                ),
+            ),
+            (
+                "no unverified note",
+                lambda e, p, c: _require(
+                    e,
+                    "no-unverified",
+                    not any(
+                        x.kind == EventKind.SUCCESS
+                        and "Files changed but not verified" in (x.data.get("message") or "")
+                        for x in e
+                    ),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -507,13 +1010,39 @@ SCENARIOS: list[dict] = [
             "All done.",
         ],
         "checks": [
-            ("manifest completed", lambda e, p, c: _require(e, "completed", _manifests(e)[-1].get("completed") is True)),
-            ("manifest not stalled", lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is False)),
-            ("no remaining work", lambda e, p, c: _require(e, "remaining", _manifests(e)[-1].get("remaining") == [])),
-            ("verified via evidence", lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is True)),
-            ("created file reflects the edit", lambda e, p, c: _require(e, "content", "good.py" in _manifests(e)[-1].get("created", []) and (Path(c.workspace_root) / "good.py").read_text(encoding="utf-8") == "x = 2\n")),
+            (
+                "manifest completed",
+                lambda e, p, c: _require(
+                    e, "completed", _manifests(e)[-1].get("completed") is True
+                ),
+            ),
+            (
+                "manifest not stalled",
+                lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is False),
+            ),
+            (
+                "no remaining work",
+                lambda e, p, c: _require(e, "remaining", _manifests(e)[-1].get("remaining") == []),
+            ),
+            (
+                "verified via evidence",
+                lambda e, p, c: _require(e, "verified", _manifests(e)[-1].get("verified") is True),
+            ),
+            (
+                "created file reflects the edit",
+                lambda e, p, c: _require(
+                    e,
+                    "content",
+                    "good.py" in _manifests(e)[-1].get("created", [])
+                    and (Path(c.workspace_root) / "good.py").read_text(encoding="utf-8")
+                    == "x = 2\n",
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
     {
@@ -521,16 +1050,55 @@ SCENARIOS: list[dict] = [
         "desc": "A background job that finishes during the turn surfaces a BACKGROUND_COMPLETED warning at the next iteration boundary.",
         "prelude": "bg.py:marker",
         "scripts": [
-            '```tool\n{"tool": "bash", "params": {"command": "' + _PY + ' bg.py", "run_in_background": true}}\n```',
+            '```tool\n{"tool": "bash", "params": {"command": "'
+            + _PY
+            + ' bg.py", "run_in_background": true}}\n```',
             '```tool\n{"tool": "bash", "params": {"command": "' + _PY + ' bg.py"}}\n```',
             "All done.",
         ],
         "checks": [
-            ("BACKGROUND_COMPLETED warning", lambda e, p, c: _require(e, "bg", any((x.data.get("code") or "") == "BACKGROUND_COMPLETED" for x in e if x.kind == EventKind.WARNING))),
-            ("warning names the job", lambda e, p, c: _require(e, "job", any("Background job" in (x.data.get("message") or "") for x in e if (x.data.get("code") or "") == "BACKGROUND_COMPLETED"))),
-            ("background job actually started", lambda e, p, c: _require(e, "bg-job", any(x.kind == EventKind.TOOL_RESULT and x.data.get("tool") == "bash" and "Background job started" in (x.data.get("output") or "") for x in e))),
+            (
+                "BACKGROUND_COMPLETED warning",
+                lambda e, p, c: _require(
+                    e,
+                    "bg",
+                    any(
+                        (x.data.get("code") or "") == "BACKGROUND_COMPLETED"
+                        for x in e
+                        if x.kind == EventKind.WARNING
+                    ),
+                ),
+            ),
+            (
+                "warning names the job",
+                lambda e, p, c: _require(
+                    e,
+                    "job",
+                    any(
+                        "Background job" in (x.data.get("message") or "")
+                        for x in e
+                        if (x.data.get("code") or "") == "BACKGROUND_COMPLETED"
+                    ),
+                ),
+            ),
+            (
+                "background job actually started",
+                lambda e, p, c: _require(
+                    e,
+                    "bg-job",
+                    any(
+                        x.kind == EventKind.TOOL_RESULT
+                        and x.data.get("tool") == "bash"
+                        and "Background job started" in (x.data.get("output") or "")
+                        for x in e
+                    ),
+                ),
+            ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
-            ("terminal success", lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS)),
+            (
+                "terminal success",
+                lambda e, p, c: _require(e, "terminal", e[-1].kind == EventKind.SUCCESS),
+            ),
         ],
     },
 ]
@@ -549,7 +1117,9 @@ async def _prelude(config: AppSettings, spec: str | None) -> None:
         (ws / "readme.txt").write_text(rest, encoding="utf-8")
     elif kind == "big.txt":
         count = int(rest)
-        content = "\n".join(f"line {i} of content to pad the read output significantly" for i in range(count))
+        content = "\n".join(
+            f"line {i} of content to pad the read output significantly" for i in range(count)
+        )
         (ws / "big.txt").write_text(content + "\n", encoding="utf-8")
     elif kind == "bg.py":
         (ws / "bg.py").write_text(
@@ -566,7 +1136,12 @@ async def _run_scenario(scenario: dict, temp_dir: Path) -> tuple[list[str], dict
     if scenario.get("cancel_before_start"):
         agent = AgentLoop(config, provider, tool_registry=create_default_registry())
         agent._cancel_sequence = 10**9
-        events = [ev async for ev in agent.process_prompt(scenario.get("prompt", "Do the work"), "s1", [], scenario.get("mode", "build"))]
+        events = [
+            ev
+            async for ev in agent.process_prompt(
+                scenario.get("prompt", "Do the work"), "s1", [], scenario.get("mode", "build")
+            )
+        ]
     else:
         events = await _run(
             provider,
@@ -598,8 +1173,8 @@ async def _run_scenario(scenario: dict, temp_dir: Path) -> tuple[list[str], dict
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s["name"] for s in SCENARIOS])
 async def test_dryrun_scenario(scenario, temp_dir):
     failures, summary = await _run_scenario(scenario, temp_dir)
-    assert not failures, (
-        f"{scenario['name']} failed ({summary['events']} events):\n" + "\n".join(failures)
+    assert not failures, f"{scenario['name']} failed ({summary['events']} events):\n" + "\n".join(
+        failures
     )
 
 
@@ -634,9 +1209,31 @@ class TestLoopHelperDryRun:
         assert m["completed"] is True and m["stalled"] is False
         assert m["created"] == ["made.txt"] and m["remaining"] == []
         assert m["files"] == [{"path": "made.txt", "exists": True, "size": 1}]
-        m2 = _build_manifest({"made.txt"}, [], False, True, "stuck", ws)
+        m2 = _build_manifest(set(), [], False, True, "stuck", ws)
         assert m2["completed"] is False and m2["stalled"] is True
-        assert m2["remaining"] == ["stuck"]
+        # No incomplete todos / no verification gap note possible; generic fallback.
+        assert m2["remaining"] == ["The turn ended without completing any work."]
+        # last_text is never authoritative for remaining (QA-8).
+        assert "stuck" not in m2["remaining"]
+
+    def test_build_manifest_remaining_from_todos(self, temp_dir):
+        ws = str(temp_dir)
+        # Incomplete session todos drive "remaining" (QA-8), never last_text.
+        todos = [
+            {"id": "t1", "title": "Fix auth", "status": "pending"},
+            {"id": "t2", "title": "Add tests", "status": "in_progress"},
+            {"id": "t3", "title": "Ship", "status": "completed"},
+            {"id": "t4", "title": "Docs", "status": "cancelled"},
+        ]
+        m = _build_manifest(set(), [], False, False, "I fixed auth now", ws, todos=todos)
+        assert m["remaining"] == ["Todo: Fix auth", "Todo: Add tests (in_progress)"], m["remaining"]
+        assert "I fixed auth now" not in m["remaining"]
+        # No incomplete todos -> empty remaining (completed or not).
+        m2 = _build_manifest(set(), [], True, False, "done", ws, todos=todos)
+        assert m2["remaining"] == []
+        # Completed todo statuses never surface.
+        m3 = _build_manifest(set(), [], False, False, "done", ws, todos=[])
+        assert m3["remaining"] == ["The turn ended without completing any work."]
 
     def test_build_manifest_verification_flag(self, temp_dir):
         ws = str(temp_dir)
@@ -646,31 +1243,81 @@ class TestLoopHelperDryRun:
         unverified = _build_manifest({"a.txt"}, ["a.txt"], True, False, "done", ws)
         assert unverified["verified"] is False and unverified["checks"] == []
         verified = _build_manifest(
-            {"a.txt"}, ["a.txt"], True, False, "done", ws,
+            {"a.txt"},
+            ["a.txt"],
+            True,
+            False,
+            "done",
+            ws,
             verification=[{"tool": "file_read", "output_len": 12}],
         )
         assert verified["verified"] is True
         assert verified["checks"] == [{"tool": "file_read", "output_len": 12}]
         silent = _build_manifest(
-            {"a.txt"}, ["a.txt"], True, False, "done", ws,
+            {"a.txt"},
+            ["a.txt"],
+            True,
+            False,
+            "done",
+            ws,
             verification=[{"tool": "bash", "output_len": 0, "exit_code": 0}],
         )
         assert silent["verified"] is False
         assert silent["checks"] == [{"tool": "bash", "output_len": 0, "exit_code": 0}]
         stripped = _build_manifest(
-            {"a.txt"}, ["a.txt"], True, False, "done", ws,
+            {"a.txt"},
+            ["a.txt"],
+            True,
+            False,
+            "done",
+            ws,
             verification=[{"tool": "bash", "output_len": 5, "seq": 3}],
         )
         assert stripped["checks"] == [{"tool": "bash", "output_len": 5}]
+
+    def test_build_manifest_plan_contract(self, temp_dir):
+        ws = str(temp_dir)
+        # Plan turn that claims completion but wrote NO artifact: not complete.
+        m = _build_manifest(
+            {"plan.md"}, ["plan.md"], True, False, "plan ready", ws, plan_mode=True
+        )
+        assert m["remaining"] == [
+            "Plan artifacts not written: plan.md, todo.md."
+        ], m["remaining"]
+        assert m["plan_artifacts"] == {
+            "plan_written": False,
+            "todo_written": False,
+            "missing": ["plan.md", "todo.md"],
+        }
+        # Written plan.md -> artifact present; remaining stays empty.
+        (temp_dir / "plan.md").write_text("# Plan", encoding="utf-8")
+        m2 = _build_manifest(
+            {"plan.md"}, ["plan.md"], True, False, "plan ready", ws, plan_mode=True
+        )
+        assert m2["remaining"] == [], m2["remaining"]
+        assert m2["plan_artifacts"]["missing"] == ["todo.md"]
+        assert m2["plan_artifacts"]["plan_written"] is True
+        # Non-plan mode never adds the contract.
+        m3 = _build_manifest({"plan.md"}, ["plan.md"], True, False, "plan ready", ws)
+        assert "plan_artifacts" not in m3
+        assert m3["remaining"] == []
 
     def test_has_verification_evidence(self):
         assert _has_verification_evidence([]) is False
         assert _has_verification_evidence(None) is False
         assert _has_verification_evidence([{"tool": "bash", "output_len": 12}]) is True
-        assert _has_verification_evidence([{"tool": "bash", "output_len": 0, "exit_code": 0}]) is False
-        checks = [{"tool": "bash", "output_len": 12, "seq": 1}, {"tool": "bash", "output_len": 3, "seq": 2}]
+        assert (
+            _has_verification_evidence([{"tool": "bash", "output_len": 0, "exit_code": 0}]) is False
+        )
+        checks = [
+            {"tool": "bash", "output_len": 12, "seq": 1},
+            {"tool": "bash", "output_len": 3, "seq": 2},
+        ]
         assert _has_verification_evidence(checks, after_seq=2) is True
-        assert _has_verification_evidence([{"tool": "bash", "output_len": 12, "seq": 1}], after_seq=2) is False
+        assert (
+            _has_verification_evidence([{"tool": "bash", "output_len": 12, "seq": 1}], after_seq=2)
+            is False
+        )
 
     def test_find_compaction_cut_and_group(self):
         def m(role, content=""):
@@ -736,7 +1383,9 @@ class TestValidationDryRun:
         assert [t["tool"] for t in invalid] == ["phantom"]
 
     def test_validate_tool_rejection_placeholder(self):
-        msg = validate_tool_rejection("file_write", {"path": "x.txt", "content": "[PASTE]"}, set(), ".")
+        msg = validate_tool_rejection(
+            "file_write", {"path": "x.txt", "content": "[PASTE]"}, set(), "."
+        )
         assert msg and "placeholder" in msg.lower()
 
     def test_validate_tool_rejection_self_delete(self):
@@ -773,7 +1422,6 @@ class TestParserDryRun:
 
 
 class TestDurableReplayAcrossTurns:
-
     async def test_repeated_prompt_does_not_rebuild(self, temp_dir):
         session_id = "s-replay-1"
         reset_session(session_id)
@@ -781,8 +1429,10 @@ class TestDurableReplayAcrossTurns:
 
         first = _DryRunProvider(
             [
-                ('```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
-                '{"tool": "file_read", "params": {"path": "a.py"}}\n```'),
+                (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
+                    '{"tool": "file_read", "params": {"path": "a.py"}}\n```'
+                ),
                 "Done.",
             ]
         )
@@ -794,8 +1444,10 @@ class TestDurableReplayAcrossTurns:
 
         second = _DryRunProvider(
             [
-                ('```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
-                '{"tool": "file_read", "params": {"path": "a.py"}}\n```'),
+                (
+                    '```tool\n{"tool": "file_write", "params": {"path": "a.py", "content": "x = 1\\n"}}\n'
+                    '{"tool": "file_read", "params": {"path": "a.py"}}\n```'
+                ),
                 "Done.",
             ]
         )
@@ -809,7 +1461,11 @@ class TestDurableReplayAcrossTurns:
         assert second_writes == 0
         assert first_writes == 1
         assert (temp_dir / "a.py").read_text(encoding="utf-8") == "x = 1\n"
-        assert any("re-write blocked" in (x.data.get("message") or "").lower() for x in evs2 if x.kind == EventKind.WARNING)
+        assert any(
+            "re-write blocked" in (x.data.get("message") or "").lower()
+            for x in evs2
+            if x.kind == EventKind.WARNING
+        )
 
     async def test_new_session_is_not_blocked(self, temp_dir):
         session_id = "s-replay-2"

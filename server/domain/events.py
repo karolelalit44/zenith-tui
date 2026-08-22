@@ -15,6 +15,22 @@ from .domain import DeliveryMode
 log = logging.getLogger(__name__)
 
 
+class CompactionTrigger(StrEnum):
+    """Structured origin of a compaction operation (never inferred from strings)."""
+
+    AUTOMATIC = "automatic"
+    MANUAL = "manual"
+
+
+class CompactionStatus(StrEnum):
+    """Structured lifecycle status carried on compaction events."""
+
+    STARTED = "started"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class EventKind(StrEnum):
     THINKING = "thinking"
     MESSAGE = "message"

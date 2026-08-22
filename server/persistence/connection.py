@@ -30,6 +30,7 @@ def _set_pragmas(dbapi_connection, connection_record) -> None:
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.close()
 
 
@@ -53,6 +54,12 @@ class Database:
 
         service = DatabaseStartupService(self.db_path)
         self.startup_result = service.run()
+        from server.persistence.crypto import encryption_enabled
+
+        if not encryption_enabled():
+            logger.info(
+                "Encryption at rest is NOT enabled (set ZENITH_ENCRYPTION_KEY to enable)"
+            )
         self._engine = create_async_engine(
             f"sqlite+aiosqlite:///{Path(self.db_path).resolve()}",
             echo=os.getenv("ZENITH_LOG_LEVEL", "").lower() == "debug",

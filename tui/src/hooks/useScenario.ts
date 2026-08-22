@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScenarioRunner } from '../services/scenario/types';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
-import { emitCompactionFixture } from '../services/transport/fixtureEmitter';
 import { wsClient } from '../services/transport/WebSocketClient';
 import type {
   FileAttachment,
@@ -341,21 +340,38 @@ export function useScenario(): UseScenarioReturn {
     setIsRunning(false);
   }, [commitPendingEvents]);
 
-  const startCompaction = useCallback(() => {
+  const startCompaction = useCallback(async () => {
     setEvents([]);
     eventsRef.current = [];
     setIsRunning(true);
     abortRequestedRef.current = false;
 
-    // Replay the canonical compaction fixture locally — no backend needed.
-    sessionIdRef.current = 'context-compaction';
-    setLastSessionId('context-compaction');
-    runnerRef.current = emitCompactionFixture(handleEvent, handleComplete);
+    try {
+      await connectToBackend();
+    } catch {
+      reportError('conn', 'Cannot connect to backend. Run: zenith serve');
+      return;
+    }
+
+    if (!sessionIdRef.current) {
+      try {
+        const session = await wsClient.createSession('Context compaction');
+        sessionIdRef.current = session.id;
+        setLastSessionId(session.id);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        reportError('sess', `Failed to create session: ${message}`);
+        return;
+      }
+    }
+
+    // Real RPC: stream the backend's compaction events live.
+    runnerRef.current = backendScenarioProvider.executeCompaction(sessionIdRef.current, handleEvent, handleComplete);
 
     if (abortRequestedRef.current) {
       runnerRef.current?.abort();
     }
-  }, [handleEvent, handleComplete]);
+  }, [connectToBackend, handleEvent, handleComplete, reportError]);
 
   const setActiveSessionId = useCallback((id: string | null) => {
     sessionIdRef.current = id;

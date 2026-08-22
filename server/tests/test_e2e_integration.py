@@ -301,6 +301,7 @@ class TestPromptProcessing:
             success_data = success_events[0]["params"]["data"]
             assert "message" in success_data
             assert "iterations" in success_data
+            assert success_data.get("elapsedMs", 0) > 0, "success event must report the turn duration"
 
     @pytest.mark.asyncio
     async def test_prompt_event_session_ids_match(self, echo_server):

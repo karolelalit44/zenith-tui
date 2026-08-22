@@ -2,11 +2,25 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator
 
-from .constants import BUILD_MODE, DEFAULT_CONTEXT_WINDOW, PLAN_MODE
+from .constants import (
+    BUILD_MODE,
+    DEFAULT_CONTEXT_WINDOW,
+    PLAN_MODE,
+    READ_ONLY_MODE,
+    READ_ONLY_TOOLS,
+)
 from .env import optional_env, optional_float, optional_int, optional_int_none
 from .providers import ProviderConfig
 
-CORE_PLAN_TOOLS = ["file_read", "glob", "grep", "websearch", "webfetch"]
+CORE_PLAN_TOOLS = [
+    "file_read",
+    "file_write",
+    "file_edit",
+    "glob",
+    "grep",
+    "websearch",
+    "webfetch",
+]
 
 
 @dataclass(frozen=True)
@@ -39,9 +53,18 @@ BUILD_MODE_CONFIG = AgentModeConfig(
     sub_agent=True,
     tool_choice="auto",
 )
+READ_ONLY_MODE_CONFIG = AgentModeConfig(
+    name=READ_ONLY_MODE,
+    allowed_tools=READ_ONLY_TOOLS,
+    allowed_mcp={},
+    description="Pure read-only investigation: no file-mutation tools attached.",
+    sub_agent=False,
+    tool_choice="none",
+)
 AGENT_MODES: dict[str, AgentModeConfig] = {
     PLAN_MODE: PLAN_MODE_CONFIG,
     BUILD_MODE: BUILD_MODE_CONFIG,
+    READ_ONLY_MODE: READ_ONLY_MODE_CONFIG,
 }
 
 
@@ -76,6 +99,12 @@ class BootstrapDefaults(BaseModel):
     summary_threshold: float = Field(
         default=optional_float("ZENITH_SUMMARY_THRESHOLD", 0.8), ge=0.1, le=1.0
     )
+    # Context compaction watermark: when the composed context uses >= this ratio of the
+    # window, fold the rolling window into a running summary (design §3.7 / §6.2). Wired the
+    # same way as summary_threshold; load_config() also honors it at load time.
+    context_compaction_threshold: float = Field(
+        default=optional_float("ZENITH_CONTEXT_COMPACTION_THRESHOLD", 0.7), ge=0.0, le=1.0
+    )
     tools: ToolConfig = Field(default_factory=ToolConfig)
 
 
@@ -91,6 +120,7 @@ class AppSettings(BaseModel):
     tools: ToolConfig = Field(default_factory=ToolConfig)
     max_context_tokens: int = DEFAULTS.max_context_tokens
     summary_threshold: float = DEFAULTS.summary_threshold
+    context_compaction_threshold: float = DEFAULTS.context_compaction_threshold
     auto_approve_plan: bool = Field(
         default=False, description="Skip user confirmation when running a plan in build mode"
     )
@@ -117,6 +147,7 @@ class AppSettings(BaseModel):
         description="Token budget for the repo map. None = auto (context/8, clamped to 1024-4096)",
     )
     memory_enabled: bool = True
+    async_summary_enabled: bool = True
     mcp_servers: dict[str, McpServerConfig] = Field(
         default_factory=dict,
         description="MCP servers: {name: McpServerConfig}. Loaded from ZENITH_MCP_SERVERS (JSON).",

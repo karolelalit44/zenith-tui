@@ -98,19 +98,13 @@ async def stream_completion(
             if content:
                 state.response_text += content
                 yield r.message_event(content, session_id, partial=True)
-        # Reasoning is folded into the message only when the model produced
-        # no real content (a "reasoning-only" turn). Emitting it BOTH as a
-        # thinking block and as the message duplicates the text in the UI.
-        if len(state.response_text.strip()) < 30 and len(state.reasoning_text.strip()) > 100:
-            logger.info(
-                "Reasoning model content payload was tiny (%d chars) while reasoning was %d chars — using reasoning text as response content",
-                len(state.response_text.strip()),
-                len(state.reasoning_text.strip()),
-            )
-            # Fold reasoning into the content so the loop emits it once as the
-            # assistant message; do NOT also emit a thinking block for it.
-            state.response_text = state.reasoning_text.strip()
-        elif state.reasoning_text.strip():
+        # Reasoning is model-internal chain-of-thought. It is never folded into
+        # the assistant message, even when the model produced little or no
+        # content (a "reasoning-only" turn): exposing it as prose leaks private
+        # chain-of-thought into the user-visible transcript. A reasoning-only
+        # turn is surfaced as a separate `thinking` event (kept collapsed in the
+        # UI) and, with no real content, the loop reports an empty response.
+        if state.reasoning_text.strip():
             yield r.thinking(state.reasoning_text.strip(), session_id)
         if state.response_text:
             state.full_response += state.response_text

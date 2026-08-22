@@ -201,6 +201,7 @@ test('slash menu opens inline without hiding the input', async () => {
   const { lastFrame, stdin, unmount } = mountApp();
 
   await waitForReady(lastFrame);
+  await new Promise((r) => setTimeout(r, 50));
 
   stdin.write('/');
 
@@ -321,6 +322,27 @@ test('Full Plan Scenario shows backend error', async () => {
 
   const frame = await waitForFrame(lastFrame, (f) => f.includes('Cannot connect to backend'));
   expect(frame).toContain('Cannot connect to backend');
+  unmount();
+});
+
+test('/clear and /new slash commands filter and execute', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = mountApp();
+
+  await waitForReady(lastFrame);
+
+  // /clear
+  stdin.write('/clear');
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]') && f.includes('/clear'));
+  stdin.write('\r');
+  await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]'));
+
+  // /new
+  stdin.write('/new');
+  await waitForFrame(lastFrame, (f) => f.includes('[SLASH COMMANDS]') && f.includes('/new'));
+  stdin.write('\r');
+  await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]'));
+
   unmount();
 });
 

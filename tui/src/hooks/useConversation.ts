@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
-import type { ScenarioEvent, ScenarioMode, SuccessEvent } from '../types/scenario';
+import type { ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo } from '../types/scenario';
 
 export interface ConversationTurn {
   id: string;
@@ -16,16 +16,59 @@ export interface ConversationTurn {
   startedAt: number;
 }
 
+/**
+ * Composed-context occupancy snapshot reported by the backend success event.
+ *
+ * This is the ONLY data that should ever drive the context gauge — it is NOT
+ * cumulative run/API usage (see `runTokens`). `used` is the tokenizer estimate
+ * of the composed messages currently in the context window.
+ */
+export interface ContextInfoSnapshot {
+  /** Composed context tokens in use. */
+  used: number;
+  /** Tokens remaining before the window is exhausted. */
+  remaining: number;
+  /** Composed context window size. */
+  total: number;
+  /** Occupancy fraction (0–1) as reported by the backend. */
+  percent: number;
+  /** True when the backend could not resolve the real provider window. */
+  windowEstimated: boolean;
+}
+
+/**
+ * Return the success tokenInfo of a completed turn, or undefined when the turn
+ * never reported one (legacy synthesized success / no usage data at all).
+ */
+function getSuccessTokenInfo(turn: ConversationTurn): TokenInfo | undefined {
+  if (!turn.isComplete) return undefined;
+  const successEvent = turn.events.find(
+    (e): e is SuccessEvent => e.kind === 'success' && 'tokenInfo' in e && Boolean((e as SuccessEvent).tokenInfo),
+  );
+  return successEvent?.tokenInfo;
+}
+
 export interface UseConversationReturn {
   turns: ConversationTurn[];
   completedTurns: ConversationTurn[];
   activeTurn: ConversationTurn | null;
   totalTokens: number;
+  /** Cumulative run/API usage (provider `runTotal` when available, else legacy estimate). */
+  runTokens: number;
+  /** Cumulative prompt tokens for the run (0 when the provider did not report them). */
+  runPrompt: number;
+  /** Cumulative completion tokens for the run (0 when the provider did not report them). */
+  runCompletion: number;
+  /** True when the latest run-usage figure is an estimate, not provider-reported. */
+  runEstimated: boolean;
+  /** Latest composed-context occupancy snapshot from a completed turn (undefined when unknown). */
+  contextInfo: ContextInfoSnapshot | undefined;
   staticKey: number;
   addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: (events?: ScenarioEvent[]) => void;
   clearTurns: () => void;
+  loadTurns: (turns: ConversationTurn[]) => void;
   remountStatic: () => void;
 }
 
@@ -44,15 +87,86 @@ export function useConversation(): UseConversationReturn {
     return turns.reduce((sum, t) => {
       if (!t.isComplete) return sum;
 
-      const successEvent = t.events.find(
-        (e): e is SuccessEvent => e.kind === 'success' && 'tokenInfo' in e && Boolean((e as SuccessEvent).tokenInfo),
-      );
-      if (successEvent?.tokenInfo) {
-        return sum + successEvent.tokenInfo.used;
+      const reported = getSuccessTokenInfo(t);
+      if (reported && !reported.estimated && reported.used > 0) {
+        return sum + reported.used;
       }
 
       return sum + estimateTokensForEvents(t.events);
     }, 0);
+  }, [turns]);
+
+  // Cumulative run/API token telemetry. Prefer the provider-reported runTotal;
+  // fall back to composed occupancy only when it was authoritative (legacy),
+  // then to the frontend character estimate.
+  const runTokens = useMemo(() => {
+    return turns.reduce((sum, t) => {
+      if (!t.isComplete) return sum;
+
+      const reported = getSuccessTokenInfo(t);
+      if (reported && typeof reported.runTotal === 'number' && reported.runTotal > 0) {
+        return sum + reported.runTotal;
+      }
+      if (reported && !reported.estimated && reported.used > 0) {
+        return sum + reported.used;
+      }
+
+      return sum + estimateTokensForEvents(t.events);
+    }, 0);
+  }, [turns]);
+
+  const runPrompt = useMemo(() => {
+    return turns.reduce((sum, t) => {
+      const reported = getSuccessTokenInfo(t);
+      if (reported && typeof reported.runTotal === 'number' && reported.runTotal > 0) {
+        return sum + (typeof reported.runPrompt === 'number' ? reported.runPrompt : 0);
+      }
+      return sum;
+    }, 0);
+  }, [turns]);
+
+  const runCompletion = useMemo(() => {
+    return turns.reduce((sum, t) => {
+      const reported = getSuccessTokenInfo(t);
+      if (reported && typeof reported.runTotal === 'number' && reported.runTotal > 0) {
+        return sum + (typeof reported.runCompletion === 'number' ? reported.runCompletion : 0);
+      }
+      return sum;
+    }, 0);
+  }, [turns]);
+
+  // The `~` marker for cumulative usage: true when the most recent completed
+  // turn either flagged `estimated` or could not report usage at all.
+  const runEstimated = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      const t = turns[i];
+      if (!t.isComplete) continue;
+      const reported = getSuccessTokenInfo(t);
+      if (reported) return reported.estimated === true;
+      // Completed turn without any tokenInfo → usage came from the char estimator.
+      return true;
+    }
+    return false;
+  }, [turns]);
+
+  // Latest composed-context snapshot across completed turns. Iterating forward
+  // lets the newest valid snapshot win. Unknown windows (total 0) are skipped so
+  // the UI falls back to the legacy estimate path.
+  const contextInfo = useMemo<ContextInfoSnapshot | undefined>(() => {
+    let snapshot: ContextInfoSnapshot | undefined;
+    for (const t of turns) {
+      const reported = getSuccessTokenInfo(t);
+      if (reported && reported.total > 0) {
+        snapshot = {
+          used: reported.used,
+          remaining: reported.remaining,
+          total: reported.total,
+          percent: reported.percent,
+          windowEstimated: reported.windowEstimated === true,
+        };
+      }
+    }
+    return snapshot;
   }, [turns]);
 
   const addTurn = useCallback((prompt: string, mode: ScenarioMode, model?: string): string => {
@@ -88,7 +202,9 @@ export function useConversation(): UseConversationReturn {
       const elapsedMs = last ? Math.max(1000, Date.now() - last.startedAt) : undefined;
 
       const stampedEvents =
-        elapsedMs !== undefined ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs } : e)) : events;
+        elapsedMs !== undefined
+          ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs: e.elapsedMs ?? elapsedMs } : e))
+          : events;
 
       // Ensure a success event always exists so the unified status row renders
       const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
@@ -100,7 +216,7 @@ export function useConversation(): UseConversationReturn {
               kind: 'success',
               id: `evt_success_complete_${Date.now()}`,
               message: 'done',
-              elapsedMs: elapsedMs ?? 0,
+              elapsedMs: elapsedMs ?? 1000,
             } as ScenarioEvent,
           ];
 
@@ -156,16 +272,28 @@ export function useConversation(): UseConversationReturn {
     process.stdout.write('\x1B[2J\x1B[H');
   }, []);
 
+  const loadTurns = useCallback((newTurns: ConversationTurn[]) => {
+    setTurns(newTurns);
+    setStaticKey((k) => k + 1);
+    process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+  }, []);
+
   return {
     turns,
     completedTurns,
     activeTurn,
     totalTokens,
+    runTokens,
+    runPrompt,
+    runCompletion,
+    runEstimated,
+    contextInfo,
     staticKey,
     addTurn,
     completeActiveTurn,
     abortActiveTurn,
     clearTurns,
+    loadTurns,
     remountStatic,
   };
 }

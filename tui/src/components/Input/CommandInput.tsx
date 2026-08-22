@@ -28,6 +28,14 @@ interface CommandInputProps {
   mode?: ScenarioMode;
   totalTokens?: number;
   maxTokens?: number;
+  /** Cumulative run/API token usage (telemetry). */
+  runTokens?: number;
+  /** True when cumulative run usage is estimated, not provider-reported. */
+  runEstimated?: boolean;
+  /** Composed-context occupancy percent (0–100). */
+  contextPercent?: number;
+  /** True when the context window is a fallback estimate. */
+  windowEstimated?: boolean;
   workspaceName?: string;
   gitBranch?: string;
   onCancel?: () => void;
@@ -53,6 +61,10 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     mode = 'build',
     totalTokens = 0,
     maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
+    runTokens,
+    runEstimated,
+    contextPercent,
+    windowEstimated,
     workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
     gitBranch,
     onCancel,
@@ -69,7 +81,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
     const { columns } = useTerminalDimensions();
-    const dividerWidth = Math.max(0, columns - 6);
+    const dividerWidth = Math.max(0, columns - 4);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
     const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
@@ -133,10 +145,12 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           paddingY={0}
         >
           <Box flexDirection="row" width="100%" alignItems="flex-start">
-            <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
-              {focused ? '❯' : '◌'}{' '}
-            </Text>
-            <Box flexDirection="column" flexGrow={1}>
+            <Box flexShrink={0}>
+              <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
+                {focused ? '❯' : '◌'}{' '}
+              </Text>
+            </Box>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1}>
               {disabled ? (
                 <Box flexDirection="row" alignItems="center" minHeight={1}>
                   <Text color={theme.colors.text.muted} italic>
@@ -172,6 +186,10 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             branch={activeBranch}
             totalTokens={totalTokens}
             effectiveMaxTokens={effectiveMaxTokens}
+            runTokens={runTokens}
+            runEstimated={runEstimated}
+            contextPercent={contextPercent}
+            windowEstimated={windowEstimated}
           />
         </Box>
       </Box>

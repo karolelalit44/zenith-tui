@@ -123,6 +123,7 @@ class TestProviderOverrides:
             max_tokens=123,
             attachments=[],
         )
+        await executor._summary_scheduler.drain()
         assert provider.calls, "provider.stream was never called"
         observed = provider.calls[0]
         assert observed["model"] == "override-model"
@@ -138,6 +139,7 @@ class TestProviderOverrides:
         executor = _make_executor(test_config, provider, test_db)
         session = await executor._session_repo.create(Session(title="No Override"))
         await executor._execute(session.id, "hello", "build", None, None)
+        await executor._summary_scheduler.drain()
         assert provider.calls[0]["model"] == "base-model"
         assert provider.calls[0]["temperature"] == DEFAULT_LLM_TEMPERATURE
         assert provider.calls[0]["max_tokens"] == DEFAULT_LLM_MAX_TOKENS

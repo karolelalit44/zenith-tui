@@ -93,6 +93,33 @@ class TestConversationSummarizer:
         await s.summarize(self._msgs(), "test-model")
         assert provider.last_model == "weak-1"
 
+    @pytest.mark.asyncio
+    async def test_focus_instructions_in_fresh_prompt(self, temp_dir):
+        provider = _EchoProvider()
+        s = ConversationSummarizer(self._config(temp_dir), provider)
+        await s.summarize(self._msgs(), "test-model", focus="encryption")
+        prompt = provider.last_prompt
+        assert "User-specified focus: encryption" in prompt
+        assert "relate to this focus" in prompt
+
+    @pytest.mark.asyncio
+    async def test_focus_instructions_in_anchored_prompt(self, temp_dir):
+        provider = _EchoProvider()
+        s = ConversationSummarizer(self._config(temp_dir), provider)
+        await s.summarize(
+            self._msgs(), "test-model", previous_summary="Prev: done X", focus="file_read caching"
+        )
+        prompt = provider.last_prompt
+        assert "User-specified focus: file_read caching" in prompt
+        assert "Update the anchored summary below" in prompt
+
+    @pytest.mark.asyncio
+    async def test_blank_focus_adds_no_instructions(self, temp_dir):
+        provider = _EchoProvider()
+        s = ConversationSummarizer(self._config(temp_dir), provider)
+        await s.summarize(self._msgs(), "test-model", focus="   ")
+        assert "User-specified focus" not in provider.last_prompt
+
     def test_template_shape(self):
         assert "Objective" in SUMMARY_TEMPLATE
         assert "Important Details" in SUMMARY_TEMPLATE

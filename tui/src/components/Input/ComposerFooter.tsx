@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React, { useEffect, useState } from 'react';
+import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
 import { modelStore } from '../../services/providers/ModelStore';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types/scenario';
@@ -13,11 +14,32 @@ interface ComposerFooterProps {
   branch: string;
   totalTokens: number;
   effectiveMaxTokens: number;
+  /** Cumulative run/API usage (telemetry); falls back to totalTokens when omitted. */
+  runTokens?: number;
+  /** True when the cumulative run usage is estimated, not provider-reported. */
+  runEstimated?: boolean;
+  /** Composed-context occupancy percent (0–100). Omitted → no gauge renders. */
+  contextPercent?: number;
+  /** True when the context-window denominator is a fallback estimate. */
+  windowEstimated?: boolean;
 }
 
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
-  ({ mode, modelFallback, providerName, dir, branch, totalTokens, effectiveMaxTokens }) => {
+  ({
+    mode,
+    modelFallback,
+    providerName,
+    dir,
+    branch,
+    totalTokens,
+    effectiveMaxTokens,
+    runTokens,
+    runEstimated,
+    contextPercent,
+    windowEstimated,
+  }) => {
     const { theme } = useTheme();
+    const { columns } = useTerminalDimensions();
     const [, forceUpdate] = useState(0);
 
     useEffect(() => modelStore.subscribe(() => forceUpdate((x) => x + 1)), []);
@@ -25,7 +47,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     const sel = modelStore.current;
     const chip = sel ? modelStore.toDisplayString(sel) : modelFallback;
 
-    const columns = process.stdout.columns ?? 80;
     const layout = computeFooterLayout({
       columns,
       mode,
@@ -35,6 +56,10 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
       branch,
       totalTokens,
       effectiveMaxTokens,
+      runTokens,
+      runEstimated,
+      contextPercent,
+      windowEstimated,
     });
 
     return (
@@ -72,6 +97,8 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
             <Text> </Text>
           )}
           <Text color={theme.colors.text.muted} wrap="truncate-end">
+            {layout.gauge}
+            {layout.gauge && layout.tokenUsage ? ' ' : ''}
             {layout.tokenUsage}
           </Text>
         </Box>
