@@ -5,7 +5,6 @@ from __future__ import annotations
 # T2 (running summary ≤ 1K), T4 (rolling window ≤ 2.4K, last 2–3 turns),
 # T5 (user prompt verbatim ~200). Bounded at ≤ 6.6K worst-case continuation
 # tokens on a 128K window. Alternatives (Arch 2–4) considered and rejected.
-
 import logging
 import math
 import os
@@ -26,8 +25,8 @@ from server.config.constants import (
 )
 from server.config.settings import AppSettings
 from server.domain.message import Message
-from server.persistence.repositories import load_catalog
 from server.providers.token_counter import TokenCounter
+from server.storage.catalog_compat import load_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -378,16 +377,15 @@ class ContextManager:
                         memory_tokens,
                         budget,
                     )
-        if pm_block:
-            if used + pm_tokens + pbuf <= budget:
-                messages.append({"role": "system", "content": pm_block})
-                self._last_tiers.append(TIER_T1)
-                used += pm_tokens
-                logger.info(
-                    "Project memory injected: %d chars, %d tokens",
-                    len(pm_text),
-                    pm_tokens,
-                )
+        if pm_block and used + pm_tokens + pbuf <= budget:
+            messages.append({"role": "system", "content": pm_block})
+            self._last_tiers.append(TIER_T1)
+            used += pm_tokens
+            logger.info(
+                "Project memory injected: %d chars, %d tokens",
+                len(pm_text),
+                pm_tokens,
+            )
         if plan_block and not is_fresh:
             plan_tokens = self.token_counter.count(plan_block, model)
             if used + plan_tokens + pbuf <= budget:

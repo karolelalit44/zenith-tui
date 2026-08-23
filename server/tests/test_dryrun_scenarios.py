@@ -137,7 +137,7 @@ def _config(temp_dir: Path, **overrides) -> AppSettings:
     base: dict[str, Any] = {
         "providers": {"test": ProviderConfig(model="test-model", is_active=True)},
         "active_provider": "test",
-        "db_path": str(temp_dir / "test.db"),
+        "home_dir": str(temp_dir / "test.db"),
         "workspace_root": str(temp_dir),
     }
     base.update(overrides)

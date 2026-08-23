@@ -28,7 +28,7 @@ import { startupService } from './services/api/StartupService';
 import type { TokenUsageStats } from './services/api/TokenUsageService';
 import { tokenUsageService } from './services/api/TokenUsageService';
 import { estimateTokensForEvents } from './services/api/tokenEstimationService';
-import { loadUserProfile } from './services/api/userProfileService';
+import { initUserProfileSync, loadUserProfile } from './services/api/userProfileService';
 import { savePlanToFile } from './services/export/markdownExport';
 import { getActiveGitBranch } from './services/git';
 import { modelStore } from './services/providers/ModelStore';
@@ -75,6 +75,7 @@ export const App: React.FC = () => {
   const [exitPhase, setExitPhase] = useState<'idle' | 'exiting'>('idle');
 
   useEffect(() => {
+    initUserProfileSync();
     startupService.initialize().then(setStartupState);
     const unsub = startupService.subscribe(setStartupState);
     return unsub;

@@ -1,7 +1,7 @@
 """Real-backend end-to-end signoff for Zenith (Build mode + Plan mode).
 
 Spawns an isolated instance of the actual ``server`` package (fresh temp
-workspace + a copy of the repo's ``data/zenith.db`` so the provider config is
+    workspace + a cloned ``user_profile.json`` (isolated storage home) so the provider config is
 identical, real provider, real model) and drives it over the real WebSocket
 JSON-RPC protocol. Verifies, and fails loudly on any violation of:
 
@@ -87,31 +87,38 @@ class Backend:
         if self.base_url:
             log(f"Using existing backend: {self.base_url}")
             return
-        src_db = REPO_ROOT / "data" / "zenith.db"
-        if not src_db.exists():
+        src_home = Path(os.environ.get("ZENITH_HOME", str(Path.home() / ".zenith")))
+        src_profile = src_home / "user_profile.json"
+        if not src_profile.exists():
             raise SystemExit(
-                f"Repository database not found at {src_db}. Start the server once "
-                "so the provider config exists."
+                f"No user_profile.json found at {src_profile}. Run the setup wizard once "
+                "so provider credentials exist."
             )
         self.tmpdir = tempfile.TemporaryDirectory(prefix="zenith_e2e_")
         tmp = Path(self.tmpdir.name)
         self.workspace = tmp / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
-        db_copy = tmp / "e2e.db"
-        shutil.copy2(src_db, db_copy)
+        # Isolated storage home: clone identity/credentials + catalog, no sessions.
+        e2e_home = tmp / "home"
+        e2e_home.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_profile, e2e_home / "user_profile.json")
+        for name in ("providers.json", "models.json"):
+            src_file = src_home / name
+            if src_file.exists():
+                shutil.copy2(src_file, e2e_home / name)
         port = _free_port()
         launcher = tmp / "launcher.py"
         launcher.write_text(
             _LAUNCHER.format(
                 repo_root=str(REPO_ROOT),
                 workspace=str(self.workspace),
-                db_path=str(db_copy),
+                home=str(e2e_home),
                 port=port,
             ),
             encoding="utf-8",
         )
         log(f"Spawning isolated backend on 127.0.0.1:{port} "
-            f"(workspace={self.workspace}, db={db_copy.name})")
+            f"(workspace={self.workspace}, home={e2e_home.name})")
         self.proc = subprocess.Popen(
             [sys.executable, str(launcher)],
             cwd=str(REPO_ROOT),
@@ -193,19 +200,11 @@ _LAUNCHER = '''\
 import os, sys
 REPO = {repo_root!r}
 WS = {workspace!r}
-DB = {db_path!r}
+HOME = {home!r}
 sys.path.insert(0, REPO)
-# Export keys from the repo's .keys file into the environment (never logged).
-try:
-    for line in open(os.path.join(REPO, ".keys"), encoding="utf-8"):
-        line = line.strip()
-        if line and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
-except OSError:
-    pass
 os.chdir(WS)
-os.environ["ZENITH_DB_PATH"] = DB
+# Credentials resolve exclusively from user_profile.json inside ZENITH_HOME.
+os.environ["ZENITH_HOME"] = HOME
 os.environ["ZENITH_LOG_LEVEL"] = "INFO"
 os.environ["ZENITH_E2E_INSTRUMENT"] = "1"
 import server.api.server as api

@@ -15,8 +15,7 @@ from server.agents.delegation import (
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
-from server.persistence.connection import Database
-from server.persistence.repositories import MessageRepository, SessionRepository
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
 
 
@@ -81,17 +80,18 @@ class _InstantProvider(BaseProvider):
 @pytest.fixture
 def test_config(temp_dir):
     return AppSettings(
-        db_path=str(temp_dir / "guard.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def db(test_config):
-    database = Database(test_config.db_path)
-    await database.connect()
-    yield database
-    await database.close()
+def home(test_config):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(test_config.home_dir)
+    ensure_materialized(h)
+    return h
 
 
 class TestConstants:
@@ -145,7 +145,7 @@ class TestContextBudget:
         from server.agents.delegation.task_envelope import build_task_envelope
 
         config = AppSettings(
-            db_path=str(temp_dir / f"cap-{configured}.db"),
+            home_dir=str(temp_dir),
             workspace_root=str(temp_dir),
             max_context_tokens=configured,
         )
@@ -172,11 +172,11 @@ class TestContextBudget:
 class TestTimeout:
     @pytest.mark.asyncio
     async def test_timeout_yields_timed_out_result_and_terminal_success(
-        self, monkeypatch, test_config, db
+        self, monkeypatch, test_config, home
     ):
         monkeypatch.setattr(orch_module, "AGENT_TIMEOUT_SECONDS", 0.05)
-        session_repo = SessionRepository(db)
-        message_repo = MessageRepository(db)
+        session_repo = FileSessionRepository(home)
+        message_repo = FileMessageRepository(home)
         parent = await session_repo.create(Session(title="timeout parent"))
 
         from server.toolkit import create_default_registry
@@ -204,10 +204,10 @@ class TestTimeout:
 class TestFailureIsolation:
     @pytest.mark.asyncio
     async def test_provider_error_becomes_failed_result_not_exception(
-        self, test_config, db
+        self, test_config, home
     ):
-        session_repo = SessionRepository(db)
-        message_repo = MessageRepository(db)
+        session_repo = FileSessionRepository(home)
+        message_repo = FileMessageRepository(home)
         parent = await session_repo.create(Session(title="isolation parent"))
 
         from server.toolkit import create_default_registry

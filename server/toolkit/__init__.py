@@ -1,7 +1,5 @@
 import logging
 
-from server.permissions.service import PermissionService
-
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
 from .catalog import (
     CapabilityCatalog,
@@ -80,13 +78,11 @@ __all__ = [
 def create_default_registry(
     timeout: int = 30,
     provider: object | None = None,
-    permission_service: PermissionService | None = None,
     hooks: object | None = None,
 ) -> ToolRegistry:
     from .middleware import (
         HookMiddleware,
         LoggingMiddleware,
-        PermissionMiddleware,
         SafetyCheckMiddleware,
     )
     from .middleware.plan_write import PlanWriteGuard
@@ -121,8 +117,6 @@ def create_default_registry(
 
         registry.register_middleware(HookMiddleware(HookRunner(hooks)))
     registry.register_middleware(SafetyCheckMiddleware())
-    if permission_service is not None:
-        registry.register_middleware(PermissionMiddleware(service=permission_service))
     validation_errors = validate_registry(registry)
     if validation_errors:
         logger.warning("Tool registry validation failed at startup:")

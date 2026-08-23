@@ -3,7 +3,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from server.config.constants import ANSI_RE, CHARS_PER_TOKEN, COMPACTION_KEEP_TAIL, MAX_TOOL_OUTPUT_BASELINE
+from server.config.constants import (
+    ANSI_RE,
+    CHARS_PER_TOKEN,
+    COMPACTION_KEEP_TAIL,
+    MAX_TOOL_OUTPUT_BASELINE,
+)
 
 logger = logging.getLogger(__name__)
 

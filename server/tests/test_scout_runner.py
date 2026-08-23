@@ -87,7 +87,7 @@ class _ScriptedScoutProvider(BaseProvider):
 @pytest.fixture
 def test_config(temp_dir):
     return AppSettings(
-        db_path=str(temp_dir / "scout.db"),
+        home_dir=str(temp_dir / "scout.db"),
         workspace_root=str(temp_dir),
     )
 

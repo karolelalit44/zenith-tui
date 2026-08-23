@@ -61,7 +61,7 @@ class _SummarizingProvider:
 
 def _make_loop(temp_dir, provider, registry: ToolRegistry | None = None) -> AgentLoop:
     return AgentLoop(
-        AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir)),
+        AppSettings(home_dir=str(temp_dir / "test.db"), workspace_root=str(temp_dir)),
         provider,
         tool_registry=registry,
     )

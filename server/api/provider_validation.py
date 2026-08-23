@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 
 from server.api import validation_state
@@ -12,14 +11,16 @@ from server.config.constants import (
     DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_TEMPERATURE,
 )
-from server.persistence.connection import resolve_db_path
-from server.persistence.provider_config_repo import (
+from server.providers.validation import validate_provider
+from server.storage import StorageHome, resolve_home
+from server.storage.catalog_compat import load_catalog
+from server.storage.provider_config import (
+    read_model_store,
     read_provider_config_full,
     save_provider_config,
     upsert_provider_models,
+    write_model_store,
 )
-from server.persistence.repositories import load_catalog
-from server.providers.validation import validate_provider
 
 from .schemas import (
     ModelStoreRequest,
@@ -136,29 +137,24 @@ def build_provider_info(
     )
 
 
-def get_provider_list(db_path: str | None = None) -> ProviderListResponse:
-    db_path = db_path or resolve_db_path()
-    catalog = load_catalog(db_path)
-    active = ""
-    max_context_tokens = 0
-    if Path(db_path).exists():
-        try:
-            from server.config.loader import load_config
+def _default_home() -> StorageHome:
+    return StorageHome(resolve_home())
 
-            max_context_tokens = int(load_config().max_context_tokens)
-        except Exception:
-            pass
-    if not Path(db_path).exists():
-        catalog_infos = [
-            build_provider_info(pid, {}, catalog, active) for pid in catalog.get("providers", {})
-        ]
-        return ProviderListResponse(
-            all=catalog_infos, active=active, connected=[], max_context_tokens=max_context_tokens
-        )
-    active = ""
-    providers_dict: dict[str, Any] = {}
+
+def get_provider_list(home: StorageHome | None = None) -> ProviderListResponse:
+    home = home or _default_home()
+    catalog = load_catalog(home)
+    max_context_tokens = 0
     try:
-        active, providers_dict = read_provider_config_full(db_path)
+        from server.config.loader import load_config
+
+        max_context_tokens = int(load_config().max_context_tokens)
+    except Exception:
+        pass
+    active: str = ""
+    providers_dict: dict[str, dict[str, Any]] = {}
+    try:
+        active, providers_dict = read_provider_config_full(home)
     except Exception as e:
         logger.warning("get_provider_list: read failed: %s", e)
     ids = list(catalog.get("providers", {}).keys())
@@ -169,18 +165,18 @@ def get_provider_list(db_path: str | None = None) -> ProviderListResponse:
     connected: list[str] = []
     for pid in ids:
         p = providers_dict.get(pid, {})
-        info = build_provider_info(pid, p, catalog, active)
+        info = build_provider_info(pid, p, catalog, active or "")
         infos.append(info)
         if info.has_api_key:
             connected.append(pid)
     return ProviderListResponse(
-        all=infos, active=active, connected=connected, max_context_tokens=max_context_tokens
+        all=infos, active=active or "", connected=connected, max_context_tokens=max_context_tokens
     )
 
 
-def get_provider_catalog(db_path: str | None = None) -> list[ProviderCatalogItem]:
-    db_path = db_path or resolve_db_path()
-    catalog = load_catalog(db_path)
+def get_provider_catalog(home: StorageHome | None = None) -> list[ProviderCatalogItem]:
+    home = home or _default_home()
+    catalog = load_catalog(home)
     providers = catalog.get("providers", {})
     items: list[ProviderCatalogItem] = []
     for pid in providers:
@@ -206,17 +202,16 @@ def get_provider_models(
     provider_id: str,
     offset: int = 0,
     limit: int = 50,
-    db_path: str | None = None,
+    home: StorageHome | None = None,
 ) -> ProviderModelListResponse:
-    db_path = db_path or resolve_db_path()
-    catalog = load_catalog(db_path)
+    home = home or _default_home()
+    catalog = load_catalog(home)
     active = ""
     providers_dict: dict[str, Any] = {}
-    if Path(db_path).exists():
-        try:
-            active, providers_dict = read_provider_config_full(db_path)
-        except Exception as e:
-            logger.warning("get_provider_models: read failed: %s", e)
+    try:
+        active, providers_dict = read_provider_config_full(home)
+    except Exception as e:
+        logger.warning("get_provider_models: read failed: %s", e)
     p = providers_dict.get(provider_id, {})
     info = build_provider_info(provider_id, p, catalog, active)
     all_models = list(info.models.values())
@@ -228,23 +223,24 @@ def get_provider_models(
 
 
 def set_provider_model(
-    provider_id: str, request: ProviderModelRequest, db_path: str | None = None
+    provider_id: str, request: ProviderModelRequest, home: StorageHome | None = None
 ) -> ProviderInfo:
-    db_path = db_path or resolve_db_path()
+    home = home or _default_home()
     model = request.model.strip()
     if not model:
         raise ValueError("Model is required.")
     save_provider_config(
+        home,
         provider=provider_id,
         api_key="",
         model=model,
         base_url="",
         max_tokens=DEFAULT_LLM_MAX_TOKENS,
         temperature=DEFAULT_LLM_TEMPERATURE,
-        db_path=db_path,
         set_active=True,
     )
     upsert_provider_models(
+        home,
         provider_id,
         models=[
             {
@@ -255,10 +251,9 @@ def set_provider_model(
                 "is_default": False,
             }
         ],
-        db_path=db_path,
     )
-    catalog = load_catalog(db_path)
-    active, providers_dict = read_provider_config_full(db_path)
+    catalog = load_catalog(home)
+    active, providers_dict = read_provider_config_full(home)
     p = providers_dict.get(provider_id, {})
     return build_provider_info(provider_id, p, catalog, active)
 
@@ -266,10 +261,10 @@ def set_provider_model(
 async def ndjson_validate_stream(
     provider_id: str,
     request: ProviderValidationRequest | None,
-    db_path: str | None = None,
+    home: StorageHome | None = None,
     on_success=None,
 ) -> AsyncIterator[str]:
-    db_path = db_path or resolve_db_path()
+    home = home or _default_home()
     req = request or ProviderValidationRequest()
     valid = False
     async for event in validate_provider(
@@ -277,7 +272,7 @@ async def ndjson_validate_stream(
         api_key=req.api_key,
         base_url=req.base_url,
         model=req.model,
-        db_path=db_path,
+        home=home,
     ):
         yield (json.dumps(event) + "\n")
         if event.get("type") == "result":
@@ -286,17 +281,13 @@ async def ndjson_validate_stream(
         on_success(provider_id)
 
 
-def get_model_selection(db_path: str | None = None) -> dict[str, Any]:
-    from server.persistence.provider_config_repo import read_model_store
-
-    return read_model_store(db_path)
+def get_model_selection(home: StorageHome | None = None) -> dict[str, Any]:
+    return read_model_store(home or _default_home())
 
 
 def save_model_selection_endpoint(
-    store: ModelStoreRequest, db_path: str | None = None
+    store: ModelStoreRequest, home: StorageHome | None = None
 ) -> dict[str, Any]:
-    from server.persistence.provider_config_repo import write_model_store
-
     current = None
     if store.current and store.current.providerID and store.current.modelID:
         current = {"providerID": store.current.providerID, "modelID": store.current.modelID}
@@ -311,5 +302,5 @@ def save_model_selection_endpoint(
         if s.providerID and s.modelID
     ]
     payload = {"current": current, "recent": recent, "favorite": favorite}
-    write_model_store(db_path, payload)
+    write_model_store(home or _default_home(), payload)
     return payload

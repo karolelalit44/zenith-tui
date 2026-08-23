@@ -25,9 +25,16 @@ from server.config.constants import (
     default_max_tokens_for_context,
 )
 from server.config.env import optional_int
-from server.persistence import provider_config_repo
-from server.persistence.repositories import load_catalog
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
+from server.storage import StorageHome, resolve_home
+from server.storage.catalog_compat import load_catalog
+from server.storage.provider_config import (
+    read_providers as read_stored_providers,
+)
+from server.storage.provider_config import (
+    save_provider_config,
+    upsert_provider_models,
+)
 
 logger = logging.getLogger(__name__)
 STEP_LABELS: dict[str, str] = {
@@ -117,11 +124,11 @@ def _map_models(raw: Any) -> list[ProviderModelInfo]:
 
 
 def _resolve_config(
-    provider_id: str, api_key: str, base_url: str, model: str, db_path: str
+    provider_id: str, api_key: str, base_url: str, model: str, home: StorageHome
 ) -> tuple[dict, dict]:
-    catalog = load_catalog(db_path)
+    catalog = load_catalog(home)
     entry = catalog.get("providers", {}).get(provider_id) or {}
-    stored = provider_config_repo.read_providers(db_path).get(provider_id) or {}
+    stored = read_stored_providers(home).get(provider_id) or {}
     resolved_key = (api_key or "").strip() or (stored.get("api_key") or "")
     catalog_base = (entry.get("base_url") or "").strip()
     if entry.get("base_url_style") != "user" and catalog_base:
@@ -170,10 +177,10 @@ async def validate_provider(
     api_key: str = "",
     base_url: str = "",
     model: str = "",
-    db_path: str | None = None,
+    home: StorageHome | None = None,
     workspace_root: str = ".",
 ) -> AsyncIterator[dict]:
-    db_path = db_path or provider_config_repo.resolve_db_path()
+    home = home or StorageHome(resolve_home())
     steps: dict[str, ValidationStep] = {
         key: ValidationStep(key=key, label=label) for key, label in STEP_LABELS.items()
     }
@@ -200,7 +207,7 @@ async def validate_provider(
         return [steps[k] for k in STEP_LABELS]
 
     try:
-        entry, cfg = _resolve_config(provider_id, api_key, base_url, model, db_path)
+        entry, cfg = _resolve_config(provider_id, api_key, base_url, model, home)
     except Exception as e:
         logger.warning("validate '%s': config resolution failed: %s", provider_id, e)
         _update("config", ValidationStepStatus.FAILED, str(e))
@@ -428,19 +435,19 @@ async def validate_provider(
     _update("save", ValidationStepStatus.RUNNING)
     yield _step_event("save", ValidationStepStatus.RUNNING)
     try:
-        provider_config_repo.save_provider_config(
+        save_provider_config(
+            home,
             provider=provider_id,
             api_key=api_key,
             model=smoke_model,
             base_url=base_url,
             max_tokens=cfg["max_tokens"],
             temperature=cfg["temperature"],
-            db_path=db_path,
             set_active=False,
         )
         if entry.get("custom_flow") and models:
-            provider_config_repo.upsert_provider_models(
-                provider=provider_id, models=[m.model_dump() for m in models], db_path=db_path
+            upsert_provider_models(
+                home, provider_id, models=[m.model_dump() for m in models]
             )
     except Exception as e:
         logger.warning("validate '%s': save failed: %s", provider_id, e)
@@ -467,12 +474,12 @@ async def validate_provider_collect(
     api_key: str = "",
     base_url: str = "",
     model: str = "",
-    db_path: str | None = None,
+    home: StorageHome | None = None,
     workspace_root: str = ".",
 ) -> ValidationResult:
     result: ValidationResult | None = None
     async for event in validate_provider(
-        provider_id, api_key, base_url, model, db_path, workspace_root
+        provider_id, api_key, base_url, model, home, workspace_root
     ):
         if event.get("type") == "result":
             result = ValidationResult(**{k: v for k, v in event.items() if k != "type"})

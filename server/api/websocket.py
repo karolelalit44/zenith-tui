@@ -8,10 +8,15 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
-from server.persistence.connection import Database
 from server.providers.registry import ProviderRegistry
+from server.storage import StorageHome
+from server.storage.session_store import (
+    FileCheckpointRepository,
+    FileMessageRepository,
+    FileSessionRepository,
+    FileSyncEventRepository,
+)
 from server.toolkit import create_default_registry
-from server.toolkit.middleware import PermissionMiddleware
 from server.toolkit.registry import ToolRegistry
 
 from .handlers import MethodHandlers
@@ -183,31 +188,16 @@ class ZenithHandler:
     def __init__(
         self,
         config: AppSettings,
-        db: Database,
+        home: StorageHome,
         registry: ProviderRegistry,
         tool_registry: ToolRegistry | None = None,
     ) -> None:
         self.config = config
+        self.home = home
         self.tool_registry = tool_registry or create_default_registry(
             timeout=config.tools.max_bash_timeout,
             provider=registry.get(config.active_provider),
             hooks=config.hooks,
-        )
-        from server.permissions import DefaultPermissionService
-        from server.persistence.permission_repo import PermissionRepository
-
-        self.permission_service = DefaultPermissionService(repo=PermissionRepository(db))
-        self.tool_registry.register_middleware(
-            PermissionMiddleware(service=self.permission_service)
-        )
-        from server.persistence.repositories import (
-            CheckpointRepository,
-            DraftRepository,
-            MessageRepository,
-            SessionRepository,
-            SessionStatusHistoryRepository,
-            SyncEventRepository,
-            TokenUsageRepository,
         )
         from server.sessions.service import DefaultSessionService
 
@@ -220,17 +210,13 @@ class ZenithHandler:
 
         self._event_bus = AsyncEventBus()
         self._bus_task: asyncio.Task | None = None
-        self.handlers = MethodHandlers(config, db, registry, self.tool_registry)
-        self.handlers._permission_service = self.permission_service
+        self.handlers = MethodHandlers(config, home, registry, self.tool_registry)
         self.handlers.manager = self.manager
         self._session_service = DefaultSessionService(
-            session_repo=SessionRepository(db),
-            message_repo=MessageRepository(db),
-            token_usage_repo=TokenUsageRepository(db),
-            checkpoint_repo=CheckpointRepository(db),
-            sync_event_repo=SyncEventRepository(db),
-            status_history_repo=SessionStatusHistoryRepository(db),
-            draft_repo=DraftRepository(db),
+            session_repo=FileSessionRepository(home),
+            message_repo=FileMessageRepository(home),
+            checkpoint_repo=FileCheckpointRepository(home),
+            sync_event_repo=FileSyncEventRepository(home),
             event_bus=self._event_bus,
             hooks=config.hooks,
         )
@@ -247,8 +233,12 @@ class ZenithHandler:
         if self._bus_task is not None and not self._bus_task.done():
             return
 
-        async def _bridge() -> None:
-            subscription = self._event_bus.subscribe()
+        # Subscribe synchronously *before* scheduling the task: publishes are
+        # lossy and fire-and-forget, so a fast first publish (file-backed
+        # repos don't yield like SQLite did) must already see a subscriber.
+        subscription = self._event_bus.subscribe()
+
+        async def _bridge():
             while True:
                 event = await subscription.next()
                 if event is None:

@@ -167,7 +167,7 @@ def test_config(temp_dir):
     return AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir / "test.db"),
         workspace_root=str(temp_dir),
     )
 
@@ -350,7 +350,7 @@ async def test_cumulative_usage_does_not_hard_stop(temp_dir):
     config = AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir / "test.db"),
         workspace_root=str(temp_dir),
     )
     agent = AgentLoop(config, provider, tool_registry=create_default_registry())
@@ -373,7 +373,7 @@ async def test_composed_context_hard_stops_before_calling_the_llm(temp_dir):
     config = AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir / "test.db"),
         workspace_root=str(temp_dir),
         max_context_tokens=1200,
     )

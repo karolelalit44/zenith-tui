@@ -8,7 +8,6 @@ from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.domain.session import Session
-from server.persistence.connection import Database
 from server.providers.base import BaseProvider
 
 
@@ -50,17 +49,18 @@ def test_config(temp_dir):
     return AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def test_db(test_config):
-    db = Database(test_config.db_path)
-    await db.connect()
-    yield db
-    await db.close()
+def storage_home(temp_dir):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(temp_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
@@ -73,10 +73,10 @@ def registry():
 
 
 @pytest.fixture
-def handler(test_config, test_db, registry):
+def handler(test_config, storage_home, registry):
     from server.api.websocket import ZenithHandler
 
-    h = ZenithHandler(test_config, test_db, registry)
+    h = ZenithHandler(test_config, storage_home, registry)
     events = []
 
     async def mock_send_event(self, session_id, event, **kw):
@@ -177,7 +177,7 @@ class TestContextCommands:
         assert "-32602" in captured["text"]
 
     @pytest.mark.asyncio
-    async def test_compact_with_focus_forwards_to_summarizer(self, test_config, test_db):
+    async def test_compact_with_focus_forwards_to_summarizer(self, test_config, storage_home):
         import datetime
 
         from server.api.websocket import ZenithHandler
@@ -185,7 +185,7 @@ class TestContextCommands:
 
         reg = ProviderRegistry()
         reg.register("test", _FocusEchoProvider())
-        h = ZenithHandler(test_config, test_db, reg)
+        h = ZenithHandler(test_config, storage_home, reg)
         events = []
 
         async def mock_send_event(self, session_id, event, **kw):

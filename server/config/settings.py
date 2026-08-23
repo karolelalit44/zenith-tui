@@ -13,6 +13,12 @@ from .constants import (
 from .env import optional_env, optional_float, optional_int, optional_int_none
 from .providers import ProviderConfig
 
+
+def default_home() -> str:
+    from pathlib import Path
+
+    return str(Path.home() / ".zenith")
+
 CORE_PLAN_TOOLS = [
     "file_read",
     "file_write",
@@ -104,7 +110,9 @@ class HooksConfig(BaseModel):
 
 class BootstrapDefaults(BaseModel):
     active_provider: str = ""
-    db_path: str = optional_env("ZENITH_DB_PATH", "data/zenith.db")
+    home_dir: str = Field(
+        default_factory=lambda: optional_env("ZENITH_HOME", str(default_home()))
+    )
     log_level: str = optional_env("ZENITH_LOG_LEVEL", "INFO")
     max_context_tokens: int = Field(
         default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", DEFAULT_CONTEXT_WINDOW), ge=1000
@@ -128,7 +136,7 @@ class AppSettings(BaseModel):
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
     active_provider: str = DEFAULTS.active_provider
     workspace_root: str = "."
-    db_path: str = DEFAULTS.db_path
+    home_dir: str = DEFAULTS.home_dir
     log_level: str = DEFAULTS.log_level
     tools: ToolConfig = Field(default_factory=ToolConfig)
     max_context_tokens: int = DEFAULTS.max_context_tokens
@@ -174,13 +182,6 @@ class AppSettings(BaseModel):
     @classmethod
     def validate_active_provider(cls, v: str) -> str:
         return (v or "").strip()
-
-    @field_validator("db_path")
-    @classmethod
-    def validate_db_path(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("db_path cannot be empty")
-        return v
 
     def get_active_provider_config(self) -> ProviderConfig | None:
         return self.providers.get(self.active_provider)

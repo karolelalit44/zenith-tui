@@ -156,7 +156,7 @@ class TestSystemPromptBuilding:
         from server.agents.context import ContextManager
         from server.config.settings import AppSettings
 
-        cm = ContextManager(AppSettings(workspace_root="/tmp/test", db_path="/tmp/test.db"))
+        cm = ContextManager(AppSettings(workspace_root="/tmp/test", home_dir="/tmp/test.db"))
         from server.domain.message import Message
 
         messages = cm.build_messages(
@@ -180,7 +180,7 @@ class TestNoFilesCreatedWarning:
         from server.config.settings import AppSettings
 
         agent = AgentLoop(
-            AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir)),
+            AppSettings(home_dir=str(temp_dir / "test.db"), workspace_root=str(temp_dir)),
             provider,
             tool_registry=tool_registry,
         )

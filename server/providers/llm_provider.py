@@ -25,7 +25,7 @@ from server.config.constants import (
 from server.config.env import optional_float, optional_int
 from server.domain.domain import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
-from server.persistence.repositories import load_catalog
+from server.storage.catalog_compat import load_catalog
 
 from .base import BaseProvider
 from .token_counter import TokenCounter

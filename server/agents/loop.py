@@ -45,8 +45,8 @@ from server.domain.message import Message
 from server.providers import responder as r
 from server.providers.base import BaseProvider
 from server.providers.parser import UnifiedResponseFormatter
-from server.toolkit.digest import format_tool_digest
 from server.toolkit.base import ToolResult
+from server.toolkit.digest import format_tool_digest
 from server.toolkit.param_normalizer import canonicalize_path_values, normalize_file_params
 from server.toolkit.path_validator import validate_path
 from server.toolkit.registry import ToolRegistry
@@ -1731,7 +1731,7 @@ class AgentLoop:
     @staticmethod
     def _catalog_for_provider(provider_name: str) -> dict:
         try:
-            from server.persistence.repositories import load_catalog
+            from server.storage.catalog_compat import load_catalog
 
             return load_catalog().get("providers", {}).get(provider_name) or {}
         except Exception:

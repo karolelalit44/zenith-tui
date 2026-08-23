@@ -106,7 +106,7 @@ class TestModeToolsBudgets:
 
     def test_mode_tools_budget_ordering_on_loop(self, tmp_path):
         loop = AgentLoop(
-            AppSettings(db_path=str(tmp_path / "test.db"), workspace_root=str(tmp_path)),
+            AppSettings(home_dir=str(tmp_path / "test.db"), workspace_root=str(tmp_path)),
             _FakeProvider(),
         )
         window = DEFAULT_CONTEXT_WINDOW
@@ -124,7 +124,7 @@ class TestModeToolsBudgets:
 
     def test_unknown_mode_falls_back_to_build(self, tmp_path):
         loop = AgentLoop(
-            AppSettings(db_path=str(tmp_path / "test.db"), workspace_root=str(tmp_path)),
+            AppSettings(home_dir=str(tmp_path / "test.db"), workspace_root=str(tmp_path)),
             _FakeProvider(),
         )
         assert loop._mode_tools_budget("test-model-xyz", "mystery") == loop._mode_tools_budget(

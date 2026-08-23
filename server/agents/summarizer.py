@@ -116,7 +116,7 @@ class ConversationSummarizer:
                 provider.complete([{"role": "user", "content": prompt}], **kwargs),
                 timeout=optional_float(SUMMARIZER_TIMEOUT_ENV, DEFAULT_SUMMARIZER_TIMEOUT),
             )
-        except Exception:  # noqa: BLE001 - degrade to caller fallback
+        except Exception:
             logger.warning("Heavy-output summarization failed, caller fallback will apply")
             return ""
         return (result or "").strip()

@@ -9,7 +9,6 @@ from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
-from server.persistence.connection import Database
 from server.providers.base import BaseProvider
 
 
@@ -61,11 +60,12 @@ def test_config(temp_dir):
 
 
 @pytest.fixture
-async def test_db(test_config):
-    db = Database(test_config.db_path)
-    await db.connect()
-    yield db
-    await db.close()
+def storage_home(temp_dir):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(temp_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
@@ -78,10 +78,10 @@ def registry():
 
 
 @pytest.fixture
-def handler(test_config, test_db, registry):
+def handler(test_config, storage_home, registry):
     from server.api.websocket import ZenithHandler
 
-    h = ZenithHandler(test_config, test_db, registry)
+    h = ZenithHandler(test_config, storage_home, registry)
     events = []
 
     async def mock_send_event(self, session_id, event, **kw):
@@ -91,8 +91,8 @@ def handler(test_config, test_db, registry):
     return (h, events)
 
 
-def _make_executor(config, provider, db):
-    from server.persistence.repositories import MessageRepository, SessionRepository
+def _make_executor(config, provider, home):
+    from server.storage.session_store import FileMessageRepository, FileSessionRepository
     from server.skills.loader import SkillLoader
     from server.toolkit import create_default_registry
 
@@ -100,17 +100,17 @@ def _make_executor(config, provider, db):
         config,
         provider,
         create_default_registry(),
-        SessionRepository(db),
-        MessageRepository(db),
+        FileSessionRepository(home),
+        FileMessageRepository(home),
         SkillLoader(str(config.workspace_root)),
     )
 
 
 class TestProviderOverrides:
     @pytest.mark.asyncio
-    async def test_overrides_applied_and_restored(self, test_config, test_db):
+    async def test_overrides_applied_and_restored(self, test_config, storage_home):
         provider = RecordingProvider()
-        executor = _make_executor(test_config, provider, test_db)
+        executor = _make_executor(test_config, provider, storage_home)
         session = await executor._session_repo.create(Session(title="Override Test"))
         await executor._execute(
             session.id,
@@ -134,9 +134,9 @@ class TestProviderOverrides:
         assert provider.max_tokens == DEFAULT_LLM_MAX_TOKENS
 
     @pytest.mark.asyncio
-    async def test_no_override_when_not_provided(self, test_config, test_db):
+    async def test_no_override_when_not_provided(self, test_config, storage_home):
         provider = RecordingProvider()
-        executor = _make_executor(test_config, provider, test_db)
+        executor = _make_executor(test_config, provider, storage_home)
         session = await executor._session_repo.create(Session(title="No Override"))
         await executor._execute(session.id, "hello", "build", None, None)
         await executor._summary_scheduler.drain()
@@ -279,9 +279,9 @@ class TestAttachmentGuards:
         assert error == "file not found"
 
     @pytest.mark.asyncio
-    async def test_inject_attachments_prepends_and_warns(self, test_config, test_db, temp_dir):
+    async def test_inject_attachments_prepends_and_warns(self, test_config, storage_home, temp_dir):
         provider = RecordingProvider()
-        executor = _make_executor(test_config, provider, test_db)
+        executor = _make_executor(test_config, provider, storage_home)
         (temp_dir / "a.txt").write_text("AAA")
         events = []
         injected = await executor._inject_attachments(
@@ -293,9 +293,9 @@ class TestAttachmentGuards:
         assert any("missing.txt" in e.data.get("message", "") for e in events)
 
     @pytest.mark.asyncio
-    async def test_inject_attachments_inline_content_escape_hatch(self, test_config, test_db):
+    async def test_inject_attachments_inline_content_escape_hatch(self, test_config, storage_home):
         provider = RecordingProvider()
-        executor = _make_executor(test_config, provider, test_db)
+        executor = _make_executor(test_config, provider, storage_home)
         events = []
         injected = await executor._inject_attachments(
             "user text", [{"path": "virtual.py", "content": "print('x')"}], "s1", None, events

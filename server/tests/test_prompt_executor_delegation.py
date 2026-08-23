@@ -15,8 +15,7 @@ from server.agents.prompt_executor import PromptExecutor
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
-from server.persistence.connection import Database
-from server.persistence.repositories import MessageRepository, SessionRepository
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
 from server.skills.loader import SkillLoader
 from server.toolkit import create_default_registry
@@ -107,23 +106,24 @@ class _PlainOrScoutProvider(BaseProvider):
 @pytest.fixture
 def test_config(temp_dir):
     return AppSettings(
-        db_path=str(temp_dir / "exec.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def db(test_config):
-    database = Database(test_config.db_path)
-    await database.connect()
-    yield database
-    await database.close()
+def storage_home(test_config):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(test_config.home_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
-async def executor(test_config, db):
-    session_repo = SessionRepository(db)
-    message_repo = MessageRepository(db)
+def executor(test_config, storage_home):
+    session_repo = FileSessionRepository(storage_home)
+    message_repo = FileMessageRepository(storage_home)
     ex = PromptExecutor(
         test_config,
         _PlainOrScoutProvider(),

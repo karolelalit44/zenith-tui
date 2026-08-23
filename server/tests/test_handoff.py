@@ -97,7 +97,7 @@ class _Stub:
 def config():
     from server.config.settings import AppSettings
 
-    return AppSettings(db_path="/tmp/handoff_test.db", workspace_root="/tmp")
+    return AppSettings(home_dir="/tmp/handoff_test.db", workspace_root="/tmp")
 class TestPersistAssistantMessage:
     async def _persist(self, stub, response_text, events):
         import types

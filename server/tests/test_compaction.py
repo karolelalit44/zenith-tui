@@ -256,7 +256,7 @@ class TestLoopEmitsCompactedEvent:
         config = AppSettings(
             providers={"test": ProviderConfig(model="test-model", is_active=True)},
             active_provider="test",
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
         )
         provider = _BigReadProvider()
@@ -279,7 +279,7 @@ class TestRebuildReplaysLiveTurn:
         config = AppSettings(
             providers={"test": ProviderConfig(model="test-model", is_active=True)},
             active_provider="test",
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
             max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         )
@@ -339,7 +339,7 @@ class TestSummarizeAndRebuildHolder:
         config = AppSettings(
             providers={"test": ProviderConfig(model="test-model", is_active=True)},
             active_provider="test",
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
             max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         )
@@ -389,7 +389,7 @@ class TestSummarizeAndRebuildHolder:
         config = AppSettings(
             providers={"test": ProviderConfig(model="test-model", is_active=True)},
             active_provider="test",
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
             max_context_tokens=4000,
         )
@@ -433,7 +433,7 @@ class TestPruneToolOutputs:
         config = AppSettings(
             providers={"test": ProviderConfig(model="test-model", is_active=True)},
             active_provider="test",
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
             max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         )

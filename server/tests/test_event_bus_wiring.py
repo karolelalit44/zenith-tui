@@ -27,8 +27,7 @@ from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.domain.session import Session
-from server.persistence.connection import Database
-from server.persistence.repositories import MessageRepository, SessionRepository
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
 
@@ -85,17 +84,18 @@ def test_config(temp_dir):
     return AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "bus.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def test_db(test_config):
-    db = Database(test_config.db_path)
-    await db.connect()
-    yield db
-    await db.close()
+def test_home(temp_dir):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(temp_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
@@ -111,10 +111,10 @@ def _buffered_kinds(manager: ConnectionManager, session_id: str) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_session_summarized_precedes_terminal_and_is_persisted(test_config, test_db):
+async def test_session_summarized_precedes_terminal_and_is_persisted(test_config, test_home):
     """The C-F02 invariant over the real executor/transport chain."""
-    session_repo = SessionRepository(test_db)
-    message_repo = MessageRepository(test_db)
+    session_repo = FileSessionRepository(test_home)
+    message_repo = FileMessageRepository(test_home)
     session = await session_repo.create(Session(title="Ordering"))
 
     class _SkillLoader:
@@ -163,10 +163,10 @@ async def test_session_summarized_precedes_terminal_and_is_persisted(test_config
 
 
 @pytest.mark.asyncio
-async def test_session_summarized_error_terminal_ordering(test_config, test_db):
+async def test_session_summarized_error_terminal_ordering(test_config, test_home):
     """ERROR terminals flush after the summary too (exception path)."""
-    session_repo = SessionRepository(test_db)
-    message_repo = MessageRepository(test_db)
+    session_repo = FileSessionRepository(test_home)
+    message_repo = FileMessageRepository(test_home)
     from server.domain.session import Session
 
     session = await session_repo.create(Session(title="ErrOrder"))
@@ -198,9 +198,9 @@ async def test_session_summarized_error_terminal_ordering(test_config, test_db):
 
 
 @pytest.mark.asyncio
-async def test_service_events_travel_bus_to_manager_exactly_once(test_config, test_db, test_registry):
+async def test_service_events_travel_bus_to_manager_exactly_once(test_config, test_home, test_registry):
     """C-F03: service publishes once via the wired bus; handler adds nothing."""
-    handler = ZenithHandler(test_config, test_db, test_registry)
+    handler = ZenithHandler(test_config, test_home, test_registry)
     handler._ensure_event_bus_bridge()
 
     svc = handler._session_service

@@ -49,8 +49,8 @@ from server.providers import responder as r
 if TYPE_CHECKING:
     from server.config.settings import AppSettings
     from server.domain.message import Message
-    from server.persistence.repositories import MessageRepository, SessionRepository
     from server.providers.base import BaseProvider
+    from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +248,8 @@ class CompactionService:
         config: AppSettings,
         provider: BaseProvider,
         context_manager: ContextManager | None = None,
-        session_repo: SessionRepository | None = None,
-        message_repo: MessageRepository | None = None,
+        session_repo: FileSessionRepository | None = None,
+        message_repo: FileMessageRepository | None = None,
     ) -> None:
         self._config = config
         self._provider = provider

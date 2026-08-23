@@ -34,14 +34,14 @@ from server.config.settings import AGENT_MODES
 from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
-from server.persistence.repositories import TokenUsageRepository
+from server.storage.usage_store import FileTokenUsageRepository
 
 if TYPE_CHECKING:
     from server.api.handlers import MethodHandlers
     from server.config.settings import AppSettings
-    from server.persistence.repositories import MessageRepository, SessionRepository
     from server.providers.base import BaseProvider
     from server.skills.loader import SkillLoader
+    from server.storage.session_store import FileMessageRepository, FileSessionRepository
     from server.toolkit.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
@@ -266,8 +266,8 @@ class PromptExecutor:
         config: AppSettings,
         provider: BaseProvider,
         tool_registry: ToolRegistry,
-        session_repo: SessionRepository,
-        message_repo: MessageRepository,
+        session_repo: FileSessionRepository,
+        message_repo: FileMessageRepository,
         skill_loader: SkillLoader,
         workspace_repo=None,
     ) -> None:
@@ -765,30 +765,6 @@ class PromptExecutor:
                 )
             skills_section = self._skill_loader.get_skill_prompt()
             logger.info("Agent initialized, skills loaded=%d chars", len(skills_section))
-            token_repo = TokenUsageRepository(self._session_repo.db)
-            budget_check = await token_repo.get_budget_status(session_id)
-            if budget_check.get("active") and budget_check.get("max_monthly_cost", 0) > 0:
-                monthly = budget_check.get("monthly_cost", 0)
-                max_monthly = budget_check.get("max_monthly_cost", 0)
-                if monthly >= max_monthly:
-                    if manager:
-                        await manager.send_event(
-                            session_id,
-                            r.error(
-                                f"Monthly budget ${max_monthly:.2f} exhausted (${monthly:.2f} used)",
-                                session_id,
-                                code="BUDGET_EXCEEDED",
-                            ),
-                        )
-                    return
-                if monthly / max_monthly > 0.8 and manager:
-                    await manager.send_event(
-                        session_id,
-                        r.warning(
-                            f"Monthly budget at {monthly / max_monthly * 100:.0f}% (${monthly:.2f}/${max_monthly:.2f})",
-                            session_id,
-                        ),
-                    )
             async for event in agent.process_prompt(
                 content,
                 session_id,
@@ -832,17 +808,6 @@ class PromptExecutor:
                         event.data.get("code"),
                         event.data.get("recoverable"),
                     )
-                    if event.data.get("code") == "CONTEXT_EXHAUSTED":
-                        try:
-                            await token_repo.record_degradation(
-                                session_id=session_id,
-                                step_index=_step_count,
-                                before_tokens=0,
-                                after_tokens=0,
-                                reason="context_exhausted",
-                            )
-                        except Exception:
-                            pass
                 elif event.kind == EventKind.SUCCESS:
                     logger.info(
                         " SUCCESS: iterations=%s token_info=%s",
@@ -852,7 +817,7 @@ class PromptExecutor:
                     if event.data.get("tokenInfo"):
                         try:
                             ti = event.data["tokenInfo"]
-                            token_repo = TokenUsageRepository(self._session_repo.db)
+                            token_repo = FileTokenUsageRepository(self._session_repo.home)
                             provider_name = getattr(self._provider, "name", "unknown")
                             model_name = getattr(self._provider, "model", "unknown")
                             # QA-10: `used` is composed-context OCCUPANCY (gauge
@@ -924,20 +889,6 @@ class PromptExecutor:
                 elif event.kind == EventKind.WARNING:
                     msg = event.data.get("message", "")
                     logger.info("  WARNING: %s", msg[:200])
-                    if "Context" in msg and (
-                        "approaching" in msg or "summarizing" in msg or "exhausted" in msg
-                    ):
-                        try:
-                            deg_ti = event.data.get("tokenInfo") or {}
-                            await token_repo.record_degradation(
-                                session_id=session_id,
-                                step_index=_step_count,
-                                before_tokens=deg_ti.get("used", 0),
-                                after_tokens=deg_ti.get("remaining", 0),
-                                reason=msg[:100],
-                            )
-                        except Exception as e:
-                            logger.warning("Failed to record degradation: %s", e)
                 else:
                     logger.info("  OTHER: %s", str(event.data)[:200])
                 if manager:

@@ -9,8 +9,7 @@ from server.agents.delegation.orchestrator import CaptainOrchestrator
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
-from server.persistence.connection import Database
-from server.persistence.repositories import MessageRepository, SessionRepository
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
 from server.toolkit import create_default_registry
 
@@ -75,22 +74,23 @@ DEMO_PROMPT = (
 @pytest.fixture
 def test_config(temp_dir):
     return AppSettings(
-        db_path=str(temp_dir / "captain.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def db(test_config):
-    database = Database(test_config.db_path)
-    await database.connect()
-    yield database
-    await database.close()
+def home(test_config):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(test_config.home_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
-async def repos(db):
-    return SessionRepository(db), MessageRepository(db)
+def repos(home):
+    return FileSessionRepository(home), FileMessageRepository(home)
 
 
 @pytest.fixture
@@ -110,7 +110,7 @@ def _stages(events):
 class TestLifecycleEvents:
     @pytest.mark.asyncio
     async def test_stage_sequence_and_raw_kinds_in_order(
-        self, test_config, db, repos, workspace
+        self, test_config, home, repos, workspace
     ):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="lifecycle"))
@@ -147,7 +147,7 @@ class TestLifecycleEvents:
         assert kinds[-1] == EventKind.SUCCESS
 
     @pytest.mark.asyncio
-    async def test_working_events_capped_at_three(self, test_config, db, repos, workspace):
+    async def test_working_events_capped_at_three(self, test_config, home, repos, workspace):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="capped"))
         orchestrator = CaptainOrchestrator(
@@ -169,7 +169,7 @@ class TestLifecycleEvents:
         assert 1 <= len(working) <= 3
 
     @pytest.mark.asyncio
-    async def test_crewmate_id_stable_across_stages(self, test_config, db, repos, workspace):
+    async def test_crewmate_id_stable_across_stages(self, test_config, home, repos, workspace):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="stable-id"))
         orchestrator = CaptainOrchestrator(
@@ -199,7 +199,7 @@ class TestLifecycleEvents:
 class TestIsolationAndPersistence:
     @pytest.mark.asyncio
     async def test_child_session_created_with_parent_link(
-        self, test_config, db, repos, workspace
+        self, test_config, home, repos, workspace
     ):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="linked"))
@@ -220,7 +220,7 @@ class TestIsolationAndPersistence:
 
     @pytest.mark.asyncio
     async def test_child_message_persisted_and_parent_counters_updated(
-        self, test_config, db, repos, workspace
+        self, test_config, home, repos, workspace
     ):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="persisting"))
@@ -248,7 +248,7 @@ class TestIsolationAndPersistence:
 
 class TestDuplicateDetection:
     @pytest.mark.asyncio
-    async def test_duplicate_hit_skips_run(self, test_config, db, repos, workspace):
+    async def test_duplicate_hit_skips_run(self, test_config, home, repos, workspace):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="dedupe"))
         provider = _ScoutProvider()
@@ -287,7 +287,7 @@ class TestDuplicateDetection:
 class TestFailedScout:
     @pytest.mark.asyncio
     async def test_failed_scout_emits_failed_complete_stage_and_terminal_success(
-        self, test_config, db, repos, workspace
+        self, test_config, home, repos, workspace
     ):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="failing"))

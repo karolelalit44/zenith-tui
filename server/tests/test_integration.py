@@ -11,7 +11,6 @@ from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.domain.session import Session
-from server.persistence.connection import Database
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
 from server.sessions.export import SessionExporter
@@ -52,17 +51,18 @@ def test_config(temp_dir):
     return AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def test_db(test_config):
-    db = Database(test_config.db_path)
-    await db.connect()
-    yield db
-    await db.close()
+def test_home(test_config):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(test_config.home_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture

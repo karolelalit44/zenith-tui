@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import logging
 import platform
 from pathlib import Path
+
 from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
 from server.config.constants import (
     BUILD_MODE,

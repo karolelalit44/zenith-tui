@@ -5,24 +5,16 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from server.persistence.connection import resolve_db_path
-from server.persistence.provider_config_repo import read_active_provider, read_providers
-
 from .settings import AppSettings
 
 logger = logging.getLogger(__name__)
-_catalog_cache: dict | None = None
-_validated_once: bool = False
+_validated_once = False
 
 
-def _load_catalog() -> dict:
-    global _catalog_cache
-    if _catalog_cache is not None:
-        return _catalog_cache
-    from server.persistence.repositories import load_catalog
+def _load_catalog():
+    from server.storage.catalog_compat import load_catalog
 
-    _catalog_cache = load_catalog()
-    return _catalog_cache
+    return load_catalog()
 
 
 def providers_requiring_key() -> set[str]:
@@ -56,42 +48,46 @@ def parse_hooks_env(raw: str) -> dict | None:
 
 def load_config(workspace_root: str = ".") -> AppSettings:
     load_dotenv()
-    keys_path = Path(".keys")
-    if keys_path.is_file():
-        for line in keys_path.read_text().splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                os.environ[k.strip()] = v.strip()
     data: dict = {}
-    db_path = resolve_db_path()
-    data["db_path"] = db_path
+
+    from server.storage import StorageHome, ensure_materialized, resolve_home
+    from server.storage.provider_config import read_active_provider, read_providers
+
+    home = StorageHome(resolve_home())
+    ensure_materialized(home)
+    data["home_dir"] = str(home.root)
+
     providers_dict: dict[str, dict] = {}
-    if Path(db_path).exists():
-        try:
-            active = read_active_provider(db_path)
-            if active:
-                data["active_provider"] = active
-            providers_raw = read_providers(db_path)
-            if providers_raw:
-                providers_dict.update(providers_raw)
-        except Exception as e:
-            logger.warning("Could not read config from DB '%s': %s", db_path, e)
+    try:
+        active = read_active_provider(home)
+        if active:
+            data["active_provider"] = active
+        stored = read_providers(home)
+        providers_dict.update(stored)
+    except Exception as e:
+        logger.warning("Could not read provider config from storage home '%s': %s",
+                       home.root, e)
+
     catalog = _load_catalog()
     catalog_providers = catalog.get("providers", {})
+    # API keys resolve exclusively from user_profile.json (decision D5);
+    # environment-variable fallbacks were removed with the database.
     for pid, p_info in catalog_providers.items():
         if pid not in providers_dict:
-            providers_dict[pid] = {
+            entry = {
                 "api_key": "",
                 "model": "",
                 "base_url": p_info.get("base_url"),
+                "max_tokens": 4096,
+                "temperature": 0.7,
                 "is_active": pid == data.get("active_provider"),
             }
-        if not providers_dict[pid].get("api_key"):
-            for env_var in p_info.get("env_keys") or []:
-                val = os.environ.get(env_var)
-                if val and val.strip():
-                    providers_dict[pid]["api_key"] = val.strip()
-                    break
+            providers_dict[pid] = entry
+        else:
+            entry = providers_dict[pid]
+            if not entry.get("base_url"):
+                entry["base_url"] = p_info.get("base_url")
+
     data["providers"] = providers_dict
     mcp_raw = os.environ.get("ZENITH_MCP_SERVERS", "").strip()
     if mcp_raw:
@@ -154,42 +150,54 @@ def _validate_config(settings: AppSettings) -> None:
                 has_any_key = True
                 break
             warnings.append(
-                f"Provider '{name}' is configured in zenith.db but missing a valid API key."
+                f"Provider '{name}' is configured but missing a valid API key."
             )
     if not has_any_key and (not any(getattr(cfg, "api_key", None) for cfg in providers.values())):
         warnings.append(
-            "No provider API keys found in zenith.db database. Configure at least one provider via setup wizard."
+            "No provider API keys found in user_profile.json. Configure at least one provider via setup wizard."
         )
     catalog = _load_catalog()
     if settings.active_provider not in providers and settings.active_provider not in catalog.get(
         "providers", {}
     ):
         warnings.append(
-            f"Active provider '{settings.active_provider}' is not in the configured providers list {list(providers.keys()) or '[]'}. Set active provider in zenith.db."
+            f"Active provider '{settings.active_provider}' is not in the configured providers list {list(providers.keys()) or '[]'}. Set an active provider via the setup wizard."
         )
     workspace = Path(settings.workspace_root)
     if not workspace.exists():
         warnings.append(f"Workspace root '{settings.workspace_root}' does not exist.")
-    db_path = Path(settings.db_path)
-    db_dir = db_path.parent if db_path.suffix else Path(".")
-    if not db_dir.exists():
+    home_dir = Path(settings.home_dir)
+    if not home_dir.exists():
         try:
-            db_dir.mkdir(parents=True, exist_ok=True)
+            home_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            warnings.append(f"Cannot create database directory '{db_dir}': {e}")
+            warnings.append(f"Cannot create storage home '{home_dir}': {e}")
     for warning in warnings:
         logger.warning("Config: %s", warning)
+    _warn_on_legacy_database(settings)
+
+
+def _warn_on_legacy_database(settings: AppSettings) -> None:
+    """Point out a pre-migration SQLite file that is intentionally unused."""
+    candidates = (
+        Path.cwd() / "data" / "zenith.db",
+        Path(settings.workspace_root) / "data" / "zenith.db",
+        Path(settings.home_dir) / "zenith.db",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            logger.warning(
+                "Found legacy database %s — it is NO LONGER USED. All state now "
+                "lives under the storage home '%s'. The old sessions/history in "
+                "the database are intentionally not migrated.",
+                candidate,
+                settings.home_dir,
+            )
 
 
 def create_default_config(workspace_root: str = ".") -> Path:
-    db_path = Path(resolve_db_path())
-    if not db_path.parent.exists():
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-    if not db_path.exists():
-        db_path.touch()
-    return db_path
+    from server.storage import StorageHome, ensure_materialized, resolve_home
 
-
-def save_config(settings: AppSettings, workspace_root: str = ".") -> Path:
-    db_path = Path(resolve_db_path())
-    return db_path
+    home = StorageHome(resolve_home())
+    ensure_materialized(home)
+    return home.root

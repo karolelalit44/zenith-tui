@@ -9,12 +9,14 @@ import server.providers.responder as r
 from server.config.constants import BUILD_MODE
 from server.config.settings import AGENT_MODES
 from server.domain.message import Message
-from server.persistence.connection import Database
-from server.persistence.repositories import MessageRepository, SessionRepository
-from server.persistence.repositories.workspace import SessionWorkspaceRepository
 from server.sessions.export import SessionExporter
 from server.sessions.service import DefaultSessionService, SessionService
 from server.skills.loader import SkillLoader
+from server.storage import StorageHome
+from server.storage.search_store import FileSearchRepository
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
+from server.storage.usage_store import FileTokenUsageRepository
+from server.storage.workspace_store import FileWorkspaceRepository
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
 from .protocol import make_error_response, make_response
@@ -25,8 +27,8 @@ if TYPE_CHECKING:
     from server.toolkit.registry import ToolRegistry
 
     from ..agents.prompt_executor import PromptExecutor
-    from ..permissions.service import DefaultPermissionService
     from .websocket import ConnectionManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,23 +61,24 @@ class MethodHandlers:
     def __init__(
         self,
         config: AppSettings,
-        db: Database,
+        home: StorageHome,
         registry: ProviderRegistry,
         tool_registry: ToolRegistry,
         session_service: SessionService | None = None,
     ) -> None:
         self.config = config
+        self.home = home
         self.registry = registry
         self.tool_registry = tool_registry
-        self.session_repo = SessionRepository(db)
-        self.message_repo = MessageRepository(db)
+        self.session_repo = FileSessionRepository(home)
+        self.message_repo = FileMessageRepository(home)
         self.skill_loader = SkillLoader(config.workspace_root)
         self.exporter = SessionExporter()
         self.manager: ConnectionManager | None = None
-        self._permission_service: DefaultPermissionService | None = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
-        self._workspace_repo = SessionWorkspaceRepository(db)
+        self._workspace_repo = FileWorkspaceRepository(home)
+        self.usage_repo = FileTokenUsageRepository(home)
 
     def reload_config(self) -> None:
         from server.config.loader import load_config
@@ -335,15 +338,13 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"events": events, "latest_sequence": latest}))
 
     async def _session_search(self, ws, rid, params, session_id) -> None:
-        from server.persistence.search import SearchRepository
-
         query = (params.get("query", "") or "").strip()
         if not query:
             await ws.send_text(make_error_response(rid, -32602, "query is required"))
             return
         sid = params.get("session_id", session_id)
         limit = int(params.get("limit", 20))
-        repo = SearchRepository(self.session_repo.db)
+        repo = FileSearchRepository(self.home)
         try:
             hits = await repo.search(query, limit=limit, session_id=sid)
             parity = await repo.index_parity()
