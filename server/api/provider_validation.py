@@ -15,15 +15,12 @@ from server.providers.validation import validate_provider
 from server.storage import StorageHome, resolve_home
 from server.storage.catalog_compat import load_catalog
 from server.storage.provider_config import (
-    read_model_store,
     read_provider_config_full,
     save_provider_config,
     upsert_provider_models,
-    write_model_store,
 )
 
 from .schemas import (
-    ModelStoreRequest,
     ProviderCatalogItem,
     ProviderInfo,
     ProviderListResponse,
@@ -279,28 +276,3 @@ async def ndjson_validate_stream(
             valid = bool(event.get("valid"))
     if valid and on_success is not None:
         on_success(provider_id)
-
-
-def get_model_selection(home: StorageHome | None = None) -> dict[str, Any]:
-    return read_model_store(home or _default_home())
-
-
-def save_model_selection_endpoint(
-    store: ModelStoreRequest, home: StorageHome | None = None
-) -> dict[str, Any]:
-    current = None
-    if store.current and store.current.providerID and store.current.modelID:
-        current = {"providerID": store.current.providerID, "modelID": store.current.modelID}
-    recent = [
-        {"providerID": s.providerID, "modelID": s.modelID}
-        for s in store.recent
-        if s.providerID and s.modelID
-    ]
-    favorite = [
-        {"providerID": s.providerID, "modelID": s.modelID}
-        for s in store.favorite
-        if s.providerID and s.modelID
-    ]
-    payload = {"current": current, "recent": recent, "favorite": favorite}
-    write_model_store(home or _default_home(), payload)
-    return payload

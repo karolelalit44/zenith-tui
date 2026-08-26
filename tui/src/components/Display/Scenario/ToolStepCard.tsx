@@ -145,9 +145,9 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           {/* Terminal Window Header Bar: Window Dots + Relative Folder:Branch + Duration */}
           <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
             <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
-              <Text color="#FF5F56">● </Text>
-              <Text color="#FFBD2E">● </Text>
-              <Text color="#27C93F">● </Text>
+              <Text color={theme.colors.decorative.trafficLight.red}>● </Text>
+              <Text color={theme.colors.decorative.trafficLight.yellow}>● </Text>
+              <Text color={theme.colors.decorative.trafficLight.green}>● </Text>
               <Text color={theme.colors.status.info} bold wrap="truncate-end">
                 {folderName}
               </Text>

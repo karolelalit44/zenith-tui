@@ -1,12 +1,11 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ModelPickerFlow } from '../src/components/Model/ModelPickerFlow';
 import { FieldForm, type FormField } from '../src/screens/Provider/FieldForm';
 import { ModelPicker } from '../src/screens/Provider/ModelPicker';
 import { ProviderFlow } from '../src/screens/Provider/ProviderFlow';
 import { providerRepository } from '../src/services/providers/ProviderRepository';
-import type { ProviderListResponse } from '../src/services/providers/types';
+import type { ProviderListResponse, ProviderState } from '../src/services/providers/types';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -168,71 +167,40 @@ describe('Provider screens', () => {
     );
     unmount();
   });
-
-  it('renders the ModelPicker as a flat list of models from configured providers only', async () => {
-    await providerRepository.fetchProviderList();
-    const { lastFrame, unmount } = renderWithTheme(<ModelPicker onSelect={() => {}} onClose={() => {}} />);
-
-    expect(lastFrame()).toContain('Select a model');
-    await pollForFrame(
-      () => lastFrame(),
-      (f) => f.includes('NVIDIA AI'),
-      'configured provider models rendered',
-    );
-    expect(lastFrame()).toContain('Nemotron 3 Ultra');
-    expect(lastFrame()).not.toContain('OpenAI');
-    expect(lastFrame()).not.toContain('GPT-4o Mini');
-    unmount();
-  });
-
-  it('renders the ModelPickerFlow as a single dialog with a View all providers action', async () => {
-    await providerRepository.fetchProviderList();
-    const onOpenProvider = vi.fn();
-    const { lastFrame, stdin, unmount } = renderWithTheme(
-      <ModelPickerFlow onClose={() => {}} onOpenProvider={onOpenProvider} />,
-    );
-
-    expect(lastFrame()).toContain('MODEL PICKER');
-    expect(lastFrame()).toContain('Select a model');
-    await pollForFrame(
-      () => lastFrame(),
-      (f) => f.includes('Nemotron 3 Ultra'),
-      'model list rendered',
+  it('renders the inline ModelPicker from the provider catalog models', async () => {
+    const provider: ProviderState = {
+      id: 'nvidia',
+      meta: {
+        id: 'nvidia',
+        name: 'NVIDIA AI',
+        description: '',
+        defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b',
+        fields: [],
+        availableModels: [
+          { id: 'nvidia/nemotron-3-ultra-550b-a55b', name: 'Nemotron 3 Ultra' },
+          { id: 'nvidia/other', name: 'Other Model' },
+        ],
+      },
+      config: {},
+      isActive: false,
+      isConfigured: false,
+      isPopular: false,
+      isCustomFlow: false,
+      baseUrlStyle: '',
+      supportsPromptCaching: false,
+      supportsThinkingHeaders: false,
+    };
+    const { lastFrame, unmount } = renderWithTheme(
+      <ModelPicker provider={provider} onSelect={() => {}} onClose={() => {}} />,
     );
 
-    stdin.write('\t');
-    // The '\t' moves focus onto the action row; wait for its focused marker
-    // ('⏎') so the following '\r' triggers the action instead of selecting a
-    // model option. Without this the two keys can race (30ms was not enough
-    // under parallel load).
-    await pollForFrame(
-      () => lastFrame(),
-      (f) => f.includes('View all providers ⏎'),
-      'action row focused',
-    );
-
-    // The '\t' commits the action-row focus to the frame synchronously, but the
-    // useInput handler that closes over `actionIndex` is re-subscribed in a
-    // passive effect that flushes AFTER commit. A '\r' in that window is handled
-    // by the stale handler (actionIndex null) and takes the select path instead.
-    // Draining the microtask queue lets the re-subscription land first.
-    await wait(0);
-
-    stdin.write('\r');
-    await pollUntil(() => onOpenProvider.mock.calls.length > 0, 'onOpenProvider triggered');
-    unmount();
-  });
-
-  it('omits models from unconfigured providers in the model menu', async () => {
-    await providerRepository.fetchProviderList();
-    const { lastFrame, unmount } = renderWithTheme(<ModelPickerFlow onClose={() => {}} />);
-
+    expect(lastFrame()).toContain('Choose a model');
     await pollForFrame(
       () => lastFrame(),
       (f) => f.includes('Nemotron 3 Ultra'),
       'model list rendered',
     );
-    expect(lastFrame()).not.toContain('GPT-4o Mini');
+    expect(lastFrame()).toContain('Other Model');
     unmount();
   });
 });

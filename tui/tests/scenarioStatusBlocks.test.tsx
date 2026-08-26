@@ -7,7 +7,6 @@ import { SuccessCard } from '../src/components/Display/Scenario/SuccessCard';
 import { ThinkingBlock } from '../src/components/Display/Scenario/ThinkingBlock';
 import { ToolStepCard } from '../src/components/Display/Scenario/ToolStepCard';
 import { UserMessageBlock } from '../src/components/Display/Scenario/UserMessageBlock';
-import { modelStore } from '../src/services/providers/ModelStore';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type {
   MessageEvent,
@@ -200,11 +199,10 @@ describe('MessageBlock content rendering', () => {
     expect(lastFrame()).not.toContain('turn');
   });
 
-  it('shows the active model name in UserMessageBlock when one is selected', () => {
-    vi.spyOn(modelStore, 'current', 'get').mockReturnValue({ providerID: 'openai', modelID: 'gpt-4o-mini' });
+  it('shows the model passed via props in UserMessageBlock', () => {
     const { lastFrame } = render(
       <ThemeProvider>
-        <UserMessageBlock prompt="hello" />
+        <UserMessageBlock prompt="hello" model="openai/gpt-4o-mini" />
       </ThemeProvider>,
     );
     expect(lastFrame()).toContain('openai/gpt-4o-mini');

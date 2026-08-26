@@ -33,19 +33,15 @@ _DEFAULT_PROFILE: dict = {
     "providerSettings": {},
     "preferences": {
         "theme": "dark",
-        "modelRecent": [],
-        "modelFavorites": [],
     },
 }
 
 _ALLOWED_PREFERENCE_TYPES: dict[str, type] = {
     "theme": str,
     "thinkingCollapsed": bool,
+    "calmMode": bool,
     "autoApproveTools": bool,
     "defaultMode": str,
-    "modelCurrent": str,
-    "modelRecent": list,
-    "modelFavorites": list,
 }
 
 
@@ -166,17 +162,3 @@ def update_preferences(home: StorageHome, updates: dict) -> dict:
         save_profile(home, profile)
     return prefs
 
-
-def touch_session_model_choice(home: StorageHome, model_key: str) -> None:
-    """Record a committed model choice: active ids + recents list."""
-    with PROFILE_LOCK:
-        profile = load_profile(home)
-        parts = model_key.split("/", 1)
-        if len(parts) == 2:
-            profile["activeProviderId"] = parts[0]
-        profile["activeModelId"] = model_key
-        prefs = profile.setdefault("preferences", {})
-        recent: list[str] = [m for m in prefs.get("modelRecent", []) if m != model_key]
-        recent.insert(0, model_key)
-        prefs["modelRecent"] = recent[:10]
-        save_profile(home, profile)

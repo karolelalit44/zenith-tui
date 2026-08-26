@@ -18,6 +18,7 @@ import pytest
 from server.storage import StorageHome, ensure_materialized
 from server.storage.profile_store import (
     load_profile,
+    set_api_key,
     update_preferences,
     validate_preferences,
 )
@@ -29,7 +30,6 @@ class TestConcurrentProfileWriters:
         home = StorageHome(temp_dir)
         ensure_materialized(home)
         n_keys = 12
-        n_models = 8
 
         def target() -> StorageHome:
             return StorageHome(temp_dir) if fresh_home_per_call else home
@@ -41,20 +41,18 @@ class TestConcurrentProfileWriters:
                 api_key=f"sk-secret-{i}",
             )
 
-        def model_writer(i: int) -> None:
-            from server.storage.profile_store import touch_session_model_choice
-
-            touch_session_model_choice(target(), f"prov_{i}/model-{i}")
+        def theme_writer(i: int) -> None:
+            update_preferences(target(), {"theme": f"theme-{i}"})
 
         loop = asyncio.get_running_loop()
-        with ThreadPoolExecutor(max_workers=n_keys + n_models) as pool:
+        with ThreadPoolExecutor(max_workers=n_keys * 2) as pool:
             futures = [loop.run_in_executor(pool, key_writer, i) for i in range(n_keys)]
             # Interleave event-loop-issued writes with threadpool-issued
             # ones touching the same keys — exactly the old losing
             # combination.
-            for i in range(n_models):
-                futures.append(loop.run_in_executor(pool, model_writer, i))
-                model_writer(i)
+            for i in range(n_keys):
+                futures.append(loop.run_in_executor(pool, theme_writer, i))
+                theme_writer(i)
                 await asyncio.sleep(0)
             await asyncio.gather(*futures)
 
@@ -75,10 +73,8 @@ class TestConcurrentProfileWriters:
         keys = profile.get("apiKeys") or {}
         missing = [i for i in range(12) if keys.get(f"prov_{i}") != f"sk-secret-{i}"]
         assert missing == [], f"lost API keys for writers {missing}"
-        recent = (profile.get("preferences") or {}).get("modelRecent") or []
-        expected = {f"prov_{i}/model-{i}" for i in range(8)}
-        assert expected <= set(recent), f"lost recent-model entries: {expected - set(recent)}"
-        assert len(recent) <= 10  # cap respected even under races
+        theme = (profile.get("preferences") or {}).get("theme", "")
+        assert theme.startswith("theme-"), f"theme not any writer's value: {theme!r}"
 
 
 class TestPreferenceValidation:
@@ -104,7 +100,7 @@ class TestPreferenceValidation:
             validate_preferences({"defaultMode": "yolo"})
 
     def test_oversized_list_rejected(self, temp_dir: Path):
-        with pytest.raises(ValueError, match="exceeds maximum"):
+        with pytest.raises(ValueError, match="unsupported preference"):
             validate_preferences({"modelRecent": [f"m{i}" for i in range(21)]})
 
     def test_blank_theme_rejected(self, temp_dir: Path):
@@ -118,6 +114,12 @@ class TestPreferenceValidation:
         assert prefs["defaultMode"] == "plan"
         reread = load_profile(home)["preferences"]
         assert reread["theme"] == "nord"
+
+    def test_calm_mode_toggle_persists(self, temp_dir: Path):
+        home = self._home(temp_dir)
+        prefs = update_preferences(home, {"calmMode": True})
+        assert prefs["calmMode"] is True
+        assert load_profile(home)["preferences"]["calmMode"] is True
 
     def test_update_preferences_propagates_validation_errors(self, temp_dir: Path):
         home = self._home(temp_dir)

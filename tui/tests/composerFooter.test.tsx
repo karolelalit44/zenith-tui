@@ -2,7 +2,6 @@ import { render } from 'ink-testing-library';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerFooter } from '../src/components/Input/ComposerFooter';
-import { modelStore } from '../src/services/providers/ModelStore';
 import { computeFooterLayout } from '../src/utils/footerLayout';
 
 const nvidiaModel = 'nvidia/nemotron-3-ultra-550b-a55b';
@@ -30,17 +29,8 @@ describe('ComposerFooter', () => {
     vi.unstubAllGlobals();
   });
 
-  function seedModel() {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('{}', { status: 200 })),
-    );
-    modelStore.set({ providerID: 'nvidia', modelID: nvidiaModel });
-  }
-
   it('truncates the model chip instead of wrapping when content exceeds the width', () => {
     const restore = stubColumns(100);
-    seedModel();
 
     const app = mount(
       <ComposerFooter
@@ -62,7 +52,6 @@ describe('ComposerFooter', () => {
 
   it('renders a single-line footer at 100 columns (no wrapped continuation line)', () => {
     const restore = stubColumns(100);
-    seedModel();
 
     const app = mount(
       <ComposerFooter
@@ -84,7 +73,6 @@ describe('ComposerFooter', () => {
 
   it('renders cumulative run usage and composed-context gauge as separate figures', () => {
     const restore = stubColumns(120);
-    seedModel();
 
     const app = mount(
       <ComposerFooter
@@ -111,7 +99,6 @@ describe('ComposerFooter', () => {
 
   it('marks estimated run usage and estimated context window with a tilde', () => {
     const restore = stubColumns(120);
-    seedModel();
 
     const app = mount(
       <ComposerFooter
@@ -137,7 +124,6 @@ describe('ComposerFooter', () => {
 
   it('renders no running status and no context indicator', () => {
     const restore = stubColumns(120);
-    seedModel();
 
     const app = mount(
       <ComposerFooter

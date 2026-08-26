@@ -28,10 +28,9 @@ import { startupService } from './services/api/StartupService';
 import type { TokenUsageStats } from './services/api/TokenUsageService';
 import { tokenUsageService } from './services/api/TokenUsageService';
 import { estimateTokensForEvents } from './services/api/tokenEstimationService';
-import { initUserProfileSync, loadUserProfile } from './services/api/userProfileService';
+import { initUserProfileSync, loadUserProfile, saveUserProfile } from './services/api/userProfileService';
 import { savePlanToFile } from './services/export/markdownExport';
 import { getActiveGitBranch } from './services/git';
-import { modelStore } from './services/providers/ModelStore';
 import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
@@ -72,6 +71,7 @@ export const App: React.FC = () => {
     setWorkspace(process.cwd());
   }, []);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
+  const [calmMode, setCalmMode] = useState(() => loadUserProfile().settings.calmMode);
   const [exitPhase, setExitPhase] = useState<'idle' | 'exiting'>('idle');
 
   useEffect(() => {
@@ -82,6 +82,15 @@ export const App: React.FC = () => {
   }, []);
 
   const toggleThinking = useCallback(() => setThinkingCollapsed((p) => !p), []);
+  // /clam — persist the preference immediately so it survives restarts and
+  // syncs to other sessions via user_profile.json.
+  const toggleCalmMode = useCallback(() => {
+    setCalmMode((prev) => {
+      const next = !prev;
+      saveUserProfile({ settings: { calmMode: next } });
+      return next;
+    });
+  }, []);
   const [showPalette, setShowPalette] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
@@ -336,9 +345,9 @@ export const App: React.FC = () => {
       clearTurns: handleNewChat,
       clearTools: handleClearTools,
       setMode: handleModeSelect,
-      openModelPicker: () => openOverlay('models'),
       openPalette: () => handleSetShowPalette(true),
       toggleThinking,
+      toggleCalmMode,
       savePlan: handleSavePlan,
       triggerExit: handleExit,
       compactTurns: handleCompact,
@@ -350,6 +359,7 @@ export const App: React.FC = () => {
       handleModeSelect,
       handleSetShowPalette,
       toggleThinking,
+      toggleCalmMode,
       handleSavePlan,
       handleExit,
       handleCompact,
@@ -366,25 +376,12 @@ export const App: React.FC = () => {
         return;
       }
 
-      const sel = modelStore.current;
       // A prompt while a turn is streaming would overwrite the active runner
       // without aborting it (lost stream, orphaned backend task). Commands
       // (incl. /cancel) were already dispatched above; plain prompts wait.
       if (isRunning) return;
-      const providerInfo = sel ? providerRepository.getProviderInfo(sel.providerID) : undefined;
-      const selConfigured = Boolean(
-        providerInfo &&
-          (providerInfo.has_api_key || providerInfo.validation_status === 'validated' || providerInfo.is_active),
-      );
-      const selValid = Boolean(
-        sel &&
-          providerInfo &&
-          selConfigured &&
-          (providerInfo.models[sel.modelID] || providerInfo.model === sel.modelID),
-      );
-      const modelSel = selValid ? sel : null;
-      const providerId = modelSel?.providerID ?? activeProvider.id;
-      const modelId = modelSel?.modelID;
+      const providerId = activeProvider.id;
+      const modelId = activeProvider.config.model || activeProvider.meta.defaultModel || undefined;
 
       addHistory(trimmed);
       addTurn(trimmed, selectedMode, modelId);
@@ -602,6 +599,7 @@ export const App: React.FC = () => {
                   isRunning={false}
                   isHistorical={true}
                   thinkingCollapsed={thinkingCollapsed}
+                  calmMode={calmMode}
                   workspaceName={workspace}
                   gitBranch={activeGitBranch}
                 />
@@ -619,6 +617,7 @@ export const App: React.FC = () => {
               isRunning={isRunning}
               isHistorical={false}
               thinkingCollapsed={thinkingCollapsed}
+              calmMode={calmMode}
               historyExpanded={historyExpanded}
               workspaceName={workspace}
               gitBranch={activeGitBranch}

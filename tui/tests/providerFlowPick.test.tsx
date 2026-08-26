@@ -185,7 +185,6 @@ describe('ProviderFlow pick -> models -> key -> validate', () => {
     await wait(150);
     // Models are fetched from the backend for the selected provider.
     expect(lastFrame()).toContain('Gemini 3.5 Flash-Lite');
-    expect(lastFrame()).toContain('Page 1 of 1');
 
     // Select the default Google model.
     stdin.write('\r');

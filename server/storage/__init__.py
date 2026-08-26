@@ -42,7 +42,6 @@ from .profile_store import (
     public_profile,
     save_profile,
     set_api_key,
-    touch_session_model_choice,
     update_preferences,
 )
 from .session_store import (
@@ -86,7 +85,6 @@ __all__ = [
     "rewrite_jsonl_atomic",
     "save_profile",
     "set_api_key",
-    "touch_session_model_choice",
     "update_preferences",
     "upsert_model",
     "upsert_provider",

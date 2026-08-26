@@ -222,59 +222,6 @@ def _stored_models_for(home: StorageHome) -> dict[str, list[dict]]:
 # ── model-store (current/recent/favorite) lives in profile.preferences ──
 
 
-def _key_of(item: dict | str) -> str:
-    if isinstance(item, dict):
-        return f"{item.get('providerID')}/{item.get('modelID')}"
-    return str(item)
-
-
-def _split_key(key: str) -> tuple[str, str]:
-    provider, _, model = str(key).partition("/")
-    return provider, model or ""
-
-
-def read_model_store(home: StorageHome) -> dict[str, Any]:
-    profile = load_profile(home)
-    prefs = profile.get("preferences") or {}
-
-    def items(values: list) -> list[dict]:
-        out = []
-        seen = set()
-        for v in values:
-            k = _key_of(v)
-            if k in seen or "/" not in k:
-                continue
-            seen.add(k)
-            pid, mid = _split_key(k)
-            out.append({"providerID": pid, "modelID": mid})
-        return out
-
-    current = prefs.get("modelCurrent")
-    current_items = items([current]) if current else []
-    return {
-        "current": current_items[0] if current_items else None,
-        "recent": items(prefs.get("modelRecent", [])),
-        "favorite": items(prefs.get("modelFavorites", [])),
-    }
-
-
-def write_model_store(home: StorageHome, data: dict[str, Any]) -> None:
-    from .profile_store import update_preferences
-
-    prefs: dict[str, Any] = {}
-    current = data.get("current")
-    if isinstance(current, dict) and current.get("modelID"):
-        prefs["modelCurrent"] = _key_of(current)
-    recent = data.get("recent")
-    if isinstance(recent, list):
-        prefs["modelRecent"] = [_key_of(r) for r in recent]
-    favorite = data.get("favorite")
-    if isinstance(favorite, list):
-        prefs["modelFavorites"] = [_key_of(f) for f in favorite]
-    if prefs:
-        update_preferences(home, prefs)
-
-
 def _json_dump(value: Any) -> str:
     import json
 

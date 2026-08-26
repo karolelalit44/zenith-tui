@@ -128,9 +128,9 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
         {/* Command Center Header Bar */}
         <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
           <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
-            <Text color="#FF5F56">● </Text>
-            <Text color="#FFBD2E">● </Text>
-            <Text color="#27C93F">● </Text>
+            <Text color={theme.colors.decorative.trafficLight.red}>● </Text>
+            <Text color={theme.colors.decorative.trafficLight.yellow}>● </Text>
+            <Text color={theme.colors.decorative.trafficLight.green}>● </Text>
             <Text color={theme.colors.text.bright} bold wrap="truncate-end">
               ⚡ CAPTAIN ZENITH COMMAND CENTER
             </Text>

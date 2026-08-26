@@ -25,7 +25,6 @@ interface UseTerminalKeyboardOptions {
   scrollToBottom?: () => void;
   showPalette?: boolean;
   setShowPalette?: (show: boolean) => void;
-  openModelPicker?: () => void;
   composerRunning?: boolean;
 
   slashMenuOpen?: boolean;
@@ -51,7 +50,6 @@ export function useTerminalKeyboard({
   scrollToBottom,
   showPalette,
   setShowPalette,
-  openModelPicker,
   composerRunning,
   slashMenuOpen,
   onToggleHistoryExpanded,
@@ -75,7 +73,6 @@ export function useTerminalKeyboard({
     scrollToBottom,
     showPalette,
     setShowPalette,
-    openModelPicker,
     composerRunning,
     slashMenuOpen,
     onToggleHistoryExpanded,
@@ -101,7 +98,6 @@ export function useTerminalKeyboard({
       scrollToBottom,
       showPalette,
       setShowPalette,
-      openModelPicker,
       composerRunning,
       slashMenuOpen,
       onToggleHistoryExpanded,
@@ -127,9 +123,6 @@ export function useTerminalKeyboard({
       }
 
       if (key.escape) {
-        if (opts.overlay === 'models') {
-          return;
-        }
         if (opts.overlay !== 'none') {
           if (opts.closeAllOverlays) opts.closeAllOverlays();
           else if (opts.closeOverlay) opts.closeOverlay();
@@ -146,12 +139,6 @@ export function useTerminalKeyboard({
 
       if (pressed.includes('palette')) {
         if (opts.setShowPalette) opts.setShowPalette(!paletteOpen);
-        return;
-      }
-
-      if (pressed.includes('model_picker')) {
-        if (opts.openModelPicker) opts.openModelPicker();
-        else if (opts.openOverlay) opts.openOverlay('models');
         return;
       }
 

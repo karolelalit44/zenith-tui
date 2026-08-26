@@ -1,6 +1,5 @@
 import { Box } from 'ink';
 import React from 'react';
-import { ModelPickerFlow } from '../components/Model/ModelPickerFlow';
 import type { ContextInfoSnapshot } from '../hooks/useConversation';
 import type { OverlayType } from '../hooks/useOverlayManager';
 import { CompactionModal } from '../screens/Context/CompactionModal';
@@ -102,11 +101,6 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
       {overlay === 'provider' && (
         <Box flexDirection="column" marginTop={1} width="100%">
           <ProviderFlow onClose={onClose} onComplete={() => onComplete()} />
-        </Box>
-      )}
-      {overlay === 'models' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <ModelPickerFlow onClose={onClose} onOpenProvider={onOpenProvider} />
         </Box>
       )}
       {overlay === 'usage' && (

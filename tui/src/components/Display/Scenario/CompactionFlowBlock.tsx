@@ -4,7 +4,6 @@ import { COMPACTION_PHASE_ORDER, COMPACTION_TRIGGER_LABELS } from '../../../conf
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { formatTokenCount } from '../../../services/api/tokenEstimationService';
-import { modelStore } from '../../../services/providers/ModelStore';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { CompactionPhase, ContextCompactionFlowEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
@@ -96,7 +95,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
   const progress = idx < 0 ? 0 : (idx + 1) / COMPACTION_PHASE_ORDER.length;
   const filled = Math.round(BAR_WIDTH * progress);
 
-  const modelLabel = modelStore.current ? modelStore.toDisplayString(modelStore.current) : '';
+  const modelLabel = '';
 
   // Token transition line shared between the live progress row and the summary.
   const transitionStr =

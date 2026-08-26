@@ -23,6 +23,8 @@ interface UserProviderSection {
 interface UserSettingsSection {
   theme: string;
   thinkingCollapsed: boolean;
+  /** Calm mode (/clam): when true, model thinking output is hidden entirely. */
+  calmMode: boolean;
   autoApproveTools: boolean;
   defaultMode: 'build' | 'plan';
 }
@@ -60,6 +62,7 @@ function getInitialProfile(): UserProfile {
     settings: {
       theme: DEFAULT_THEME,
       thinkingCollapsed: false,
+      calmMode: false,
       autoApproveTools: false,
       defaultMode: DEFAULT_MODE,
     },
@@ -79,6 +82,9 @@ function applyServerPayload(payload: Record<string, unknown>): void {
   }
   if (!pendingSettingKeys.has('thinkingCollapsed') && typeof prefs.thinkingCollapsed === 'boolean') {
     nextSettings.thinkingCollapsed = prefs.thinkingCollapsed;
+  }
+  if (!pendingSettingKeys.has('calmMode') && typeof prefs.calmMode === 'boolean') {
+    nextSettings.calmMode = prefs.calmMode;
   }
   if (!pendingSettingKeys.has('autoApproveTools') && typeof prefs.autoApproveTools === 'boolean') {
     nextSettings.autoApproveTools = prefs.autoApproveTools;
@@ -125,11 +131,11 @@ async function hydrateFromServer(): Promise<void> {
 function scheduleRemoteSave(settingKeys: string[]): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const { theme, thinkingCollapsed, autoApproveTools, defaultMode } = profileCache.settings;
+    const { theme, thinkingCollapsed, calmMode, autoApproveTools, defaultMode } = profileCache.settings;
     void fetch(appConfig.buildUrl('/profile/preferences'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme, thinkingCollapsed, autoApproveTools, defaultMode }),
+      body: JSON.stringify({ theme, thinkingCollapsed, calmMode, autoApproveTools, defaultMode }),
     })
       .then((resp) => {
         if (resp.ok) {
@@ -154,7 +160,17 @@ export const onProfileHydrated = (cb: (p: UserProfile) => void): void => {
 
 export const loadUserProfile = (): UserProfile => profileCache;
 
-export const saveUserProfile = (updates: Partial<UserProfile>): UserProfile => {
+/** Deep-partial update shape: sections merge over the current profile. */
+export interface UserProfileUpdates {
+  provider?: Partial<UserProviderSection>;
+  settings?: Partial<UserSettingsSection>;
+  providerSettings?: Record<string, unknown>;
+  lastActiveWorkspace?: string;
+  sessionCount?: number;
+  lastSessionTimestamp?: string;
+}
+
+export const saveUserProfile = (updates: UserProfileUpdates): UserProfile => {
   const settingKeys = updates.settings ? Object.keys(updates.settings) : [];
   const updatedProfile: UserProfile = {
     ...profileCache,

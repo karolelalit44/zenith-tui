@@ -9,9 +9,9 @@ export interface CommandRunContext {
   clearTurns: () => void;
   clearTools: () => void;
   setMode: (mode: ScenarioMode) => void;
-  openModelPicker?: () => void;
   openPalette?: () => void;
   toggleThinking?: () => void;
+  toggleCalmMode?: () => void;
   savePlan?: () => void;
   triggerExit?: () => void;
   compactTurns?: () => void;
@@ -78,22 +78,6 @@ export const commandRegistry: CommandDef[] = [
     run: (ctx) => ctx.openOverlay('provider'),
   },
   {
-    id: 'models',
-    slash: '/models',
-    title: '/models',
-    description: 'Pick the active provider/model',
-    category: 'Model',
-    run: (ctx) => ctx.openOverlay('models'),
-  },
-  {
-    id: 'model',
-    slash: '/model',
-    title: '/model',
-    description: 'Open the model picker',
-    category: 'Model',
-    run: (ctx) => (ctx.openModelPicker ? ctx.openModelPicker() : ctx.openOverlay('models')),
-  },
-  {
     id: 'clear',
     slash: '/clear',
     title: '/clear',
@@ -152,20 +136,21 @@ export const commandRegistry: CommandDef[] = [
     run: (ctx) => ctx.toggleThinking?.(),
   },
   {
+    id: 'calm_mode',
+    slash: '/clam',
+    title: '/clam',
+    description: 'Calm mode — toggle hiding model thinking output (persisted)',
+    category: 'View',
+    keywords: ['calm', 'quiet', 'hide', 'thinking'],
+    run: (ctx) => ctx.toggleCalmMode?.(),
+  },
+  {
     id: 'switch_mode',
     title: 'Switch mode',
     description: 'Choose Build or Plan mode',
     category: 'Mode',
     keybind: 'mode',
     run: (ctx) => ctx.openOverlay('mode'),
-  },
-  {
-    id: 'open_model_picker',
-    title: 'Open model picker',
-    description: 'Switch provider and model',
-    category: 'Model',
-    keybind: 'model_picker',
-    run: (ctx) => (ctx.openModelPicker ? ctx.openModelPicker() : ctx.openOverlay('models')),
   },
   {
     id: 'save_plan',

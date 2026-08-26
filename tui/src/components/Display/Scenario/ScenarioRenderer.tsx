@@ -17,6 +17,8 @@ interface ScenarioRendererProps {
   isRunning: boolean;
   isHistorical?: boolean;
   thinkingCollapsed?: boolean;
+  /** /clam — when true, thinking records are never rendered. */
+  calmMode?: boolean;
   historyExpanded?: boolean;
   workspaceName?: string;
   gitBranch?: string;
@@ -50,6 +52,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     isRunning,
     isHistorical = false,
     thinkingCollapsed = false,
+    calmMode = false,
     historyExpanded = false,
     workspaceName,
     gitBranch,
@@ -80,8 +83,11 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     }, [events, hasOverflow, expanded, dynamicLimit]);
 
     const visibleEvents = useMemo(() => {
+      // Calm mode (/clam): strip thinking records entirely — not collapsed,
+      // simply never rendered.
+      const source = calmMode ? events.filter((e) => e.kind !== 'thinking') : events;
       // Consolidate multiple agent_orchestration events into a single stable card
-      const orchEvents = events.filter((e): e is AgentOrchestrationEvent => e.kind === 'agent_orchestration');
+      const orchEvents = source.filter((e): e is AgentOrchestrationEvent => e.kind === 'agent_orchestration');
       let consolidatedOrch: AgentOrchestrationEvent | null = null;
       if (orchEvents.length > 0) {
         const latest = orchEvents[orchEvents.length - 1];
@@ -162,7 +168,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const consolidatedCompaction = consolidateCompactionEvents(events);
       const consolidatedBoard = consolidateTodoBoardEvents(events);
 
-      for (const e of events) {
+      for (const e of source) {
         if (e.kind === 'agent_orchestration') {
           if (!orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
@@ -214,7 +220,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         ];
       }
       return result;
-    }, [events, isHistorical]);
+    }, [events, calmMode, isHistorical]);
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.

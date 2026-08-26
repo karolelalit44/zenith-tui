@@ -25,16 +25,13 @@ if TYPE_CHECKING:
     from server.mcp.manager import McpManager
 from .middleware import wrap_handler
 from .provider_validation import (
-    get_model_selection,
     get_provider_catalog,
     get_provider_list,
     get_provider_models,
     ndjson_validate_stream,
-    save_model_selection_endpoint,
     set_provider_model,
 )
 from .schemas import (
-    ModelStoreRequest,
     ProviderModelRequest,
     ProviderValidationRequest,
 )
@@ -221,28 +218,6 @@ def providers_list():
 def providers_models(provider_id: str, offset: int = 0, limit: int = 50):
     """Models API — fetch models for a single provider from the backend."""
     return get_provider_models(provider_id, offset=offset, limit=limit).model_dump()
-
-
-@app.get("/startup/model-selection")
-def startup_model_selection_get():
-    return get_model_selection()
-
-
-@app.put("/startup/model-selection")
-def startup_model_selection_put(request: ModelStoreRequest):
-    try:
-        payload = save_model_selection_endpoint(request)
-        current = payload.get("current")
-        logger.info(
-            "model selection saved: current=%s recent=%d favorite=%d",
-            (f"{current.get('providerID')}/{current.get('modelID')}" if current else "(none)"),
-            len(payload.get("recent", [])),
-            len(payload.get("favorite", [])),
-        )
-        return payload
-    except Exception as e:
-        logger.warning("Failed to save model selection: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to save model selection: {e}")
 
 
 @app.post("/startup/providers/{provider_id}/validate")

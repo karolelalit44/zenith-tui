@@ -175,7 +175,6 @@ export function matchKeypress(input: string, key: InkKey): string[] {
   const matched: string[] = [];
   if (key.ctrl || key.meta) {
     if (input === 'p') matched.push('palette');
-    if (input === 'm') matched.push('model_picker');
     if (input === 'h') matched.push('thinking');
     if (input === 's') matched.push('save_plan');
     if (input === 'l') matched.push('clear_turns');
