@@ -15,7 +15,7 @@ from server.agents.delegation.scout import (
     run_scout,
 )
 from server.agents.delegation.task_envelope import build_task_envelope
-from server.config.constants import READ_ONLY_TOOLS, SCOUT_MODE
+from server.config.constants import READ_ONLY_TOOLS, SCOUT_GRAPH_TOOLS, SCOUT_MODE
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
@@ -167,13 +167,15 @@ class TestReadOnlyToolSurface:
         return None
 
     @pytest.mark.asyncio
-    async def test_only_read_only_tools_offered_in_scout_mode(
-        self, test_config, workspace
-    ):
+    async def test_only_read_only_tools_offered_in_scout_mode(self, test_config, workspace):
         provider = _ScriptedScoutProvider(final_text=_final_answer())
         await _collect_scout(test_config, provider, _make_task(), create_default_registry())
         assert provider.tool_names_seen, "provider never received a tool surface"
-        allowed = set(READ_ONLY_TOOLS) | {"discover_capabilities", "get_tool_definition"}
+        allowed = (
+            set(READ_ONLY_TOOLS)
+            | set(SCOUT_GRAPH_TOOLS)
+            | {"discover_capabilities", "get_tool_definition"}
+        )
         offered = {
             name
             for names in provider.tool_names_seen

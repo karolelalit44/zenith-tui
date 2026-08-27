@@ -20,6 +20,74 @@ function makeStep(overrides: Partial<ToolStepEvent> = {}): ToolStepEvent {
   };
 }
 
+describe('execution timeline polish', () => {
+  it('renders a cancelled execution with the distinct interrupted state', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'bash',
+        params: { command: 'npm run build' },
+        success: false,
+        error: 'Execution interrupted by user',
+      }),
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('\u2298');
+    expect(frame).toContain('interrupted');
+  });
+
+  it('renders an unpaired historical call as interrupted (never a pending arrow)', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_read',
+        params: { path: 'a.ts' },
+        success: false,
+        error: 'execution interrupted before completion',
+        metadata: { interrupted: true },
+      }),
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('\u2298');
+    expect(frame).not.toContain('\u2192');
+  });
+
+  it('shows the exit code chip for failed shell commands', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'bash',
+        params: { command: 'exit 3' },
+        success: false,
+        error: 'command failed',
+        metadata: { exit_code: 3, duration_ms: 1200 },
+      }),
+    );
+    expect(lastFrame()).toContain('exit 3');
+  });
+
+  it('shows a duration pill for non-shell tools via metadata.duration_ms', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'grep',
+        params: { pattern: 'foo' },
+        output: 'a\nb',
+        metadata: { duration_ms: 2400 },
+      }),
+    );
+    expect(lastFrame()).toContain('~ 2 s');
+  });
+
+  it('renders the repeat badge for folded consecutive reads', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_read',
+        params: { path: 'App.tsx' },
+        output: 'x',
+        metadata: { repeatCount: 4 },
+      }),
+    );
+    expect(lastFrame()).toContain('\u00d74');
+  });
+});
+
 function renderStep(event: ToolStepEvent, context?: { isRunning?: boolean; isHistorical?: boolean }) {
   return render(
     <ThemeProvider>

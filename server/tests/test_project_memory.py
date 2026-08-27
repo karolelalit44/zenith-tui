@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from server.agents.context import ContextManager, TIER_T1
+from server.agents.context import TIER_T1, ContextManager
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.storage.memory_store import (

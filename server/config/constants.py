@@ -45,6 +45,177 @@ COMPACTION_KEEP_MAX_TOKENS = 20_000
 COMPACTION_KEEP_BUDGET_RATIO = 0.25
 SKIP_WARNING_CAP = 6
 SUMMARY_MIN_CHARS = 40
+# Consecutive do-nothing iterations (every emitted call was a duplicate)
+# before the loop stops the turn. Duplicate feedback itself is delivered
+# in-band per call; this cap only bounds wasted iterations.
+STALL_FINALIZE_AFTER_ITERATIONS = 2
+# Max chars of a prior tool result embedded into an in-band duplicate-call
+# blocked notice.
+DUP_RESULT_PREVIEW_CHARS = 1_200
+
+# ---- WP3: salvage pass ------------------------------------------------------
+# Any harness-forced exit (stall cap, repetition-loop cap, iteration budget)
+# must never discard the turn's accumulated evidence. One tools-free
+# completion converts the gathered context into a best-effort answer.
+SALVAGE_INSTRUCTION = (
+    "You have run out of steps for this turn. Produce your FINAL ANSWER now "
+    "using only the evidence already gathered in this conversation. No tools "
+    "are available. State concisely: what you found or changed, what you "
+    "verified, and what remains unresolved."
+)
+DEFAULT_SALVAGE_TIMEOUT_SECONDS = 60.0
+SALVAGE_TIMEOUT_ENV = "ZENITH_SALVAGE_TIMEOUT"
+# Fallback digest size when the salvage completion itself fails.
+SALVAGE_DIGEST_MAX_ITEMS = 10
+
+# ---- Progressive efficiency guidance (adaptive harness) --------------------
+# Instead of hard iteration caps, the system injects increasingly urgent
+# guidance messages when token consumption is high relative to progress.
+# Each level is a (token_threshold, message) pair. Messages are injected
+# as in-band user-role hints — the model sees them as system feedback,
+# not as tool results. The model decides whether to act on them.
+#
+# The thresholds are cumulative run-level tokens (prompt + completion),
+# not context-window occupancy. This tracks actual cost, not capacity.
+PROGRESSIVE_GUIDANCE_LEVELS: list[tuple[int, str]] = [
+    (
+        40_000,
+        "[harness] You have used ~40K tokens this turn. If you have enough "
+        "evidence to answer, write your final response now — do not issue "
+        "more tool calls unless strictly necessary.",
+    ),
+    (
+        70_000,
+        "[harness] ~70K tokens consumed. You are approaching the point of "
+        "diminishing returns. Synthesize what you have and deliver your "
+        "answer. Additional exploration is unlikely to change the outcome.",
+    ),
+    (
+        100_000,
+        "[harness] ~100K tokens — this turn is expensive. Stop exploring. "
+        "Write your final answer from the evidence already gathered.",
+    ),
+]
+# Iteration-count guidance: fires based on LLM-call count, not tokens.
+# This catches research-heavy turns where each call is cheap but the model
+# keeps reading files instead of synthesizing.
+#
+# Thresholds are intentionally generous: a genuine analysis/research task
+# routinely needs more than a handful of calls (grep -> glob -> read several
+# files -> cross-check) just to gather the key facts. Firing at 3 calls
+# pressures the model to halt before it has enough evidence, which degrades
+# answer quality. These levels are advisory signals, not hard caps — the
+# model still decides whether to act on them.
+ITERATION_GUIDANCE_LEVELS: list[tuple[int, str]] = [
+    (
+        6,
+        "[harness] You have made 6 LLM calls. If you already have the key "
+        "facts needed to answer, synthesize your answer now — further tool "
+        "calls add latency without meaningfully improving the response. If "
+        "evidence is still incomplete, continue gathering it.",
+    ),
+    (
+        10,
+        "[harness] 10 LLM calls now. Most questions are answerable by this "
+        "point. If you have enough evidence, stop exploring and deliver your "
+        "answer; otherwise finish only the remaining targeted lookups.",
+    ),
+    (
+        14,
+        "[harness] 14 LLM calls — this turn is unusually long for a research "
+        "question. Wrap up: provide your answer from what you have, or make "
+        "at most one or two final targeted calls before concluding.",
+    ),
+]
+
+# ---- WP5: explore delegation (Apogee crewmate) -------------------------------
+# Model-invocable read-only exploration backed by the Captain/Scout pathway.
+# Named for the highest point of an orbit — kin to Zenith itself.
+EXPLORE_TOOL = "explore"
+APPOGEE_AGENT_ID = "apogee"
+APPOGEE_AGENT_NAME = "Apogee"
+APPOGEE_AGENT_ROLE = "Codebase Cartographer"
+# Thoroughness -> mission budget. Timeout bounds wall clock; context_tokens
+# bounds the child's own window; max_turns is advisory steering for deep runs.
+EXPLORE_BUDGETS: dict[str, dict[str, int]] = {
+    "quick": {"timeout_s": 45, "context_tokens": 32_000},
+    "standard": {"timeout_s": 90, "context_tokens": 64_000},
+    "deep": {"timeout_s": 150, "context_tokens": 96_000},
+}
+EXPLORE_THOROUGHNESS_LEVELS = ("quick", "standard", "deep")
+DEFAULT_EXPLORE_THOROUGHNESS = "standard"
+# Parallel explores per assistant turn (D1): CAID puts the analytical cliff at
+# ~2; 4 is a hard ceiling, not a target.
+EXPLORE_PARALLEL_DEFAULT = 2
+EXPLORE_PARALLEL_MAX = 4
+# Aggregate spend guard across explore children within the rolling window (D6).
+EXPLORE_TOKEN_BUDGET_ENV = "ZENITH_EXPLORE_TOKEN_BUDGET"
+DEFAULT_EXPLORE_TOKEN_BUDGET = 120_000
+EXPLORE_BUDGET_WINDOW_SECONDS = 600.0
+# Governance modes (D3): off | tool | proactive.
+EXPLORE_DELEGATION_OFF = "off"
+EXPLORE_DELEGATION_TOOL = "tool"
+EXPLORE_DELEGATION_PROACTIVE = "proactive"
+EXPLORE_DELEGATION_MODES = (
+    EXPLORE_DELEGATION_OFF,
+    EXPLORE_DELEGATION_TOOL,
+    EXPLORE_DELEGATION_PROACTIVE,
+)
+EXPLORE_DELEGATION_ENV = "ZENITH_EXPLORE_DELEGATION"
+DEFAULT_EXPLORE_DELEGATION = EXPLORE_DELEGATION_TOOL
+# Rendered report cap entering parent context (S2: <= ~2 KB).
+EXPLORE_RESULT_MAX_CHARS = 2_000
+# Custom crewmate runtime definitions (bounded free-text).
+EXPLORE_CUSTOM_NAME_MAX_CHARS = 32
+EXPLORE_CUSTOM_ROLE_MAX_CHARS = 48
+EXPLORE_CUSTOM_FOCUS_MAX_CHARS = 600
+
+# ---- WP6: structural retrieval (graph queries + mission brief) ---------------
+# Scout-facing structural query tools over the tree-sitter symbol graph.
+CODE_CALLERS_TOOL = "code_callers"
+CODE_OUTLINE_TOOL = "code_outline"
+CODE_BLAST_RADIUS_TOOL = "code_blast_radius"
+SCOUT_GRAPH_TOOLS = (CODE_CALLERS_TOOL, CODE_OUTLINE_TOOL, CODE_BLAST_RADIUS_TOOL)
+GRAPH_QUERY_MAX_RESULTS = 20
+GRAPH_QUERY_MAX_OUTPUT_CHARS = 4_000
+# Mission brief injected into the scout prompt at spawn (SubagentStart pattern).
+EXPLORE_BRIEF_TOP_SYMBOLS = 12
+EXPLORE_BRIEF_MAX_CHARS = 1_600
+BRIEF_CACHE_TTL_SECONDS = 60.0
+# Objective enrichment pre-pass (Deep Research instruction-builder pattern).
+ENRICH_TIMEOUT_ENV = "ZENITH_ENRICH_TIMEOUT"
+DEFAULT_ENRICH_TIMEOUT_SECONDS = 20.0
+# Skip enrichment when the objective already reads like a research brief.
+ENRICH_SKIP_MIN_CHARS = 120
+ENRICH_DELIVERABLE_VERBS = (
+    "find",
+    "locate",
+    "map",
+    "trace",
+    "list",
+    "identify",
+    "compare",
+    "audit",
+)
+# Max previously-stored tool results replayed into context on a duplicate-call
+# pass (gives the model its prior result instead of an empty correction).
+TOOL_RESULT_REPLAY_CAP = 2
+# Meta-placeholder texts some weak models emit instead of content (or instead
+# of real tool calls). They are never rendered to the user as answers.
+DEGENERATE_MESSAGE_PATTERN = r"^\[?\s*(tool\s*calls?|thinking|no\s*output)\s*\]?$"
+# Turn-manifest verdicts (AGENT_RELIABILITY_PLAN P1): one terminal verdict per
+# run, derived once at finalization and rendered consistently everywhere.
+TURN_VERDICT_COMPLETED = "completed"
+TURN_VERDICT_STALLED = "stalled"
+TURN_VERDICT_FAILED = "failed"
+# Terminal-status labels for assistant-message persistence. The placeholder
+# must reflect what actually ended the turn — never a guess.
+TERMINAL_STATUS_COMPLETED = "completed"
+TERMINAL_STATUS_CANCELLED = "cancelled"
+TERMINAL_STATUS_ERROR = "error"
+HANDOFF_PLACEHOLDER_CANCELLED = "[Cancelled by user]"
+HANDOFF_PLACEHOLDER_ERROR = "[Turn ended with an error]"
+HANDOFF_PLACEHOLDER_NO_SUMMARY = "[No summary recorded]"
 BG_OUTPUT_TAIL = 800
 MANIFEST_CHECKS_CAP = 5
 RUNNING_SUMMARY_MESSAGE_LIMIT = 50
@@ -63,10 +234,29 @@ SESSION_STATE_OUTRO = (
 )
 
 STALE_TOKEN_MULTIPLIER = 2
-HEAVY_TOOL_THRESHOLD_TOKENS = 5000
-HEAVY_TOOL_SUMMARY_MAX_CHARS = 2000
+HEAVY_TOOL_THRESHOLD_TOKENS = 8000
+# Deterministic head/tail preview (chars) kept in-context when a heavy tool
+# output is isolated to disk. No LLM summarization: the model decides whether
+# to re-read the full output via the stored path.
+HEAVY_TOOL_ISOLATION_PREVIEW_CHARS = 8_000
 HEAVY_OUTPUT_SUBDIR = "heavy-outputs"
-HEAVY_TOOL_MARKER_TEMPLATE = "Summary of output (full output available via file_read: {path}):"
+HEAVY_TOOL_MARKER_TEMPLATE = (
+    "Output truncated ({total_chars} chars total). Full output available via file_read: {path}"
+)
+
+# Progress-step labels embed a short detail snippet from the tool params
+# (command/path/pattern) so the UI shows WHAT ran, not just "Running commands".
+PROGRESS_DETAIL_MAX_CHARS = 48
+
+# Tools that mutate files — used to distinguish "tried to build but wrote
+# nothing" (worth warning about) from pure Q&A turns (not).
+FILE_MUTATING_TOOLS = frozenset({"file_write", "file_edit", "multi_edit"})
+
+# Auto-generated session title cap (chars) before ellipsis.
+SESSION_TITLE_MAX_CHARS = 50
+
+# Emit a partial thinking event once this many new reasoning chars accumulated.
+THINKING_PARTIAL_EMIT_CHARS = 200
 PROJECT_MEMORY_MAX_TOKENS = 500
 PROJECT_MEMORY_MAX_ENTRIES = 20
 
@@ -169,15 +359,18 @@ POLL_TOOLS = ("job_output",)
 AUTO_LINT_FIX_ENABLED = True
 
 BASH_TOOL_DESCRIPTION_WINDOWS = (
-    "Execute a PowerShell command in the workspace (Windows PowerShell syntax only, "
-    "e.g. New-Item, Get-ChildItem, Get-Content, Set-Content, Remove-Item, Select-String). "
-    "Never use Unix shell commands (mkdir -p, ls, grep, touch, rm). To act inside a "
-    "subfolder, start with 'Set-Location <folder>;'."
+    "Run a PowerShell command in the workspace (PowerShell syntax only; never Unix "
+    "commands like ls -la, grep, mkdir -p). Prefer glob/grep/list_dir for file "
+    "discovery: faster and ignore-safe. Unbounded recursive listings (Get-ChildItem "
+    "-Recurse without -First N, tree, ls -R, find .) are refused; scope and limit "
+    "them. To act in a subfolder, start with 'Set-Location <folder>;'."
 )
 BASH_TOOL_DESCRIPTION_UNIX = (
-    "Execute a shell command in the workspace. Use Unix/Linux shell commands and bash "
-    "syntax only (mkdir -p, ls, grep, touch, rm, cat). Never use Windows PowerShell "
-    "cmdlets. To act inside a subfolder, start the command with 'cd <folder> &&'."
+    "Run a shell command in the workspace (POSIX/bash syntax only: mkdir -p, ls, "
+    "grep, rm; never PowerShell cmdlets). Prefer glob/grep/list_dir for file "
+    "discovery: faster and ignore-safe. Unbounded recursive listings (ls -R, tree, "
+    "find . without -maxdepth) are refused; scope and limit them. To act in a "
+    "subfolder, start with 'cd <folder> &&'."
 )
 
 BASH_TOOL_COMMAND_PARAM_WINDOWS = "PowerShell command to execute (Windows PowerShell syntax only)"
@@ -199,32 +392,54 @@ MAX_TOOL_OUTPUT_TIERS = (
 ATTACHMENT_MAX_FILE = 512 * 1024
 ATTACHMENT_MAX_TOTAL = 2 * 1024 * 1024
 
-DEFAULT_SEARCH_EXCLUDED_DIRS = (
-    ".git",
-    ".svn",
-    ".hg",
-    "node_modules",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
-    "venv",
-    "dist",
-    "build",
-    ".next",
-    ".turbo",
-    "coverage",
-    ".gemini",
-    ".idea",
-    ".vscode",
-)
-DEFAULT_SEARCH_EXCLUDED_FILES = (
-    "package-lock.json",
-    "pnpm-lock.yaml",
-    "yarn.lock",
-    "poetry.lock",
-    "Cargo.lock",
-)
+# Workspace skipping has a single source of truth: the .zenithignore file at
+# the workspace root (gitignore syntax, see server/workspace/ignore.py).
+# The template below seeds newly created ignore files and doubles as the
+# in-memory fallback when the file is missing and cannot be created.
+ZENITH_IGNORE_FILE_NAME = ".zenithignore"
+
+DEFAULT_ZENITH_IGNORE_CONTENT = """\
+# .zenithignore — paths Zenith treats as nonexistent (never scanned or altered).
+# Syntax mirrors .gitignore: one pattern per line, '#' comments,
+# trailing '/' pins a directory, '*' wildcards are allowed, '!' negates.
+.git/
+.svn/
+.hg/
+node_modules/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.mypy/
+.ruff_cache/
+.tox/
+.cache/
+htmlcov/
+.nyc_output/
+coverage/
+.venv/
+venv/
+dist/
+build/
+.next/
+.turbo/
+.gemini/
+.idea/
+.vscode/
+.zenith/
+.agents/
+.freebuff/
+ref_repo/
+reference_repo/
+data/
+.env
+.env.*
+*.log
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+poetry.lock
+Cargo.lock
+"""
 GLOB_MAX_RESULTS = 100
 GLOB_MAX_OUTPUT_CHARS = 10_000
 GREP_MAX_RESULTS = 100
@@ -240,6 +455,11 @@ TOOL_MAX_OUTPUT_CHARS = 15_000
 MAX_SKILLS_IN_PROMPT = 20
 SKILL_ROOTS = ("skills", "agents/skills", ".zenith/skills", ".agent/skills")
 FUZZY_THRESHOLD = 0.85
+# Output-size layering (each layer is independently capped and labeled):
+#   TOOL_MAX_OUTPUT_CHARS / MAX_TOOL_OUTPUT_TIERS — what the MODEL sees.
+#   GLOB/GREP_MAX_OUTPUT_CHARS                    — per-tool internal caps.
+#   MAX_EVENT_OUTPUT                              — what the UI wire event
+#     carries (a preview; tool_result events carry a ``truncated`` flag).
 MAX_EVENT_OUTPUT = 5000
 
 # System-prompt budget allocation (chars, approximated at CHARS_PER_TOKEN).

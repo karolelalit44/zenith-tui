@@ -81,7 +81,9 @@ def main() -> int:
     log_fh = open(LOG_DIR / "backend_tui_new.log", "w", encoding="utf-8")
     backend = subprocess.Popen(
         [sys.executable, "-m", "server.main", "serve"],
-        cwd=str(REPO_ROOT), stdout=log_fh, stderr=subprocess.STDOUT,
+        cwd=str(REPO_ROOT),
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
     )
     log(f"Backend PID: {backend.pid}")
 
@@ -172,10 +174,16 @@ def main() -> int:
                 nonlocal rpc_id
                 rpc_id += 1
                 rid = f"p_{rpc_id}"
-                await ws.send(json.dumps({
-                    "jsonrpc": "2.0", "id": rid, "method": "prompt.send",
-                    "params": {"content": prompt, "mode": "build", "session_id": sid},
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": rid,
+                            "method": "prompt.send",
+                            "params": {"content": prompt, "mode": "build", "session_id": sid},
+                        }
+                    )
+                )
                 return await collect_events(ws, until="success", timeout=t)
 
             # Create session
@@ -198,48 +206,58 @@ def main() -> int:
 
             for i, prompt in enumerate(prompts):
                 log("")
-                log(f"--- [{i+1}/{len(prompts)}] Typing: {prompt} ---")
+                log(f"--- [{i + 1}/{len(prompts)}] Typing: {prompt} ---")
 
                 # Type into TUI
                 try:
                     type_into_tui(win, prompt)
                 except Exception as e:
-                    fail(f"tui.type_{i+1}", str(e))
+                    fail(f"tui.type_{i + 1}", str(e))
                     continue
 
-                ss = screenshot(win, f"0{i+2}_typed_{i+1}")
+                ss = screenshot(win, f"0{i + 2}_typed_{i + 1}")
                 log(f"  Screenshot: {ss}")
 
                 # Collect response via WS
                 events = await send_prompt(prompt, sid, t=60)
                 kinds = [e["kind"] for e in events]
-                finals = [e for e in events if e["kind"] == "message"
-                          and not e.get("data", {}).get("partial")]
-                partials = [e for e in events if e["kind"] == "message"
-                            and e.get("data", {}).get("partial")]
+                finals = [
+                    e
+                    for e in events
+                    if e["kind"] == "message" and not e.get("data", {}).get("partial")
+                ]
+                partials = [
+                    e for e in events if e["kind"] == "message" and e.get("data", {}).get("partial")
+                ]
                 response = finals[0]["data"]["text"] if finals else ""
                 suc = next((e for e in events if e["kind"] == "success"), None)
                 ti = suc["data"].get("tokenInfo", {}) if suc else {}
 
                 log(f"  RECV: {response[:200]}")
-                log(f"  TOKENS: {ti.get('used', '?')}/{ti.get('total', '?')}"
-                    f" | PARTIALS: {len(partials)} | EVENTS: {kinds}")
+                log(
+                    f"  TOKENS: {ti.get('used', '?')}/{ti.get('total', '?')}"
+                    f" | PARTIALS: {len(partials)} | EVENTS: {kinds}"
+                )
 
-                results["transcript"].append({
-                    "prompt": prompt, "response": response,
-                    "tokens": ti.get("used", 0), "total": ti.get("total", 0),
-                    "events": kinds,
-                })
+                results["transcript"].append(
+                    {
+                        "prompt": prompt,
+                        "response": response,
+                        "tokens": ti.get("used", 0),
+                        "total": ti.get("total", 0),
+                        "events": kinds,
+                    }
+                )
 
                 if response:
-                    ok(f"prompt_{i+1}.response")
+                    ok(f"prompt_{i + 1}.response")
                 else:
-                    fail(f"prompt_{i+1}.response", "empty")
+                    fail(f"prompt_{i + 1}.response", "empty")
 
                 if "success" in kinds:
-                    ok(f"prompt_{i+1}.success")
+                    ok(f"prompt_{i + 1}.success")
                 else:
-                    fail(f"prompt_{i+1}.success", f"got {kinds}")
+                    fail(f"prompt_{i + 1}.success", f"got {kinds}")
 
                 # Wait for TUI rendering to settle
                 time.sleep(2)
@@ -270,7 +288,7 @@ def main() -> int:
     log("TRANSCRIPT:")
     log("-" * 70)
     for i, t in enumerate(results["transcript"]):
-        log(f"  [{i+1}] SENT:  {t['prompt']}")
+        log(f"  [{i + 1}] SENT:  {t['prompt']}")
         log(f"      RECV:  {t['response'][:150]}")
         log(f"      TOKENS: {t['tokens']}/{t['total']}  EVENTS: {t['events']}")
     log("-" * 70)
@@ -280,10 +298,18 @@ def main() -> int:
     # Save report
     ts = time.strftime("%Y%m%d_%H%M%S")
     report_file = LOG_DIR / f"tui_new_e2e_{ts}.json"
-    report_file.write_text(json.dumps({
-        "passed": results["passed"], "failed": results["failed"],
-        "transcript": results["transcript"],
-    }, indent=2, default=str), encoding="utf-8")
+    report_file.write_text(
+        json.dumps(
+            {
+                "passed": results["passed"],
+                "failed": results["failed"],
+                "transcript": results["transcript"],
+            },
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
     log(f"Report: {report_file}")
 
     # Close TUI window

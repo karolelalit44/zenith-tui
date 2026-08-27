@@ -42,6 +42,8 @@ export interface ThinkingEvent {
   id: string;
   thoughts: string[] | ThinkingThought[];
   duration: number;
+  /** Streaming placeholder — replaced in place by the next partial/final. */
+  partial?: boolean;
 }
 
 export interface FileLine {

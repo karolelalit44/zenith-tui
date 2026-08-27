@@ -2,15 +2,49 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as _time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
+from server.config.constants import THINKING_PARTIAL_EMIT_CHARS
 from server.domain.errors import ProviderError, RateLimitError
 from server.domain.events import Event
 from server.providers import responder as r
 from server.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
+
+# Minimum repeated-block size (chars) before deduplication kicks in.
+# Blocks shorter than this are likely legitimate repetition (e.g. echoing a
+# variable name) rather than the model looping on a reasoning chain.
+_DEDUP_MIN_BLOCK_CHARS = 200
+
+
+def _deduplicate_reasoning(text: str, min_block: int = _DEDUP_MIN_BLOCK_CHARS) -> str:
+    """Strip consecutive repeated blocks from reasoning text.
+
+    Some models emit the same reasoning paragraph multiple times before
+    producing a final answer.  This detects the pattern by checking whether
+    the tail of the text repeats an earlier segment of comparable length and
+    removes the duplicate(s), keeping only the first occurrence.
+    """
+    if len(text) < min_block * 2:
+        return text
+    # Iteratively peel off repeated suffixes until stable.
+    prev_len = len(text) + 1
+    while len(text) < prev_len:
+        prev_len = len(text)
+        half = len(text) // 2
+        for block_size in range(min_block, half + 1, 50):
+            tail = text[-block_size:]
+            search_end = len(text) - block_size
+            if search_end < block_size:
+                continue
+            idx = text.rfind(tail, 0, search_end)
+            if idx >= 0:
+                text = text[: idx + block_size]
+                break
+    return text
 
 
 def _friendly_rate_limit_text(e: RateLimitError) -> str:
@@ -59,6 +93,7 @@ class StreamState:
     response_text: str = ""
     reasoning_text: str = ""
     finish_reason: str = ""
+    _dedup_prefix_len: int = 0  # tracks deduplication boundary
 
 
 async def stream_completion(
@@ -89,12 +124,20 @@ async def stream_completion(
     )
     try:
         stream_chunk_count = 0
+        started_at = _time.monotonic()
+        emitted_thinking_len = 0
         async for content, reasoning in provider.stream(
             messages, tools=tools, tool_choice=tool_choice, response_format=response_format
         ):
             stream_chunk_count += 1
             if reasoning:
                 state.reasoning_text += reasoning
+                # Stream reasoning as it forms (like Claude Code / Codex):
+                # throttled partial events the UI replaces in place. The final
+                # non-partial event below carries the complete text + duration.
+                if len(state.reasoning_text) - emitted_thinking_len >= THINKING_PARTIAL_EMIT_CHARS:
+                    emitted_thinking_len = len(state.reasoning_text)
+                    yield r.thinking(state.reasoning_text.strip(), session_id, partial=True)
             if content:
                 state.response_text += content
                 yield r.message_event(content, session_id, partial=True)
@@ -105,7 +148,17 @@ async def stream_completion(
         # turn is surfaced as a separate `thinking` event (kept collapsed in the
         # UI) and, with no real content, the loop reports an empty response.
         if state.reasoning_text.strip():
-            yield r.thinking(state.reasoning_text.strip(), session_id)
+            duration_ms = int((_time.monotonic() - started_at) * 1000)
+            deduplicated = _deduplicate_reasoning(state.reasoning_text)
+            if len(deduplicated) < len(state.reasoning_text):
+                logger.info(
+                    "Thinking deduplication: %d -> %d chars (%.0f%% reduction)",
+                    len(state.reasoning_text),
+                    len(deduplicated),
+                    (1 - len(deduplicated) / max(len(state.reasoning_text), 1)) * 100,
+                )
+                state.reasoning_text = deduplicated
+            yield r.thinking(state.reasoning_text.strip(), session_id, duration_ms=duration_ms)
         if state.response_text:
             state.full_response += state.response_text
             logger.info(

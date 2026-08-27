@@ -77,7 +77,6 @@ def workspace_repo(home):
     return FileWorkspaceRepository(home)
 
 
-
 @pytest.fixture
 def memory_repo(home):
     return FileProjectMemoryRepository(home)

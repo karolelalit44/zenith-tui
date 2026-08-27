@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import platform
-import shutil
+import re
 from typing import Any
 
 from server.config.constants import (
@@ -21,24 +21,80 @@ from server.config.constants import (
     RISK_MEDIUM,
     TOOL_DOMAIN_EXECUTION,
 )
+from server.shell_runner import run_shell_command
 
 from ..base import BaseTool, ToolResult
 from ..command_result import detect_false_success
 from .background import get_background_manager
 
 logger = logging.getLogger(__name__)
-_OS_NAME = platform.system()
-_IS_WINDOWS = _OS_NAME == "Windows"
-
-
-def _resolve_shell() -> str | None:
-    if _IS_WINDOWS:
-        return shutil.which("pwsh") or shutil.which("powershell")
-    return shutil.which("bash")
 
 
 def _is_windows() -> bool:
     return platform.system() == "Windows"
+
+
+# ---- Whole-tree enumeration guard (WP1c) -----------------------------------
+#
+# Unbounded recursive listings (`Get-ChildItem -Recurse`, `tree`, `ls -R`,
+# `find .` at the root) can walk millions of files and flood the context with
+# megabytes of output. They are refused BEFORE execution with scoped,
+# bounded alternatives. Explicitly bounded commands (piped to -First/head or
+# capped by -maxdepth) pass through.
+
+_PS_LISTING = re.compile(r"(?:^|[;|&]|\b)(?:Get-ChildItem|gci|dir|ls)\b", re.IGNORECASE)
+_PS_RECURSE = re.compile(r"-(?:Recurs|r)e?(?![a-z])", re.IGNORECASE)
+_PS_LIMIT = re.compile(
+    r"-First\s+\d+|-TotalCount\s+\d+|-Head\s+\d+|Select-Object\s+-First\s+\d+", re.IGNORECASE
+)
+_TREE_CMD = re.compile(r"(?:^|[;|&])\s*tree\b")
+
+_UNIX_RECURSIVE_LS = re.compile(r"(?:^|[;|&])\s*(?:ls|ll)\s+(?=[^;|&]*-[^;|&]*R\b)[^;|&]*")
+_UNIX_HEAD_PIPE = re.compile(r"\|\s*head\b|\|\s*Select-Object\s+-First\s+\d+", re.IGNORECASE)
+_FIND_AT_ROOT = re.compile(
+    r"(?:^|[;|&])\s*find\s+(?:\.|\"\.\"|'.'|\./)?\s*(?:$|[;|&]|-)", re.IGNORECASE
+)
+_FIND_MAXDEPTH = re.compile(r"-maxdepth\s+\d+", re.IGNORECASE)
+
+_RECURSE_REFUSAL = (
+    "Refused: unbounded recursive listing would enumerate the ENTIRE workspace. "
+    "Scope it instead, e.g.: 'Get-ChildItem <subdir> -Recurse -File | Select-Object "
+    "-First 50 FullName' or 'find <subdir> -maxdepth 2' - or use the glob/list_dir "
+    "tools, which respect ignore rules."
+)
+
+
+def _assess_enumeration(command: str, workspace_root: str) -> str | None:
+    """Return a refusal message when the command would enumerate whole trees."""
+    stripped = command.strip()
+    if not stripped:
+        return None
+
+    limited = bool(_PS_LIMIT.search(stripped)) or bool(_UNIX_HEAD_PIPE.search(stripped))
+
+    # `tree` walks the entire subtree and cannot be pruned.
+    if _TREE_CMD.search(stripped) and not _UNIX_HEAD_PIPE.search(stripped):
+        return (
+            "Refused: 'tree' enumerates the ENTIRE workspace subtree. "
+            "This workspace is far too large to list wholesale. Use 'list_dir' "
+            "for a single directory, or a scoped listing like: "
+            "Get-ChildItem <subdir> | Select-Object Name"
+        )
+
+    if (
+        (_PS_LISTING.search(stripped) or _UNIX_RECURSIVE_LS.search(stripped))
+        and (_PS_RECURSE.search(stripped) or _UNIX_RECURSIVE_LS.search(stripped))
+        and not limited
+    ):
+        return _RECURSE_REFUSAL
+
+    if _FIND_AT_ROOT.search(stripped) and not _FIND_MAXDEPTH.search(stripped) and not limited:
+        return (
+            "Refused: unscoped 'find .' walks the ENTIRE workspace. Add -maxdepth, "
+            "scope to a subdirectory, or pipe through 'head'."
+        )
+
+    return None
 
 
 class BashTool(BaseTool):
@@ -102,6 +158,18 @@ class BashTool(BaseTool):
         auto_background_after = params.get("auto_background_after", self.auto_background_after)
         if not command.strip():
             return ToolResult(success=False, error="No command provided")
+        refusal = _assess_enumeration(command, workspace_root)
+        if refusal:
+            from server.workspace.index import get_workspace_stats
+
+            try:
+                stats = get_workspace_stats(workspace_root)
+                detail = (
+                    f" Workspace has ~{stats.total_files} files ({stats.describe_top_level()})."
+                )
+            except Exception:
+                detail = ""
+            return ToolResult(success=False, error=f"{refusal}{detail}")
         if run_in_background:
             return await self._start_background(command, workdir, params.get("description", ""))
         return await self._execute_sync(command, workdir, timeout, auto_background_after)
@@ -146,22 +214,16 @@ class BashTool(BaseTool):
     ) -> ToolResult:
         process = None
         try:
-            shell = _resolve_shell()
-            if _IS_WINDOWS and shell:
-                process = await asyncio.create_subprocess_shell(
-                    f'"{shell}" -NoProfile -Command {command}',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=workdir,
-                )
-            else:
-                process = await asyncio.create_subprocess_shell(
-                    command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=workdir,
-                    shell=True,
-                )
+            # exec (not shell): the FULL command string must reach
+            # PowerShell as a single argument. Routing through
+            # create_subprocess_shell made cmd.exe parse the string first,
+            # so any `|`/`&` in the command was treated as a CMD pipe and
+            # PowerShell segments after it failed with "'X' is not
+            # recognized as an internal or external command" (F2).
+            try:
+                process = await run_shell_command(command, cwd=workdir)
+            except RuntimeError as e:
+                return ToolResult(success=False, error=str(e))
             stdout_chunks: list[bytes] = []
             stderr_chunks: list[bytes] = []
 

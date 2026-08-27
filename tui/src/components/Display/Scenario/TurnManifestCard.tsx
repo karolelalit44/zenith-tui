@@ -111,6 +111,13 @@ function renderChildren(
 export const TurnManifestCard: React.FC<TurnManifestCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
+  // A completed run with zero file activity has nothing to show — the
+  // SuccessCard status row already says done. Rendering the empty card
+  // produced the meaningless "Turn complete no changes" noise.
+  if (event.completed && event.created.length === 0 && event.modified.length === 0) {
+    return null;
+  }
+
   const fileEntries: TreeFile[] = [
     ...event.files
       .filter((f) => event.created.includes(f.path))

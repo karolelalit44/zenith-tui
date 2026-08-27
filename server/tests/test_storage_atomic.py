@@ -132,11 +132,11 @@ class TestHistoryDestructionGuards:
         ensure_materialized(home)
         srepo = FileSessionRepository(home)
         mrepo = FileMessageRepository(home)
-        s = await srepo.create(
-            Session(id="sess-iofail", title="t", workspace_root=str(temp_dir))
-        )
+        s = await srepo.create(Session(id="sess-iofail", title="t", workspace_root=str(temp_dir)))
         for i in range(n):
-            await mrepo.append(Message(session_id=s.id, role="user", content=f"m{i}", token_count=i))
+            await mrepo.append(
+                Message(session_id=s.id, role="user", content=f"m{i}", token_count=i)
+            )
         return home, srepo, mrepo, s
 
     def _record_count(self, home, sid: str) -> int:
@@ -217,14 +217,10 @@ class TestConcurrentTokenAppends:
         home = StorageHome(temp_dir)
         ensure_materialized(home)
         srepo = FileSessionRepository(home)
-        s = await srepo.create(
-            Session(id="sess-tokens", title="t", workspace_root=str(temp_dir))
-        )
+        s = await srepo.create(Session(id="sess-tokens", title="t", workspace_root=str(temp_dir)))
 
         increments = [(1, 0.01)] * 50 + [(5, 0.0)] * 25 + [(0, 0.1)] * 25
-        await asyncio.gather(
-            *(srepo.add_tokens(s.id, tok, cost) for tok, cost in increments)
-        )
+        await asyncio.gather(*(srepo.add_tokens(s.id, tok, cost) for tok, cost in increments))
 
         got = await srepo.get(s.id)
         assert got is not None
@@ -263,10 +259,7 @@ class TestCatalogCacheVisibility:
         )
         catalog = load_catalog(home)  # same process, no manual invalidation
         assert "cache_prov" in catalog.get("providers", {})
-        models = {
-            m["id"]
-            for m in catalog["providers"]["cache_prov"].get("models", [])
-        }
+        models = {m["id"] for m in catalog["providers"]["cache_prov"].get("models", [])}
         assert "cache-model" in models
 
     async def test_price_cache_refreshes_on_catalog_change(self, temp_dir: Path):
@@ -361,9 +354,7 @@ class TestCheckpointInline:
         ensure_materialized(home)
         repo = session_store_mod.FileCheckpointRepository(home)
         srepo = FileSessionRepository(home)
-        s = await srepo.create(
-            Session(id="sess-ckpt", title="t", workspace_root=str(temp_dir))
-        )
+        s = await srepo.create(Session(id="sess-ckpt", title="t", workspace_root=str(temp_dir)))
 
         for i in range(3):
             await repo.create(s.id, snapshot_data={"i": i})
@@ -396,8 +387,9 @@ class TestSingleFileLayout:
         s = await srepo.create(Session(id="sess-one", title="f", workspace_root=ws_root))
         await mrepo.append(Message(session_id=s.id, role="user", content="hi"))
         await crepo.create(s.id, snapshot_data={"step": 1})
-        await urepo.record(s.id, provider="groq", model="m", total_tokens=10,
-                           context_window=1000, step_index=-1)
+        await urepo.record(
+            s.id, provider="groq", model="m", total_tokens=10, context_window=1000, step_index=-1
+        )
         await wrepo.upsert(s.id, "a.txt", "h", 5, 1, 0, 0.0, 0.0)
 
         project_dir = home.project_dir(ws_root)
@@ -408,7 +400,9 @@ class TestSingleFileLayout:
         for kind in ("msg", "checkpoint", "usage", "wsfile"):
             assert kind in kinds
         # No stray per-session artifacts anywhere else.
-        strays = [p for p in home.projects_dir.rglob("*") if p.is_file() and p.name != "sess-one.jsonl"]
+        strays = [
+            p for p in home.projects_dir.rglob("*") if p.is_file() and p.name != "sess-one.jsonl"
+        ]
         assert strays == []
 
     async def test_projects_are_grouped_by_workspace(self, temp_dir: Path):
@@ -426,9 +420,7 @@ class TestSingleFileLayout:
         home = StorageHome(temp_dir)
         ensure_materialized(home)
         srepo = FileSessionRepository(home)
-        s = await srepo.create(
-            Session(id="sess-del", title="d", workspace_root=str(temp_dir))
-        )
+        s = await srepo.create(Session(id="sess-del", title="d", workspace_root=str(temp_dir)))
         assert await srepo.delete(s.id) is True
         assert not home.session_file("sess-del", str(temp_dir)).exists()
         assert await srepo.get(s.id) is None
@@ -449,21 +441,27 @@ class TestSeedIdempotence:
 
         home = StorageHome(temp_dir)
         ensure_materialized(home)
-        upsert_provider(home, {
-            "id": "my_vendor",
-            "name": "My Vendor",
-            "adapter": "openai_compatible",
-            "baseUrl": "http://localhost:9999/v1",
-            "requiresApiKey": False,
-            "firstClass": False,
-            "customFlow": True,
-        })
-        upsert_model(home, {
-            "providerId": "my_vendor",
-            "id": "my-model",
-            "name": "My Model",
-            "contextWindow": 8192,
-        })
+        upsert_provider(
+            home,
+            {
+                "id": "my_vendor",
+                "name": "My Vendor",
+                "adapter": "openai_compatible",
+                "baseUrl": "http://localhost:9999/v1",
+                "requiresApiKey": False,
+                "firstClass": False,
+                "customFlow": True,
+            },
+        )
+        upsert_model(
+            home,
+            {
+                "providerId": "my_vendor",
+                "id": "my-model",
+                "name": "My Model",
+                "contextWindow": 8192,
+            },
+        )
         # Force a refresh by pretending an older seed is on disk.
         doc = read_json(home.providers_path, {})
         doc["seedVersion"] = catalog_store.builtin_seed.SEED_VERSION - 1

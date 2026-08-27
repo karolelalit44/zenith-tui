@@ -30,7 +30,7 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
 
   useInput(
     (input, key) => {
-      if (key.ctrl && (input === 'd' || input === '\x04')) {
+      if (key.ctrl && (input === 'e' || input === '\x05')) {
         setExpanded((value) => !value);
       }
     },
@@ -61,7 +61,7 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
         {truncated && (
           <Box flexDirection="row" marginTop={0}>
             <Text color={theme.colors.text.muted}>
-              {expanded ? '(ctrl+d to hide full details)' : '… (ctrl+d to show full details)'}
+              {expanded ? '(ctrl+e to hide full details)' : '… (ctrl+e to show full details)'}
             </Text>
           </Box>
         )}

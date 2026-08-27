@@ -281,7 +281,8 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         kind: 'thinking',
         id,
         thoughts: d.text ? [String(d.text)] : [],
-        duration: typeof d.duration === 'number' ? d.duration : 500,
+        duration: typeof d.duration === 'number' ? d.duration : 0,
+        partial: d.partial === true,
       };
 
     case 'message':

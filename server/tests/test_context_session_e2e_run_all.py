@@ -25,8 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from server.tests.test_context_session_e2e_part1 import run_part1  # noqa: E402
-from server.tests.test_context_session_e2e_part2 import run_part2  # noqa: E402
+from server.tests.test_context_session_e2e_part1 import run_part1
+from server.tests.test_context_session_e2e_part2 import run_part2
 
 
 async def main() -> None:

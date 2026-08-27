@@ -10,6 +10,7 @@ from server.config.constants import (
     PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
+from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -28,6 +29,27 @@ _OUTLINE_PATTERN = re.compile(
 )
 
 
+def _first_meaningful_line(lines: list[str], start: int) -> str | None:
+    """Return the first non-empty, non-comment line after ``start`` (0-indexed).
+
+    Scans up to 8 lines ahead to find a docstring, return statement, or
+    assignment — anything that hints at the symbol's purpose without
+    requiring a full file_read.
+    """
+    for j in range(start, min(start + 8, len(lines))):
+        stripped = lines[j].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        # Skip lines that are just another symbol definition (nested class/def)
+        if _OUTLINE_PATTERN.match(stripped) and not stripped.startswith(('"""', "'''")):
+            continue
+        # Truncate long preview lines
+        if len(stripped) > 100:
+            stripped = stripped[:97] + "..."
+        return stripped
+    return None
+
+
 def _extract_file_outline(lines: list[str], rel_path: str) -> str:
     outline_entries: list[str] = []
     for i, line in enumerate(lines, 1):
@@ -36,7 +58,11 @@ def _extract_file_outline(lines: list[str], rel_path: str) -> str:
             preview = stripped.strip()
             if len(preview) > 120:
                 preview = preview[:117] + "..."
-            outline_entries.append(f"L{i:4d}: {preview}")
+            purpose = _first_meaningful_line(lines, i)  # i is 0-indexed here (next line)
+            entry = f"L{i:4d}: {preview}"
+            if purpose and purpose != preview:
+                entry += f"\n       {purpose}"
+            outline_entries.append(entry)
 
     if not outline_entries:
         sample_count = min(30, len(lines))
@@ -102,6 +128,8 @@ class FileReadTool(BaseTool):
         resolved = validate_path(rel_path, workspace_root)
         if resolved is None:
             return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
+        if blocked_as_missing(get_matcher(workspace_root), rel_path):
+            return ToolResult(success=False, error=f"File not found: {rel_path}")
         if not resolved.exists():
             return ToolResult(success=False, error=f"File not found: {rel_path}")
         if resolved.is_dir():

@@ -65,8 +65,7 @@ def load_config(workspace_root: str = ".") -> AppSettings:
         stored = read_providers(home)
         providers_dict.update(stored)
     except Exception as e:
-        logger.warning("Could not read provider config from storage home '%s': %s",
-                       home.root, e)
+        logger.warning("Could not read provider config from storage home '%s': %s", home.root, e)
 
     catalog = _load_catalog()
     catalog_providers = catalog.get("providers", {})
@@ -149,9 +148,7 @@ def _validate_config(settings: AppSettings) -> None:
             if key.strip():
                 has_any_key = True
                 break
-            warnings.append(
-                f"Provider '{name}' is configured but missing a valid API key."
-            )
+            warnings.append(f"Provider '{name}' is configured but missing a valid API key.")
     if not has_any_key and (not any(getattr(cfg, "api_key", None) for cfg in providers.values())):
         warnings.append(
             "No provider API keys found in user_profile.json. Configure at least one provider via setup wizard."

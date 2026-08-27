@@ -180,8 +180,9 @@ class FileSessionRepository:
 
     async def update(self, session: Session) -> Session:
         async with self.home.lock:
-            patch = {k: v for k, v in session.model_dump(mode="json").items()
-                     if k not in PATCH_EXCLUDE}
+            patch = {
+                k: v for k, v in session.model_dump(mode="json").items() if k not in PATCH_EXCLUDE
+            }
             patch["updated_at"] = _now()
             append_record(self.home, session.id, {"t": "meta", "patch": patch})
         return session
@@ -219,8 +220,13 @@ class FileSessionRepository:
             stats = stats_record(fields, bump_tokens=tokens, bump_cost=cost)
             append_jsonl_sync(locate(self.home, session_id), stats)  # type: ignore[arg-type]
             merged = dict(fields)
-            for key in ("message_count", "user_message_count", "total_tokens",
-                        "total_cost", "context_percent"):
+            for key in (
+                "message_count",
+                "user_message_count",
+                "total_tokens",
+                "total_cost",
+                "context_percent",
+            ):
                 merged[key] = stats[key]
             merged["updated_at"] = stats["updated_at"]
         return to_session(merged)
@@ -293,15 +299,11 @@ class FileMessageRepository:
             records = read_jsonl(path)
             if not records:
                 return
-            kept = [
-                r for r in records
-                if not (r.get("t") == "msg" or r.get("t") == "stats")
-            ]
+            kept = [r for r in records if not (r.get("t") == "msg" or r.get("t") == "stats")]
             kept.append(stats_record({}))
             rewrite_jsonl_atomic(path, kept)
 
-    async def compact_history(self, session_id: str, metadata: dict,
-                              delete_ids: list[str]) -> int:
+    async def compact_history(self, session_id: str, metadata: dict, delete_ids: list[str]) -> int:
         doomed = set(delete_ids or [])
         async with self.home.lock:
             path = locate(self.home, session_id)
@@ -327,7 +329,8 @@ class FileMessageRepository:
                 logger.error(
                     "compaction aborted for session %s: no message records while "
                     "stats report %s message(s)",
-                    session_id, meta_count,
+                    session_id,
+                    meta_count,
                 )
                 return 0
             kept: list[dict] = []
@@ -338,11 +341,8 @@ class FileMessageRepository:
                     continue
                 kept.append(rec)
             if deleted or metadata is not None:
-                kept.append({"t": "meta", "patch": {"metadata": metadata,
-                                                    "updated_at": _now()}})
-                user_left = sum(
-                    1 for r in kept if r.get("t") == "msg" and r.get("role") == "user"
-                )
+                kept.append({"t": "meta", "patch": {"metadata": metadata, "updated_at": _now()}})
+                user_left = sum(1 for r in kept if r.get("t") == "msg" and r.get("role") == "user")
                 base = dict(fields)
                 base["message_count"] = user_left
                 base["user_message_count"] = user_left
@@ -356,8 +356,7 @@ class FileMessageRepository:
             if path is None:
                 return 0
             records = read_jsonl(path)
-            kept = [r for r in records
-                    if not (r.get("t") == "msg" and r.get("role") == "tool")]
+            kept = [r for r in records if not (r.get("t") == "msg" and r.get("role") == "tool")]
             deleted = len(records) - len(kept)
             if deleted:
                 rewrite_jsonl_atomic(path, kept)

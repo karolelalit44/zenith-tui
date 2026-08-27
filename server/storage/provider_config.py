@@ -32,7 +32,6 @@ DEFAULT_MAX_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0.7
 
 
-
 def read_active_provider(home: StorageHome) -> str | None:
     profile = load_profile(home)
     value = profile.get("activeProviderId", "")
@@ -162,7 +161,7 @@ def save_provider_config(
         merged.update(
             {
                 "model": model.strip() or str(existing_cfg.get("model") or ""),
-                "baseUrl": base_url.strip() or str(existing_cfg.get("baseUrl") or ""),
+                "baseUrl": (base_url or "").strip() or str(existing_cfg.get("baseUrl") or ""),
                 "maxTokens": int(max_tokens),
                 "temperature": float(temperature),
                 "updatedAt": datetime.now().isoformat(),
@@ -172,14 +171,10 @@ def save_provider_config(
         if set_active:
             profile["activeProviderId"] = provider
         save_profile(home, profile)
-    logger.info(
-        "Saved provider config '%s' (active=%s)", provider, set_active
-    )
+    logger.info("Saved provider config '%s' (active=%s)", provider, set_active)
 
 
-def upsert_provider_models(
-    home: StorageHome, provider: str, models: list[dict]
-) -> None:
+def upsert_provider_models(home: StorageHome, provider: str, models: list[dict]) -> None:
     """Persist user-added/curated models for a provider into models.json."""
     for m in models or []:
         mid = str(m.get("id") or "").strip()
@@ -197,8 +192,7 @@ def upsert_provider_models(
         try:
             upsert_model(home, entry)
         except Exception as e:
-            logger.warning("upsert_provider_models: failed for %s/%s: %s",
-                           provider, mid, e)
+            logger.warning("upsert_provider_models: failed for %s/%s: %s", provider, mid, e)
 
 
 def _stored_models_for(home: StorageHome) -> dict[str, list[dict]]:

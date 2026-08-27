@@ -10,6 +10,7 @@ from server.config.constants import (
     PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
+from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -64,6 +65,8 @@ class FileWriteTool(BaseTool):
                 success=False,
                 error=f"Path escapes workspace boundary: {rel_path}. Use relative paths within the project.",
             )
+        if blocked_as_missing(get_matcher(workspace_root), rel_path):
+            return ToolResult(success=False, error=f"File not found: {rel_path}")
         content = params.get("content", "")
         overwrite = params.get(FILE_OVERWRITE_PARAM, False)
         if content:

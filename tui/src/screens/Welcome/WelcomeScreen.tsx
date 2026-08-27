@@ -36,12 +36,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
   const activeWorkspace = workspace || process.cwd();
   const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState(false);
 
   useEffect(() => {
+    setSessionsLoading(true);
+    setSessionsError(false);
     wsClient
       .listSessionSummaries({ limit: 5, include_archived: false })
-      .then(setRecentSessions)
-      .catch(() => setRecentSessions([]));
+      .then((sessions) => {
+        setRecentSessions(sessions);
+      })
+      .catch((err) => {
+        console.warn('Failed to load recent sessions:', err);
+        setSessionsError(true);
+        setRecentSessions([]);
+      })
+      .finally(() => setSessionsLoading(false));
   }, []);
 
   const renderSessionRow = (session: SessionSummary, idx: number) => {
@@ -147,7 +158,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
             </Box>
 
             <Box flexDirection="column" width="100%">
-              {recentSessions.length === 0 ? (
+              {sessionsLoading ? (
+                <Text color={theme.colors.text.dim} italic>
+                  Loading recent sessions...
+                </Text>
+              ) : sessionsError ? (
+                <Text color={theme.colors.text.dim} italic>
+                  Could not load recent sessions
+                </Text>
+              ) : recentSessions.length === 0 ? (
                 <Text color={theme.colors.text.dim} italic>
                   No recent sessions
                 </Text>

@@ -211,7 +211,8 @@ class TestNoFilesCreatedWarning:
         assert "NO_FILES_CREATED" not in codes
 
     @pytest.mark.asyncio
-    async def test_tool_using_turn_without_files_still_warns(self, temp_dir):
+    async def test_read_only_turn_does_not_warn(self, temp_dir):
+        """Q&A turns that only explore (file_read) are a success, not a defect."""
         from server.domain.events import EventKind
         from server.toolkit import create_default_registry
 
@@ -238,5 +239,40 @@ class TestNoFilesCreatedWarning:
                 return True
 
         events = await self._run_events(temp_dir, ToolUsingProvider(), create_default_registry())
+        codes = [e.data.get("code") for e in events if e.kind == EventKind.WARNING]
+        assert "NO_FILES_CREATED" not in codes
+
+    @pytest.mark.asyncio
+    async def test_failed_file_write_without_created_files_still_warns(self, temp_dir):
+        """A genuine build attempt (mutating tool ran) with zero created files warns."""
+        from server.domain.events import EventKind
+        from server.toolkit import create_default_registry
+
+        # A directory in place of the target file: file_write cannot create it.
+        (temp_dir / "blocked").mkdir()
+
+        class FailingWriteProvider:
+            def __init__(self):
+                self.call_count = 0
+                self.model = "test-model"
+                self._cumulative_usage = {}
+                self._last_finish_reason = None
+                self._last_native_tool_calls = []
+
+            async def complete(self, messages, tools=None):
+                self.call_count += 1
+                if self.call_count == 1:
+                    return '```tool\n{"tool": "file_write", "params": {"filepath": "blocked", "content": "hi"}}\n```'
+                return "Done."
+
+            async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+                response = await self.complete(messages)
+                for char in response:
+                    yield (char, None)
+
+            async def validate(self):
+                return True
+
+        events = await self._run_events(temp_dir, FailingWriteProvider(), create_default_registry())
         codes = [e.data.get("code") for e in events if e.kind == EventKind.WARNING]
         assert "NO_FILES_CREATED" in codes

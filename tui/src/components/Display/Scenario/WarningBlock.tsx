@@ -51,7 +51,7 @@ export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event }) 
 
   useInput(
     (input, key) => {
-      if (key.ctrl && (input === 'd' || input === '\x04')) {
+      if (key.ctrl && (input === 'e' || input === '\x05')) {
         setExpanded((value) => !value);
       }
     },
@@ -74,7 +74,7 @@ export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event }) 
         {truncated && (
           <Box paddingLeft={3}>
             <Text color={theme.colors.text.muted}>
-              {expanded ? '(ctrl+d to hide full details)' : '… (ctrl+d to show full details)'}
+              {expanded ? '(ctrl+e to hide full details)' : '… (ctrl+e to show full details)'}
             </Text>
           </Box>
         )}
@@ -104,7 +104,7 @@ export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event }) 
       {truncated && (
         <Box paddingLeft={3}>
           <Text color={theme.colors.text.muted}>
-            {expanded ? '(ctrl+d to hide full details)' : '… (ctrl+d to show full details)'}
+            {expanded ? '(ctrl+e to hide full details)' : '… (ctrl+e to show full details)'}
           </Text>
         </Box>
       )}

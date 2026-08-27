@@ -25,10 +25,53 @@ def test_default_models_keep_temperature(monkeypatch):
         "server.providers.llm_provider._get_catalog",
         lambda: _catalog_with({"function_calling": True}),
     )
-    provider = LLMProvider(name="google", model="gemini-3.5-flash-lite")
+    provider = LLMProvider(name="openai", model="gpt-4o")
     assert provider.supports_temperature is True
     kwargs = provider._build_completion_kwargs([{"role": "user", "content": "hi"}])
     assert kwargs["temperature"] == provider.temperature
+
+
+def test_gemini_3_plus_drops_temperature_by_default(monkeypatch):
+    monkeypatch.setattr(
+        "server.providers.llm_provider._get_catalog",
+        lambda: _catalog_with({"function_calling": True}),
+    )
+    provider = LLMProvider(name="google", model="gemini-3.5-flash-lite")
+    assert provider.supports_temperature is False
+    kwargs = provider._build_completion_kwargs([{"role": "user", "content": "hi"}])
+    assert "temperature" not in kwargs
+
+
+def test_gemini_3_plus_safety_net_overrides_capability(monkeypatch):
+    # Even if the catalog claims temperature support for a Gemini 3.x model,
+    # LiteLLM still emits deprecation warnings for temperature/top_p/top_k, so
+    # the name-based safety net must drop them regardless of capabilities.
+    monkeypatch.setattr(
+        "server.providers.llm_provider._get_catalog",
+        lambda: _catalog_with(
+            {"function_calling": True, "supports_temperature": True}
+        ),
+    )
+    provider = LLMProvider(name="google", model="gemini-3.5-flash-lite")
+    assert provider.supports_temperature is True
+    kwargs = provider._build_completion_kwargs([{"role": "user", "content": "hi"}])
+    assert "temperature" not in kwargs
+
+
+def test_gemini_3_plus_drops_top_p_and_top_k_from_extra_params(monkeypatch):
+    monkeypatch.setattr(
+        "server.providers.llm_provider._get_catalog",
+        lambda: _catalog_with({"function_calling": True}),
+    )
+    provider = LLMProvider(
+        name="google",
+        model="gemini-3.5-flash-lite",
+        extra_params={"top_p": 0.9, "top_k": 40},
+    )
+    kwargs = provider._build_completion_kwargs([{"role": "user", "content": "hi"}])
+    assert "temperature" not in kwargs
+    assert "top_p" not in kwargs
+    assert "top_k" not in kwargs
 
 
 def test_model_without_temperature_support_omits_temperature(monkeypatch):

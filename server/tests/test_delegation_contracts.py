@@ -81,7 +81,9 @@ class TestEvidenceRule:
             agent_id="a",
             findings=[Finding(claim="X exists", confidence="verified", evidence_refs=["0"])],
             evidence=[
-                EvidenceRef(type="file_read", path="server/domain/session.py", snippet="class Session")
+                EvidenceRef(
+                    type="file_read", path="server/domain/session.py", snippet="class Session"
+                )
             ],
         )
         result.apply_evidence_rule()

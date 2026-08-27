@@ -57,9 +57,11 @@ class TestNonMatching:
     def test_partial_signal_below_threshold_routes_none(self):
         registry = SpecialistRegistry.default()
         # single weak token, no phrase overlap -> below MIN_CAPABILITY_SCORE
-        assert registry.route("trace") is None or score_prompt(
-            "trace", CodebaseScout
-        ) < MIN_CAPABILITY_SCORE or True  # routing decision documented either way
+        assert (
+            registry.route("trace") is None
+            or score_prompt("trace", CodebaseScout) < MIN_CAPABILITY_SCORE
+            or True
+        )  # routing decision documented either way
 
 
 class TestScoring:

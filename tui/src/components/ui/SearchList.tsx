@@ -227,19 +227,19 @@ export function SearchList<T>({
       return;
     }
 
-    if (key.tab) {
-      if (actions.length === 0) return;
-      setActionIndex((current) => {
-        if (current === null) return 0;
-        return (current + 1) % actions.length;
-      });
-      return;
-    }
     if (key.shift && key.tab) {
       if (actions.length === 0) return;
       setActionIndex((current) => {
         if (current === null) return actions.length - 1;
         return (current - 1 + actions.length) % actions.length;
+      });
+      return;
+    }
+    if (key.tab) {
+      if (actions.length === 0) return;
+      setActionIndex((current) => {
+        if (current === null) return 0;
+        return (current + 1) % actions.length;
       });
       return;
     }
@@ -342,7 +342,9 @@ export function SearchList<T>({
       <Box flexDirection="column" marginTop={1} minHeight={1}>
         {rows.length === 0 ? (
           <Box paddingLeft={3}>
-            <Text color={theme.colors.text.muted}>No results found</Text>
+            <Text color={theme.colors.text.muted}>
+              {options.length === 0 ? 'No options available' : 'No results found'}
+            </Text>
           </Box>
         ) : (
           rows

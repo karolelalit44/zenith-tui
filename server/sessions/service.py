@@ -291,6 +291,12 @@ class DefaultSessionService(SessionService):
 
     async def resume(self, session_id: str) -> Session:
         session = await self.require(session_id)
+        # Idempotent: a client reconnects, replays buffered events, then calls
+        # resume again. Re-resuming an already-resumed session is a no-op, not a
+        # transition error. This guards the double-resume race seen on reconnect.
+        if session.state == SessionState.RESUMED:
+            logger.info("Resume is idempotent for session %s (already resumed)", session_id)
+            return session
         result = await self._transition(session, SessionState.RESUMED, "Session resumed")
         self._publish(EventKind.SESSION_RESUMED, {"session_id": session_id}, session_id=session_id)
         return result

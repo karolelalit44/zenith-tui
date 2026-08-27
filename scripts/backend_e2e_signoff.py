@@ -117,8 +117,10 @@ class Backend:
             ),
             encoding="utf-8",
         )
-        log(f"Spawning isolated backend on 127.0.0.1:{port} "
-            f"(workspace={self.workspace}, home={e2e_home.name})")
+        log(
+            f"Spawning isolated backend on 127.0.0.1:{port} "
+            f"(workspace={self.workspace}, home={e2e_home.name})"
+        )
         self.proc = subprocess.Popen(
             [sys.executable, str(launcher)],
             cwd=str(REPO_ROOT),
@@ -151,8 +153,10 @@ class Backend:
                     health = client.get(f"{self.base_url}/health").json()
                     status = client.get(f"{self.base_url}/status").json()
                 if health.get("status") == "ok" and status.get("ready") is True:
-                    log(f"Backend ready: provider={status.get('provider')} "
-                        f"workspace={status.get('workspace')}")
+                    log(
+                        f"Backend ready: provider={status.get('provider')} "
+                        f"workspace={status.get('workspace')}"
+                    )
                     return
             except Exception:
                 pass
@@ -196,7 +200,7 @@ class Backend:
             self.tmpdir.cleanup()
 
 
-_LAUNCHER = '''\
+_LAUNCHER = """\
 import os, sys
 REPO = {repo_root!r}
 WS = {workspace!r}
@@ -222,7 +226,7 @@ uvicorn.run(
     ws_ping_interval=None,
     ws_ping_timeout=None,
 )
-'''
+"""
 
 
 async def _rpc(ws, method: str, params: dict | None = None, timeout: float = TURN_TIMEOUT):
@@ -276,8 +280,7 @@ def _assert_turn_contract(events: list[dict], mode: str, *, require_tool: bool) 
         check("tool_call" in kinds, f"{mode}: 'tool_call' response type present")
         check("tool_result" in kinds, f"{mode}: 'tool_result' response type present")
     else:
-        log(f"  [info] {mode}: tool_use={'tool_call' in kinds} "
-            f"(tool_call={'tool_call' in kinds})")
+        log(f"  [info] {mode}: tool_use={'tool_call' in kinds} (tool_call={'tool_call' in kinds})")
     check("error" not in kinds, f"{mode}: no error events")
     success = _success_event(events)
     data = success.get("data") or {}
@@ -343,9 +346,14 @@ def _assert_thinking_excluded(messages: list[dict]) -> None:
     """Thinking may live in event history only, never in persisted message content."""
     for m in messages:
         content = m.get("content") or ""
-        if content and any(marker in content.lower() for marker in ("[thinking]", "</thinking>", "thinking:")):
-            check(False, "thinking excluded from persisted message content",
-                  f"role={m.get('role')} content starts: {content[:120]}")
+        if content and any(
+            marker in content.lower() for marker in ("[thinking]", "</thinking>", "thinking:")
+        ):
+            check(
+                False,
+                "thinking excluded from persisted message content",
+                f"role={m.get('role')} content starts: {content[:120]}",
+            )
             return
     check(True, "thinking excluded from persisted message content")
 
@@ -431,8 +439,11 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     check(created.exists(), "build: artifact/README.md exists on disk", str(created))
     if created.exists():
         text = created.read_text(encoding="utf-8", errors="replace")
-        check("Hello from Zenith e2e" in text, "build: file content contains the requested text",
-              repr(text[:80]))
+        check(
+            "Hello from Zenith e2e" in text,
+            "build: file content contains the requested text",
+            repr(text[:80]),
+        )
     check(not (ws_root / "artifect").exists(), "build: NO typo'd 'artifect' folder (fidelity)")
     extra = [
         p.relative_to(ws_root).as_posix()
@@ -457,11 +468,15 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     messages = await _resume_messages(ws, sid)
     await _drain_ws(ws)
     roles = [m.get("role") for m in messages]
-    check(roles == ["user", "assistant"], "build: exactly two persisted messages (user, assistant)",
-          str(roles))
+    check(
+        roles == ["user", "assistant"],
+        "build: exactly two persisted messages (user, assistant)",
+        str(roles),
+    )
     assistant_msg = messages[1]
     final_text = "".join(
-        e.get("data", {}).get("text", "") for e in events
+        e.get("data", {}).get("text", "")
+        for e in events
         if e.get("kind") == "message" and not e.get("data", {}).get("partial")
     )
     check(
@@ -493,7 +508,7 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
         "prompt.send",
         {
             "content": "What file did you create in your previous response in this session? "
-                       "Answer briefly with the exact path.",
+            "Answer briefly with the exact path.",
             "mode": "build",
         },
     )
@@ -501,7 +516,8 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     events2 = await _collect_turn(ws)
     success2 = _assert_turn_contract(events2, "build-follow-up", require_tool=False)
     followup_text = " ".join(
-        e.get("data", {}).get("text", "") for e in events2
+        e.get("data", {}).get("text", "")
+        for e in events2
         if e.get("kind") == "message" and not e.get("data", {}).get("partial")
     )
     check(
@@ -552,8 +568,11 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     if steps:
         inp = sum(int(s.get("input_tokens") or 0) for s in steps)
         out = sum(int(s.get("output_tokens") or 0) for s in steps)
-        check(inp > 0 and out > 0, "build: input+output tokens > 0 across steps",
-              f"input={inp} output={out}")
+        check(
+            inp > 0 and out > 0,
+            "build: input+output tokens > 0 across steps",
+            f"input={inp} output={out}",
+        )
     totals = stats.get("totals") or {}
     check(bool(totals), "build: /usage/token-stats totals present", str(totals))
 
@@ -580,12 +599,16 @@ async def _run_plan_checks(ws, backend: Backend) -> None:
 
     calls = _tool_calls(events)
     plan_writes = [
-        c for c in calls
+        c
+        for c in calls
         if c[0] in ("file_write", "file_edit")
         and (c[1].get("path") or "").strip().lower() in ("plan.md", "todo.md")
     ]
-    check(bool(plan_writes), "plan: wrote via file_write/file_edit to plan.md/todo.md",
-          str([c for c in calls if c[0] in ("file_write", "file_edit")]))
+    check(
+        bool(plan_writes),
+        "plan: wrote via file_write/file_edit to plan.md/todo.md",
+        str([c for c in calls if c[0] in ("file_write", "file_edit")]),
+    )
     bash_calls = [c for c in calls if c[0] == "bash"]
     check(not bash_calls, "plan: no bash/mutating tool used in plan mode", str(bash_calls))
 
@@ -652,7 +675,7 @@ def _parse_args() -> argparse.Namespace:
         "--base-url",
         default=None,
         help="Attach to an already-running backend (e.g. http://127.0.0.1:8765) "
-             "instead of spawning an isolated instance.",
+        "instead of spawning an isolated instance.",
     )
     return parser.parse_args()
 

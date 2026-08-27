@@ -394,6 +394,8 @@ export const App: React.FC = () => {
       selectedMode,
       startScenario,
       activeProvider.id,
+      activeProvider.config.model,
+      activeProvider.meta.defaultModel,
       addTurn,
       clearInput,
       commandCtx,

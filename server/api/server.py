@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from importlib.metadata import version as _get_version
 from typing import TYPE_CHECKING
@@ -68,6 +69,10 @@ async def _do_startup() -> None:
             config.active_provider,
             config.home_dir,
         )
+        from server.workspace.ignore import ensure_ignore_file, ignore_file_path
+
+        ensure_ignore_file(config.workspace_root)
+        logger.info("Ignore rules: %s", ignore_file_path(config.workspace_root))
         active_prov = config.providers.get(config.active_provider) if config.providers else None
         if active_prov:
             logger.info("Active provider: %s, model=%s", config.active_provider, active_prov.model)
@@ -164,7 +169,10 @@ async def health():
         "status": "ok",
         "handler": _handler is not None,
         "version": __version__,
-        "storage": {"status": "ok" if storage_ok else "error", "home": str(_home.root) if _home else None},
+        "storage": {
+            "status": "ok" if storage_ok else "error",
+            "home": str(_home.root) if _home else None,
+        },
     }
 
 
@@ -359,11 +367,13 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1011, reason="Server not ready")
         return
     origin = websocket.headers.get("origin", "")
-    if origin and "localhost" not in origin and ("127.0.0.1" not in origin):
-        logger.warning("WebSocket connection from unexpected origin: %s", origin)
+    if origin and "localhost" not in origin and "127.0.0.1" not in origin:
+        logger.warning("WebSocket rejected: unexpected origin %s", origin)
+        await websocket.close(code=4003, reason="Unexpected origin")
+        return
     if _WS_TOKEN:
         query_token = websocket.query_params.get("token", "")
-        if query_token != _WS_TOKEN:
+        if not secrets.compare_digest(query_token, _WS_TOKEN):
             logger.warning("WebSocket rejected: invalid token from %s", websocket.client)
             await websocket.close(code=4001, reason="Invalid auth token")
             return
@@ -383,11 +393,13 @@ async def test_websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1011, reason="Server not ready")
         return
     origin = websocket.headers.get("origin", "")
-    if origin and "localhost" not in origin and ("127.0.0.1" not in origin):
-        logger.warning("Test WebSocket connection from unexpected origin: %s", origin)
+    if origin and "localhost" not in origin and "127.0.0.1" not in origin:
+        logger.warning("Test WebSocket rejected: unexpected origin %s", origin)
+        await websocket.close(code=4003, reason="Unexpected origin")
+        return
     if _WS_TOKEN:
         query_token = websocket.query_params.get("token", "")
-        if query_token != _WS_TOKEN:
+        if not secrets.compare_digest(query_token, _WS_TOKEN):
             logger.warning("Test WebSocket rejected: invalid token from %s", websocket.client)
             await websocket.close(code=4001, reason="Invalid auth token")
             return

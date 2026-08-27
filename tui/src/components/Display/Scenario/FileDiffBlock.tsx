@@ -260,7 +260,7 @@ export function parseDiffOrContent(text: string, maxLines = 30): { lines: DiffLi
     }
   }
 
-  return { lines: result, isUnifiedDiff: true };
+  return { lines: result, isUnifiedDiff };
 }
 
 export function detectLanguageFromFilename(filename?: string): string | undefined {

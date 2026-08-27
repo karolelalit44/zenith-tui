@@ -127,9 +127,7 @@ async def test_automatic_compaction_truncates_prefix_and_persists(service, test_
 
 
 @pytest.mark.asyncio
-async def test_manual_compaction_is_identical_operation_with_manual_trigger(
-    service, test_config
-):
+async def test_manual_compaction_is_identical_operation_with_manual_trigger(service, test_config):
     svc, session_repo, message_repo = service
     session = await session_repo.create(Session(title="Manual Compact"))
     await _seed_turns(message_repo, session.id)
@@ -157,10 +155,6 @@ async def test_manual_compaction_is_identical_operation_with_manual_trigger(
 
 
 @pytest.mark.asyncio
-async def test_concurrent_compaction_skips_without_events(service, test_config):
-    svc, session_repo, message_repo = service
-    session = await session_repo.create(Session(title="Concurrent"))
-@pytest.mark.asyncio
 async def test_concurrent_compaction_skips_without_events(service, monkeypatch):
     svc, session_repo, message_repo = service
     session = await session_repo.create(Session(title="Concurrent"))
@@ -183,18 +177,12 @@ async def test_concurrent_compaction_skips_without_events(service, monkeypatch):
 
     from server.agents import compaction_service
 
-    monkeypatch.setattr(
-        compaction_service.ConversationSummarizer, "summarize", gated_summarize
-    )
+    monkeypatch.setattr(compaction_service.ConversationSummarizer, "summarize", gated_summarize)
 
     history = await message_repo.get_by_session(session.id)
-    task1 = asyncio.ensure_future(
-        svc.compact(session_id=session.id, history=history, emit=emit)
-    )
+    task1 = asyncio.ensure_future(svc.compact(session_id=session.id, history=history, emit=emit))
     await entered.wait()
-    task2 = asyncio.ensure_future(
-        svc.compact(session_id=session.id, history=history, emit=emit)
-    )
+    task2 = asyncio.ensure_future(svc.compact(session_id=session.id, history=history, emit=emit))
     await asyncio.sleep(0)
     release.set()
     first, second = await asyncio.gather(task1, task2)

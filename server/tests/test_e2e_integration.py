@@ -276,8 +276,8 @@ class TestPromptProcessing:
             await _ws_rpc(ws, "session.create", {"title": "Thinking Test"})
             await _ws_rpc(ws, "prompt.send", {"content": "What is 2+2?", "mode": "build"})
             events = await _collect_events(ws, timeout=10)
-            kinds = [e["params"]["kind"] for e in events]
-            # Reasoning-capable providers only; echo does not emit thinking.`r`n            assert kinds, f"No events received. Got: {kinds}"
+            # Reasoning-capable providers only; echo does not emit thinking.
+            assert events, f"No events received: {events}"
 
     @pytest.mark.asyncio
     async def test_prompt_generates_message_events(self, echo_server):
@@ -301,7 +301,9 @@ class TestPromptProcessing:
             success_data = success_events[0]["params"]["data"]
             assert "message" in success_data
             assert "iterations" in success_data
-            assert success_data.get("elapsedMs", 0) > 0, "success event must report the turn duration"
+            assert success_data.get("elapsedMs", 0) > 0, (
+                "success event must report the turn duration"
+            )
 
     @pytest.mark.asyncio
     async def test_prompt_event_session_ids_match(self, echo_server):

@@ -33,6 +33,7 @@ _DEFAULT_PROFILE: dict = {
     "providerSettings": {},
     "preferences": {
         "theme": "dark",
+        "thinkingCollapsed": True,
     },
 }
 
@@ -161,4 +162,3 @@ def update_preferences(home: StorageHome, updates: dict) -> dict:
             prefs[key] = value
         save_profile(home, profile)
     return prefs
-

@@ -30,6 +30,8 @@ from server.config.constants import (
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
     SMALL_CONTEXT_WINDOW,
+    TURN_VERDICT_COMPLETED,
+    TURN_VERDICT_STALLED,
 )
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
@@ -496,7 +498,11 @@ SCENARIOS: list[dict] = [
     },
     {
         "name": "S09_stall_finalize",
-        "desc": "Repeated identical call: executes once, warns once each, finalizes with stalled manifest.",
+        # P1.1 answer-completion hatch: the repeated call carries a substantive
+        # final message and no file work is pending, so the turn finalizes
+        # cleanly (completed) instead of being forced into a stall. False
+        # completion claims in the prose are corrected at persistence time.
+        "desc": "Repeated identical call with a substantive closing message: executes once, completes cleanly.",
         "scripts": [
             (
                 "Done. The file has been created successfully.\n```tool\n"
@@ -506,24 +512,16 @@ SCENARIOS: list[dict] = [
         "checks": [
             ("bounded calls", lambda e, p, c: _require(e, "calls", p.call_count <= 3)),
             (
-                "skip warning exactly once",
-                lambda e, p, c: _require(
-                    e,
-                    "skip",
-                    sum(1 for m in _warnings(e) if "Skipped calls already completed" in m) == 1,
-                ),
-            ),
-            (
-                "stall guidance once",
+                "no stall guidance",
                 lambda e, p, c: _require(
                     e,
                     "stall",
                     sum(1 for m in _warnings(e) if "No new tool was executed this iteration" in m)
-                    == 1,
+                    == 0,
                 ),
             ),
             (
-                "finalize warning once",
+                "no finalize warning",
                 lambda e, p, c: _require(
                     e,
                     "finalize",
@@ -532,16 +530,25 @@ SCENARIOS: list[dict] = [
                         for m in _warnings(e)
                         if "No new tool work for several consecutive iterations" in m
                     )
-                    == 1,
+                    == 0,
                 ),
             ),
             (
-                "manifest stalled",
-                lambda e, p, c: _require(e, "stalled", _manifests(e)[-1].get("stalled") is True),
+                "manifest completed",
+                lambda e, p, c: _require(
+                    e,
+                    "completed",
+                    _manifests(e)[-1].get("completed") is True
+                    and _manifests(e)[-1].get("stalled") is False,
+                ),
+            ),
+            (
+                "manifest answered",
+                lambda e, p, c: _require(e, "answered", _manifests(e)[-1].get("answered") is True),
             ),
             (
                 "manifest remaining",
-                lambda e, p, c: _require(e, "remaining", bool(_manifests(e)[-1].get("remaining"))),
+                lambda e, p, c: _require(e, "remaining", _manifests(e)[-1].get("remaining") == []),
             ),
             (
                 "final answer once",
@@ -752,31 +759,33 @@ SCENARIOS: list[dict] = [
         ],
     },
     {
-        "name": "S15_big_read_compaction",
-        "desc": "An oversized tool output is compacted and a context_compacted event is emitted.",
+        "name": "S15_big_output_isolated",
+        "desc": "Oversized bash output goes through heavy isolation: success with a compact summary, and NO per-tool compaction card.",
         "prelude": "big.txt:2000",
         "scripts": [
-            '```tool\n{"tool": "file_read", "params": {"path": "big.txt"}}\n```',
+            '```tool\n{"tool": "bash", "params": {"command": "Get-Content big.txt"}}\n```',
             "The file is big; done.",
         ],
         "checks": [
             (
-                "read succeeded",
+                "bash succeeded",
                 lambda e, p, c: _require(
                     e,
                     "read",
                     any(
                         x.kind == EventKind.TOOL_RESULT
-                        and x.data.get("tool") == "file_read"
+                        and x.data.get("tool") == "bash"
                         and x.data.get("success")
                         for x in e
                     ),
                 ),
             ),
             (
-                "context_compacted emitted",
+                "no compaction ceremony",
                 lambda e, p, c: _require(
-                    e, "compacted", any(x.kind == EventKind.CONTEXT_COMPACTED for x in e)
+                    e,
+                    "no-card",
+                    not any(x.kind == EventKind.CONTEXT_COMPACTED for x in e),
                 ),
             ),
             ("no errors", lambda e, p, c: _require(e, "errors", not _errors(e))),
@@ -831,7 +840,7 @@ SCENARIOS: list[dict] = [
     },
     {
         "name": "S18_no_files_created_warning",
-        "desc": "Build mode that used tools but wrote nothing emits the NO_FILES_CREATED warning.",
+        "desc": "Read-only Q&A turn emits NO NO_FILES_CREATED warning (exploration is success).",
         "prelude": "readme.txt:hi",
         "scripts": [
             '```tool\n{"tool": "file_read", "params": {"path": "readme.txt"}}\n```',
@@ -839,11 +848,11 @@ SCENARIOS: list[dict] = [
         ],
         "checks": [
             (
-                "NO_FILES_CREATED warning",
+                "NO_FILES_CREATED absent",
                 lambda e, p, c: _require(
                     e,
                     "warning",
-                    any(
+                    not any(
                         (x.data.get("code") or "") == "NO_FILES_CREATED"
                         for x in e
                         if x.kind == EventKind.WARNING
@@ -1211,10 +1220,13 @@ class TestLoopHelperDryRun:
         assert m["files"] == [{"path": "made.txt", "exists": True, "size": 1}]
         m2 = _build_manifest(set(), [], False, True, "stuck", ws)
         assert m2["completed"] is False and m2["stalled"] is True
-        # No incomplete todos / no verification gap note possible; generic fallback.
-        assert m2["remaining"] == ["The turn ended without completing any work."]
+        # Honesty (P1.3): no incomplete todos / verification gap => empty list.
+        assert m2["remaining"] == []
         # last_text is never authoritative for remaining (QA-8).
         assert "stuck" not in m2["remaining"]
+        # Single verdict field derived from the terminal condition (P1.2).
+        assert m["verdict"] == TURN_VERDICT_COMPLETED
+        assert m2["verdict"] == TURN_VERDICT_STALLED
 
     def test_build_manifest_remaining_from_todos(self, temp_dir):
         ws = str(temp_dir)
@@ -1233,7 +1245,15 @@ class TestLoopHelperDryRun:
         assert m2["remaining"] == []
         # Completed todo statuses never surface.
         m3 = _build_manifest(set(), [], False, False, "done", ws, todos=[])
-        assert m3["remaining"] == ["The turn ended without completing any work."]
+        assert m3["remaining"] == []
+        # A substantive delivered message counts as answered (P1.5).
+        assert (
+            _build_manifest(
+                set(), [], False, False, "The task is complete and verified end to end.", ws
+            )["answered"]
+            is True
+        )
+        assert _build_manifest(set(), [], False, False, "short", ws, todos=[])["answered"] is False
 
     def test_build_manifest_verification_flag(self, temp_dir):
         ws = str(temp_dir)
@@ -1278,12 +1298,8 @@ class TestLoopHelperDryRun:
     def test_build_manifest_plan_contract(self, temp_dir):
         ws = str(temp_dir)
         # Plan turn that claims completion but wrote NO artifact: not complete.
-        m = _build_manifest(
-            {"plan.md"}, ["plan.md"], True, False, "plan ready", ws, plan_mode=True
-        )
-        assert m["remaining"] == [
-            "Plan artifacts not written: plan.md, todo.md."
-        ], m["remaining"]
+        m = _build_manifest({"plan.md"}, ["plan.md"], True, False, "plan ready", ws, plan_mode=True)
+        assert m["remaining"] == ["Plan artifacts not written: plan.md, todo.md."], m["remaining"]
         assert m["plan_artifacts"] == {
             "plan_written": False,
             "todo_written": False,

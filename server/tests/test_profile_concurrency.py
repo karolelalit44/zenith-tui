@@ -18,7 +18,6 @@ import pytest
 from server.storage import StorageHome, ensure_materialized
 from server.storage.profile_store import (
     load_profile,
-    set_api_key,
     update_preferences,
     validate_preferences,
 )

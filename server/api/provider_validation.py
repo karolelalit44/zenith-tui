@@ -16,6 +16,7 @@ from server.storage import StorageHome, resolve_home
 from server.storage.catalog_compat import load_catalog
 from server.storage.provider_config import (
     read_provider_config_full,
+    read_providers,
     save_provider_config,
     upsert_provider_models,
 )
@@ -226,14 +227,15 @@ def set_provider_model(
     model = request.model.strip()
     if not model:
         raise ValueError("Model is required.")
+    existing = read_providers(home).get(provider_id, {})
     save_provider_config(
         home,
         provider=provider_id,
-        api_key="",
+        api_key=existing.get("api_key", ""),
         model=model,
-        base_url="",
-        max_tokens=DEFAULT_LLM_MAX_TOKENS,
-        temperature=DEFAULT_LLM_TEMPERATURE,
+        base_url=existing.get("base_url", ""),
+        max_tokens=existing.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
+        temperature=existing.get("temperature", DEFAULT_LLM_TEMPERATURE),
         set_active=True,
     )
     upsert_provider_models(

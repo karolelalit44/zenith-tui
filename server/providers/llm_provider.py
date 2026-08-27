@@ -32,6 +32,7 @@ from .token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 _catalog: dict | None = None
+_litellm_active_provider: LLMProvider | None = None
 _RETRY_DELAY_RE = re.compile(
     r'retryDelay\s*"?\s*[:=]\s*"?(\d+(?:\.\d+)?)\s*(ms|s|m|h)?"?', re.IGNORECASE
 )
@@ -39,6 +40,27 @@ _RETRY_IN_RE = re.compile(r"\bretry\s+in\s+(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\b", re.
 _MIN_REQUEST_INTERVAL_DEFAULT = optional_float(
     MIN_REQUEST_INTERVAL_ENV, DEFAULT_MIN_REQUEST_INTERVAL
 )
+
+
+def _litellm_success_handler(model, messages, response, **kwargs):
+    if _litellm_active_provider:
+        logger.info(
+            "LITELLM SUCCESS model=%s provider=%s",
+            _litellm_active_provider._litellm_model,
+            _litellm_active_provider._name,
+        )
+
+
+def _litellm_failure_handler(model, messages, original_exception, **kwargs):
+    if _litellm_active_provider:
+        logger.error(
+            "LITELLM FAILURE model=%s provider=%s error=%s",
+            _litellm_active_provider._litellm_model,
+            _litellm_active_provider._name,
+            str(original_exception)[:500],
+        )
+
+
 _QUOTA_EXHAUSTED_KEYWORDS = (
     "free-models-per-day",
     "insufficient_quota",
@@ -116,6 +138,25 @@ def _to_litellm_model(prefix: str, model_id: str) -> str:
     if model_id.startswith(prefix):
         return model_id
     return f"{prefix}{model_id}"
+
+
+def is_gemini_3_plus(model_id: str) -> bool:
+    """Gemini 3+ deprecates temperature/top_p/top_k sampling controls.
+
+    LiteLLM emits a DeprecationWarning for these and Google plans removal. We
+    drop the params for Gemini 3+ and steer output style through the system
+    prompt instead (see ``build_system_prompt`` in server/agents/prompts.py).
+
+    Matching is name-based (``gemini-3``, ``gemini-3.5-flash-lite``, etc.) so
+    the rule holds even when a provider catalog forgets to advertise the
+    ``supports_temperature`` capability.
+    """
+    if not model_id:
+        return False
+    match = re.match(r"gemini-(\d+)(?:\.(\d+))?", model_id.lower())
+    if not match:
+        return False
+    return int(match.group(1)) >= 3
 
 
 def _set_api_key(provider_name: str, api_key: str | None) -> None:
@@ -366,7 +407,13 @@ def _get_model_config(name: str, model_id: str) -> dict:
                         "default_temperature",
                         0.0 if caps.get("reasoning") else DEFAULT_LLM_TEMPERATURE,
                     ),
-                    "supports_temperature": caps.get("supports_temperature", True),
+                    # Capability overrides the default; otherwise Gemini 3+ drops
+                    # sampling controls (deprecated by the provider).
+                    "supports_temperature": (
+                        caps["supports_temperature"]
+                        if "supports_temperature" in caps
+                        else not is_gemini_3_plus(model_id)
+                    ),
                     "enable_thinking": caps.get("thinking", False),
                     "supports_tools": caps.get("function_calling", True),
                     "use_system_prompt": m.get("use_system_prompt", True),
@@ -489,29 +536,12 @@ class LLMProvider(BaseProvider):
         _set_api_key(name, self.api_key)
         import litellm
 
-        litellm.drop_params = True
-
-        def _litellm_success(model, messages, response, **kwargs):
-            logger.info("LITELLM SUCCESS model=%s provider=%s", self._litellm_model, name)
-
-        def _litellm_failure(model, messages, original_exception, **kwargs):
-            logger.error(
-                "LITELLM FAILURE model=%s provider=%s error=%s",
-                self._litellm_model,
-                name,
-                str(original_exception)[:500],
-            )
-
-        litellm.success_callback = (
-            [_litellm_success]
-            if not litellm.success_callback
-            else [*litellm.success_callback, _litellm_success]
-        )
-        litellm.failure_callback = (
-            [_litellm_failure]
-            if not litellm.failure_callback
-            else [*litellm.failure_callback, _litellm_failure]
-        )
+        global _litellm_active_provider
+        _litellm_active_provider = self
+        if not litellm.success_callback:
+            litellm.success_callback = [_litellm_success_handler]
+        if not litellm.failure_callback:
+            litellm.failure_callback = [_litellm_failure_handler]
         litellm_prefix = provider_entry.get("litellm_prefix", "")
         if not litellm_prefix and self.base_url:
             litellm_prefix = "openai/"
@@ -560,6 +590,7 @@ class LLMProvider(BaseProvider):
             "messages": messages,
             "max_tokens": self.max_tokens,
             "stream": stream and self.streaming_enabled,
+            "drop_params": True,
         }
         if self.supports_temperature:
             kwargs["temperature"] = self.temperature
@@ -583,6 +614,12 @@ class LLMProvider(BaseProvider):
             for k, v in self.extra_params.items():
                 if k not in ("api_key", "api_base", "model", "messages"):
                     kwargs[k] = v
+        # Gemini 3+ deprecates temperature/top_p/top_k. Drop them defensively
+        # even if a catalog or extra_params still advertises them, to avoid the
+        # provider-side DeprecationWarning and future removal breakage.
+        if is_gemini_3_plus(self.model):
+            for _deprecated in ("temperature", "top_p", "top_k"):
+                kwargs.pop(_deprecated, None)
         return kwargs
 
     async def complete(
@@ -753,6 +790,7 @@ class LLMProvider(BaseProvider):
         reasoning_chars = 0
         first_chunk_time: float | None = None
         stream_usage: dict | None = None
+        streamed_finish: str | None = None
         async for chunk in stream:
             if first_chunk_time is None:
                 first_chunk_time = time.monotonic()
@@ -763,6 +801,12 @@ class LLMProvider(BaseProvider):
                     self._last_ttft_ms,
                 )
             chunk_count += 1
+            # Capture the streamed finish reason (P3.1): the last non-null
+            # chunk-level reason is the true terminal condition of the stream.
+            if chunk.choices:
+                raw_chunk_finish = getattr(chunk.choices[0], "finish_reason", None)
+                if raw_chunk_finish:
+                    streamed_finish = str(raw_chunk_finish)
             delta = chunk.choices[0].delta if chunk.choices else None
             if hasattr(chunk, "usage") and chunk.usage:
                 u = chunk.usage
@@ -807,6 +851,12 @@ class LLMProvider(BaseProvider):
             tool_calls = [accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls.keys())]
             self._last_native_tool_calls.extend(tool_calls)
             finish = "tool_calls"
+        # Propagate the streamed terminal condition (P3.1) so the loop sees
+        # length/content-filter stops instead of a defaulted "stop".
+        if streamed_finish:
+            self._last_finish_reason = _map_finish_reason(streamed_finish)
+        elif accumulated_tool_calls:
+            self._last_finish_reason = FinishReason.TOOL_CALLS
         if stream_usage:
             self._last_usage = dict(stream_usage)
             try:

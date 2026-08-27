@@ -92,8 +92,8 @@ def handler(test_config, storage_home, registry):
 
 
 def _make_executor(config, provider, home):
-    from server.storage.session_store import FileMessageRepository, FileSessionRepository
     from server.skills.loader import SkillLoader
+    from server.storage.session_store import FileMessageRepository, FileSessionRepository
     from server.toolkit import create_default_registry
 
     return PromptExecutor(

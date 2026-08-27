@@ -85,3 +85,5 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
     );
   },
 );
+
+UserMessageBlock.displayName = 'UserMessageBlock';

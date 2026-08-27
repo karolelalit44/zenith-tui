@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { useCallback, useRef, useState } from 'react';
 import type { FileAttachment } from '../types/scenario';
 
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 200;
 const HISTORY_DIR = path.join(os.homedir(), '.zenith');
 const HISTORY_PATH = path.join(HISTORY_DIR, 'history.json');
 
@@ -47,7 +47,9 @@ function loadHistoryFromDisk(): string[] {
         return parsed.slice(-MAX_HISTORY);
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('Failed to load command history:', err);
+  }
   return [];
 }
 
@@ -57,7 +59,9 @@ function saveHistoryToDisk(history: string[]): void {
       fs.mkdirSync(HISTORY_DIR, { recursive: true });
     }
     fs.writeFileSync(HISTORY_PATH, JSON.stringify(history.slice(-MAX_HISTORY), null, 2), 'utf-8');
-  } catch {}
+  } catch (err) {
+    console.warn('Failed to save command history:', err);
+  }
 }
 
 export interface UseAutocompleteReturn {
@@ -146,7 +150,7 @@ export function useAutocomplete(): UseAutocompleteReturn {
     const hist = historyRef.current;
     if (historyIndexRef.current <= 0) {
       historyIndexRef.current = -1;
-      return '';
+      return undefined;
     }
     historyIndexRef.current -= 1;
     return hist[hist.length - 1 - historyIndexRef.current];

@@ -27,9 +27,9 @@ from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.domain.session import Session
-from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
 
 class StubProvider(BaseProvider):
@@ -39,7 +39,9 @@ class StubProvider(BaseProvider):
     async def complete(self, messages: list[dict], tools=None) -> str:
         return "ok"
 
-    async def stream(self, messages: list[dict], tools=None, tool_choice=None, response_format=None):
+    async def stream(
+        self, messages: list[dict], tools=None, tool_choice=None, response_format=None
+    ):
         yield ("ok", None)
 
     async def validate(self) -> bool:
@@ -198,7 +200,9 @@ async def test_session_summarized_error_terminal_ordering(test_config, test_home
 
 
 @pytest.mark.asyncio
-async def test_service_events_travel_bus_to_manager_exactly_once(test_config, test_home, test_registry):
+async def test_service_events_travel_bus_to_manager_exactly_once(
+    test_config, test_home, test_registry
+):
     """C-F03: service publishes once via the wired bus; handler adds nothing."""
     handler = ZenithHandler(test_config, test_home, test_registry)
     handler._ensure_event_bus_bridge()

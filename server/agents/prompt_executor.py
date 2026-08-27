@@ -28,7 +28,14 @@ from server.config.constants import (
     ATTACHMENT_MAX_TOTAL,
     BUILD_MODE,
     DEFAULT_CONTEXT_WINDOW,
+    EXPLORE_DELEGATION_PROACTIVE,
+    HANDOFF_PLACEHOLDER_CANCELLED,
+    HANDOFF_PLACEHOLDER_ERROR,
+    HANDOFF_PLACEHOLDER_NO_SUMMARY,
     PLAN_MODE,
+    TERMINAL_STATUS_CANCELLED,
+    TERMINAL_STATUS_COMPLETED,
+    TERMINAL_STATUS_ERROR,
 )
 from server.config.settings import AGENT_MODES
 from server.domain.domain import SessionState
@@ -111,9 +118,7 @@ def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | N
         # remaining work, surfaced in the hand-off regardless of prose.
         missing_plan = (manifest.get("plan_artifacts") or {}).get("missing") or []
         if missing_plan:
-            parts.append(
-                "Plan artifacts not written: " + ", ".join(missing_plan)
-            )
+            parts.append("Plan artifacts not written: " + ", ".join(missing_plan))
         created = [str(p) for p in (manifest.get("created") or [])]
         modified = [str(p) for p in (manifest.get("modified") or [])]
         if created:
@@ -511,11 +516,16 @@ class PromptExecutor:
             # Metadata-only targeted write: never a whole-record update, so a
             # concurrent token-count/model writer cannot be clobbered here.
             await self._session_repo.merge_metadata(session_id, {"run_state": snapshot})
+            # Unique executed calls (P6.5): tool_history holds one entry per
+            # call AND result event, so its raw length double-counts.
+            executed_calls = sum(
+                1 for step in state.tool_history if step.get("kind") == "tool_call"
+            )
             logger.info(
-                "Persisted run state for session %s: status=%s tools=%d",
+                "Persisted run state for session %s: status=%s tool_calls=%d",
                 session_id,
                 state.status,
-                len(state.tool_history),
+                executed_calls,
             )
             return snapshot
         except Exception:
@@ -545,7 +555,11 @@ class PromptExecutor:
             logger.warning("Failed to render todo.md artifact for session %s", session_id)
 
     async def _persist_assistant_message(
-        self, session_id: str, response_text: str, collected_events: list[Event]
+        self,
+        session_id: str,
+        response_text: str,
+        collected_events: list[Event],
+        terminal_status: str = TERMINAL_STATUS_COMPLETED,
     ) -> None:
         try:
             events = list(collected_events or [])
@@ -565,8 +579,16 @@ class PromptExecutor:
                 if summarized:
                     handoff = _build_crafted_handoff(manifest, summarized)
             if not handoff:
-                # Never persist a placeholder when real work happened.
-                handoff = "[Cancelled by user]" if not worked else "[No summary recorded]"
+                # Never persist a placeholder when real work happened. The
+                # placeholder reflects the actual terminal condition
+                # (AGENT_RELIABILITY_PLAN P1.4): "[Cancelled by user]" is only
+                # ever produced by a real cancellation, never assumed.
+                if terminal_status == TERMINAL_STATUS_CANCELLED:
+                    handoff = HANDOFF_PLACEHOLDER_CANCELLED
+                elif terminal_status == TERMINAL_STATUS_ERROR:
+                    handoff = HANDOFF_PLACEHOLDER_ERROR
+                else:
+                    handoff = HANDOFF_PLACEHOLDER_NO_SUMMARY
             if len(handoff) > _HANDOFF_MAX_CHARS:
                 handoff = handoff[:_HANDOFF_MAX_CHARS].rstrip() + "…"
             text_content = handoff.strip()
@@ -643,6 +665,10 @@ class PromptExecutor:
         agent: RecoverableAgentLoop | None = None
         db_session = None
         summary_at_start: str | None = None
+        # What actually ended the turn (AGENT_RELIABILITY_PLAN P1.4): the
+        # persistence placeholder must reflect the real terminal condition,
+        # never assume a user cancellation.
+        _terminal_status = TERMINAL_STATUS_COMPLETED
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
@@ -690,7 +716,16 @@ class PromptExecutor:
             # specialist agent. Never hijacks plan mode, never competes with
             # the plan->build SubAgentLoop handoff (trigger conditions are
             # disjoint); non-matching prompts fall through to the normal loop.
-            if mode != PLAN_MODE and not sub_agent_handoff:
+            # Governance (WP5 D3, revised after live incident): 'tool' (the
+            # default) means ONLY the mid-turn explore tool delegates — the
+            # pre-loop route requires explicit 'proactive'. Evidence: the
+            # router captured research prompts and ran them on the legacy path
+            # (fixed 120s timeout, no budgets), starving the better tool path.
+            if (
+                mode != PLAN_MODE
+                and not sub_agent_handoff
+                and self._config.explore_delegation == EXPLORE_DELEGATION_PROACTIVE
+            ):
                 routed_definition = self._specialist_registry.route(content)
                 if routed_definition is not None:
                     logger.info(
@@ -827,9 +862,7 @@ class PromptExecutor:
                             used = ti.get("used", 0)
                             run_total = ti.get("runTotal", 0) or used
                             prompt_t = ti.get("prompt_tokens", ti.get("runPrompt", run_total))
-                            completion_t = ti.get(
-                                "completion_tokens", ti.get("runCompletion", 0)
-                            )
+                            completion_t = ti.get("completion_tokens", ti.get("runCompletion", 0))
                             cache_read_t = ti.get("cached_tokens", 0)
                             cache_creation_t = ti.get("cache_creation_tokens", 0)
                             ctx_window = ti.get("total", DEFAULT_CONTEXT_WINDOW)
@@ -907,6 +940,7 @@ class PromptExecutor:
             )
         except asyncio.CancelledError:
             logger.info("PromptExecutor._execute CANCELLED for session %s", session_id)
+            _terminal_status = TERMINAL_STATUS_CANCELLED
             cancel_event = r.warning("Generation interrupted by user (ESC)", session_id)
             if manager:
                 await manager.send_event(session_id, cancel_event)
@@ -918,6 +952,7 @@ class PromptExecutor:
                 session_id,
                 event_count,
             )
+            _terminal_status = TERMINAL_STATUS_ERROR
             error_event = Event(
                 kind=EventKind.ERROR, data={"message": str(e)}, session_id=session_id
             )
@@ -989,7 +1024,9 @@ class PromptExecutor:
                     },
                 )
                 collected_events.append(summarized_event)
-            await self._persist_assistant_message(session_id, response_text, collected_events)
+            await self._persist_assistant_message(
+                session_id, response_text, collected_events, terminal_status=_terminal_status
+            )
             if manager and summarized_event is not None:
                 await manager.send_event(session_id, summarized_event)
             if manager:

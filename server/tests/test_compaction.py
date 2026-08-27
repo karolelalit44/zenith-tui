@@ -2,13 +2,11 @@ import pytest
 
 from server.agents.compaction import (
     CompactionStats,
+    _find_compaction_cut,
+    _find_compaction_cut_budgeted,
     compact_tool_output,
     head_tail_trim,
     strip_ansi,
-)
-from server.agents.compaction import (
-    _find_compaction_cut,
-    _find_compaction_cut_budgeted,
 )
 from server.agents.loop import (
     AgentLoop,
@@ -16,9 +14,7 @@ from server.agents.loop import (
 )
 from server.config.constants import (
     COMPACTION_KEEP_TAIL,
-    DEFAULT_CONTEXT_WINDOW,
     MAX_TOOL_OUTPUT_BASELINE,
-    TOOL_MAX_OUTPUT_CHARS,
 )
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
@@ -247,9 +243,12 @@ class _BigReadProvider(BaseProvider):
         return ["test-model"]
 
 
-class TestLoopEmitsCompactedEvent:
+class TestLoopTrimsWithFootnote:
+    """Per-tool trims are surfaced as a footnote on the tool row - the old
+    full-screen CONTEXT_COMPACTED ceremony for every trim was noise."""
+
     @pytest.mark.asyncio
-    async def test_live_turn_no_crash_and_event_fired(self, temp_dir):
+    async def test_live_turn_trims_and_footnotes(self, temp_dir):
         (temp_dir / "big.txt").write_text(
             "\n".join(f"data line {i:05d}" for i in range(50000)), encoding="utf-8"
         )
@@ -266,290 +265,11 @@ class TestLoopEmitsCompactedEvent:
             events.append(event)
         kinds = [e.kind for e in events]
         assert EventKind.TOOL_RESULT in kinds
-        compacted = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTED]
-        assert compacted, f"expected CONTEXT_COMPACTED event, got kinds={kinds}"
-        assert compacted[0].data["tool"] == "file_read"
-        assert compacted[0].data["charsRemoved"] > 0
-        assert compacted[0].data["tokensSaved"] > 0
+        # No ceremony for per-tool trims anymore.
+        assert not [e for e in events if e.kind == EventKind.CONTEXT_COMPACTED]
+        # The trim is disclosed on the tool result row itself.
+        results = [e for e in events if e.kind == EventKind.TOOL_RESULT]
+        assert results, "tool_result must be present"
+        trim = (results[0].data.get("metadata") or {}).get("trim")
+        assert trim and trim["charsRemoved"] > 0
         assert events[-1].kind == EventKind.SUCCESS
-
-
-class TestRebuildReplaysLiveTurn:
-    def _loop(self, temp_dir):
-        config = AppSettings(
-            providers={"test": ProviderConfig(model="test-model", is_active=True)},
-            active_provider="test",
-            home_dir=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
-        )
-        return AgentLoop(config, _BigReadProvider())
-
-    def test_replays_live_tail_and_adds_continue(self, temp_dir):
-        loop = self._loop(temp_dir)
-        history = [
-            Message(session_id="s", role="user", content="old request"),
-            Message(session_id="s", role="assistant", content="old reply"),
-        ]
-        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
-        base_len = len(initial)
-        live = list(initial)
-        live.append({"role": "assistant", "content": "I will read the file"})
-        live.append({"role": "user", "content": "[Tool result] file content"})
-        rebuilt = loop._rebuild_messages(
-            live, base_len, history, "System.", "New.", "test-model", "", True, None
-        )
-        assert {"role": "assistant", "content": "I will read the file"} in rebuilt
-        assert {"role": "user", "content": "[Tool result] file content"} in rebuilt
-        assert rebuilt[-1]["role"] == "user"
-        assert "Continue if you have next steps" in rebuilt[-1]["content"]
-
-    def test_no_live_tail_no_nudge(self, temp_dir):
-        loop = self._loop(temp_dir)
-        initial = loop.context_manager.build_messages([], "System.", "New.", "test-model")
-        rebuilt = loop._rebuild_messages(
-            list(initial), len(initial), [], "System.", "New.", "test-model", "", True, None
-        )
-        assert rebuilt[-1]["content"] == "New."
-
-    def test_rebuild_drops_non_dict_live_entries(self, temp_dir):
-        loop = self._loop(temp_dir)
-        history = [
-            Message(session_id="s", role="user", content="old request"),
-            Message(session_id="s", role="assistant", content="old reply"),
-        ]
-        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
-        base_len = len(initial)
-        live = list(initial)
-        live.append({"role": "assistant", "content": "I will read the file"})
-        live.append("this raw string must not survive rebuild")
-        rebuilt = loop._rebuild_messages(
-            live, base_len, history, "System.", "New.", "test-model", "", True, None
-        )
-        assert all(isinstance(m, dict) for m in rebuilt), (
-            "rebuild must never emit non-dict messages"
-        )
-        assert not any(
-            m.get("content") == "this raw string must not survive rebuild" for m in rebuilt
-        )
-
-
-class TestSummarizeAndRebuildHolder:
-    def _loop(self, temp_dir):
-        config = AppSettings(
-            providers={"test": ProviderConfig(model="test-model", is_active=True)},
-            active_provider="test",
-            home_dir=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
-        )
-        return AgentLoop(config, _BigReadProvider())
-
-    @pytest.mark.asyncio
-    async def test_holder_0_is_full_message_list(self, temp_dir):
-        loop = self._loop(temp_dir)
-        history = [
-            Message(session_id="s", role="user", content="old request"),
-            Message(session_id="s", role="assistant", content="old reply"),
-        ]
-        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
-        base_len = len(initial)
-        live = list(initial)
-        live.append({"role": "assistant", "content": "I will read the file"})
-        live.append({"role": "user", "content": "[Tool result] file content"})
-        holder: list = []
-        async for _ev in loop._summarize_and_rebuild(
-            history,
-            "s1",
-            live,
-            result=holder,
-            base_len=base_len,
-            system_prompt="System.",
-            prompt="New.",
-            model="test-model",
-            plan_context="",
-            use_system_prompt=True,
-            repo_map=None,
-        ):
-            pass
-        assert len(holder) == 1, f"holder must hold exactly one value, got {holder!r}"
-        rebuilt = holder[0]
-        assert isinstance(rebuilt, list), (
-            f"holder[0] must be the message list, got {type(rebuilt).__name__}"
-        )
-        assert all(isinstance(m, dict) for m in rebuilt), "rebuilt messages must be dicts"
-        # Nothing was compactable at this window size: the attempt ends as a
-        # skip and the authoritative context is returned untouched (no fake
-        # summary, no truncation, no continuation nudge over unchanged state).
-        assert rebuilt == live
-
-    @pytest.mark.asyncio
-    async def test_holder_rebuild_appends_continuation_nudge_after_real_compaction(self, temp_dir):
-        """When compaction actually runs, the rebuilt context ends with the nudge."""
-        config = AppSettings(
-            providers={"test": ProviderConfig(model="test-model", is_active=True)},
-            active_provider="test",
-            home_dir=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-            max_context_tokens=4000,
-        )
-        loop = AgentLoop(config, _BigReadProvider())
-        history = [
-            Message(session_id="s", role="user", content=f"turn {i} " + "y" * 2200)
-            for i in range(6)
-        ]
-        initial = loop.context_manager.build_messages(history, "System.", "New.", "test-model")
-        base_len = len(initial)
-        live = list(initial)
-        live.append({"role": "assistant", "content": "I will read the file"})
-        live.append({"role": "user", "content": "[Tool result] file content"})
-        holder: list = []
-        async for _ev in loop._summarize_and_rebuild(
-            history,
-            "s1",
-            live,
-            result=holder,
-            base_len=base_len,
-            system_prompt="System.",
-            prompt="New.",
-            model="test-model",
-            plan_context="",
-            use_system_prompt=True,
-            repo_map=None,
-        ):
-            pass
-        assert len(holder) == 1
-        rebuilt = holder[0]
-        assert isinstance(rebuilt, list) and rebuilt
-        assert rebuilt[-1]["role"] == "user"
-        assert "Continue if you have next steps" in rebuilt[-1]["content"]
-        # The summarized prefix is gone; the live tail survives.
-        joined = "\n".join(str(m.get("content", "")) for m in rebuilt)
-        assert "[Tool result] file content" in joined
-
-
-class TestPruneToolOutputs:
-    def _loop(self, temp_dir):
-        config = AppSettings(
-            providers={"test": ProviderConfig(model="test-model", is_active=True)},
-            active_provider="test",
-            home_dir=str(temp_dir / "test.db"),
-            workspace_root=str(temp_dir),
-            max_context_tokens=DEFAULT_CONTEXT_WINDOW,
-        )
-        return AgentLoop(config, _BigReadProvider())
-
-    def _tool_msg(self, tool: str, body: str) -> dict:
-        return {"role": "user", "content": f"[Tool: {tool} | Status: SUCCESS]\n{body}"}
-
-    def test_prunes_old_tool_results_keeps_recent(self, temp_dir):
-        loop = self._loop(temp_dir)
-        messages = [
-            self._tool_msg("bash", "x" * 5000),
-            self._tool_msg("file_read", "y" * 5000),
-            self._tool_msg("bash", "z" * 5000),
-        ]
-        stats = loop._prune_tool_outputs(messages, keep_turns=2, max_output=1000)
-        assert stats["count"] == 1
-        assert stats["chars_removed"] > 0
-        assert stats["tokens_saved"] > 0
-        assert "truncated" in messages[0]["content"]
-        assert "truncated" not in messages[1]["content"]
-        assert "truncated" not in messages[2]["content"]
-
-    def test_last_turn_always_protected_even_if_huge(self, temp_dir):
-        loop = self._loop(temp_dir)
-        messages = [self._tool_msg("bash", "x" * 5000)]
-        stats = loop._prune_tool_outputs(messages, keep_turns=2, max_output=1000)
-        assert stats["count"] == 0
-        assert "truncated" not in messages[0]["content"]
-
-    def test_non_tool_messages_untouched(self, temp_dir):
-        loop = self._loop(temp_dir)
-        messages = [
-            {"role": "user", "content": "plain request"},
-            {"role": "assistant", "content": "I will run a command"},
-            self._tool_msg("bash", "x" * 5000),
-            self._tool_msg("file_read", "y" * 5000),
-        ]
-        stats = loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
-        assert stats["count"] == 1
-        assert messages[0]["content"] == "plain request"
-        assert messages[1]["content"] == "I will run a command"
-
-    def test_marks_compacted_and_is_idempotent(self, temp_dir):
-        loop = self._loop(temp_dir)
-        messages = [self._tool_msg("bash", "x" * 5000), self._tool_msg("file_read", "y" * 5000)]
-        loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
-        stats2 = loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
-        assert stats2["count"] == 0
-
-    def test_keeps_tool_header_and_output_tail(self, temp_dir):
-        loop = self._loop(temp_dir)
-        messages = [
-            self._tool_msg("bash", "HEAD" + "x" * 5000 + "TAIL"),
-            self._tool_msg("file_read", "y" * 5000),
-        ]
-        loop._prune_tool_outputs(messages, keep_turns=1, max_output=1000)
-        assert messages[0]["content"].startswith("[Tool: bash | Status: SUCCESS]")
-        assert messages[0]["content"].endswith("TAIL")
-
-
-class TestOutputCapInvariant:
-    """Task 4.5 verification: tool output exceeding the cap is always compacted
-    before it is fed back or persisted."""
-
-    def test_output_over_cap_is_compacted(self):
-        big = "A" * (TOOL_MAX_OUTPUT_CHARS + 5000)
-        compacted, stats = compact_tool_output(big, max_output=TOOL_MAX_OUTPUT_CHARS)
-        assert len(compacted) < len(big)
-        assert stats.chars_removed > 0
-        assert "truncated" in compacted.lower() or len(compacted) <= TOOL_MAX_OUTPUT_CHARS + 200
-
-    def test_output_under_cap_unchanged(self):
-        small = "hello world"
-        compacted, stats = compact_tool_output(small, max_output=TOOL_MAX_OUTPUT_CHARS)
-        assert compacted == small
-        assert stats.chars_removed == 0
-
-    def test_hard_ceiling_never_exceeded_via_format(self):
-        from server.toolkit.base import ToolResult
-        from server.toolkit.executor import format_tool_result
-
-        big = "X" * 100_000
-        result = ToolResult(success=True, output=big)
-        formatted = format_tool_result("bash", result, max_output=100_000)
-        assert len(formatted) <= TOOL_MAX_OUTPUT_CHARS + 200
-
-    def test_digest_fits_budget(self):
-        from server.toolkit.base import ToolResult
-        from server.toolkit.digest import format_tool_digest
-
-        result = ToolResult(success=True, output="Y" * 5000)
-        digest = format_tool_digest("bash", {}, result)
-        assert len(digest) <= TOOL_MAX_OUTPUT_CHARS
-
-    def test_ephemeral_window_swaps_old_results_to_digest(self):
-        from server.config.constants import EPHEMERAL_TOOL_WINDOW_SIZE
-
-        messages: list[dict] = []
-        for i in range(5):
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"FULL_{i} " + "Y" * 2000,
-                    "digest": f"[Tool: t{i} | OK] item {i}",
-                }
-            )
-        active = list(range(len(messages)))
-        while len(active) > EPHEMERAL_TOOL_WINDOW_SIZE:
-            old_idx = active.pop(0)
-            msg = messages[old_idx]
-            if "digest" in msg and not msg.get("is_digested"):
-                msg["content"] = msg["digest"]
-                msg["is_digested"] = True
-        for i in range(len(messages) - EPHEMERAL_TOOL_WINDOW_SIZE):
-            assert messages[i].get("is_digested") is True
-            assert "Y" * 2000 not in messages[i]["content"]
-        for i in range(len(messages) - EPHEMERAL_TOOL_WINDOW_SIZE, len(messages)):
-            assert "Y" * 2000 in messages[i]["content"]

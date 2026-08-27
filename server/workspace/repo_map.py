@@ -7,31 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from server.providers.token_counter import TokenCounter
+from server.workspace.ignore import get_matcher
 
 logger = logging.getLogger(__name__)
-SKIP_DIRS = {
-    ".git",
-    "node_modules",
-    "__pycache__",
-    ".venv",
-    "venv",
-    "dist",
-    "build",
-    ".next",
-    ".cache",
-    ".mypy_cache",
-    ".pytest_cache",
-    "coverage",
-    ".nyc_output",
-    ".tox",
-    ".mypy",
-    ".ruff_cache",
-    "htmlcov",
-    "ref_repo",
-    "reference_repo",
-    "data",
-    ".turbo",
-}
 LANGUAGE_MAP = {
     ".py": "Python",
     ".ts": "TypeScript",
@@ -112,10 +90,12 @@ class RepoMap:
         self._language_cache: dict[str, Any] = {}
         self._file_cache: list[Path] | None = None
         self._token_counter = TokenCounter()
+        self._matcher = get_matcher(workspace_root)
 
     def _get_git_files(self) -> list[str] | None:
         from server.workspace.git import GitOps
 
+        self._matcher.refresh()
         git = GitOps(str(self.root))
         if not git.is_git_repo():
             return None
@@ -133,7 +113,7 @@ class RepoMap:
                 if len(line) < 4 or line[:2] != "??":
                     continue
                 rel = line[3:]
-                if any(seg in SKIP_DIRS for seg in rel.split("/")):
+                if self._matcher.is_ignored(rel):
                     continue
                 files.add(rel)
         result: list[str] = []
@@ -148,6 +128,7 @@ class RepoMap:
         return sorted(result)
 
     def _list_files(self) -> list[Path]:
+        self._matcher.refresh()
         git_files = self._get_git_files()
         if git_files is not None:
             return [self.root / f for f in git_files]
@@ -155,10 +136,8 @@ class RepoMap:
         for f in self.root.rglob("*"):
             if not f.is_file():
                 continue
-            rel_parts = f.relative_to(self.root).parts
-            if any(seg in SKIP_DIRS for seg in rel_parts):
-                continue
-            if f.name.startswith("."):
+            rel = f.relative_to(self.root)
+            if self._matcher.is_ignored(rel):
                 continue
             result.append(f)
         return result
@@ -342,6 +321,7 @@ class RepoMap:
 
     def get_structure(self, max_depth: int = 3) -> dict[str, Any]:
         structure: dict[str, Any] = {"name": self.root.name, "type": "directory", "children": []}
+        self._matcher.refresh()
         self._scan(self.root, structure["children"], 0, max_depth)
         return structure
 
@@ -353,7 +333,14 @@ class RepoMap:
         except PermissionError:
             return
         for item in items:
-            if item.name in SKIP_DIRS or item.name.startswith("."):
+            try:
+                rel = item.relative_to(self.root)
+            except ValueError:
+                continue
+            if item.is_dir():
+                if self._matcher.is_ignored_dir(rel):
+                    continue
+            elif self._matcher.is_ignored(rel):
                 continue
             node: dict[str, Any] = {
                 "name": item.name,

@@ -11,6 +11,7 @@ from server.config.constants import (
     PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
+from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
 
@@ -70,6 +71,12 @@ class MultiEditTool(BaseTool):
         if not path.is_absolute():
             path = Path(workspace_root) / filepath
         path = path.resolve()
+        try:
+            rel = path.relative_to(Path(workspace_root).resolve())
+        except ValueError:
+            rel = None
+        if rel is not None and blocked_as_missing(get_matcher(workspace_root), rel):
+            return ToolResult(success=False, error=f"File not found: {filepath}")
         try:
             original_content = path.read_text(encoding="utf-8")
         except FileNotFoundError:

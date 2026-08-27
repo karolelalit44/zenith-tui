@@ -409,11 +409,13 @@ class ContextManager:
         if summary:
             summary_tokens = self.token_counter.count(summary, model)
             if used + summary_tokens <= budget:
+                # Inject as a system block (not a fake assistant "Understood."
+                # turn) so it neither pollutes the transcript/history nor breaks
+                # user/assistant role alternation before the real user prompt.
                 messages.append(
-                    {"role": "user", "content": f"[Previous conversation summary]\n{summary}"}
+                    {"role": "system", "content": f"[Previous conversation summary]\n{summary}"}
                 )
-                messages.append({"role": "assistant", "content": "Understood."})
-                self._last_tiers.extend([TIER_T2, TIER_T2])
+                self._last_tiers.append(TIER_T2)
                 used += summary_tokens + SUMMARY_FRAMING_TOKENS
         history_entries: list[HistoryEntry] = []
         last_key: tuple[str, str] | None = None
@@ -441,24 +443,18 @@ class ContextManager:
             # entry that follows a plain user prompt (no assistant tool-call
             # in between) is kept as-is; only those whose owning assistant
             # tool-call message is evicted are dropped.
-            is_tool = (
-                msg.role == "tool"
-                or (
-                    msg.role == "user"
-                    and isinstance(msg.content, str)
-                    and msg.content.startswith("[Tool:")
-                )
+            is_tool = msg.role == "tool" or (
+                msg.role == "user"
+                and isinstance(msg.content, str)
+                and msg.content.startswith("[Tool:")
             )
             if msg.role == "assistant" and msg.has_tool_calls:
                 _last_assistant_toolcall_turn = turn_counter + 1
             is_stale = False
-            is_error = (
-                msg.role == "tool"
-                or (
-                    msg.role == "user"
-                    and isinstance(msg.content, str)
-                    and "Status: ERROR" in msg.content
-                )
+            is_error = msg.role == "tool" or (
+                msg.role == "user"
+                and isinstance(msg.content, str)
+                and "Status: ERROR" in msg.content
             )
             if session_id and is_tool:
                 path = _extract_tool_read_path(msg.content)
@@ -493,11 +489,24 @@ class ContextManager:
             he._score = score_entry(he, current_turn, total_turns)
         scored = sorted(history_entries, key=lambda e: e._score, reverse=True)
         included: list[HistoryEntry] = []
+        evicted_count = 0
+        evicted_tokens = 0
         for entry in scored:
             if used + entry.tokens + pbuf > history_budget:
+                # Budget eviction (P6.3): counted and logged so per-turn prompt
+                # token changes are explainable instead of silent.
+                evicted_count += 1
+                evicted_tokens += entry.tokens
                 continue
             included.append(entry)
             used += entry.tokens
+        if evicted_count:
+            logger.info(
+                "Context budget eviction: %d history entr%s (%d tokens) excluded by score",
+                evicted_count,
+                "y" if evicted_count == 1 else "ies",
+                evicted_tokens,
+            )
         included.sort(key=lambda e: e.turn_index)
         # Drop tool results whose owning assistant tool-call message was evicted
         # (they are meaningless on their own and mislead the model). Tool results
@@ -631,15 +640,17 @@ class ContextManager:
             if i < t0:
                 breakdown.system += tokens
                 prev_was_summary = False
+            elif content.startswith("[Previous conversation summary]"):
+                # Detected by content marker so it is attributed correctly
+                # whether injected as a user (legacy) or system (current) block.
+                breakdown.summary += tokens
+                prev_was_summary = True
             elif msg.get("role") == "system":
                 if content.startswith(SESSION_STATE_MARKER):
                     breakdown.state += tokens
                 else:
                     breakdown.handoff += tokens
                 prev_was_summary = False
-            elif content.startswith("[Previous conversation summary]"):
-                breakdown.summary += tokens
-                prev_was_summary = True
             elif content.startswith("[Tool:"):
                 breakdown.tools += tokens
                 prev_was_summary = False

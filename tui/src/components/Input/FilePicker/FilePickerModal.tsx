@@ -67,7 +67,8 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
     }
 
     if (char && !key.ctrl && !key.meta && char.length === 1) {
-      setSearchQuery((prev) => prev + char);
+      const sanitized = char.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+      if (sanitized) setSearchQuery((prev) => prev + sanitized);
       setActiveIndex(0);
     } else if (key.backspace || key.delete) {
       setSearchQuery((prev) => prev.slice(0, -1));

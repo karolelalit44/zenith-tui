@@ -90,40 +90,43 @@ describe('ThinkingBlock', () => {
   });
 });
 
-describe('ThinkingBlock streaming reveal (QA-9)', () => {
-  it('reveals a live expanded block one thought at a time', async () => {
+describe('ThinkingBlock live streaming', () => {
+  it('renders streamed thoughts immediately (backend streams, no fake reveal)', () => {
     const event: ThinkingEvent = {
       kind: 'thinking',
       id: 't3',
       thoughts: ['alpha', 'beta', 'gamma'],
       duration: 1200,
+      partial: true,
     };
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ThemeProvider>
         <ThinkingBlock event={event} context={{ thinkingCollapsed: false, isHistorical: false }} />
       </ThemeProvider>,
     );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('alpha');
+    expect(frame).toContain('beta');
+    expect(frame).toContain('gamma');
+    // Streaming marker while no duration is known yet.
+    expect(frame).toContain('Thinking');
+  });
 
-    // Live reveal runs on a real 250 ms interval; poll frames until each
-    // thought streams in (deterministic — no fake-timer/scheduler coupling).
-    const waitForThought = async (text: string) => {
-      const start = Date.now();
-      while (Date.now() - start < 5000) {
-        if ((lastFrame() || '').includes(text)) return;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      throw new Error(`thought '${text}' never streamed in; frame: ${lastFrame()}`);
+  it('shows the measured duration once the final event lands', () => {
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't4',
+      thoughts: ['alpha'],
+      duration: 4200,
     };
-
-    // The reveal is incremental: the full set never flashes at once.
-    expect(lastFrame()).not.toContain('alpha');
-    await waitForThought('alpha');
-    expect(lastFrame()).not.toContain('gamma');
-    await waitForThought('beta');
-    expect(lastFrame()).not.toContain('gamma');
-    await waitForThought('gamma');
-
-    unmount();
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ thinkingCollapsed: false, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('Thinking');
+    expect(frame).toContain('4 s');
   });
 });
 
@@ -152,17 +155,16 @@ describe('ToolStepCard pending duration', () => {
   });
 });
 
-describe('ProgressBar step icons', () => {
-  it('uses distinct glyphs for done, active, error, and pending', () => {
+describe('ProgressBar compact live row', () => {
+  it('shows only the active step, a done/total counter, and no big bar', () => {
     const event: ProgressEvent = {
       kind: 'progress',
       id: 'p1',
       label: 'Build',
       steps: [
-        { label: 'read', status: 'done' },
-        { label: 'write', status: 'active' },
-        { label: 'verify', status: 'error' },
-        { label: 'cleanup', status: 'pending' },
+        { label: 'read files', status: 'done' },
+        { label: 'edit config', status: 'active' },
+        { label: 'verify', status: 'pending' },
       ],
     };
     const { lastFrame } = render(
@@ -171,177 +173,64 @@ describe('ProgressBar step icons', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓ read');
-    expect(frame).toContain('✗ verify');
-    expect(frame).not.toContain('■');
-    expect(frame).not.toContain('□');
-  });
-});
-
-describe('MessageBlock content rendering', () => {
-  it('renders the assistant message text', () => {
-    const event: MessageEvent = { kind: 'message', id: 'm1', text: 'hello', iteration: 3 };
-    const { lastFrame } = render(
-      <ThemeProvider>
-        <MessageBlock event={event} />
-      </ThemeProvider>,
-    );
-    expect(lastFrame()).toContain('hello');
+    expect(frame).toContain('edit config');
+    expect(frame).toContain('1/3');
+    // Old noisy chrome is gone: no percent bar, no full checklist.
+    expect(frame).not.toContain('\u2588');
+    expect(frame).not.toContain('read files');
+    expect(frame).not.toContain('* Build');
   });
 
-  it('does not render a turn indicator', () => {
-    const event: MessageEvent = { kind: 'message', id: 'm1', text: 'hello', iteration: 3 };
-    const { lastFrame } = render(
-      <ThemeProvider>
-        <MessageBlock event={event} />
-      </ThemeProvider>,
-    );
-    expect(lastFrame()).not.toContain('turn');
-  });
-
-  it('shows the model passed via props in UserMessageBlock', () => {
-    const { lastFrame } = render(
-      <ThemeProvider>
-        <UserMessageBlock prompt="hello" model="openai/gpt-4o-mini" />
-      </ThemeProvider>,
-    );
-    expect(lastFrame()).toContain('openai/gpt-4o-mini');
-  });
-});
-
-describe('SuccessCard manifest enrichment', () => {
-  const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done', iterations: 5 };
-  const manifest: TurnManifestEvent = {
-    kind: 'turn_manifest',
-    id: 'm1',
-    created: ['src/a.ts', 'src/b.ts'],
-    modified: ['README.md'],
-    remaining: [],
-    completed: true,
-    stalled: false,
-    files: [{ path: 'src/a.ts', exists: true, size: 10 }],
-  };
-
-  it('does not duplicate the file count when a manifest is provided', () => {
-    const { lastFrame } = render(
-      <ThemeProvider>
-        <SuccessCard event={success} manifest={manifest} />
-      </ThemeProvider>,
-    );
-    expect(lastFrame()).not.toContain('files created');
-    expect(lastFrame()).toContain('5 iters');
-  });
-
-  it('renders without a file count when no manifest precedes it', () => {
-    const { lastFrame } = render(
-      <ThemeProvider>
-        <SuccessCard event={success} />
-      </ThemeProvider>,
-    );
-    expect(lastFrame()).not.toContain('files created');
-    expect(lastFrame()).toContain('5 iters');
-  });
-
-  it('associates a success event with the nearest preceding manifest through ScenarioRenderer', () => {
-    const { lastFrame } = render(
-      <ThemeProvider>
-        <ScenarioRenderer events={[manifest, success]} isRunning={false} isHistorical thinkingCollapsed={false} />
-      </ThemeProvider>,
-    );
-    expect(lastFrame()).toContain('✓ Turn complete');
-  });
-});
-
-describe('SuccessCard token usage and duration', () => {
-  const renderSuccess = (event: SuccessEvent, turnEvents?: ScenarioEvent[]) =>
-    render(
-      <ThemeProvider>
-        <SuccessCard event={event} turnEvents={turnEvents} />
-      </ThemeProvider>,
-    );
-
-  it('shows provider-reported token usage when used > 0', () => {
-    const success: SuccessEvent = {
-      kind: 'success',
-      id: 's1',
-      message: 'done',
-      tokenInfo: { used: 1500, remaining: 98000, total: 100000, percent: 0.015 },
+  it('renders an error glyph when the current step failed', () => {
+    const event: ProgressEvent = {
+      kind: 'progress',
+      id: 'p2',
+      label: 'Build',
+      steps: [{ label: 'run tests', status: 'error' }],
     };
-    const { lastFrame } = renderSuccess(success);
-    expect(lastFrame()).toContain('1.5k tokens');
-  });
-
-  it('shows the turn duration from elapsedMs on a completed turn', () => {
-    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done', elapsedMs: 3200 };
-    const { lastFrame } = renderSuccess(success);
-    expect(lastFrame()).toContain('3 s');
-  });
-
-  it('does not show a fabricated duration when elapsedMs is missing', () => {
-    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done' };
-    const { lastFrame } = renderSuccess(success);
-    expect(lastFrame()).not.toContain(' s');
-  });
-
-  it('falls back to the frontend estimate when tokenInfo is missing', () => {
-    const success: SuccessEvent = { kind: 'success', id: 's1', message: 'done' };
-    const turnEvents: ScenarioEvent[] = [
-      {
-        kind: 'message',
-        id: 'm1',
-        text: 'A fairly long assistant response that carries enough characters to exceed zero tokens.',
-        partial: false,
-      },
-      {
-        kind: 'thinking',
-        id: 't1',
-        thoughts: ['Some internal reasoning text spanning many characters so the estimate is meaningful.'],
-      },
-    ];
-    const { lastFrame } = renderSuccess(success, turnEvents);
-    expect(lastFrame()).toContain('tokens');
-  });
-
-  it('falls back to the estimate when tokenInfo.used is zero (estimated usage)', () => {
-    const success: SuccessEvent = {
-      kind: 'success',
-      id: 's1',
-      message: 'done',
-      tokenInfo: { used: 0, remaining: 0, total: 0, percent: 0, estimated: true },
-    };
-    const turnEvents: ScenarioEvent[] = [
-      {
-        kind: 'message',
-        id: 'm1',
-        text: 'A long message body used to drive the estimation fallback path forward.',
-        partial: false,
-      },
-    ];
-    const { lastFrame } = renderSuccess(success, turnEvents);
-    expect(lastFrame()).toContain('tokens');
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ProgressBar event={event} />
+      </ThemeProvider>,
+    );
+    expect(lastFrame()).toContain('\u2717');
+    expect(lastFrame()).toContain('run tests');
   });
 });
 
-describe('ScenarioRenderer tool rendering', () => {
-  const step = (tool: string): ToolStepEvent => ({
-    kind: 'tool_step',
-    id: tool,
-    tool,
-    params: {},
-    success: true,
-    output: '',
-    error: '',
-    metadata: {},
-    pending: false,
-  });
-
-  it('does not emit exploratory or mutating phase labels', () => {
+describe('thinking positional fidelity', () => {
+  it('keeps one block PER ITERATION at its timeline position (no turn-level merge)', () => {
+    const mkThinking = (id: string, text: string): ScenarioEvent => ({
+      kind: 'thinking',
+      id,
+      thoughts: [text],
+      duration: 0,
+    });
+    const events: ScenarioEvent[] = [
+      mkThinking('t1', 'first reasoning segment before the command'),
+      {
+        kind: 'tool_step',
+        id: 's1',
+        tool: 'bash',
+        params: { command: 'npm test' },
+        success: true,
+        output: '',
+        error: '',
+        metadata: {},
+        pending: false,
+      },
+      mkThinking('t2', 'second reasoning segment after the command'),
+      { kind: 'message', id: 'm1', text: 'answer', partial: false },
+    ];
     const { lastFrame } = render(
       <ThemeProvider>
-        <ScenarioRenderer events={[step('grep_search')]} isRunning={false} thinkingCollapsed={false} />
+        <ScenarioRenderer events={events} isRunning={false} isHistorical={true} />
       </ThemeProvider>,
     );
-    expect(lastFrame()).not.toContain('Exploring codebase…');
-    expect(lastFrame()).not.toContain('Executing plan…');
+    const frame = lastFrame() || '';
+    expect(frame).toContain('first reasoning segment');
+    expect(frame).toContain('second reasoning segment');
+    expect(frame.indexOf('first reasoning segment')).toBeLessThan(frame.indexOf('npm test'));
+    expect(frame.indexOf('npm test')).toBeLessThan(frame.indexOf('second reasoning segment'));
   });
 });

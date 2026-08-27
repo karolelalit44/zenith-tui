@@ -48,15 +48,20 @@ class FileWorkspaceRepository:
         last_read_at: float,
         last_edited_at: float,
     ) -> None:
-        await self.upsert_batch(session_id, [{
-            "path": path,
-            "content_hash": content_hash,
-            "size": size,
-            "writes": writes,
-            "edits": edits,
-            "last_read_at": last_read_at,
-            "last_edited_at": last_edited_at,
-        }])
+        await self.upsert_batch(
+            session_id,
+            [
+                {
+                    "path": path,
+                    "content_hash": content_hash,
+                    "size": size,
+                    "writes": writes,
+                    "edits": edits,
+                    "last_read_at": last_read_at,
+                    "last_edited_at": last_edited_at,
+                }
+            ],
+        )
 
     async def upsert_batch(self, session_id: str, records: list[dict]) -> None:
         if not records:

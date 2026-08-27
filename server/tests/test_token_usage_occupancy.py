@@ -8,7 +8,6 @@ import pytest
 
 from server.domain.events import Event, EventKind
 from server.domain.session import Session
-from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
 
 @pytest.fixture
@@ -43,14 +42,15 @@ async def test_record_distinguishes_occupancy_from_billed(usage_repo, session_id
 def _final_rows(repo, session_id):
     from server.storage.session_file import iter_records
 
-    return [r for r in iter_records(repo.home, session_id)
-            if r.get("t") == "usage" and r.get("step_index") == -1]
+    return [
+        r
+        for r in iter_records(repo.home, session_id)
+        if r.get("t") == "usage" and r.get("step_index") == -1
+    ]
 
 
 @pytest.mark.asyncio
-async def test_record_legacy_occupancy_defaults_zero_and_percent_falls_back(
-    usage_repo, session_id
-):
+async def test_record_legacy_occupancy_defaults_zero_and_percent_falls_back(usage_repo, session_id):
     await usage_repo.record(
         session_id=session_id,
         provider="acme",
@@ -167,8 +167,9 @@ async def test_execute_persists_billed_and_occupancy_separately(
     session = Session(title="t")
     await session_repo.create(session)
 
-    executor = PromptExecutor(config, _Provider(), _Registry(), session_repo, message_repo,
-                              _SkillLoader())
+    executor = PromptExecutor(
+        config, _Provider(), _Registry(), session_repo, message_repo, _SkillLoader()
+    )
     executor._summary_scheduler = _NoopScheduler()
 
     async def fake_process_prompt(self, content, session_id, history, mode, **kwargs):

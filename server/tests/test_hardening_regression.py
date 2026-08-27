@@ -17,7 +17,6 @@ from server.sessions.import_service import SessionImporter
 from server.storage import StorageHome, ensure_materialized
 from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
-
 # --------------------------------------------------------------------------
 # C-F07: a workspace mutation during upsert_batch must keep the dirty flag.
 # --------------------------------------------------------------------------

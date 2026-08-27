@@ -43,9 +43,7 @@ class FileSearchRepository:
             return []
         return await asyncio.to_thread(self._search_sync, needle, limit, session_id)
 
-    def _search_sync(
-        self, needle: str, limit: int, session_id: str | None
-    ) -> list[dict]:
+    def _search_sync(self, needle: str, limit: int, session_id: str | None) -> list[dict]:
         hits: list[dict] = []
         candidates = iter_session_files(self.home)
         if session_id:
@@ -107,9 +105,7 @@ class FileSearchRepository:
         sessions = 0
         for path in iter_session_files(self.home):
             sessions += 1
-            messages += sum(
-                1 for r in iter_records(self.home, path.stem) if r.get("t") == "msg"
-            )
+            messages += sum(1 for r in iter_records(self.home, path.stem) if r.get("t") == "msg")
         return {"mode": "linear-scan", "messages": messages, "sessions": sessions}
 
 

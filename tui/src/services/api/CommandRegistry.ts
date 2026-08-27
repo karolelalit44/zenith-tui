@@ -137,8 +137,8 @@ export const commandRegistry: CommandDef[] = [
   },
   {
     id: 'calm_mode',
-    slash: '/clam',
-    title: '/clam',
+    slash: '/calm',
+    title: '/calm',
     description: 'Calm mode — toggle hiding model thinking output (persisted)',
     category: 'View',
     keywords: ['calm', 'quiet', 'hide', 'thinking'],

@@ -6,56 +6,55 @@ import pytest
 
 from server.toolkit.tools.glob import GlobTool
 from server.toolkit.tools.grep import GrepTool
+from server.workspace.ignore import clear_matcher_cache, ensure_ignore_file
+
+
+@pytest.fixture
+def ignored_ws(temp_dir: Path):
+    """Workspace seeded with the default .zenithignore template."""
+    ensure_ignore_file(temp_dir)
+    clear_matcher_cache()
+    return temp_dir
 
 
 class TestGlobGuardrails:
     @pytest.mark.asyncio
-    async def test_glob_default_excludes_ignored_directories(self, temp_dir: Path):
-        (temp_dir / "src").mkdir()
-        (temp_dir / "src" / "index.ts").write_text("console.log('hi')")
-        (temp_dir / "node_modules" / "pkg").mkdir(parents=True)
-        (temp_dir / "node_modules" / "pkg" / "index.js").write_text("// vendor")
-        (temp_dir / ".git" / "hooks").mkdir(parents=True)
-        (temp_dir / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh")
-        (temp_dir / ".venv" / "lib").mkdir(parents=True)
-        (temp_dir / ".venv" / "lib" / "pip.py").write_text("# pip")
+    async def test_glob_default_excludes_ignored_directories(self, ignored_ws):
+        (ignored_ws / "src").mkdir()
+        (ignored_ws / "src" / "index.ts").write_text("console.log('hi')")
+        (ignored_ws / "node_modules" / "pkg").mkdir(parents=True)
+        (ignored_ws / "node_modules" / "pkg" / "index.js").write_text("// vendor")
+        (ignored_ws / ".git" / "hooks").mkdir(parents=True)
+        (ignored_ws / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh")
+        (ignored_ws / ".venv" / "lib").mkdir(parents=True)
+        (ignored_ws / ".venv" / "lib" / "pip.py").write_text("# pip")
 
         tool = GlobTool()
-        result = await tool.execute({"pattern": "**/*"}, str(temp_dir))
+        result = await tool.execute({"pattern": "**/*"}, str(ignored_ws))
         assert result.success
-        assert result.metadata["count"] == 1
+        # src/index.ts + the .zenithignore file itself (always visible/editable)
+        assert result.metadata["count"] == 2
         assert "src\\index.ts" in result.output or "src/index.ts" in result.output
         assert "node_modules" not in result.output
         assert ".git" not in result.output
         assert ".venv" not in result.output
 
     @pytest.mark.asyncio
-    async def test_glob_default_excludes_lockfiles(self, temp_dir: Path):
-        (temp_dir / "src").mkdir()
-        (temp_dir / "src" / "main.py").write_text("print(1)")
-        (temp_dir / "package-lock.json").write_text("{}")
-        (temp_dir / "pnpm-lock.yaml").write_text("")
-        (temp_dir / "yarn.lock").write_text("")
+    async def test_glob_default_excludes_lockfiles(self, ignored_ws):
+        (ignored_ws / "src").mkdir()
+        (ignored_ws / "src" / "main.py").write_text("print(1)")
+        (ignored_ws / "package-lock.json").write_text("{}")
+        (ignored_ws / "pnpm-lock.yaml").write_text("")
+        (ignored_ws / "yarn.lock").write_text("")
 
         tool = GlobTool()
-        result = await tool.execute({"pattern": "**/*"}, str(temp_dir))
+        result = await tool.execute({"pattern": "**/*"}, str(ignored_ws))
         assert result.success
-        assert result.metadata["count"] == 1
+        # src/main.py + the .zenithignore file itself (always visible/editable)
+        assert result.metadata["count"] == 2
         assert "package-lock.json" not in result.output
         assert "pnpm-lock.yaml" not in result.output
         assert "yarn.lock" not in result.output
-
-    @pytest.mark.asyncio
-    async def test_glob_include_ignored_flag(self, temp_dir: Path):
-        (temp_dir / "node_modules" / "pkg").mkdir(parents=True)
-        (temp_dir / "node_modules" / "pkg" / "index.js").write_text("// vendor")
-        (temp_dir / "app.py").write_text("pass")
-
-        tool = GlobTool()
-        result = await tool.execute({"pattern": "**/*", "include_ignored": True}, str(temp_dir))
-        assert result.success
-        assert result.metadata["count"] == 2
-        assert "node_modules" in result.output
 
     @pytest.mark.asyncio
     async def test_glob_directory_structure_summary_on_broad_pattern(
@@ -98,37 +97,23 @@ class TestGlobGuardrails:
 
 class TestGrepGuardrails:
     @pytest.mark.asyncio
-    async def test_grep_default_excludes_ignored_directories_and_lockfiles(self, temp_dir: Path):
-        (temp_dir / "src").mkdir()
-        (temp_dir / "src" / "app.py").write_text("SECRET_KEY = 'valid'")
-        (temp_dir / "node_modules" / "pkg").mkdir(parents=True)
-        (temp_dir / "node_modules" / "pkg" / "index.js").write_text("SECRET_KEY = 'ignored'")
-        (temp_dir / ".git").mkdir()
-        (temp_dir / ".git" / "config").write_text("SECRET_KEY = 'ignored_git'")
-        (temp_dir / "package-lock.json").write_text("SECRET_KEY in lockfile")
+    async def test_grep_default_excludes_ignored_directories_and_lockfiles(self, ignored_ws):
+        (ignored_ws / "src").mkdir()
+        (ignored_ws / "src" / "app.py").write_text("SECRET_KEY = 'valid'")
+        (ignored_ws / "node_modules" / "pkg").mkdir(parents=True)
+        (ignored_ws / "node_modules" / "pkg" / "index.js").write_text("SECRET_KEY = 'ignored'")
+        (ignored_ws / ".git").mkdir()
+        (ignored_ws / ".git" / "config").write_text("SECRET_KEY = 'ignored_git'")
+        (ignored_ws / "package-lock.json").write_text("SECRET_KEY in lockfile")
 
         tool = GrepTool()
-        result = await tool.execute({"pattern": "SECRET_KEY"}, str(temp_dir))
+        result = await tool.execute({"pattern": "SECRET_KEY"}, str(ignored_ws))
         assert result.success
         assert result.metadata["count"] == 1
         assert "src" in result.output
         assert "node_modules" not in result.output
         assert ".git" not in result.output
         assert "package-lock.json" not in result.output
-
-    @pytest.mark.asyncio
-    async def test_grep_include_ignored_flag(self, temp_dir: Path):
-        (temp_dir / "node_modules").mkdir()
-        (temp_dir / "node_modules" / "dep.js").write_text("needle_text")
-        (temp_dir / "app.js").write_text("needle_text")
-
-        tool = GrepTool()
-        result = await tool.execute(
-            {"pattern": "needle_text", "include_ignored": True}, str(temp_dir)
-        )
-        assert result.success
-        assert result.metadata["count"] == 2
-        assert "node_modules" in result.output
 
     @pytest.mark.asyncio
     async def test_grep_caps_matches_and_adds_notice(self, temp_dir: Path, monkeypatch):

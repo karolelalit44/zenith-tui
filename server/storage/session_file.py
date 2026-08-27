@@ -141,9 +141,7 @@ def fold_records(records: list[dict], *, fallback_id: str | None = None) -> dict
         elif t == "wsfile":
             ws_path = rec.get("path")
             if ws_path:
-                snap["workspace"][str(ws_path)] = {
-                    k: v for k, v in rec.items() if k != "t"
-                }
+                snap["workspace"][str(ws_path)] = {k: v for k, v in rec.items() if k != "t"}
     if not fields:
         return None
     if fallback_id:
@@ -163,8 +161,9 @@ def append_record(home: StorageHome, session_id: str, record: dict) -> None:
     append_jsonl_sync(path, record)
 
 
-def stats_record(fields: dict, *, bump_user: int = 0, bump_tokens: int = 0,
-                 bump_cost: float = 0.0) -> dict:
+def stats_record(
+    fields: dict, *, bump_user: int = 0, bump_tokens: int = 0, bump_cost: float = 0.0
+) -> dict:
     now = datetime.now().isoformat()
     return {
         "t": "stats",

@@ -53,6 +53,10 @@ export const keybindActions: KeybindAction[] = [
   { id: 'quickOpen', description: 'Quick open', keys: ['ctrl+o'] },
   { id: 'settings', description: 'Open settings', keys: ['ctrl+,', ','] },
 
+  // App-level actions (matchKeypress ids). Registered so formatKeyBind renders
+  // the real binding instead of an uppercased placeholder (P6.4).
+  { id: 'thinking', description: 'Collapse/expand thinking', keys: ['ctrl+h'] },
+
   // Help
   { id: 'help', description: 'Show help', keys: ['?', 'f1'] },
   { id: 'keybindings', description: 'Show keybindings', keys: ['ctrl+k', 'ctrl+k'] },

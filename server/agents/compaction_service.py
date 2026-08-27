@@ -66,6 +66,28 @@ async def _noop_emit(_event: Event) -> None:
     return None
 
 
+async def _surface_summary_degraded(
+    emit: EmittingFn | None,
+    session_id: str,
+    msg: str,
+    code: str,
+    outcome: "CompactionOutcome | None" = None,
+) -> None:
+    """Surface a degraded summarization to the user and the compaction record.
+
+    The summarizer still returns a usable fallback, so the session continues —
+    but the user (and downstream compaction report) should know continuity is
+    weaker than a real summary instead of the failure being silent.
+    """
+    try:
+        if outcome is not None:
+            outcome.warnings.append(f"summarization degraded: {msg}")
+        if emit is not None:
+            await emit(r.warning(msg, session_id, code=code))
+    except Exception:
+        logger.exception("Failed to surface summarization degradation for %s", session_id)
+
+
 # Per-session registries shared across every service instance (the loop and the
 # RPC handler use separate instances but must agree on ordering).
 # _generations is bumped at the START of each compaction attempt; a result may
@@ -76,7 +98,14 @@ _generations: dict[str, int] = {}
 _in_progress: dict[str, bool] = {}
 # Serialize summarizer LLM calls so they never interleave with a streaming turn
 # on the shared provider.
-_summarize_lock = asyncio.Lock()
+_session_locks: dict[str, asyncio.Lock] = {}
+_session_lock_semaphore = asyncio.Semaphore(3)
+
+
+def _get_session_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _session_locks:
+        _session_locks[session_id] = asyncio.Lock()
+    return _session_locks[session_id]
 
 
 def _next_generation(session_id: str) -> int:
@@ -87,6 +116,13 @@ def _next_generation(session_id: str) -> int:
 
 def generation_for(session_id: str) -> int:
     return _generations.get(session_id, 0)
+
+
+def cleanup_session(session_id: str) -> None:
+    """Remove stale state for a deleted/archived session."""
+    _generations.pop(session_id, None)
+    _in_progress.pop(session_id, None)
+    _session_locks.pop(session_id, None)
 
 
 def _compaction_keep_tokens(budget: int) -> int:
@@ -130,8 +166,7 @@ def prune_tool_outputs(
         tool_msg_indices = [
             idx
             for idx, m in enumerate(messages)
-            if isinstance(m.get("content", ""), str)
-            and m.get("content", "").startswith("[Tool:")
+            if isinstance(m.get("content", ""), str) and m.get("content", "").startswith("[Tool:")
         ]
         boundary = tool_msg_indices[-2] if len(tool_msg_indices) > 2 else 0
 
@@ -169,11 +204,7 @@ def compact_live_tail(messages: list[dict]) -> None:
     """Compress the live turn tail in place before replay after compaction."""
     for msg in messages:
         content = msg.get("content", "")
-        if (
-            msg.get("role") == "user"
-            and isinstance(content, str)
-            and content.startswith("[Tool:")
-        ):
+        if msg.get("role") == "user" and isinstance(content, str) and content.startswith("[Tool:"):
             if "digest" in msg:
                 msg["content"] = msg["digest"]
                 msg["time"] = "compacted"
@@ -299,16 +330,18 @@ class CompactionService:
     ) -> CompactionOutcome:
         emit = emit or _noop_emit
         model = self._provider.model
-        if _in_progress.get(session_id):
-            logger.info("Compaction already in progress for session %s — skipping", session_id)
-            return CompactionOutcome(
-                trigger=trigger,
-                status=CompactionStatus.SKIPPED,
-                generation=generation_for(session_id),
-                started_at=time.time(),
-            )
-        _in_progress[session_id] = True
-        generation = _next_generation(session_id)
+        session_lock = _get_session_lock(session_id)
+        async with session_lock:
+            if _in_progress.get(session_id):
+                logger.info("Compaction already in progress for session %s — skipping", session_id)
+                return CompactionOutcome(
+                    trigger=trigger,
+                    status=CompactionStatus.SKIPPED,
+                    generation=generation_for(session_id),
+                    started_at=time.time(),
+                )
+            _in_progress[session_id] = True
+            generation = _next_generation(session_id)
         started_at = time.time()
         outcome = CompactionOutcome(
             trigger=trigger,
@@ -318,16 +351,12 @@ class CompactionService:
         )
         try:
             token_info = (
-                self._context_manager.get_token_info(messages or [], model)
-                if messages
-                else None
+                self._context_manager.get_token_info(messages or [], model) if messages else None
             )
             memo: dict[int, int] = {}
             count = self._count_memoized(history, memo)
             used = token_info.used if token_info else sum(count(m) for m in history)
-            total = (
-                token_info.total if token_info else self._context_window(model)
-            )
+            total = token_info.total if token_info else self._context_window(model)
             before_tiers = (
                 self._context_manager.token_breakdown(messages or []).to_dict()
                 if messages
@@ -377,9 +406,7 @@ class CompactionService:
             ctx = self._context_window(model)
             reserve = _adaptive_reserve(model, ctx)
             keep_tokens = _compaction_keep_tokens(max(0, ctx - reserve))
-            cut = _find_compaction_cut_budgeted(
-                history, keep_tokens, count
-            )
+            cut = _find_compaction_cut_budgeted(history, keep_tokens, count)
             outcome.cut = cut
             outcome.kept_tail = max(0, len(history) - cut)
             prefix = history[:cut]
@@ -390,8 +417,7 @@ class CompactionService:
                 # (A prune-only pass -- cut==0 but pruned["count"]>0 -- still
                 # falls through and completes, applying the shrunken candidate.)
                 logger.info(
-                    "Compaction skipped for %s: no summarizable prefix "
-                    "(cut=0, history=%d)",
+                    "Compaction skipped for %s: no summarizable prefix (cut=0, history=%d)",
                     session_id,
                     len(history),
                 )
@@ -414,16 +440,17 @@ class CompactionService:
                 )
                 return outcome
             if prefix:
-                async with _summarize_lock:
-                    summary = await ConversationSummarizer(
-                        self._config, self._provider
-                    ).summarize(
+                async with _session_lock_semaphore:
+                    summary = await ConversationSummarizer(self._config, self._provider).summarize(
                         prefix,
                         model,
                         session_id=session_id,
                         previous_summary=previous_summary,
                         prefix=_cache_prefix_for(messages or []),
                         focus=focus,
+                        event_sink=lambda msg, code: _surface_summary_degraded(
+                            emit, session_id, msg, code, outcome
+                        ),
                     )
                 if not summary:
                     raise RuntimeError("summarization produced an empty result")
@@ -431,9 +458,9 @@ class CompactionService:
                 outcome.summary_chars = len(summary)
                 prefix_tokens = sum(count(m) for m in prefix)
                 summary_tokens = self._context_manager.count_tokens(summary, model)
-                outcome.tokens_saved = max(0, prefix_tokens - summary_tokens) + pruned[
-                    "tokens_saved"
-                ]
+                outcome.tokens_saved = (
+                    max(0, prefix_tokens - summary_tokens) + pruned["tokens_saved"]
+                )
                 outcome.used_after = max(0, used - outcome.tokens_saved)
                 # Persist atomically only if still the latest generation for this
                 # session (a compaction result may only be applied to the state

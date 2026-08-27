@@ -180,6 +180,10 @@ def build_tool_metadata(
         if diff:
             meta["diff"] = diff
 
+    # Every execution reports its wall-clock duration so the TUI can render a
+    # duration pill on every timeline row (not just shell commands).
+    meta.setdefault("duration_ms", duration_ms)
+
     return meta
 
 
@@ -277,9 +281,31 @@ async def execute_tool(
         redact_tool_params(tool_params),
     )
     start = _time.monotonic()
+
+    # Strict-params contract (UI/UX sprint F): silently ignoring unknown keys
+    # made the model believe a command had run when it hadn't (e.g. it stuffed
+    # a bash command into file_read). Surface ignored keys so the model
+    # self-corrects on the next turn.
+    tool = tool_registry.get(tool_name)
+    ignored_params: list[str] = []
+    if tool is not None:
+        try:
+            schema_props = set((tool.get_schema().get("properties") or {}).keys())
+            ignored_params = [k for k in tool_params if k not in schema_props]
+            if ignored_params:
+                logger.warning(
+                    "TOOL PARAMS ignored for %s (unknown keys): %s", tool_name, ignored_params
+                )
+                tool_params = {k: v for k, v in tool_params.items() if k in schema_props}
+        except Exception:  # schema introspection must never break execution
+            logger.exception("Param validation failed for %s", tool_name)
+
     result = await tool_registry.execute(
         tool_name, tool_params, workspace_root, mode, allowed_mcp=allowed_mcp
     )
+    if ignored_params:
+        notice = f"[ignored unexpected params: {', '.join(sorted(ignored_params))}]"
+        result.output = f"{notice}\n{result.output}" if result.output else notice
     duration_ms = int((_time.monotonic() - start) * 1000)
     logger.info(
         "TOOL RESULT: name=%s success=%s duration=%dms output_len=%d error=%s",

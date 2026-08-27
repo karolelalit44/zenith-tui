@@ -440,15 +440,13 @@ async def validate_provider(
             provider=provider_id,
             api_key=api_key,
             model=smoke_model,
-            base_url=base_url,
+            base_url=base_url or None,
             max_tokens=cfg["max_tokens"],
             temperature=cfg["temperature"],
             set_active=False,
         )
         if entry.get("custom_flow") and models:
-            upsert_provider_models(
-                home, provider_id, models=[m.model_dump() for m in models]
-            )
+            upsert_provider_models(home, provider_id, models=[m.model_dump() for m in models])
     except Exception as e:
         logger.warning("validate '%s': save failed: %s", provider_id, e)
         msg = f"Failed to save configuration: {e}"
@@ -462,7 +460,6 @@ async def validate_provider(
             ValidationError(code="SAVE_FAILED", message=msg),
         )
         return
-    validation_state.reset(provider_id)
     validation_state.mark_validated(provider_id)
     _update("save", ValidationStepStatus.SUCCESS, "Configuration saved")
     yield _step_event("save", ValidationStepStatus.SUCCESS, "Configuration saved")

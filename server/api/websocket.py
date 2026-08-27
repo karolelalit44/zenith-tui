@@ -5,6 +5,7 @@ import json
 import logging
 
 from fastapi import WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
@@ -44,7 +45,6 @@ class ConnectionManager(TransportService):
         self._session_service = service
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
-        await websocket.accept()
         self.connections[session_id] = websocket
         await self._init_sequence(session_id)
         logger.info("Client connected: %s", session_id)
@@ -295,9 +295,14 @@ class ZenithHandler:
                         await self.manager.register(session_id, websocket)
                 except json.JSONDecodeError as e:
                     await websocket.send_text(make_error_response(0, -32700, f"Parse error: {e}"))
+                except ValidationError as e:
+                    await websocket.send_text(
+                        make_error_response(0, -32600, f"Invalid request: {e}")
+                    )
                 except Exception as e:
                     logger.exception("Handler error")
-                    await websocket.send_text(make_error_response(0, -32603, str(e)))
+                    rid_val = getattr(request, "id", 0) if "request" in locals() else 0
+                    await websocket.send_text(make_error_response(rid_val or 0, -32603, str(e)))
         except WebSocketDisconnect:
             pass
         finally:

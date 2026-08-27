@@ -125,7 +125,10 @@ def merge_run_state(previous: SessionRunState | None, ts: float = 0.0) -> Sessio
     """Start a fresh run building on a previous session's persisted state.
 
     Todo and plan carry over (a resumed session continues its plan); activity
-    history is reset to the new turn.
+    history and findings are reset to the new turn. Findings are per-run
+    evidence (AGENT_RELIABILITY_PLAN P2.3): carrying them forward made a stale
+    failure from an earlier attempt surface on a later successful run's
+    summary card.
     """
     base = previous or SessionRunState()
     return SessionRunState(
@@ -134,7 +137,7 @@ def merge_run_state(previous: SessionRunState | None, ts: float = 0.0) -> Sessio
         status="idle",
         todo=list(base.todo),
         plan=base.plan,
-        findings=list(base.findings),
+        findings=[],
         tool_history=[],
         progress=[],
         manifest=None,
@@ -144,12 +147,14 @@ def merge_run_state(previous: SessionRunState | None, ts: float = 0.0) -> Sessio
     )
 
 
-def _activity_label(tool: str, seq: int) -> str:
+def _activity_label(tool: str, seq: int, detail: str = "") -> str:
     """Map an executed tool to a short, human-facing progress label.
 
-    Labels are derived from the tool that actually ran — never fabricated
+    Labels are derived from the tool that actually ran - never fabricated
     narration. Unknown tools fall back to a stable ``Running tool <name>``
-    label so the activity feed never invents steps.
+    label so the activity feed never invents steps. When ``detail`` is
+    provided (command/path/pattern snippet) it is appended so consecutive
+    same-tool steps are visually distinct.
     """
     labels = {
         "file_read": "Reading files",
@@ -170,6 +175,8 @@ def _activity_label(tool: str, seq: int) -> str:
         "plan_read": "Reading plan",
     }
     label = labels.get(tool, f"Running {tool}" if tool else "Working")
+    if detail:
+        label = f"{label}: {detail}"
     return label
 
 

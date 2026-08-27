@@ -12,9 +12,9 @@ from __future__ import annotations
 import pytest
 
 from server.agents.run_state import (
+    _MAX_FINDINGS,
     RUN_STATUSES,
     SessionRunState,
-    _MAX_FINDINGS,
     from_dict,
     merge_run_state,
     new_run_state,

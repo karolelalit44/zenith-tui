@@ -44,7 +44,9 @@ logger = logging.getLogger(__name__)
 
 MAX_DELEGATION_DEPTH = 1
 MAX_CHILDREN_PER_RUN = 1
-AGENT_TIMEOUT_SECONDS = 120
+# Routed missions get the 'deep' budget: free/mini models reason slowly, and
+# the 2026-08-26 incident showed 120s cancelling real investigations.
+AGENT_TIMEOUT_SECONDS = 150
 SCOUT_CONTEXT_BUDGET_TOKENS = 64_000
 DELEGATION_CACHE_TTL_SECONDS = 300
 WORKING_EVENT_CAP = 3
@@ -211,8 +213,18 @@ class CaptainOrchestrator:
         history: list[Message] | None = None,
         parent_task_id: str | None = None,
         depth: int = 0,
+        *,
+        timeout_seconds: int | None = None,
+        max_context_tokens: int | None = None,
     ) -> AsyncIterator[Event]:
-        """Run one delegated mission; yield lifecycle + forwarded events."""
+        """Run one delegated mission; yield lifecycle + forwarded events.
+
+        ``timeout_seconds`` / ``max_context_tokens`` let the explore tool
+        apply its per-thoroughness budgets (WP5 Phase 2) without touching the
+        routed-mission defaults. ``None`` keeps the module-level default so
+        tests can still monkeypatch ``AGENT_TIMEOUT_SECONDS``.
+        """
+        resolved_timeout = timeout_seconds if timeout_seconds is not None else AGENT_TIMEOUT_SECONDS
         if self._in_flight or depth >= MAX_DELEGATION_DEPTH:
             blocked = AgentResult(
                 task_id=f"{definition.id}-blocked",
@@ -233,7 +245,8 @@ class CaptainOrchestrator:
             definition=definition,
             session_id=parent_session_id,
             max_context_tokens=min(
-                self._config.max_context_tokens, SCOUT_CONTEXT_BUDGET_TOKENS
+                self._config.max_context_tokens,
+                max_context_tokens or SCOUT_CONTEXT_BUDGET_TOKENS,
             ),
             context_digest=self._context_digest(history),
             parent_task_id=parent_task_id,
@@ -298,9 +311,7 @@ class CaptainOrchestrator:
         self.children_spawned = 0
         try:
             # ---- thinking ------------------------------------------------ #
-            timeline: list[dict] = [
-                _timeline_entry(f"Objective received: {content}", "info")
-            ]
+            timeline: list[dict] = [_timeline_entry(f"Objective received: {content}", "info")]
             yield self._orchestration_event(
                 parent_session_id,
                 "thinking",
@@ -342,7 +353,7 @@ class CaptainOrchestrator:
             last_activity = ""
             timed_out = False
             try:
-                async with asyncio.timeout(AGENT_TIMEOUT_SECONDS):
+                async with asyncio.timeout(resolved_timeout):
                     async for child_event in run_scout(
                         config=self._config,
                         provider=self._provider,
@@ -401,8 +412,23 @@ class CaptainOrchestrator:
                     definition,
                     run,
                     status="timed_out",
-                    error=f"Investigation exceeded {AGENT_TIMEOUT_SECONDS}s timeout.",
+                    error=f"Investigation exceeded {resolved_timeout}s timeout.",
                 )
+                # Timeout salvage (WP6 hotfix): the outer cancel kills the
+                # child before its own salvage can fire, which used to leave
+                # the parent with an empty summary. One tools-free call turns
+                # the gathered evidence into a real answer.
+                salvaged = await self._salvage_child_summary(
+                    provider=self._provider,
+                    child_events=child_events,
+                    objective=content,
+                )
+                if salvaged:
+                    result.summary = salvaged
+                    result.unverified = [
+                        "Mission hit the time budget mid-investigation; "
+                        "summary above is best-effort from gathered evidence."
+                    ] + list(result.unverified)
             elif run.last_error:
                 result = assemble_result(
                     task,
@@ -482,6 +508,46 @@ class CaptainOrchestrator:
     # ------------------------------------------------------------------ #
     # helpers                                                             #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    async def _salvage_child_summary(
+        *, provider: BaseProvider, child_events: list[Event], objective: str
+    ) -> str:
+        """One tools-free completion over the child's gathered evidence.
+
+        Runs when a mission is cancelled by the outer timeout — the point
+        where the child's own salvage pass cannot fire. Bounded and silent on
+        failure; an empty return keeps the deterministic fallback.
+        """
+        evidence: list[str] = []
+        for event in child_events:
+            if event.kind == EventKind.TOOL_RESULT:
+                out = str(event.data.get("output") or "")[:400]
+                if out:
+                    evidence.append(f"[{event.data.get('tool')}] {out}")
+            elif event.kind == EventKind.MESSAGE and not event.data.get("partial"):
+                text = str(event.data.get("text") or "")[:400]
+                if text:
+                    evidence.append(f"[notes] {text}")
+            if sum(len(e) for e in evidence) > 12_000:
+                break
+        if not evidence:
+            return ""
+        prompt = (
+            "A delegated investigation was cut off by its time budget. Using "
+            "ONLY the gathered evidence below, write the final report for this "
+            f"objective: {objective}\n"
+            "Be concrete (file paths, symbols). State what remains unknown.\n\n"
+            + "\n".join(evidence)
+        )
+        try:
+            async with asyncio.timeout(25):
+                raw = await provider.complete([{"role": "user", "content": prompt}])
+        except Exception as e:
+            logger.warning("Timeout salvage completion failed: %s", e)
+            return ""
+        text = (raw or "").strip()
+        return text if len(text) >= 40 else ""
 
     async def _create_child_session(self, parent_id: str) -> str:
         """Isolated child session (SubAgentLoop pattern)."""

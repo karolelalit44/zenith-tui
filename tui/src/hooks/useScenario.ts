@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { LIVE_PROGRESS_EVENT_ID } from '../constants/events';
 import type { ScenarioRunner } from '../services/scenario/types';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
@@ -7,6 +8,7 @@ import type {
   Scenario,
   ScenarioEvent,
   ScenarioMode,
+  ThinkingEvent,
   ToolStepEvent,
   TurnManifestEvent,
 } from '../types/scenario';
@@ -64,6 +66,17 @@ export function useScenario(): UseScenarioReturn {
     (base: ScenarioEvent[], queue: { event: ScenarioEvent; index: number }[]): ScenarioEvent[] => {
       let next = [...base];
       for (const { event, index } of queue) {
+        // Reasoning streams as partial thinking events; they grow the LAST
+        // block in place instead of stacking a new block per delta.
+        if (event.kind === 'thinking' && next.length > 0) {
+          const last = next[next.length - 1];
+          const lastIsPartialThinking = last.kind === 'thinking' && (last as ThinkingEvent).partial === true;
+          const incomingPartial = (event as ThinkingEvent).partial === true;
+          if (lastIsPartialThinking && (incomingPartial || !(event as ThinkingEvent).partial)) {
+            next = [...next.slice(0, -1), event];
+            continue;
+          }
+        }
         next = upsertEvent(next, event, index);
       }
       return next;
@@ -98,6 +111,17 @@ export function useScenario(): UseScenarioReturn {
 
   const handleEvent = useCallback(
     (event: ScenarioEvent, index: number) => {
+      if (event.kind === 'progress') {
+        // Backend emits a fresh snapshot per tool step with a unique rpc id;
+        // rewriting to one stable id collapses them into a single live card
+        // that upsert replaces in place (no stacked duplicate cards).
+        event = { ...event, id: LIVE_PROGRESS_EVENT_ID };
+        const prev = eventsRef.current;
+        const existing = prev.find((e) => e.id === LIVE_PROGRESS_EVENT_ID);
+        if (existing && JSON.stringify(existing) === JSON.stringify(event)) {
+          return; // identical snapshot — skip render entirely
+        }
+      }
       if (event.kind === 'turn_manifest') {
         const originalPrompt = eventsRef.current.find((e) => e.kind === 'message')?.text ?? '';
         setLastManifest({ manifest: event as unknown as TurnManifestEvent, originalPrompt });

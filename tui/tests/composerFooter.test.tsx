@@ -90,10 +90,10 @@ describe('ComposerFooter', () => {
 
     const frame = app.lastFrame();
     // The footer count is cumulative run/API usage...
-    expect(frame).toContain('12.4K');
+    expect(frame).toContain('RUN 12.4K tok');
     expect(frame).not.toContain('78.8K');
     // ...while the gauge shows only composed-context occupancy.
-    expect(frame).toContain('[████░░░░░░] 39%');
+    expect(frame).toContain('[████░░░░░░] CTX 39%');
     restore();
   });
 
@@ -117,8 +117,8 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('~12.4K');
-    expect(frame).toContain('[████░░░░░░] ~39%');
+    expect(frame).toContain('RUN ~12.4K tok');
+    expect(frame).toContain('[████░░░░░░] ~CTX 39%');
     restore();
   });
 

@@ -9,8 +9,8 @@ from server.agents.delegation.orchestrator import CaptainOrchestrator
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
-from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.toolkit import create_default_registry
 
 
@@ -27,9 +27,7 @@ def _scout_json() -> str:
                 "evidence_refs": ["0"],
             }
         ],
-        "evidence": [
-            {"type": "file_read", "path": "notes.txt", "snippet": "sessions table"}
-        ],
+        "evidence": [{"type": "file_read", "path": "notes.txt", "snippet": "sessions table"}],
         "affected_files": [],
         "proposed_changes": [],
         "unverified": [],
@@ -100,18 +98,12 @@ def workspace(temp_dir):
 
 
 def _stages(events):
-    return [
-        e.data.get("stage")
-        for e in events
-        if e.kind == EventKind.AGENT_ORCHESTRATION
-    ]
+    return [e.data.get("stage") for e in events if e.kind == EventKind.AGENT_ORCHESTRATION]
 
 
 class TestLifecycleEvents:
     @pytest.mark.asyncio
-    async def test_stage_sequence_and_raw_kinds_in_order(
-        self, test_config, home, repos, workspace
-    ):
+    async def test_stage_sequence_and_raw_kinds_in_order(self, test_config, home, repos, workspace):
         session_repo, message_repo = repos
         parent = await session_repo.create(Session(title="lifecycle"))
         provider = _ScoutProvider()
@@ -163,8 +155,7 @@ class TestLifecycleEvents:
         working = [
             e
             for e in events
-            if e.kind == EventKind.AGENT_ORCHESTRATION
-            and e.data.get("stage") == "working"
+            if e.kind == EventKind.AGENT_ORCHESTRATION and e.data.get("stage") == "working"
         ]
         assert 1 <= len(working) <= 3
 
@@ -186,9 +177,7 @@ class TestLifecycleEvents:
         for e in events:
             if e.kind == EventKind.AGENT_ORCHESTRATION and e.data.get("crewmates"):
                 stage = e.data["stage"]
-                ids_by_stage.setdefault(stage, set()).update(
-                    cm["id"] for cm in e.data["crewmates"]
-                )
+                ids_by_stage.setdefault(stage, set()).update(cm["id"] for cm in e.data["crewmates"])
         all_ids = set().union(*ids_by_stage.values())
         assert len(all_ids) == 1
         crewmate_id = next(iter(all_ids))
@@ -212,9 +201,7 @@ class TestIsolationAndPersistence:
         )
         async for _ in orchestrator.investigate(DEMO_PROMPT, CodebaseScout, parent.id):
             pass
-        children = [
-            s for s in await session_repo.list_all() if s.parent_session_id == parent.id
-        ]
+        children = [s for s in await session_repo.list_all() if s.parent_session_id == parent.id]
         assert len(children) == 1
         assert children[0].title.startswith("scout-")
 
@@ -233,9 +220,7 @@ class TestIsolationAndPersistence:
         )
         async for _ in orchestrator.investigate(DEMO_PROMPT, CodebaseScout, parent.id):
             pass
-        child = next(
-            s for s in await session_repo.list_all() if s.parent_session_id == parent.id
-        )
+        child = next(s for s in await session_repo.list_all() if s.parent_session_id == parent.id)
         messages = await message_repo.get_by_session(child.id)
         assistant = [m for m in messages if m.role == "assistant"]
         assert assistant, "child assistant message must be persisted"
@@ -278,9 +263,7 @@ class TestDuplicateDetection:
         assert "thinking" not in _stages(second)
         assert "complete" in _stages(second)
         # no extra child session was created for the cached hit
-        children = [
-            s for s in await session_repo.list_all() if s.parent_session_id == parent.id
-        ]
+        children = [s for s in await session_repo.list_all() if s.parent_session_id == parent.id]
         assert len(children) == 1
 
 

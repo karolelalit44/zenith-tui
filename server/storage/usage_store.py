@@ -167,15 +167,15 @@ class FileTokenUsageRepository:
                     "total_cost_usd": self._sum(grp, "cost_usd"),
                     "total_cache_read": int(self._sum(grp, "cache_read_tokens")),
                     "total_cache_creation": int(self._sum(grp, "cache_creation_tokens")),
-                    "context_window": max((int(r.get("context_window", 0)) for r in grp), default=0),
+                    "context_window": max(
+                        (int(r.get("context_window", 0)) for r in grp), default=0
+                    ),
                 }
             )
         result.sort(key=lambda r: int(r["total_tokens"]), reverse=True)
         return result
 
-    async def get_total_stats(
-        self, since: str | None = None, until: str | None = None
-    ) -> dict:
+    async def get_total_stats(self, since: str | None = None, until: str | None = None) -> dict:
         all_rows = await asyncio.to_thread(self._iter_all, since, until)
         rows = [r for r in all_rows if r.get("step_index") == -1]
         models = {f"{r.get('provider')}:{r.get('model')}" for r in rows}

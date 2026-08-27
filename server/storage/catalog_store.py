@@ -137,14 +137,8 @@ def read_model_entries(home: StorageHome) -> dict[str, dict]:
     return models if isinstance(models, dict) else {}
 
 
-
-
 def models_for_provider(home: StorageHome, provider_id: str) -> list[dict]:
-    entries = [
-        m
-        for m in read_model_entries(home).values()
-        if m.get("providerId") == provider_id
-    ]
+    entries = [m for m in read_model_entries(home).values() if m.get("providerId") == provider_id]
     entries.sort(key=lambda m: (not m.get("isDefault", False), str(m.get("id", ""))))
     return entries
 
@@ -195,7 +189,9 @@ def delete_provider(home: StorageHome, provider_id: str) -> bool:
     if entry is None:
         return False
     if entry.get("firstClass"):
-        raise CatalogValidationError(f"Provider '{provider_id}' is first-class and cannot be deleted")
+        raise CatalogValidationError(
+            f"Provider '{provider_id}' is first-class and cannot be deleted"
+        )
     remaining = [p for p in doc["providers"] if p.get("id") != provider_id]
     write_json_atomic(
         home.providers_path,

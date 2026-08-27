@@ -98,8 +98,13 @@ class FileProjectMemoryRepository:
                 entry_id = str(_uuid.uuid4())
                 created = now
                 entries.append(
-                    {"id": entry_id, "key": key, "value": value,
-                     "created_at": created, "updated_at": now}
+                    {
+                        "id": entry_id,
+                        "key": key,
+                        "value": value,
+                        "created_at": created,
+                        "updated_at": now,
+                    }
                 )
             _write_doc(self.home, doc)
         return ProjectMemoryEntry(

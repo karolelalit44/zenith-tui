@@ -15,8 +15,8 @@ from server.agents.delegation import (
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
-from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
 
 class _SleepProvider(BaseProvider):
@@ -97,7 +97,7 @@ def home(test_config):
 class TestConstants:
     def test_guardrail_values_match_spec(self):
         assert MAX_DELEGATION_DEPTH == 1
-        assert AGENT_TIMEOUT_SECONDS == 120
+        assert AGENT_TIMEOUT_SECONDS == 150
         assert SCOUT_CONTEXT_BUDGET_TOKENS == 64_000
         assert CodebaseScout.max_crewmates == 0
         assert CodebaseScout.delegation_depth == 0
@@ -127,9 +127,7 @@ class TestContextBudget:
             (16_000, 16_000),
         ],
     )
-    async def test_budget_caps_into_scout_config(
-        self, monkeypatch, temp_dir, configured, expected
-    ):
+    async def test_budget_caps_into_scout_config(self, monkeypatch, temp_dir, configured, expected):
         captured = {}
         from server.agents import context as context_module
 
@@ -203,9 +201,7 @@ class TestTimeout:
 
 class TestFailureIsolation:
     @pytest.mark.asyncio
-    async def test_provider_error_becomes_failed_result_not_exception(
-        self, test_config, home
-    ):
+    async def test_provider_error_becomes_failed_result_not_exception(self, test_config, home):
         session_repo = FileSessionRepository(home)
         message_repo = FileMessageRepository(home)
         parent = await session_repo.create(Session(title="isolation parent"))

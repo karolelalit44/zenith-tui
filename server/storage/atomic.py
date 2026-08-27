@@ -55,9 +55,7 @@ def _target_lock(path: Path) -> threading.RLock:
 
 def _tmp_name(target: Path) -> Path:
     """Unique-per-write temp name: PID + random suffix (thread/process safe)."""
-    return target.with_name(
-        f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}"
-    )
+    return target.with_name(f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}")
 
 
 def _fsync_dir(path: Path) -> None:
@@ -178,9 +176,7 @@ def read_json(path: Path, default: Any = None) -> Any:
                 continue
             return json.loads(candidate.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning(
-                "Storage %s unreadable (%s): %s", role, type(exc).__name__, candidate
-            )
+            logger.warning("Storage %s unreadable (%s): %s", role, type(exc).__name__, candidate)
             continue
     return default
 

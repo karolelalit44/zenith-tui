@@ -37,12 +37,9 @@ class BackgroundJobManager:
         job_id = uuid.uuid4().hex[:8]
         cwd = cwd or workspace_root
         logger.info("Starting background job %s (cwd=%s): %s", job_id, cwd, command)
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-        )
+        from server.shell_runner import run_shell_command
+
+        process = await run_shell_command(command, cwd=cwd)
         return self.register(command, workspace_root, description, process, job_id, cwd=cwd)
 
     def register(

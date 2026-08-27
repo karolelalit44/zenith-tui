@@ -8,6 +8,7 @@ Pins three behaviors:
 """
 
 from datetime import datetime
+import json
 
 import pytest
 
@@ -15,9 +16,9 @@ from server.agents.prompt_executor import PromptExecutor
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
-from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.providers.base import BaseProvider
 from server.skills.loader import SkillLoader
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.toolkit import create_default_registry
 
 DEMO_PROMPT = (
@@ -33,14 +34,9 @@ def _scout_json() -> str:
         "status": "completed",
         "summary": "Sessions persist in SQLite through SessionRepository.",
         "findings": [],
-        "evidence": [
-            {"type": "file_read", "path": "notes.txt", "snippet": "sessions table"}
-        ],
+        "evidence": [{"type": "file_read", "path": "notes.txt", "snippet": "sessions table"}],
     }
     return "```json\n" + json.dumps(payload) + "\n```"
-
-
-import json
 
 
 class _FakeManager:
@@ -82,10 +78,7 @@ class _PlainOrScoutProvider(BaseProvider):
         if not self.mission_active:
             if "OUTPUT CONTRACT" in transcript:
                 self.mission_active = True
-                return (
-                    '```tool\n{"tool": "file_read", '
-                    '"params": {"path": "notes.txt"}}\n```'
-                )
+                return '```tool\n{"tool": "file_read", "params": {"path": "notes.txt"}}\n```'
             return "Task complete."
         if "[Tool:" in transcript:
             return _scout_json()
@@ -105,9 +98,12 @@ class _PlainOrScoutProvider(BaseProvider):
 
 @pytest.fixture
 def test_config(temp_dir):
+    # 'proactive' exercises the pre-loop Captain route (the default 'tool'
+    # governance deliberately reserves delegation for the mid-turn tool).
     return AppSettings(
         home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
+        explore_delegation="proactive",
     )
 
 
@@ -161,9 +157,36 @@ class TestDelegationRoute:
 
         # result summary becomes the persisted assistant response text
         messages = await executor._message_repo.get_by_session(session.id)
-        assert any(
-            m.role == "assistant" and "SessionRepository" in m.content for m in messages
+        assert any(m.role == "assistant" and "SessionRepository" in m.content for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_governance_off_disables_pre_loop_route(
+        self, test_config, storage_home, workspace
+    ):
+        """WP5 D3: explore_delegation='off' skips the Captain route entirely."""
+        config = test_config.model_copy(update={"explore_delegation": "off"})
+        session_repo = FileSessionRepository(storage_home)
+        message_repo = FileMessageRepository(storage_home)
+        ex = PromptExecutor(
+            config,
+            _PlainOrScoutProvider(),
+            create_default_registry(),
+            session_repo,
+            message_repo,
+            SkillLoader(str(config.workspace_root)),
         )
+        ex._session_repo = session_repo
+        ex._message_repo = message_repo
+
+        session = await ex._session_repo.create(Session(title="governed"))
+        manager = _FakeManager()
+        await ex._execute(session.id, DEMO_PROMPT, "build", None, manager)
+        await ex._summary_scheduler.drain()
+
+        kinds = [e.kind for e in manager.events]
+        assert EventKind.AGENT_ORCHESTRATION not in kinds
+        assert EventKind.AGENT_SPAWNED not in kinds
+        assert EventKind.SUCCESS in kinds, "prompt falls through to the normal loop"
 
     @pytest.mark.asyncio
     async def test_matching_prompt_is_cached_on_second_send(self, executor, workspace):
@@ -198,9 +221,7 @@ class TestNormalLoopFallthrough:
 
 class TestSubAgentHandoffRegression:
     @pytest.mark.asyncio
-    async def test_plan_build_handoff_unchanged_and_finally_safe(
-        self, executor, workspace
-    ):
+    async def test_plan_build_handoff_unchanged_and_finally_safe(self, executor, workspace):
         """The SubAgentLoop trigger must be untouched — and its early-return
         path must no longer crash in the `finally` block (UnboundLocalError)."""
         session = await executor._session_repo.create(

@@ -1,6 +1,5 @@
 """Unit tests for the Repository Intelligence Cache and task signatures."""
 
-
 from server.agents.delegation import (
     DELEGATION_CACHE_TTL_SECONDS,
     RepositoryIntelligenceCache,

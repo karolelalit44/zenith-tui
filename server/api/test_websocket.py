@@ -160,9 +160,7 @@ def simulation_dir() -> Path:
 
 class TestSimulationHandler:
     def __init__(self, workspace_root: str | None = None) -> None:
-        self.tool_registry: ToolRegistry = create_default_registry(
-            timeout=30, provider=None
-        )
+        self.tool_registry: ToolRegistry = create_default_registry(timeout=30, provider=None)
         self.workspace_root = workspace_root or str(Path.cwd())
         self._sessions: dict[str, Session] = {}
         self._messages: dict[str, list[Message]] = {}
