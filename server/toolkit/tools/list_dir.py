@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from server.config.constants import (
@@ -8,6 +9,7 @@ from server.config.constants import (
     PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
+from server.workspace.ignore import get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -15,7 +17,7 @@ from ..path_validator import validate_path
 
 class ListDirTool(BaseTool):
     name = "list_dir"
-    description = "List files and subdirectories in a directory"
+    description = "List files and subdirectories in a directory; .zenithignore paths are hidden"
     requires_mode = None
     capability_id = "workspace_discovery"
     read_only = True
@@ -55,10 +57,30 @@ class ListDirTool(BaseTool):
         if not resolved.is_dir():
             return ToolResult(success=False, error=f"Not a directory: {rel_path}")
 
+        matcher = get_matcher(workspace_root)
+        matcher.refresh()
+
         try:
             entries = os.listdir(resolved)
-            dirs = [f"{e}/" for e in entries if (resolved / e).is_dir()]
-            files = [e for e in entries if (resolved / e).is_file()]
+            base_resolved = Path(workspace_root).resolve()
+            dirs: list[str] = []
+            files: list[str] = []
+            for e in entries:
+                entry_path = resolved / e
+                is_dir = entry_path.is_dir()
+                try:
+                    child_rel = entry_path.relative_to(base_resolved)
+                except ValueError:
+                    child_rel = Path(e)
+                ignored = (
+                    matcher.is_ignored_dir(child_rel) if is_dir else matcher.is_ignored(child_rel)
+                )
+                if ignored:
+                    continue
+                if is_dir:
+                    dirs.append(f"{e}/")
+                else:
+                    files.append(e)
             output_lines = sorted(dirs) + sorted(files)
             output = "\n".join(output_lines)
             return ToolResult(

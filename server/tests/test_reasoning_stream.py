@@ -59,12 +59,20 @@ def test_reasoning_only_turn_does_not_leak_as_assistant_content():
     provider = _ReasoningOnlyProvider()
     events = _collect_events(provider)
 
-    # Reasoning is surfaced as a private `thinking` event, never as `message`.
-    kinds = [ev.kind for ev in events]
-    assert kinds == [EventKind.THINKING], kinds
-    thinking_event = events[0]
-    assert thinking_event.kind is EventKind.THINKING
-    assert thinking_event.data["text"] == "x" * 300
+    # Reasoning is surfaced as private `thinking` events, never as `message`.
+    # Streaming contract: throttled partial events, then ONE final non-partial
+    # event carrying the complete text and the measured duration.
+    kinds = {ev.kind for ev in events}
+    assert kinds == {EventKind.THINKING}, kinds
+    thinking_events = [ev for ev in events if ev.kind is EventKind.THINKING]
+    partials = [ev for ev in thinking_events if ev.data.get("partial") is True]
+    finals = [ev for ev in thinking_events if ev.data.get("partial") is not True]
+    assert len(finals) == 1
+    final_event = finals[0]
+    assert final_event.data["text"] == "x" * 300
+    assert isinstance(final_event.data.get("duration"), int)
+    for pev in partials:
+        assert final_event.data["text"].startswith(pev.data["text"])
 
     # No assistant content is fabricated from chain-of-thought.
     message_events = [ev for ev in events if ev.kind is EventKind.MESSAGE]
@@ -82,6 +90,7 @@ def test_tiny_content_plus_long_reasoning_stays_content_only():
     # The assistant message is exactly the real content, nothing else.
     assert len(messages) == 1
     assert messages[0].data["text"] == "ok"
-    # Reasoning is still emitted once, as a thinking event, not merged into prose.
-    assert len(thinking) == 1
-    assert thinking[0].data["text"] == "x" * 300
+    # Reasoning ends with exactly one final thinking event, not merged into prose.
+    finals = [ev for ev in thinking if ev.data.get("partial") is not True]
+    assert len(finals) == 1
+    assert finals[0].data["text"] == "x" * 300

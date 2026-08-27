@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -16,27 +17,44 @@ from server.config.constants import (
     CHARS_PER_TOKEN,
     CONTEXT_EXHAUSTED_HINT,
     CONTEXT_EXHAUSTED_MESSAGE,
+    DEGENERATE_MESSAGE_PATTERN,
+    DEFAULT_SALVAGE_TIMEOUT_SECONDS,
+    DUP_RESULT_PREVIEW_CHARS,
     EPHEMERAL_TOOL_WINDOW_SIZE,
+    EXPLORE_TOOL,
     FILE_DELETE_TOOL,
     FILE_EDIT_TOOL,
+    FILE_MUTATING_TOOLS,
     FILE_OVERWRITE_PARAM,
     FILE_READ_TOOL,
     FILE_WRITE_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     HARD_STOP_USAGE_RATIO,
     HEAVY_OUTPUT_SUBDIR,
+    HEAVY_TOOL_ISOLATION_PREVIEW_CHARS,
     HEAVY_TOOL_MARKER_TEMPLATE,
-    HEAVY_TOOL_SUMMARY_MAX_CHARS,
     HEAVY_TOOL_THRESHOLD_TOKENS,
     MANIFEST_CHECKS_CAP,
     MODE_BUDGET_PROFILES,
+    APPOGEE_AGENT_NAME,
+    APPOGEE_AGENT_ROLE,
     PLAN_MODE,
     POLL_TOOLS,
+    PROGRESS_DETAIL_MAX_CHARS,
+    ITERATION_GUIDANCE_LEVELS,
+    PROGRESSIVE_GUIDANCE_LEVELS,
     SKIP_WARNING_CAP,
+    SALVAGE_DIGEST_MAX_ITEMS,
+    SALVAGE_INSTRUCTION,
+    SALVAGE_TIMEOUT_ENV,
+    STALL_FINALIZE_AFTER_ITERATIONS,
     SUMMARY_MIN_CHARS,
     TERMINAL_TOOL,
     TOOL_GUIDELINES_DIR,
+    TURN_VERDICT_COMPLETED,
+    TURN_VERDICT_STALLED,
 )
+from server.config.env import optional_float
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.domain import FinishReason
 from server.domain.errors import ZenithError
@@ -45,8 +63,8 @@ from server.domain.message import Message
 from server.providers import responder as r
 from server.providers.base import BaseProvider
 from server.providers.parser import UnifiedResponseFormatter
-from server.toolkit.digest import format_tool_digest
 from server.toolkit.base import ToolResult
+from server.toolkit.digest import format_tool_digest
 from server.toolkit.param_normalizer import canonicalize_path_values, normalize_file_params
 from server.toolkit.path_validator import validate_path
 from server.toolkit.registry import ToolRegistry
@@ -67,7 +85,6 @@ from .compaction_service import (
     CompactionService,
     CompactionTrigger,
     compact_live_tail,
-    prune_tool_outputs,
 )
 from .context import ContextManager, _adaptive_reserve, _get_model_context_window
 from .llm_stream import StreamState, stream_completion
@@ -85,15 +102,10 @@ from .session_workspace import (
     store_cached_read_output,
     store_heavy_output,
 )
-from .summarizer import ConversationSummarizer
 from .validation import reflection_error_limit, schemas_to_openai_tools
 
 _format_tool_result = format_tool_result
 logger = logging.getLogger(__name__)
-
-
-def _result_present(messages: list[dict], content: str) -> bool:
-    return any(m.get("content") == content for m in messages)
 
 
 def _call_signature(
@@ -190,6 +202,9 @@ def _build_manifest(
     completed = bool(task_completed and not stall_finalized)
     changed = bool(created_files or files_edited)
     verified = True if not changed else _has_verification_evidence(verification or [])
+    # Honesty (AGENT_RELIABILITY_PLAN P1): ``remaining`` lists only real
+    # structured pending work. An empty list stays empty — a fabricated
+    # placeholder item must never be invented to look non-empty.
     remaining: list[str] = []
     if not completed:
         # Structured state first: incomplete todos + verification gaps. The
@@ -199,8 +214,7 @@ def _build_manifest(
             remaining.append("Files were written but no verification evidence was produced.")
         elif files_edited and not verified:
             remaining.append("Files were modified but no verification evidence was produced.")
-        if not remaining:
-            remaining = ["The turn ended without completing any work."]
+    answer_text = (last_text or "").strip()
     payload: dict = {
         "created": created,
         "modified": modified,
@@ -208,6 +222,10 @@ def _build_manifest(
         "completed": completed,
         "stalled": bool(stall_finalized),
         "verified": verified,
+        # A substantive delivered message counts as an answered turn even when
+        # no files were touched.
+        "answered": bool(answer_text) and len(answer_text) >= SUMMARY_MIN_CHARS,
+        "verdict": TURN_VERDICT_STALLED if stall_finalized else TURN_VERDICT_COMPLETED,
         "checks": [
             {k: v for k, v in (c or {}).items() if k != "seq"} for c in (verification or [])
         ],
@@ -286,9 +304,33 @@ def _all_calls_repeat(
 
 
 def _most_common_count(items: list[str]) -> int:
+    """Most-frequent item count (kept for diagnostics tooling)."""
     if not items:
         return 0
     return Counter(items).most_common(1)[0][1]
+
+
+_DEGENERATE_MESSAGE_RE = re.compile(DEGENERATE_MESSAGE_PATTERN, re.IGNORECASE)
+
+
+def _is_degenerate_message(text: str | None) -> bool:
+    """True for meta-placeholder outputs (P3.3): ``[tool calls]``, ``thinking``.
+
+    Weak models occasionally emit these instead of content. They must never be
+    rendered to the user as an assistant answer. Blank/whitespace-only text
+    also counts: there is nothing to render.
+    """
+    if not text:
+        return True
+    stripped = text.strip()
+    if not stripped:
+        return True
+    return bool(_DEGENERATE_MESSAGE_RE.match(stripped))
+
+
+def _has_tool_calls(tool_calls: list[dict]) -> bool:
+    """Check whether the model produced any tool calls."""
+    return bool(tool_calls)
 
 
 def _has_verification_evidence(checks: list[dict], after_seq: int | None = None) -> bool:
@@ -333,6 +375,9 @@ class AgentLoop:
         self._last_compaction_outcome = None
         self._heavy_tools_summarized = 0
         self._heavy_seq = 0
+        # WP5 Phase 3: delegated children override this so their salvage pass
+        # produces the mission's structured report contract.
+        self._salvage_instruction: str = SALVAGE_INSTRUCTION
 
     def _get_compaction_service(self) -> CompactionService:
         if self._compaction_service is None:
@@ -369,16 +414,20 @@ class AgentLoop:
         When a successful tool result exceeds ``HEAVY_TOOL_THRESHOLD_TOKENS`` the
         full output is written under the workspace's hidden directory, tracked in
         the session workspace (so the agent can re-read it with ``file_read``),
-        and ``result.output`` is replaced by a terse weak-model summary. Returns
-        the relative path of the stored full output, or ``None`` when the output
-        is light (or cannot be isolated).
+        and ``result.output`` is replaced by a deterministic head/tail excerpt
+        plus the stored path. No LLM summarization happens here: model-written
+        summaries are lossy in ways that silently corrupt downstream decisions
+        (dropped paths caused phantom-file hallucinations); a mechanical excerpt
+        is transparent and the agent decides whether to re-read the full file.
+        Returns the relative path of the stored full output, or ``None`` when
+        the output is light (or cannot be isolated).
         """
         output = (result.output or "") if result.success else ""
         if not output:
             return None
         if tool_name == FILE_READ_TOOL:
             # file_read output is already on disk and re-readable; the cached-read
-            # + staleness system governs it. Summarizing would corrupt the read
+            # + staleness system governs it. Isolating would corrupt the read
             # cache, so heavy file reads stay as-is.
             return None
         if len(output) // CHARS_PER_TOKEN < HEAVY_TOOL_THRESHOLD_TOKENS:
@@ -396,25 +445,155 @@ class AgentLoop:
         except OSError:
             logger.warning("Failed to store heavy output for session %s: %s", session_id, rel)
             return None
-        summary = await ConversationSummarizer(self.config, self.provider).summarize_output(
-            output, tool_name
-        )
-        if not summary:
-            summary, _ = head_tail_trim(output, HEAVY_TOOL_SUMMARY_MAX_CHARS)
-        marker = HEAVY_TOOL_MARKER_TEMPLATE.format(path=rel)
-        result.output = f"{marker}\n{summary}"
+        excerpt, _omitted = head_tail_trim(output, HEAVY_TOOL_ISOLATION_PREVIEW_CHARS)
+        marker = HEAVY_TOOL_MARKER_TEMPLATE.format(total_chars=len(output), path=rel)
+        result.output = f"{marker}\n{excerpt}"
         self._heavy_tools_summarized += 1
         logger.info(
-            "Summarized heavy tool output: tool=%s chars=%d stored=%s",
+            "Isolated heavy tool output: tool=%s chars=%d stored=%s",
             tool_name,
             len(output),
             rel,
         )
         return rel
 
+    @staticmethod
+    def _salvage_digest(messages: list[dict]) -> str:
+        """Deterministic fallback answer built from the turn's tool digests.
+
+        Used only when the salvage completion fails outright or the model
+        tries to keep calling tools. Guarantees the turn still ends with a
+        truthful, non-empty account of what happened.
+        """
+        digs = [str(m.get("digest")) for m in messages if isinstance(m, dict) and m.get("digest")]
+        if not digs:
+            return ""
+        shown = digs[-SALVAGE_DIGEST_MAX_ITEMS:]
+        omitted = len(digs) - len(shown)
+        lines = [
+            "The turn ended before a final answer could be produced. Tool activity this turn:",
+        ]
+        lines.extend(f"- {d}" for d in shown)
+        if omitted > 0:
+            lines.append(f"(+{omitted} earlier steps omitted)")
+        return "\n".join(lines)
+
+    async def _salvage_final_answer(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict],
+        model: str,
+        reason: str,
+        iteration: int,
+    ) -> AsyncIterator[Event]:
+        """WP3: convert a harness-forced exit into a best-effort final answer.
+
+        Contract (industry-standard "forced final round", cf. LangGraph's
+        forced-answer node / assistant-API ``tool_choice=none``):
+        - Runs once, only when the model has NOT delivered substantive text
+          this turn and the exit was not user-initiated (cancellations and
+          context-exhaustion exits never reach this path).
+        - Tools are withheld from the request: the model cannot start new
+          work, it can only report on evidence already gathered.
+        - If the model replies with more tool calls, or the call fails or
+          times out, a deterministic digest of tool activity is emitted
+          instead — so the response is NEVER empty and never fabricates.
+        """
+        yield r.warning(
+            f"Wrapping up without further tool use ({reason})...",
+            session_id,
+            code="SALVAGE",
+        )
+        payload = list(messages) + [{"role": "user", "content": self._salvage_instruction}]
+        text = ""
+        try:
+            result = await asyncio.wait_for(
+                self.provider.complete(payload),
+                timeout=optional_float(SALVAGE_TIMEOUT_ENV, DEFAULT_SALVAGE_TIMEOUT_SECONDS),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("Salvage completion failed (%s); using deterministic digest", e)
+        else:
+            raw = (result or "").strip()
+            clean, attempted_calls = UnifiedResponseFormatter.process_response(raw)
+            if attempted_calls:
+                logger.info(
+                    "Salvage reply contained %d tool call(s); discarding.", len(attempted_calls)
+                )
+            text = "" if _is_degenerate_message(clean) else clean.strip()
+        if not text:
+            text = self._salvage_digest(messages)
+        if not text:
+            return
+        logger.info(
+            "SALVAGE: reason=%s iteration=%d produced %d chars", reason, iteration, len(text)
+        )
+        yield r.message_event(text, session_id, partial=False, iteration=max(1, iteration))
+        self._last_emitted_message = text
+
     def accept(self) -> int:
         self._accept_sequence += 1
         return self._accept_sequence
+
+    # ------------------------------------------------------------------ #
+    # explore crewmate events (WP5)                                       #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _explore_crewmate_identity(tool_params: dict) -> tuple[str, str, str]:
+        """(name, role, task) for an explore call's crewmate card."""
+        custom = (
+            tool_params.get("crewmate") if isinstance(tool_params.get("crewmate"), dict) else {}
+        )
+        name = str(custom.get("name") or "").strip() or APPOGEE_AGENT_NAME
+        role = str(custom.get("role") or "").strip() or APPOGEE_AGENT_ROLE
+        task = str(tool_params.get("objective") or "").strip()
+        return name[:48], role[:48], task[:200]
+
+    def _explore_spawn_event(self, session_id: str, tool_params: dict) -> Event | None:
+        import uuid
+
+        name, role, task = self._explore_crewmate_identity(tool_params)
+        return Event(
+            kind=EventKind.AGENT_SPAWNED,
+            data={
+                "agent_id": EXPLORE_TOOL,
+                "name": name,
+                "role": role,
+                "task_id": str(uuid.uuid4())[:8],
+                "capability": "explore_delegation",
+                "parent_session_id": session_id,
+                "task": task,
+                "status": "working",
+            },
+            session_id=session_id,
+        )
+
+    @staticmethod
+    def _explore_settle_event(session_id: str, spawn_data: dict, result: ToolResult) -> Event:
+        meta = result.metadata or {}
+        summary = str(
+            meta.get("summary")
+            or meta.get("explore_status")
+            or ("Mission complete" if result.success else result.error or "Mission failed")
+        )
+        ok = bool(result.success)
+        return Event(
+            kind=EventKind.AGENT_COMPLETE if ok else EventKind.AGENT_FAILED,
+            data={
+                "agent_id": spawn_data.get("agent_id") or EXPLORE_TOOL,
+                "task_id": spawn_data.get("task_id") or "",
+                "result_summary": summary[:200],
+                "status": str(meta.get("explore_status") or ("completed" if ok else "failed")),
+                "tokens_used": meta.get("tokens_used"),
+                "duration_ms": meta.get("duration_ms"),
+                **({"error": result.error} if (not ok and result.error) else {}),
+            },
+            session_id=session_id,
+        )
 
     def cancel(self) -> None:
         self._cancel_sequence = self._accept_sequence
@@ -525,11 +704,6 @@ class AgentLoop:
         self.context_manager.set_aux_tokens(
             min(resolver.schema_tokens(model), self._mode_tools_budget(model, mode))
         )
-        model_use_system_prompt = True
-        if not model_use_system_prompt:
-            logger.info(
-                "Model '%s' does not support system prompt — merging into user message", model
-            )
         _reflimit = reflection_error_limit(_get_model_context_window(model))
         messages = self.context_manager.build_messages(
             history,
@@ -538,7 +712,7 @@ class AgentLoop:
             model,
             summary=self._summary,
             plan_block=plan_context,
-            use_system_prompt=model_use_system_prompt,
+            use_system_prompt=True,
             repo_map=repo_map,
             session_id=session_id,
             project_memory=self._load_project_memory(),
@@ -561,7 +735,7 @@ class AgentLoop:
                 prompt=prompt,
                 model=model,
                 plan_context=plan_context,
-                use_system_prompt=model_use_system_prompt,
+                use_system_prompt=True,
                 repo_map=repo_map,
                 mode=mode,
             ):
@@ -623,7 +797,7 @@ class AgentLoop:
         iteration = 0
         consecutive_failures = 0
         created_files: set[str] = set()
-        tools_used = False
+        executed_tool_names: set[str] = set()
         task_completed = False
         post_comp_iterations = 0
         files_edited: list[str] = []
@@ -632,12 +806,11 @@ class AgentLoop:
         failed_calls: set[tuple[str, str]] = set()
         stall_count = 0
         stall_finalized = False
+        salvage_reason: str | None = None
+        salvaged = False
         progress_steps: list[dict] = []
         written_paths: set[str] = set()
-        path_write_attempts: list[str] = []
-        path_attempt_this_iter = False
         warned_rejects: set[tuple[str, str]] = set()
-        warned_skips: set[str] = set()
         pending_skips: list[str] = []
         post_write_checks: list[dict] = []
         change_seq = 0
@@ -645,6 +818,11 @@ class AgentLoop:
         prior_replay_blocks = 0
         _total_completion_chars = 0
         active_tool_result_indices: list[int] = []
+        # Progressive efficiency guidance: track cumulative run-level tokens
+        # and which guidance level has already been injected.
+        _guidance_level = -1
+        _run_cumulative_tokens = 0
+        _iteration_guidance_level = -1
 
         def _session_todos() -> list[dict]:
             """Session-scoped todo snapshot for manifest remaining (QA-8)."""
@@ -670,21 +848,57 @@ class AgentLoop:
                 )
             return ev
 
-        def _emit_progress(tool_name: str, success: bool) -> Event:
+        def _param_detail(params: dict) -> str:
+            """Short human snippet from tool params for progress labels."""
+            import re
+
+            if not isinstance(params, dict):
+                return ""
+            for key in ("command", "path", "filepath", "pattern", "query", "name", "url"):
+                value = params.get(key)
+                if isinstance(value, str) and value.strip():
+                    flat = re.sub(r"\s+", " ", value.strip())
+                    clipped = flat[:PROGRESS_DETAIL_MAX_CHARS]
+                    return clipped + "\u2026" if len(flat) > PROGRESS_DETAIL_MAX_CHARS else clipped
+            return ""
+
+        def _emit_progress(tool_name: str, success: bool, detail: str = "") -> Event:
             """A PROGRESS event derived from an executed tool (QA-7).
 
             The label comes from the tool's activity label — never fabricated
             narration — and ``steps`` accumulates the turn's tool activity so the
             frontend ProgressBar can render a live checklist.
             """
-            label = _activity_label(tool_name, len(progress_steps) + 1)
-            progress_steps.append(
-                {
+            label = _activity_label(tool_name, len(progress_steps) + 1, detail)
+            if progress_steps and progress_steps[-1].get("status") == "active":
+                progress_steps[-1] = {
                     "label": label,
                     "status": "done" if success else "error",
                     "tool": tool_name,
                 }
+            else:
+                progress_steps.append(
+                    {
+                        "label": label,
+                        "status": "done" if success else "error",
+                        "tool": tool_name,
+                    }
+                )
+            done = sum(1 for s in progress_steps if s["status"] == "done")
+            percent = round(done * 100 / len(progress_steps))
+            return r.progress(
+                percent, label, session_id, iteration=iteration, steps=list(progress_steps)
             )
+
+        def _emit_progress_running(tool_name: str, detail: str = "") -> Event | None:
+            """Mark a tool as in-flight before it executes (P6.1).
+
+            The in-flight step counts as not-done, so the reported percent
+            honestly reflects unfinished work instead of pinning at 100% while
+            the turn keeps running.
+            """
+            label = _activity_label(tool_name, len(progress_steps) + 1, detail)
+            progress_steps.append({"label": label, "status": "active", "tool": tool_name})
             done = sum(1 for s in progress_steps if s["status"] == "done")
             percent = round(done * 100 / len(progress_steps))
             return r.progress(
@@ -714,10 +928,52 @@ class AgentLoop:
                 if task_completed and post_comp_iterations >= 1:
                     break
                 iteration += 1
-                path_attempt_this_iter = False
                 if task_completed:
                     post_comp_iterations += 1
                 token_info = self.context_manager.get_token_info(messages, model)
+                # ---- Progressive efficiency guidance -------------------------
+                # Track cumulative run-level tokens and inject adaptive hints
+                # when thresholds are crossed. This is a signal, not a hard cap
+                # — the model decides whether to act on it.
+                try:
+                    cum_usage = getattr(self.provider, "_cumulative_usage", {}) or {}
+                    run_tokens = cum_usage.get("total_tokens", 0)
+                except Exception:
+                    run_tokens = 0
+                if run_tokens > _run_cumulative_tokens:
+                    _run_cumulative_tokens = run_tokens
+                for lvl_idx, (threshold, hint_msg) in enumerate(PROGRESSIVE_GUIDANCE_LEVELS):
+                    if lvl_idx > _guidance_level and _run_cumulative_tokens >= threshold:
+                        _guidance_level = lvl_idx
+                        messages.append({"role": "user", "content": hint_msg})
+                        yield r.warning(
+                            hint_msg,
+                            session_id,
+                            code="EFFICIENCY_GUIDANCE",
+                        )
+                        logger.info(
+                            "Progressive guidance level %d injected at %d tokens",
+                            lvl_idx,
+                            _run_cumulative_tokens,
+                        )
+                        break
+                # ---- Iteration-count guidance -----------------------------------
+                for itr_idx, (itr_thresh, itr_msg) in enumerate(ITERATION_GUIDANCE_LEVELS):
+                    if itr_idx > _iteration_guidance_level and iteration >= itr_thresh:
+                        _iteration_guidance_level = itr_idx
+                        messages.append({"role": "user", "content": itr_msg})
+                        yield r.warning(
+                            itr_msg,
+                            session_id,
+                            code="EFFICIENCY_GUIDANCE",
+                        )
+                        logger.info(
+                            "Iteration guidance level %d injected at iteration %d",
+                            itr_idx,
+                            iteration,
+                        )
+                        break
+                # ---- End progressive guidance --------------------------------
                 if token_info.percent >= self.config.context_compaction_threshold and (
                     not self._compacted_this_turn or len(messages) > self._compacted_message_count
                 ):
@@ -735,7 +991,7 @@ class AgentLoop:
                         prompt=prompt,
                         model=model,
                         plan_context=plan_context,
-                        use_system_prompt=model_use_system_prompt,
+                        use_system_prompt=True,
                         repo_map=repo_map,
                         mode=mode,
                     ):
@@ -841,7 +1097,7 @@ class AgentLoop:
                         prompt=prompt,
                         model=model,
                         plan_context=plan_context,
-                        use_system_prompt=model_use_system_prompt,
+                        use_system_prompt=True,
                         repo_map=repo_map,
                         mode=mode,
                     ):
@@ -875,7 +1131,12 @@ class AgentLoop:
                     len(clean_response or ""),
                     finish_reason,
                 )
-                if clean_response and clean_response != self._last_emitted_message:
+                degenerate_response = _is_degenerate_message(clean_response)
+                if (
+                    clean_response
+                    and not degenerate_response
+                    and clean_response != self._last_emitted_message
+                ):
                     yield r.message_event(
                         clean_response, session_id, partial=False, iteration=iteration
                     )
@@ -971,16 +1232,15 @@ class AgentLoop:
                         code="INVALID_TOOLS",
                     )
                 if not valid_calls:
-                    msgs = [
-                        {"role": "assistant", "content": response_text or "[tool calls]"},
+                    messages.append({"role": "assistant", "content": response_text or ""})
+                    messages.append(
                         {
                             "role": "user",
                             "content": f"Tool calls for non-existent tools: {', '.join(invalid_names)}. Available: {', '.join(sorted(registered_tools))}.",
-                        },
-                    ]
-                    messages.extend(msgs)
+                        }
+                    )
                     continue
-                messages.append({"role": "assistant", "content": response_text or "[tool calls]"})
+                messages.append({"role": "assistant", "content": response_text or ""})
                 if _all_calls_repeat(valid_calls, executed_calls, self.config.workspace_root):
                     _repeat_text = (clean_response or "").strip()
                     if (
@@ -1010,23 +1270,115 @@ class AgentLoop:
                     break
                 stop_turn = False
                 skipped_calls: list[str] = []
-                replayed_results = 0
                 newly_executed = False
-                for tc in valid_calls:
+
+                # ---- WP5 Phase 4b: parallel scout fan-out -----------------
+                # Several independent explore calls in one turn are dispatched
+                # concurrently (the tool's own semaphore caps width); results
+                # land in ``preexecuted`` and flow through the standard
+                # sequential handler below, so isolation, digests, duplicate
+                # feedback and tracking all apply unchanged.
+                preexecuted: dict[int, tuple[ToolResult, int]] = {}
+                merged_fanout_dups: set[int] = set()
+                _fanout: list[tuple[int, tuple[str, str], dict]] = []
+                _seen_fanout: set[tuple[str, str]] = set()
+                for _idx, _tc in enumerate(valid_calls):
+                    if _tc["tool"] != EXPLORE_TOOL:
+                        continue
+                    _p = normalize_file_params(_tc.get("params", {}), EXPLORE_TOOL)
+                    _sig = _call_signature("explore", _p, self.config.workspace_root)
+                    if _sig in executed_calls or _sig in _seen_fanout:
+                        if _sig in _seen_fanout:
+                            merged_fanout_dups.add(_idx)
+                        continue
+                    _seen_fanout.add(_sig)
+                    _fanout.append((_idx, _sig, _p))
+                if len(_fanout) >= 2:
+                    logger.info(
+                        "Parallel scout fan-out: %d explore missions in one turn",
+                        len(_fanout),
+                    )
+                    yield _emit_progress_running(
+                        EXPLORE_TOOL,
+                        f"fanning out {len(_fanout)} scouts in parallel",
+                    )
+                    _gathered = await asyncio.gather(
+                        *(
+                            execute_tool(
+                                self.tool_registry,
+                                EXPLORE_TOOL,
+                                _p,
+                                ws,
+                                mode,
+                                allowed_mcp=(mode_config.allowed_mcp if mode_config else None),
+                            )
+                            for _i, _s, _p in _fanout
+                        ),
+                        return_exceptions=True,
+                    )
+                    for (_idx, _sig, _p), _outcome in zip(_fanout, _gathered):
+                        if isinstance(_outcome, BaseException):
+                            preexecuted[_idx] = (
+                                ToolResult(success=False, error=str(_outcome)),
+                                0,
+                            )
+                        else:
+                            preexecuted[_idx] = _outcome
+
+                for call_index, tc in enumerate(valid_calls):
                     tool_name = tc["tool"]
                     tool_params = normalize_file_params(tc.get("params", {}), tc["tool"])
                     sig = _call_signature(tool_name, tool_params, self.config.workspace_root)
                     blocked_write = False
-                    if sig in executed_calls and tool_name not in POLL_TOOLS:
-                        failed_flag = " [failed]" if sig in failed_calls else ""
-                        skipped_calls.append(
-                            f"{tool_name}({_params_label(tool_params)}){failed_flag}"
+                    if call_index in merged_fanout_dups:
+                        # Identical to a sibling explore in this fan-out: the
+                        # kept mission's report covers it.
+                        skipped_calls.append(f"{tool_name}({_params_label(tool_params)}) [merged]")
+                        pending_skips.append(skipped_calls[-1])
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "[Merged] This explore call is identical to another "
+                                    "in the same fan-out; its report covers this "
+                                    "objective. Continue with remaining work."
+                                ),
+                            }
                         )
-                        if stall_count == 0 and not newly_executed and replayed_results < 2:
-                            stored = executed_results.get(sig)
-                            if stored is not None and not _result_present(messages, stored):
-                                messages.append({"role": "user", "content": stored})
-                                replayed_results += 1
+                        continue
+                    if sig in executed_calls and tool_name not in POLL_TOOLS:
+                        # WP2: duplicate feedback is delivered IN-BAND as a
+                        # result-shaped message in the call's own slot — never
+                        # as a synthetic user note the model cannot attribute
+                        # to its own action.
+                        failed = sig in failed_calls
+                        skipped_calls.append(
+                            f"{tool_name}({_params_label(tool_params)})"
+                            + (" [failed]" if failed else "")
+                        )
+                        if failed:
+                            guidance = (
+                                f"Duplicate call blocked: this exact {tool_name} call already FAILED "
+                                "earlier this turn with identical parameters. Repeating it will fail "
+                                "identically - change the approach or fix the parameters."
+                            )
+                        else:
+                            guidance = (
+                                f"Duplicate call blocked: this exact {tool_name} call already ran "
+                                "earlier this turn with identical parameters and returned the "
+                                "result below. Do not re-run it - build on the previous result or "
+                                "change parameters."
+                            )
+                        parts = [guidance]
+                        prior = executed_results.get(sig)
+                        if prior:
+                            capped, _ = compact_tool_output(
+                                prior, max_output=DUP_RESULT_PREVIEW_CHARS
+                            )
+                            parts.append("Previous result:\n" + capped)
+                        messages.append(
+                            {"role": "user", "content": "\n\n".join(parts), "duplicate_of": sig}
+                        )
                         continue
                     reject_msg = validate_tool_rejection(tool_name, tool_params, created_files, ws)
                     if tool_name in ("bash", "terminal") and (not reject_msg):
@@ -1038,8 +1390,6 @@ class AgentLoop:
                     if tool_name == FILE_WRITE_TOOL and (not reject_msg):
                         target = tool_params.get("filepath") or tool_params.get("path") or ""
                         if target:
-                            path_write_attempts.append(target)
-                            path_attempt_this_iter = True
                             resolved = validate_path(target, ws)
                             if (
                                 resolved is not None
@@ -1117,7 +1467,6 @@ class AgentLoop:
                         cached_output = self._try_cached_read(session_id, tool_params)
                         if cached_output is not None:
                             yield r.tool_call(tool_name, tool_params, session_id)
-                            tools_used = True
                             newly_executed = True
                             result = ToolResult(
                                 success=True,
@@ -1137,7 +1486,7 @@ class AgentLoop:
                                     ws,
                                 ),
                             )
-                            yield _emit_progress(tool_name, True)
+                            yield _emit_progress(tool_name, True, _param_detail(tool_params))
                             _model_ctx = _get_model_context_window(model)
                             _result_limit = _dynamic_max_output(_model_ctx)
                             messages.append(
@@ -1155,52 +1504,77 @@ class AgentLoop:
                             )
                             continue
                     yield r.tool_call(tool_name, tool_params, session_id)
-                    tools_used = True
                     newly_executed = True
-                    result, duration_ms = await execute_tool(
-                        self.tool_registry,
-                        tool_name,
-                        tool_params,
-                        ws,
-                        mode,
-                        allowed_mcp=mode_config.allowed_mcp if mode_config else None,
+                    executed_tool_names.add(tool_name)
+                    yield _emit_progress_running(tool_name, _param_detail(tool_params))
+                    explore_crewmate = (
+                        self._explore_spawn_event(session_id, tool_params)
+                        if tool_name == EXPLORE_TOOL
+                        else None
                     )
+                    if explore_crewmate is not None:
+                        # WP5: light the crewmate card the moment a scout
+                        # departs; completion is stamped on its result below.
+                        yield explore_crewmate
+                    _pre = preexecuted.pop(call_index, None)
+                    if _pre is not None:
+                        # Fan-out result already fetched concurrently (Phase 4b).
+                        result, duration_ms = _pre
+                    else:
+                        result, duration_ms = await execute_tool(
+                            self.tool_registry,
+                            tool_name,
+                            tool_params,
+                            ws,
+                            mode,
+                            allowed_mcp=mode_config.allowed_mcp if mode_config else None,
+                        )
+                    if explore_crewmate is not None:
+                        yield self._explore_settle_event(session_id, explore_crewmate.data, result)
+                    # Explain a potentially long isolation phase instead of a
+                    # frozen spinner: heavy outputs get stored + excerpted.
+                    if (
+                        result.success
+                        and len(result.output or "") // CHARS_PER_TOKEN
+                        >= HEAVY_TOOL_THRESHOLD_TOKENS
+                    ):
+                        size_kb = max(1, len(result.output) // 1024)
+                        yield _emit_progress_running(
+                            tool_name,
+                            f"isolating {size_kb} KB of output",
+                        )
                     await self._maybe_summarize_heavy_output(session_id, tool_name, result)
+                    # Compact for the MODEL here; any shrinkage becomes a small
+                    # footnote on the tool row (metadata["trim"]) — the old
+                    # full-screen compaction card for tiny trims was noise.
+                    # Genuinely large outputs never reach this point: heavy
+                    # isolation already replaced them with summary + file path.
+                    _model_ctx = _get_model_context_window(model)
+                    result_limit = _dynamic_max_output(_model_ctx)
+                    _compacted, cstats = compact_tool_output(
+                        result.output or "", max_output=result_limit
+                    )
+                    metadata = build_tool_metadata(tool_name, tool_params, result, duration_ms, ws)
+                    if cstats.chars_removed > 0:
+                        metadata["trim"] = {
+                            "charsRemoved": cstats.chars_removed,
+                            "tokensSaved": cstats.tokens_saved,
+                            "reason": cstats.reason,
+                        }
                     yield r.tool_result(
                         tool_name,
                         result.success,
                         session_id,
                         output=result.output or "",
                         error=result.error or "",
-                        metadata=build_tool_metadata(
-                            tool_name, tool_params, result, duration_ms, ws
-                        ),
+                        metadata=metadata,
                     )
-                    yield _emit_progress(tool_name, result.success)
+                    yield _emit_progress(tool_name, result.success, _param_detail(tool_params))
                     if result.stop_turn:
                         logger.info("Tool '%s' requested stop_turn", tool_name)
                         stop_turn = True
                     if not result.success:
                         consecutive_failures += 1
-                        err_msg = result.error or f"Tool '{tool_name}' execution failed"
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": f"[Tool error] {tool_name} failed: {err_msg}. Try a different approach.",
-                            }
-                        )
-                        if tool_name == FILE_EDIT_TOOL:
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        "[Edit guidance] The edit did not apply because the "
-                                        "target text does not match the file's current content. "
-                                        "Read the file with file_read to get its exact current "
-                                        "content, then re-apply the edit."
-                                    ),
-                                }
-                            )
                         if consecutive_failures >= _reflimit:
                             yield _with_manifest(
                                 r.error(
@@ -1231,7 +1605,7 @@ class AgentLoop:
                             prompt=prompt,
                             model=model,
                             plan_context=plan_context,
-                            use_system_prompt=model_use_system_prompt,
+                            use_system_prompt=True,
                             repo_map=repo_map,
                             mode=mode,
                         ):
@@ -1290,27 +1664,25 @@ class AgentLoop:
                         tool_name, tool_params, result, ws, session_id
                     ):
                         yield ev
-                    model_ctx = _get_model_context_window(model)
-                    dynamic_max = _dynamic_max_output(model_ctx)
-                    result_limit = dynamic_max
-                    _compacted, cstats = compact_tool_output(
-                        result.output or "", max_output=result_limit
-                    )
-                    if cstats.chars_removed > 0:
-                        yield r.context_compacted(
-                            tool_name,
-                            cstats.chars_removed,
-                            cstats.tokens_saved,
-                            cstats.reason,
-                            session_id,
-                            original_chars=cstats.original_chars,
-                            compacted_chars=cstats.compacted_chars,
-                        )
                     digest_str = format_tool_digest(tool_name, tool_params, result)
+                    content = format_tool_result(tool_name, result, result_limit)
+                    if not result.success:
+                        # Error guidance rides on the result itself (one message
+                        # per action), never as a separate synthetic user turn.
+                        content += (
+                            f"\nThe {tool_name} call failed - respond to the error above "
+                            "rather than repeating the same call."
+                        )
+                        if tool_name == FILE_EDIT_TOOL:
+                            content += (
+                                " The target text did not match the file's current content: "
+                                "read the file with file_read, then re-apply the edit against "
+                                "the exact current content."
+                            )
                     messages.append(
                         {
                             "role": "user",
-                            "content": format_tool_result(tool_name, result, result_limit),
+                            "content": content,
                             "digest": digest_str,
                         }
                     )
@@ -1334,31 +1706,31 @@ class AgentLoop:
                         self.config.workspace_root,
                     )
                 if skipped_calls:
-                    new_skips = [s for s in skipped_calls if s not in warned_skips]
-                    if new_skips:
-                        warned_skips.update(new_skips)
-                        for s in new_skips:
-                            if s not in pending_skips:
-                                pending_skips.append(s)
-                        failed_skips = [s for s in skipped_calls if " [failed]" in s]
-                        skip_msg = (
-                            "[System] Calls listed below were already completed earlier in this "
-                            "turn with identical parameters (or were blocked) and were NOT "
-                            "re-run: "
-                            + ", ".join(skipped_calls[:SKIP_WARNING_CAP])
-                            + ". Do not re-run them; continue with the next "
-                            "unfinished step."
-                        )
-                        if failed_skips:
-                            skip_msg += (
-                                " The calls marked [failed] did not succeed; do not retry them "
-                                "with identical parameters - use different parameters or a "
-                                "different approach."
-                            )
-                        messages.append({"role": "user", "content": skip_msg})
+                    for s in skipped_calls:
+                        if s not in pending_skips:
+                            pending_skips.append(s)
                 if skipped_calls and not newly_executed and not task_completed:
                     stall_count += 1
                     current_text = (clean_response or "").strip()
+                    if (
+                        current_text
+                        and len(current_text) >= SUMMARY_MIN_CHARS
+                        and not created_files
+                        and not files_edited
+                        and not _incomplete_todo_titles(_session_todos())
+                    ):
+                        # Answer-completion hatch (AGENT_RELIABILITY_PLAN P1.1):
+                        # the model delivered a substantive final answer while
+                        # every emitted call was a duplicate. With no file work
+                        # and nothing pending, this is a successful answer-only
+                        # turn — finalize cleanly instead of forcing a stall.
+                        task_completed = True
+                        logger.info(
+                            "Turn finalized: delivered a substantive answer (%d chars); "
+                            "all calls were duplicates and no work is pending.",
+                            len(current_text),
+                        )
+                        break
                     if (
                         current_text
                         and len(current_text) >= SUMMARY_MIN_CHARS
@@ -1383,25 +1755,11 @@ class AgentLoop:
                             "produced evidence; no outstanding work."
                         )
                         break
-                    if stall_count == 1:
-                        stall_msg = (
-                            "[System] No new tool was executed this iteration; every call you "
-                            "emitted was already attempted earlier with identical parameters "
-                            "(or was blocked as a re-write). You are stuck repeating previous "
-                            "work. If the task is complete, write your final summary now and "
-                            "stop; otherwise take a different action than before."
-                        )
-                        if (created_files or files_edited) and not _has_verification_evidence(
-                            post_write_checks
-                        ):
-                            stall_msg += (
-                                "\nYou changed file(s) this turn but no successful tool ran after "
-                                "those changes to verify them. Run the relevant tests or checks "
-                                "now so the result is confirmed before you finish."
-                            )
-                        yield r.warning(stall_msg, session_id, code="STALL")
-                        messages.append({"role": "user", "content": stall_msg})
-                    else:
+                    # No coaching ladder: duplicate feedback already reached the
+                    # model in-band (per-call blocked results). After
+                    # STALL_FINALIZE_AFTER_ITERATIONS consecutive do-nothing
+                    # iterations, stop — physics, not behavior shaping.
+                    if stall_count >= STALL_FINALIZE_AFTER_ITERATIONS:
                         task_completed = True
                         stall_finalized = True
                         yield r.warning(
@@ -1412,19 +1770,6 @@ class AgentLoop:
                         break
                 elif newly_executed:
                     stall_count = 0
-                if (
-                    path_write_attempts
-                    and _most_common_count(path_write_attempts) >= 3
-                    and path_attempt_this_iter
-                ):
-                    task_completed = True
-                    stall_finalized = True
-                    yield r.warning(
-                        f"The model kept re-writing '{path_write_attempts[0]}'; finalizing the turn.",
-                        session_id,
-                        code="STALL",
-                    )
-                    break
                 if stop_turn:
                     logger.info("Stopping turn: tool requested stop_turn")
                     task_completed = True
@@ -1438,7 +1783,10 @@ class AgentLoop:
                             recoverable=True,
                         )
                     )
-                    return
+                    # WP3: fall through to the salvage stage instead of
+                    # discarding the turn's gathered evidence.
+                    salvage_reason = "repetitive tool loop detected"
+                    break
                 if files_edited:
                     auto_commit(ws, files_edited)
                     files_edited.clear()
@@ -1450,9 +1798,28 @@ class AgentLoop:
                         code="MAX_ITERATIONS",
                     )
                 )
-                return
+                # WP3: the iteration budget is exhausted, not the work — the
+                # finalization path below salvages a best-effort answer.
+                salvage_reason = f"iteration budget exhausted ({safety_iterations} steps)"
         finally:
             pass
+        # ---- WP3: salvage pass (single choke point) --------------------------
+        # Harness-forced exits (stall cap / loop cap / iteration budget) must
+        # never end in an empty response. If the model already delivered a
+        # substantive answer, this is a no-op. User cancellations and context-
+        # exhaustion exits return earlier and never reach this stage.
+        if (salvage_reason or stall_finalized) and len(
+            (self._last_emitted_message or "").strip()
+        ) < SUMMARY_MIN_CHARS:
+            async for ev in self._salvage_final_answer(
+                session_id=session_id,
+                messages=messages,
+                model=model,
+                reason=salvage_reason or "no recent progress",
+                iteration=iteration,
+            ):
+                yield ev
+            salvaged = True
         final_summary = (self._last_emitted_message or "").strip()
         legit_completion = task_completed and not stall_finalized
         quiet_completion = legit_completion and len(final_summary) >= SUMMARY_MIN_CHARS
@@ -1475,19 +1842,26 @@ class AgentLoop:
         )
         is_estimated = cum_usage.get("total_tokens", 0) == 0
         tier_breakdown = self.context_manager.token_breakdown(messages).to_dict()
-        if mode == BUILD_MODE and tools_used and (not created_files):
-            yield r.warning(
-                "Build completed but no files were created. The model output text instead of using file_write.",
-                session_id,
-                code="NO_FILES_CREATED",
-            )
+        if mode == BUILD_MODE and executed_tool_names and (not created_files):
+            _file_tools_attempted = any(name in FILE_MUTATING_TOOLS for name in executed_tool_names)
+            if _file_tools_attempted:
+                yield r.warning(
+                    "Build completed but no files were created. The model output text instead of using file_write.",
+                    session_id,
+                    code="NO_FILES_CREATED",
+                )
         success_message = "Request processed successfully"
-        if stall_finalized:
+        if stall_finalized or salvaged:
             created = ", ".join(sorted(created_files)) or "none"
             success_message = (
-                f"Stopped after {iteration} iterations: the model stopped making progress. "
+                f"Stopped after {iteration} iterations: the model stopped making progress "
+                f"(reason: {salvage_reason or 'no recent progress'}). "
                 f"Files written: {created}."
             )
+            if salvaged:
+                success_message += (
+                    " A best-effort summary was generated from the gathered evidence."
+                )
         if (created_files or files_edited) and not _has_verification_evidence(post_write_checks):
             success_message += (
                 " Files changed but not verified: no successful tool produced output after "
@@ -1585,18 +1959,6 @@ class AgentLoop:
             self._summary = outcome.summary or self._summary
         for ev in emitted:
             yield ev
-
-    def _prune_tool_outputs(
-        self,
-        messages: list[dict],
-        keep_turns: int = 2,
-        max_output: int = 2000,
-        force_intraturn: bool = False,
-    ) -> dict:
-        """Compress old tool-result messages (delegates to the shared pipeline)."""
-        return prune_tool_outputs(
-            messages, keep_turns=keep_turns, max_output=max_output, force_intraturn=force_intraturn
-        )
 
     def _rebuild_messages(
         self,
@@ -1731,7 +2093,7 @@ class AgentLoop:
     @staticmethod
     def _catalog_for_provider(provider_name: str) -> dict:
         try:
-            from server.persistence.repositories import load_catalog
+            from server.storage.catalog_compat import load_catalog
 
             return load_catalog().get("providers", {}).get(provider_name) or {}
         except Exception:

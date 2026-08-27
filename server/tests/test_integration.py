@@ -11,7 +11,6 @@ from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.domain.session import Session
-from server.persistence.connection import Database
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
 from server.sessions.export import SessionExporter
@@ -52,17 +51,18 @@ def test_config(temp_dir):
     return AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def test_db(test_config):
-    db = Database(test_config.db_path)
-    await db.connect()
-    yield db
-    await db.close()
+def test_home(test_config):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(test_config.home_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
@@ -818,6 +818,7 @@ class TestDiscoveryRepeatSkip:
         def __init__(self):
             super().__init__("replay-nc", "replay-nc-model")
             self.call_count = 0
+            self.prompts_after_dup: list[str] = []
 
         async def complete(self, messages, tools=None):
             self.call_count += 1
@@ -829,6 +830,8 @@ class TestDiscoveryRepeatSkip:
                     '{"tool": "bash", "params": {"command": "mkdir out -Force"}}\n```'
                 )
             if self.call_count == 3:
+                blob = " ".join(str(m.get("content", "")) for m in messages or [])
+                self.prompts_after_dup.append(blob)
                 return '```tool\n{"tool": "file_write", "params": {"path": "out/a.txt", "content": "a"}}\n```'
             return "Done."
 
@@ -846,11 +849,8 @@ class TestDiscoveryRepeatSkip:
     @pytest.mark.asyncio
     async def test_all_repeat_without_completion_continues(self, test_config):
         root = Path(test_config.workspace_root)
-        agent = AgentLoop(
-            test_config,
-            self._ReplayNoCompletionProvider(),
-            tool_registry=create_default_registry(),
-        )
+        provider = self._ReplayNoCompletionProvider()
+        agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
         events = []
         async for event in agent.process_prompt("Run the steps", "s1", [], "build"):
             events.append(event)
@@ -861,11 +861,17 @@ class TestDiscoveryRepeatSkip:
         assert (root / "out" / "a.txt").exists(), "new work after the replay must still run"
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
+        # WP2 contract: duplicate correction arrives IN-BAND as a result-shaped
+        # message in the repeated call's slot — never as a synthetic user-role
+        # stall nudge event.
+        assert provider.prompts_after_dup, "model must be called again after the duplicates"
+        assert any("Duplicate call blocked" in prompt for prompt in provider.prompts_after_dup), (
+            "the in-band duplicate notice must reach the model"
+        )
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert any(
-            "No new tool was executed this iteration" in (e.data.get("message") or "")
-            for e in warnings
-        ), "repeated calls without completion must trigger the corrective stall nudge, not finalize"
+        assert not any(
+            "No new tool was executed" in (e.data.get("message") or "") for e in warnings
+        ), "no coaching-nudge warnings may be emitted"
 
 
 class TestStallGuard:
@@ -915,10 +921,12 @@ class TestStallGuard:
         assert len(results) == 1, "repeated write must not re-execute"
         assert (root / "a.txt").read_text(encoding="utf-8") == "a"
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert any(
+        # WP2/WP4 contract: no per-iteration coaching nudges; only the physics
+        # cap finalizes after consecutive do-nothing iterations.
+        assert not any(
             "No new tool was executed this iteration" in (e.data.get("message") or "")
             for e in warnings
-        ), "the stall nudge must list remaining tools"
+        ), "coaching nudges were removed; feedback is in-band per call"
         assert any(
             "No new tool work for several consecutive iterations" in (e.data.get("message") or "")
             for e in warnings
@@ -927,9 +935,9 @@ class TestStallGuard:
         assert not any(e.kind == EventKind.ERROR for e in events)
 
     class _PathObsessionProvider(BaseProvider):
-        """Keeps re-writing the same path with new content while interleaving other
-        new files. Each iteration has new work, so the stall counter never fires;
-        the path-stuck detector must finalize the turn instead."""
+        """Keeps re-writing the same path with new content while interleaving
+        other new files. Same-turn rewrites are blocked in-band (WP2 result);
+        the model moves on each iteration, so the turn completes naturally."""
 
         def __init__(self):
             super().__init__("obsess", "obsess-model")
@@ -982,15 +990,14 @@ class TestStallGuard:
         assert (root / "a.txt").read_text(encoding="utf-8") == "v1", "first write must win"
         assert (root / "b.txt").read_text(encoding="utf-8") == "b"
         assert (root / "c.txt").read_text(encoding="utf-8") == "c"
+        # WP2/WP4 contract: blocked rewrites surface as in-band results; the
+        # removed path-obsession watchdog no longer force-finalizes.
         warnings = [e for e in events if e.kind == EventKind.WARNING]
-        assert any("kept re-writing" in (e.data.get("message") or "") for e in warnings), (
-            "the path-stuck detector must finalize the turn"
+        assert not any("kept re-writing" in (e.data.get("message") or "") for e in warnings), (
+            "the path-stuck watchdog was removed; blocks are per-call results"
         )
         assert events[-1].kind == EventKind.SUCCESS
         assert not any(e.kind == EventKind.ERROR for e in events)
-        # The graceful stall summary must list what was written.
-        success = [e for e in events if e.kind == EventKind.SUCCESS]
-        assert success and "Stopped after" in (success[0].data.get("message") or "")
 
     class _RecoveringProvider(BaseProvider):
         """Re-writes the same path (blocked), then verifies the written file and

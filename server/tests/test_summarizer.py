@@ -34,7 +34,7 @@ class _EchoProvider(BaseProvider):
 class TestConversationSummarizer:
     def _config(self, temp_dir, weak_model=None):
         return AppSettings(
-            db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir), weak_model=weak_model
+            home_dir=str(temp_dir / "test.db"), workspace_root=str(temp_dir), weak_model=weak_model
         )
 
     def _msgs(self):

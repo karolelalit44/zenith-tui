@@ -7,8 +7,8 @@ from server.agents.prompt_executor import PromptExecutor
 from server.config.settings import AppSettings
 from server.domain.domain import ScenarioMode
 from server.domain.session import Session
-from server.persistence.repositories.sessions import MessageRepository, SessionRepository
 from server.providers.base import BaseProvider, ProviderResponse
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
 
 class MockSummaryProvider(BaseProvider):
@@ -34,9 +34,9 @@ class MockSummaryProvider(BaseProvider):
 
 
 @pytest.mark.asyncio
-async def test_summary_rehydration_and_persistence(db, tmp_path):
-    session_repo = SessionRepository(db)
-    message_repo = MessageRepository(db)
+async def test_summary_rehydration_and_persistence(home, tmp_path):
+    session_repo = FileSessionRepository(home)
+    message_repo = FileMessageRepository(home)
 
     # 1. Create a session with a persisted summary
     session = Session(

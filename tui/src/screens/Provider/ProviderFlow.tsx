@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { modelStore } from '../../services/providers/ModelStore';
 import { providerRepository } from '../../services/providers/ProviderRepository';
 import { providerService } from '../../services/providers/ProviderService';
 import type {
@@ -50,7 +49,6 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
   const commitModel = useCallback(
     async (sel: ModelSelection) => {
       await providerRepository.setModel(sel.providerID, sel.modelID);
-      modelStore.set(sel);
       providerService.notifyChange();
       onComplete?.(sel);
       onClose();
@@ -109,14 +107,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
     case 'pick':
       return <ProviderPicker providers={catalogItems} onSelect={handlePick} onClose={onClose} />;
     case 'models':
-      return (
-        <ModelPicker
-          providerID={providerID || undefined}
-          providerName={provider.meta.name || providerID}
-          onSelect={handleModelSelect}
-          onClose={() => setPhase('pick')}
-        />
-      );
+      return <ModelPicker provider={provider} onSelect={handleModelSelect} onClose={() => setPhase('pick')} />;
     case 'key':
       return (
         <ApiKeyPrompt

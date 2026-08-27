@@ -242,11 +242,19 @@ class TestCompactionWatermark:
         ctx = ContextManager(config)
         # Cumulative provider usage must NOT signal exhaustion on an empty context.
         boundary = int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO)
-        assert ctx.is_context_exhausted([], "gpt-4", _FakeUsageProvider(total_tokens=boundary)) is False
+        assert (
+            ctx.is_context_exhausted([], "gpt-4", _FakeUsageProvider(total_tokens=boundary))
+            is False
+        )
         # A genuinely oversized composed context does.
         assert (
             ctx.is_context_exhausted(
-                [{"role": "user", "content": "x " * int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO * 4)}],
+                [
+                    {
+                        "role": "user",
+                        "content": "x " * int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO * 4),
+                    }
+                ],
                 "gpt-4",
             )
             is True

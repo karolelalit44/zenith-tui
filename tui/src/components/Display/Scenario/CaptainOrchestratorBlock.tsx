@@ -4,6 +4,7 @@ import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
+import type { Theme } from '../../../theme/theme';
 import type {
   AgentOrchestrationEvent,
   CrewmateAgent,
@@ -17,7 +18,7 @@ interface CaptainOrchestratorBlockProps {
 }
 
 /** Render status icon and color for Execution Plan Items. */
-function renderPlanStatus(status: PlanItemStatus, themeColors: any) {
+function renderPlanStatus(status: PlanItemStatus, themeColors: Theme['colors']) {
   switch (status) {
     case 'queued':
       return { icon: '◌ ', label: 'Queued', color: themeColors.text.dim };
@@ -37,7 +38,7 @@ function renderPlanStatus(status: PlanItemStatus, themeColors: any) {
 }
 
 /** Render status icon and color for Crewmate Agents. */
-function renderCrewmateStatus(status: CrewmateStatus, themeColors: any, tick: number) {
+function renderCrewmateStatus(status: CrewmateStatus, themeColors: Theme['colors'], tick: number) {
   switch (status) {
     case 'spawned':
     case 'assigned':
@@ -76,6 +77,17 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
 
   const isRunning = event.stage !== 'complete';
 
+  // Truthful completion state: a finished orchestration with any failed or
+  // timed-out crewmate is a FAILED run — never render a green checkmark over
+  // a failed mission (2026-08-26 incident: "✓ Complete" above "✗ Failed").
+  const crewmates = event.crewmates ?? [];
+  const hasFailedCrew = crewmates.some(
+    (cm) => cm.status === 'failed' || cm.status === 'needs_review',
+  );
+  const allRetiredOrDone =
+    crewmates.length > 0 &&
+    crewmates.every((cm) => cm.status === 'completed' || cm.status === 'retired');
+
   // Format stage label
   let stageLabel = 'Command Center Active';
   let stageColor = theme.colors.status.info;
@@ -110,8 +122,13 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
       stageColor = theme.colors.text.emerald;
       break;
     case 'complete':
-      stageLabel = 'Orchestration Complete';
-      stageColor = theme.colors.status.success;
+      if (hasFailedCrew) {
+        stageLabel = 'Orchestration Failed';
+        stageColor = theme.colors.status.error;
+      } else {
+        stageLabel = 'Orchestration Complete';
+        stageColor = theme.colors.status.success;
+      }
       break;
   }
 
@@ -128,22 +145,32 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
         {/* Command Center Header Bar */}
         <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
           <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
-            <Text color="#FF5F56">● </Text>
-            <Text color="#FFBD2E">● </Text>
-            <Text color="#27C93F">● </Text>
+            <Text color={theme.colors.decorative.trafficLight.red}>● </Text>
+            <Text color={theme.colors.decorative.trafficLight.yellow}>● </Text>
+            <Text color={theme.colors.decorative.trafficLight.green}>● </Text>
             <Text color={theme.colors.text.bright} bold wrap="truncate-end">
               ⚡ CAPTAIN ZENITH COMMAND CENTER
             </Text>
             <Text color={theme.colors.text.dim}> · </Text>
-            <Text color={stageColor} bold wrap="truncate-end">
-              {isRunning ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} ${stageLabel}` : `✓ ${stageLabel}`}
+            <Text
+              color={stageColor}
+              bold
+              wrap="truncate-end"
+            >
+              {isRunning
+                ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} ${stageLabel}`
+                : hasFailedCrew && event.stage === 'complete'
+                  ? `✗ ${stageLabel}`
+                  : allRetiredOrDone || event.stage !== 'complete'
+                    ? `✓ ${stageLabel}`
+                    : `⊘ ${stageLabel}`}
             </Text>
           </Box>
         </Box>
 
         {/* Captain Zenith Message Banner */}
         {event.captainMessage ? (
-          <Box flexDirection="row" marginTop={0} marginBottom={1}>
+          <Box flexDirection="row" marginBottom={1}>
             <Text color={theme.colors.status.info} bold>
               Captain Zenith ❯{' '}
             </Text>
@@ -260,19 +287,29 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
                 ⏱ CAPTAIN DECISION TIMELINE
               </Text>
             </Box>
-            {event.timeline.slice(-6).map((tl, idx) => {
-              let color = theme.colors.text.dim;
-              if (tl.type === 'success') color = theme.colors.status.success;
-              if (tl.type === 'warning' || tl.type === 'reassign') color = theme.colors.status.warning;
-              if (tl.type === 'error') color = theme.colors.status.error;
-              return (
-                <Box key={idx} flexDirection="row" paddingLeft={1}>
-                  <Text color={theme.colors.text.dim}>{tl.timestamp} </Text>
-                  <Text color={theme.colors.text.dim}>│ </Text>
-                  <Text color={color}>{tl.message}</Text>
-                </Box>
-              );
-            })}
+            {(() => {
+              // Collapse consecutive identical messages (repeated thinking
+              // summaries flooded the timeline 3-5x per turn).
+              const deduped: typeof event.timeline = [];
+              for (const tl of event.timeline.slice(-12)) {
+                const prev = deduped[deduped.length - 1];
+                if (prev && prev.message === tl.message) continue;
+                deduped.push(tl);
+              }
+              return deduped.slice(-6).map((tl, idx) => {
+                let color = theme.colors.text.dim;
+                if (tl.type === 'success') color = theme.colors.status.success;
+                if (tl.type === 'warning' || tl.type === 'reassign') color = theme.colors.status.warning;
+                if (tl.type === 'error') color = theme.colors.status.error;
+                return (
+                  <Box key={idx} flexDirection="row" paddingLeft={1}>
+                    <Text color={theme.colors.text.dim}>{tl.timestamp} </Text>
+                    <Text color={theme.colors.text.dim}>│ </Text>
+                    <Text color={color} wrap="truncate-end">{tl.message}</Text>
+                  </Box>
+                );
+              });
+            })()}
           </Box>
         ) : null}
       </Box>

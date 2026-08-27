@@ -311,11 +311,15 @@ def test_resolve_min_request_interval_env_fallback(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_exposes_rate_limit_after_migration(tmp_path):
-    from server.persistence.repositories import load_catalog
-    from server.persistence.startup import DatabaseStartupService
+def test_catalog_exposes_gemini_rate_limit(tmp_path):
+    from server.storage import StorageHome, ensure_materialized
+    from server.storage.catalog_compat import invalidate_catalog_cache, load_catalog
 
-    db_file = str(tmp_path / "test.db")
-    DatabaseStartupService(db_file).run()
-    catalog = load_catalog(db_file)
-    assert catalog["providers"]["google"]["rate_limit"] == {"requests_per_minute": 15}
+    home = StorageHome(tmp_path)
+    ensure_materialized(home)
+    invalidate_catalog_cache()
+    try:
+        catalog = load_catalog(home)
+        assert catalog["providers"]["gemini"]["rate_limit"] == {"requests_per_minute": 15}
+    finally:
+        invalidate_catalog_cache()

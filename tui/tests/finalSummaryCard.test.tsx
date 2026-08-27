@@ -37,7 +37,10 @@ describe('FinalSummaryCard (QA-9.2)', () => {
 
     const frame = lastFrame() || '';
     expect(frame).toContain('Run summary');
-    expect(frame).toContain('Fixed the leak');
+    // P2.2: the header states the real objective from the run-state snapshot,
+    // never the (possibly fallback) long-form summary text.
+    expect(frame).toContain('Fix the leak');
+    expect(frame).not.toContain('Fixed the leak');
     expect(frame).toContain('outcome:');
     expect(frame).toContain('completed');
     expect(frame).toContain('done');
@@ -80,7 +83,7 @@ describe('FinalSummaryCard (QA-9.2)', () => {
     expect(frame).not.toContain('verification:');
   });
 
-  it('omits empty sections entirely', () => {
+  it('renders nothing for a substance-less Q&A run (declutter)', () => {
     const event: SessionSummarizedEvent = {
       kind: 'session_summarized',
       id: 's3',
@@ -97,8 +100,10 @@ describe('FinalSummaryCard (QA-9.2)', () => {
       </ThemeProvider>,
     );
 
+    // New contract: no changes/findings/problems/todos -> no card at all.
     const frame = lastFrame() || '';
-    expect(frame).toContain('outcome:');
+    expect(frame).toBe('');
+    expect(frame).not.toContain('outcome:');
     expect(frame).not.toContain('discovered:');
     expect(frame).not.toContain('changed:');
     expect(frame).not.toContain('affected:');

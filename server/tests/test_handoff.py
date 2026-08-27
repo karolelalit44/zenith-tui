@@ -6,6 +6,7 @@ Verifies the design-spec invariants (§3.3 / §4.3):
   - long working turns fall back to ConversationSummarizer,
   - empty/no-work turns persist the cancellation placeholder.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -97,17 +98,19 @@ class _Stub:
 def config():
     from server.config.settings import AppSettings
 
-    return AppSettings(db_path="/tmp/handoff_test.db", workspace_root="/tmp")
+    return AppSettings(home_dir="/tmp/handoff_test.db", workspace_root="/tmp")
+
+
 class TestPersistAssistantMessage:
-    async def _persist(self, stub, response_text, events):
+    async def _persist(self, stub, response_text, events, terminal_status="completed"):
         import types
 
         from server.agents.prompt_executor import PromptExecutor
 
-        stub._summarize_handoff = types.MethodType(
-            PromptExecutor._summarize_handoff, stub
+        stub._summarize_handoff = types.MethodType(PromptExecutor._summarize_handoff, stub)
+        await PromptExecutor._persist_assistant_message(
+            stub, "s1", response_text, events, terminal_status=terminal_status
         )
-        await PromptExecutor._persist_assistant_message(stub, "s1", response_text, events)
 
     async def test_worked_turn_never_persists_placeholder(self, config):
         repo = _FakeMessageRepo()
@@ -130,13 +133,31 @@ class TestPersistAssistantMessage:
         assert "[Cancelled by user]" not in repo.created[0].content
         assert "Created: only.py" in repo.created[0].content
 
-    async def test_no_work_persists_cancellation_placeholder(self, config):
+    async def test_no_work_persists_no_summary_placeholder(self, config):
         repo = _FakeMessageRepo()
         stub = _Stub(repo, config)
         manifest = _manifest(created=[], modified=[], verified=True)
         await self._persist(stub, "", [_manifest_event(manifest)])
         assert len(repo.created) == 1
+        # Completed turns with no work and no text get the neutral placeholder;
+        # "[Cancelled by user]" is reserved for real cancellations (P1.4).
+        assert repo.created[0].content == "[No summary recorded]"
+
+    async def test_cancelled_turn_persists_cancellation_placeholder(self, config):
+        repo = _FakeMessageRepo()
+        stub = _Stub(repo, config)
+        manifest = _manifest(created=[], modified=[], verified=True)
+        await self._persist(stub, "", [_manifest_event(manifest)], terminal_status="cancelled")
+        assert len(repo.created) == 1
         assert repo.created[0].content == "[Cancelled by user]"
+
+    async def test_errored_turn_persists_error_placeholder(self, config):
+        repo = _FakeMessageRepo()
+        stub = _Stub(repo, config)
+        manifest = _manifest(created=[], modified=[], verified=True)
+        await self._persist(stub, "", [_manifest_event(manifest)], terminal_status="error")
+        assert len(repo.created) == 1
+        assert repo.created[0].content == "[Turn ended with an error]"
 
     async def test_empty_events_and_text_skipped(self, config):
         repo = _FakeMessageRepo()

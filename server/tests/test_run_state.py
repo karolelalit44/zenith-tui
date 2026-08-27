@@ -12,9 +12,9 @@ from __future__ import annotations
 import pytest
 
 from server.agents.run_state import (
+    _MAX_FINDINGS,
     RUN_STATUSES,
     SessionRunState,
-    _MAX_FINDINGS,
     from_dict,
     merge_run_state,
     new_run_state,
@@ -266,7 +266,7 @@ class TestPromptExecutorPersistence:
         msg_repo = _MsgRepo()
         from server.config.settings import AppSettings
 
-        config = AppSettings(db_path="/tmp/run_state_test.db", workspace_root="/tmp")
+        config = AppSettings(home_dir="/tmp/run_state_test.db", workspace_root="/tmp")
         executor = PromptExecutor(
             config,
             _Provider(),
@@ -349,7 +349,7 @@ class TestPromptExecutorPersistence:
 
         from server.config.settings import AppSettings
 
-        config = AppSettings(db_path=str(temp_dir / "run_state.db"), workspace_root=str(temp_dir))
+        config = AppSettings(home_dir=str(temp_dir / "run_state.db"), workspace_root=str(temp_dir))
         executor = PromptExecutor(
             config,
             _Provider(),

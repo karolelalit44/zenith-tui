@@ -103,6 +103,12 @@ class TestSession:
         with pytest.raises((SessionTransitionError, ValueError)):
             session.transition(SessionState.CREATED)
 
+    def test_created_session_can_resume(self):
+        """F4: reconnecting to a brand-new session must be a legal resume."""
+        session = Session(title="Test")
+        session.transition(SessionState.RESUMED)
+        assert session.state == SessionState.RESUMED
+
 
 class TestErrors:
     def test_zenith_error(self):

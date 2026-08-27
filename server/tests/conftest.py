@@ -7,15 +7,25 @@ from dotenv import load_dotenv
 # .env is the single source of truth for config; explicitly set env vars win.
 load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
-# DB stays isolated to a fresh temp file per test run, never the real zenith.db.
+# Storage stays isolated to a fresh temp home per test run, never ~/.zenith.
 _test_tmpdir = tempfile.mkdtemp()
-os.environ["ZENITH_DB_PATH"] = os.path.join(_test_tmpdir, "test.db")
+os.environ["ZENITH_HOME"] = _test_tmpdir
 
 import pytest
 
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
-from server.persistence.connection import Database
+from server.storage import (
+    FileCheckpointRepository,
+    FileMessageRepository,
+    FileProjectMemoryRepository,
+    FileSessionRepository,
+    FileSyncEventRepository,
+    FileTokenUsageRepository,
+    FileWorkspaceRepository,
+    StorageHome,
+    ensure_materialized,
+)
 
 
 @pytest.fixture
@@ -25,16 +35,51 @@ def temp_dir():
 
 
 @pytest.fixture
-def config(temp_dir):
-    return AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir))
+def home(temp_dir):
+    """Isolated file-storage home rooted in a per-test temp dir."""
+    h = StorageHome(temp_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
-async def db(config):
-    database = Database(config.db_path)
-    await database.connect()
-    yield database
-    await database.close()
+def config(temp_dir):
+    return AppSettings(home_dir=str(temp_dir), workspace_root=str(temp_dir))
+
+
+@pytest.fixture
+def session_repo(home):
+    return FileSessionRepository(home)
+
+
+@pytest.fixture
+def message_repo(home):
+    return FileMessageRepository(home)
+
+
+@pytest.fixture
+def sync_repo(home):
+    return FileSyncEventRepository(home)
+
+
+@pytest.fixture
+def checkpoint_repo(home):
+    return FileCheckpointRepository(home)
+
+
+@pytest.fixture
+def usage_repo(home):
+    return FileTokenUsageRepository(home)
+
+
+@pytest.fixture
+def workspace_repo(home):
+    return FileWorkspaceRepository(home)
+
+
+@pytest.fixture
+def memory_repo(home):
+    return FileProjectMemoryRepository(home)
 
 
 @pytest.fixture

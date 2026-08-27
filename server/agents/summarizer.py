@@ -29,6 +29,7 @@ class ConversationSummarizer:
         previous_summary: str | None = None,
         prefix: list[dict] | None = None,
         focus: str | None = None,
+        event_sink: "Callable[[str, str], None] | None" = None,
     ) -> str:
         if not messages:
             return ""
@@ -52,13 +53,32 @@ class ConversationSummarizer:
             )
         except TimeoutError:
             logger.warning("Summarization timed out, using fallback")
+            await self._report_degraded(event_sink, session_id)
             result = self._fallback(messages)
         except Exception as e:
             logger.warning("Summarization failed: %s", e)
+            await self._report_degraded(event_sink, session_id)
             result = self._fallback(messages)
         return (result or "").strip()
 
-    def _build_prompt(self, conversation: str, previous_summary: str | None, focus: str | None = None) -> str:
+    @staticmethod
+    async def _report_degraded(
+        event_sink: "Callable[[str, str], Awaitable[None]] | None", session_id: str
+    ) -> None:
+        # Surfaces a degraded summary to the user instead of failing silently.
+        # The fallback still returns a usable (reduced) summary so the session
+        # continues, but context continuity is weaker than a real one.
+        if event_sink is None:
+            return
+        await event_sink(
+            "Context summarization was degraded by a provider error; the saved "
+            "summary may be incomplete and continuity across turns is reduced.",
+            "SUMMARIZATION_DEGRADED",
+        )
+
+    def _build_prompt(
+        self, conversation: str, previous_summary: str | None, focus: str | None = None
+    ) -> str:
         focus_block = ""
         if focus and focus.strip():
             focus_block = (
@@ -88,43 +108,23 @@ class ConversationSummarizer:
             + focus_block
         )
 
-    async def summarize_output(self, output: str, tool_name: str = "tool") -> str:
-        """Produce a terse summary of a large tool output (heavy-tool isolation).
-
-        Keeps concrete, useful details (paths, symbols, errors, exit codes) and
-        drops noise. Returns an empty string when summarization is not possible
-        so callers can fall back to a deterministic trim.
-        """
-        if not output:
-            return ""
-        prompt = (
-            "Summarize the output of the tool call below in terse bullet points. "
-            "Preserve concrete details: file paths, function/symbol names, error "
-            "messages, exit codes, and any numbers. Never use fenced code blocks. "
-            f"The summary replaces the full output in the conversation, so it must "
-            f"retain the facts an agent needs to act.\n\nTool: {tool_name}\n\nOutput:\n" + output
-        )
-        try:
-            kwargs: dict[str, Any] = {}
-            provider: Any = self.provider
-            if (
-                self.config.weak_model
-                and "model" in inspect.signature(provider.complete).parameters
-            ):
-                kwargs["model"] = self.config.weak_model
-            result = await asyncio.wait_for(
-                provider.complete([{"role": "user", "content": prompt}], **kwargs),
-                timeout=optional_float(SUMMARIZER_TIMEOUT_ENV, DEFAULT_SUMMARIZER_TIMEOUT),
-            )
-        except Exception:  # noqa: BLE001 - degrade to caller fallback
-            logger.warning("Heavy-output summarization failed, caller fallback will apply")
-            return ""
-        return (result or "").strip()
-
     @staticmethod
     def _fallback(messages: list[Message]) -> str:
+        # Deterministic degradation (AGENT_RELIABILITY_PLAN P2.1): the objective
+        # is derived from the actual conversation (most recent user message) —
+        # never canned boilerplate that misrepresents the request.
         recent = [m for m in messages[-5:] if m.content]
-        if not recent:
-            return "Objective\n- Continue the prior conversation\n\nWork State\n- No prior context available."
-        lines = "\n".join(f"- [{m.role}] {m.content[:200]}" for m in recent)
-        return "Objective\n- Continue the prior conversation\n\nImportant Details\n" + lines
+        objective = ""
+        for message in reversed(messages):
+            content = str(getattr(message, "content", "") or "").strip()
+            if getattr(message, "role", "") == "user" and content:
+                objective = content
+                break
+        sections = ["Objective\n- " + (objective[:200] if objective else "(unavailable)")]
+        if recent:
+            sections.append(
+                "Important Details\n" + "\n".join(f"- [{m.role}] {m.content[:200]}" for m in recent)
+            )
+        else:
+            sections.append("Work State\n- No prior context available.")
+        return "\n\n".join(sections)

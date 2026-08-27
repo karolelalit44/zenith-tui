@@ -128,7 +128,7 @@ class _Stub:
 def config():
     from server.config.settings import AppSettings
 
-    return AppSettings(db_path="/tmp/evidence_finalization_test.db", workspace_root="/tmp")
+    return AppSettings(home_dir="/tmp/evidence_finalization_test.db", workspace_root="/tmp")
 
 
 class TestPersistAssistantMessage:

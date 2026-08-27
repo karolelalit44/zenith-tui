@@ -6,306 +6,227 @@ from server.api.provider_validation import (
 )
 from server.api.schemas import ProviderModelRequest
 from server.config.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
-from server.persistence import provider_config_repo
-from server.persistence.connection import Database
-from server.persistence.provider_config_repo import mask_api_key, read_provider_config_full
-from server.persistence.repositories import ProviderRepositoryDB, load_catalog
 from server.providers.validation import STEP_LABELS, validate_provider, validate_provider_collect
+from server.storage import StorageHome, ensure_materialized
+from server.storage.catalog_compat import load_catalog
+from server.storage.profile_store import mask_api_key
+from server.storage.provider_config import read_provider_config_full, save_provider_config
+
+GROQ_URL = "https://api.groq.com/openai/v1"
 
 
-def _bootstrap_db(db_path: str) -> None:
-    from server.persistence.startup import DatabaseStartupService
-
-    DatabaseStartupService(db_path).run()
+def _home(tmp_path) -> StorageHome:
+    h = StorageHome(tmp_path)
+    ensure_materialized(h)
+    return h
 
 
 def test_mask_api_key():
     assert mask_api_key(None) == ""
     assert mask_api_key("") == ""
     assert mask_api_key("abcdefgh") == "***efgh"
-    assert mask_api_key("sk-or-v1-1234abcd5678efgh") == "sk-or-v1***efgh"
+    # Last-4-only masking: no leading secret material is ever echoed.
+    assert mask_api_key("sk-or-v1-1234abcd5678efgh") == "***efgh"
     assert "1234abcd" not in mask_api_key("sk-or-v1-1234abcd5678efgh")
+    assert "sk-or-v1" not in mask_api_key("sk-or-v1-1234abcd5678efgh")
 
 
 def test_read_provider_config_full_masks_key(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    provider_config_repo.save_provider_config(
-        provider="openai",
-        api_key="sk-supersecretkey-xyz",
-        model="gpt-4o-mini",
-        base_url="https://api.openai.com/v1",
+    home = _home(tmp_path)
+    save_provider_config(
+        home,
+        provider="groq",
+        api_key="gsk-supersecretkey-xyz",
+        model="llama-3.3-70b-versatile",
+        base_url=GROQ_URL,
         max_tokens=DEFAULT_LLM_MAX_TOKENS,
         temperature=DEFAULT_LLM_TEMPERATURE,
-        db_path=db_file,
     )
-    active, providers = read_provider_config_full(db_path=db_file)
-    assert active == "openai"
-    p = providers["openai"]
-    assert p["api_key_masked"] == "sk-super***-xyz"
+    active, providers = read_provider_config_full(home)
+    assert active == "groq"
+    p = providers["groq"]
+    assert p["api_key_masked"] == "***-xyz"
+    assert "gsk-supe" not in p["api_key_masked"]
     assert p["has_api_key"] is True
     assert p["api_key"] == p["api_key_masked"]
-    assert "sk-supersecretkey-xyz" not in p["api_key"]
+    assert "gsk-supersecretkey-xyz" not in p["api_key"]
 
 
-def test_get_provider_list_from_migrated_db(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    result = get_provider_list(db_path=db_file)
+def test_first_class_roster(tmp_path):
+    result = get_provider_list(_home(tmp_path))
     ids = [p.id for p in result.all]
-    assert len(ids) >= 8
-    assert "nvidia" in ids
-    assert "openai_compatible" in ids
-    assert "custom" in ids
+    # Decision D3: exactly four first-class providers.
+    assert sorted(ids) == ["gemini", "groq", "openai_compatible", "openrouter"]
     assert result.connected == []
-    nvidia = next(p for p in result.all if p.id == "nvidia")
-    assert nvidia.validation_status == "unconfigured"
-    assert nvidia.has_api_key is False
-    assert nvidia.config_fields
-    assert nvidia.models
-    assert nvidia.is_popular is True
-    assert nvidia.base_url_style == ""
+    groq = next(p for p in result.all if p.id == "groq")
+    assert groq.validation_status == "unconfigured"
+    assert groq.has_api_key is False
+    assert groq.models
     assert next(p for p in result.all if p.id == "openai_compatible").custom_flow is True
-    assert next(p for p in result.all if p.id == "tokenrouter").base_url_style == "tokenrouter"
-    assert next(p for p in result.all if p.id == "anthropic").supports_prompt_caching is True
-    assert next(p for p in result.all if p.id == "anthropic").supports_thinking_headers is True
-
-
-def test_get_provider_list_missing_db_empty():
-    result = get_provider_list(db_path=":memory:")
-    assert result.all == []
-    assert result.connected == []
+    gemini = next(p for p in result.all if p.id == "gemini")
+    assert gemini.supports_prompt_caching is True
+    assert gemini.env_keys  # apiKeyEnv carried through the compat catalog
 
 
 def test_get_provider_catalog_returns_only_metadata(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    items = get_provider_catalog(db_path=db_file)
+    items = get_provider_catalog(_home(tmp_path))
     ids = [i.id for i in items]
-    assert "nvidia" in ids
+    assert "gemini" in ids
     assert "openrouter" in ids
-    assert "custom" in ids
+    assert "openai_compatible" in ids
     for item in items:
         assert not hasattr(item, "models")
         assert item.type in ("default", "custom")
-    assert next(i for i in items if i.id == "custom").type == "custom"
-    assert next(i for i in items if i.id == "nvidia").type == "default"
+    assert next(i for i in items if i.id == "openai_compatible").type == "custom"
     assert next(i for i in items if i.id == "openrouter").type == "default"
 
 
 def test_get_provider_models_paginated_and_complete(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    res = get_provider_models("groq", offset=0, limit=2, db_path=db_file)
+    home = _home(tmp_path)
+    res = get_provider_models("groq", offset=0, limit=2, home=home)
     assert res.total >= 2
     assert len(res.models) == min(2, res.total)
     assert res.offset == 0
     assert res.limit == 2
-    all_res = get_provider_models("groq", offset=0, limit=1000, db_path=db_file)
+    all_res = get_provider_models("groq", offset=0, limit=1000, home=home)
     assert all_res.total == len(all_res.models)
     assert "llama-3.3-70b-versatile" in [m.id for m in all_res.models]
 
 
 def test_get_provider_models_offset_paginates(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    first = get_provider_models("groq", offset=0, limit=1, db_path=db_file)
-    second = get_provider_models("groq", offset=1, limit=1, db_path=db_file)
+    home = _home(tmp_path)
+    first = get_provider_models("groq", offset=0, limit=1, home=home)
+    second = get_provider_models("groq", offset=1, limit=1, home=home)
     assert first.total == second.total
     assert first.models and second.models
     assert first.models[0].id != second.models[0].id
 
 
 def test_get_provider_models_unknown_empty(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    res = get_provider_models("nonexistent", db_path=db_file)
+    res = get_provider_models("nonexistent", home=_home(tmp_path))
     assert res.total == 0
     assert res.models == []
 
 
 def test_get_provider_list_after_auth_and_model(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    result = get_provider_list(db_path=db_file)
+    home = _home(tmp_path)
+    result = get_provider_list(home)
     assert "groq" in [p.id for p in result.all]
-    provider_config_repo.save_provider_config(
+    save_provider_config(
+        home,
         provider="groq",
         api_key="gsk_secretkey123",
         model="",
         base_url="",
         max_tokens=DEFAULT_LLM_MAX_TOKENS,
         temperature=DEFAULT_LLM_TEMPERATURE,
-        db_path=db_file,
         set_active=False,
     )
-    info = get_provider_list(db_path=db_file)
+    info = get_provider_list(home)
     groq_info = next(p for p in info.all if p.id == "groq")
     assert groq_info.has_api_key is True
     assert groq_info.api_key_masked
     assert "gsk_secretkey123" not in groq_info.api_key_masked
     assert groq_info.validation_status == "configured"
     assert groq_info.is_active is False
-    result = get_provider_list(db_path=db_file)
+    result = get_provider_list(home)
     assert "groq" in result.connected
     info = set_provider_model(
-        "groq", ProviderModelRequest(model="llama-3.3-70b-versatile"), db_path=db_file
+        "groq", ProviderModelRequest(model="llama-3.3-70b-versatile"), home=home
     )
     assert info.model == "llama-3.3-70b-versatile"
     assert info.is_active is True
     assert result.active != "groq"
-    result2 = get_provider_list(db_path=db_file)
+    result2 = get_provider_list(home)
     assert result2.active == "groq"
     groq = next(p for p in result2.all if p.id == "groq")
     assert "llama-3.3-70b-versatile" in groq.models
 
 
-async def test_ensure_seeded_reconcile(tmp_path):
-    from sqlalchemy import select
+async def test_upsert_user_model_idempotent(tmp_path):
+    from server.storage.provider_config import upsert_provider_models
 
-    from server.persistence.models import ProviderModelRecord, ProviderRecord
-
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    db = Database(db_file)
-    await db.connect()
-    try:
-        repo = ProviderRepositoryDB(db)
-        await repo.ensure_seeded()
-        catalog = load_catalog(db_file)
-        expected = list(catalog["providers"].keys())
-
-        async def _provider_map():
-            async with db.session() as s:
-                providers = (await s.execute(select(ProviderRecord))).scalars().all()
-                result = {}
-                for rec in providers:
-                    models = (
-                        (
-                            await s.execute(
-                                select(ProviderModelRecord).where(
-                                    ProviderModelRecord.provider_id == rec.id
-                                )
-                            )
-                        )
-                        .scalars()
-                        .all()
-                    )
-                    result[rec.id] = {"id": rec.id, "models": [m.id for m in models]}
-                return result
-
-        providers = await _provider_map()
-        assert sorted(providers.keys()) == sorted(expected)
-        for pid in expected:
-            assert providers[pid]["models"], f"provider {pid} has no seeded models"
-        before = {pid: len(p["models"]) for pid, p in providers.items()}
-        await repo.ensure_seeded()
-        providers2 = await _provider_map()
-        assert sorted(providers2.keys()) == sorted(expected)
-        assert {pid: len(p["models"]) for pid, p in providers2.items()} == before
-    finally:
-        await db.close()
-
-
-async def test_upsert_provider_models_idempotent(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
-    provider_config_repo.upsert_provider_models(
-        provider="custom",
+    home = _home(tmp_path)
+    upsert_provider_models(
+        home,
+        "openai_compatible",
         models=[
-            {
-                "id": "my-model",
-                "name": "My Model",
-                "context_window": 32000,
-                "description": "",
-                "is_default": False,
-            },
-            {
-                "id": "other-model",
-                "name": "Other Model",
-                "context_window": 64000,
-                "description": "",
-                "is_default": False,
-            },
+            {"id": "my-model", "name": "My Model", "context_window": 32000},
+            {"id": "other-model", "name": "Other Model", "context_window": 64000},
         ],
-        db_path=db_file,
     )
-    _, providers = read_provider_config_full(db_path=db_file)
-    ids = [m["id"] for m in providers["custom"]["models"]]
+    _, providers = read_provider_config_full(home)
+    ids = [m["id"] for m in providers["openai_compatible"]["models"]]
     assert "my-model" in ids
     assert "other-model" in ids
-    provider_config_repo.upsert_provider_models(
-        provider="custom",
-        models=[
-            {
-                "id": "my-model",
-                "name": "My Model V2",
-                "context_window": 48000,
-                "description": "",
-                "is_default": False,
-            }
-        ],
-        db_path=db_file,
+    upsert_provider_models(
+        home,
+        "openai_compatible",
+        models=[{"id": "my-model", "name": "My Model V2", "context_window": 48000}],
     )
-    _, providers = read_provider_config_full(db_path=db_file)
-    models = {m["id"]: m for m in providers["custom"]["models"]}
+    _, providers = read_provider_config_full(home)
+    models = {m["id"]: m for m in providers["openai_compatible"]["models"]}
     assert len(models) == 2
     assert models["my-model"]["name"] == "My Model V2"
     assert models["my-model"]["context_window"] == 48000
 
 
 async def test_validate_unknown_provider():
-    result = await validate_provider_collect("does_not_exist", db_path=":memory:")
+    result = await validate_provider_collect("does_not_exist")
     assert result.valid is False
     assert result.error.code == "UNKNOWN_PROVIDER"
 
 
 async def test_validate_missing_base_url(tmp_path, monkeypatch):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
+    import copy
 
-    def fake_catalog(db_path=None):
-        catalog = load_catalog(db_path)
-        catalog["providers"]["openai"] = dict(catalog["providers"]["openai"], base_url="")
+    from server.storage.catalog_compat import invalidate_catalog_cache
+
+    home = _home(tmp_path)
+
+    def fake_catalog(_home=None):
+        # Deep-copy: load_catalog() returns shared/cached dicts; mutating them
+        # would poison every later consumer in the same process.
+        catalog = copy.deepcopy(load_catalog(home))
+        catalog["providers"]["groq"] = dict(catalog["providers"]["groq"], base_url="")
         return catalog
 
     monkeypatch.setattr("server.providers.validation.load_catalog", fake_catalog)
-    result = await validate_provider_collect(
-        "openai", api_key="sk-x", model="gpt-4o-mini", db_path=db_file
-    )
+    try:
+        result = await validate_provider_collect(
+            "groq", api_key="gsk-x", model="llama-3.3-70b-versatile"
+        )
+    finally:
+        invalidate_catalog_cache()
     assert result.valid is False
     assert result.error.code == "MISSING_BASE_URL"
 
 
 async def test_validate_invalid_base_url(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
+    _home(tmp_path)
     result = await validate_provider_collect(
-        "openai", api_key="sk-x", base_url="ftp://bad", model="gpt-4o-mini", db_path=db_file
+        "groq", api_key="gsk-x", base_url="ftp://bad", model="llama-3.3-70b-versatile"
     )
     assert result.valid is False
     assert result.error.code == "INVALID_BASE_URL"
 
 
 async def test_validate_missing_api_key(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
+    _home(tmp_path)
     result = await validate_provider_collect(
-        "openai", base_url="https://api.openai.com/v1", model="gpt-4o-mini", db_path=db_file
+        "groq", base_url=GROQ_URL, model="llama-3.3-70b-versatile"
     )
     assert result.valid is False
     assert result.error.code == "MISSING_API_KEY"
 
 
 async def test_validate_connection_failure(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
+    _home(tmp_path)
     result = await validate_provider_collect(
-        "openai",
-        api_key="sk-x",
+        "groq",
+        api_key="gsk-x",
         base_url="http://127.0.0.1:1",
-        model="gpt-4o-mini",
-        db_path=db_file,
+        model="llama-3.3-70b-versatile",
     )
     assert result.valid is False
     assert result.error.code == "CONNECTION_FAILED"
@@ -316,8 +237,7 @@ async def test_validate_connection_failure(tmp_path):
 
 
 async def test_validate_auth_probe_rejects_bad_key(tmp_path, monkeypatch):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
+    _home(tmp_path)
 
     class _FakeResponse:
         status_code = 200
@@ -348,11 +268,10 @@ async def test_validate_auth_probe_rejects_bad_key(tmp_path, monkeypatch):
     monkeypatch.setattr("server.providers.validation.httpx.AsyncClient", _FakeAsyncClient)
     monkeypatch.setattr("server.providers.validation.LLMProvider", _FakeProvider)
     result = await validate_provider_collect(
-        "openai",
-        api_key="sk-bad",
-        base_url="https://api.openai.com/v1",
-        model="gpt-4o-mini",
-        db_path=db_file,
+        "groq",
+        api_key="gsk-bad",
+        base_url=GROQ_URL,
+        model="llama-3.3-70b-versatile",
     )
     assert result.valid is False
     assert result.error.code == "AUTH_FAILED"
@@ -361,8 +280,7 @@ async def test_validate_auth_probe_rejects_bad_key(tmp_path, monkeypatch):
 
 
 async def test_validate_auth_probe_accepts_key_on_model_error(tmp_path, monkeypatch):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
+    _home(tmp_path)
 
     class _FakeResponse:
         status_code = 200
@@ -393,11 +311,10 @@ async def test_validate_auth_probe_accepts_key_on_model_error(tmp_path, monkeypa
     monkeypatch.setattr("server.providers.validation.httpx.AsyncClient", _FakeAsyncClient)
     monkeypatch.setattr("server.providers.validation.LLMProvider", _FakeProvider)
     result = await validate_provider_collect(
-        "openai",
-        api_key="sk-ok",
-        base_url="https://api.openai.com/v1",
-        model="gpt-4o-mini",
-        db_path=db_file,
+        "groq",
+        api_key="gsk-ok",
+        base_url=GROQ_URL,
+        model="llama-3.3-70b-versatile",
     )
     assert result.valid is False
     assert result.error.code == "SMOKE_TEST_FAILED"
@@ -406,15 +323,13 @@ async def test_validate_auth_probe_accepts_key_on_model_error(tmp_path, monkeypa
 
 
 async def test_validate_stream_emits_step_events(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    _bootstrap_db(db_file)
+    _home(tmp_path)
     events = []
     async for ev in validate_provider(
-        "openai",
-        api_key="sk-x",
+        "groq",
+        api_key="gsk-x",
         base_url="http://127.0.0.1:1",
-        model="gpt-4o-mini",
-        db_path=db_file,
+        model="llama-3.3-70b-versatile",
     ):
         events.append(ev)
     types = [e["type"] for e in events]

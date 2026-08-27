@@ -143,9 +143,9 @@ class TestSessionStateRendering:
 
 
 def test_format_tool_result_reuses_compaction_pipeline():
+    from server.config.constants import MAX_TOOL_OUTPUT_BASELINE
     from server.toolkit.base import ToolResult
     from server.toolkit.executor import format_tool_result
-    from server.config.constants import MAX_TOOL_OUTPUT_BASELINE
 
     rendered = format_tool_result("file_write", ToolResult(success=True, output="x" * 100_000))
     assert rendered.startswith("[Tool: file_write | Status: SUCCESS]")

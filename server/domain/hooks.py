@@ -59,11 +59,10 @@ class HookRunner:
     ) -> dict[str, Any]:
         rendered = _render_command(command, payload)
         try:
-            proc = await asyncio.create_subprocess_shell(
+            from server.shell_runner import run_shell_command
+
+            proc = await run_shell_command(
                 rendered,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
                 cwd=workspace_root or ".",
             )
         except Exception as e:

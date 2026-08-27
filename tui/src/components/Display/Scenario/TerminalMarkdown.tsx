@@ -296,9 +296,9 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
             {/* Designer Terminal Window Header Bar */}
             <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
               <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
-                <Text color="#FF5F56">● </Text>
-                <Text color="#FFBD2E">● </Text>
-                <Text color="#27C93F">● </Text>
+                <Text color={theme.colors.decorative.trafficLight.red}>● </Text>
+                <Text color={theme.colors.decorative.trafficLight.yellow}>● </Text>
+                <Text color={theme.colors.decorative.trafficLight.green}>● </Text>
                 <Text color={theme.colors.status.info} bold wrap="truncate-end">
                   {lang === 'DIFF' ? 'diff' : lang.toLowerCase()}
                 </Text>
@@ -400,7 +400,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       const title = line.slice(2).trim();
       blocks.push(
         <Box key={`h1_${idx}`} flexDirection="column" marginBottom={1}>
-          <Text color="#C77DBB" bold>
+          <Text color={theme.colors.text.heading} bold>
             {title}
           </Text>
         </Box>,
@@ -413,7 +413,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       const title = line.slice(3).trim();
       blocks.push(
         <Box key={`h2_${idx}`} flexDirection="row" alignItems="center" marginBottom={1}>
-          <Text color="#C77DBB" bold>
+          <Text color={theme.colors.text.heading} bold>
             {title}
           </Text>
         </Box>,

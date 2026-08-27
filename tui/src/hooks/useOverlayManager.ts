@@ -9,7 +9,6 @@ export type OverlayType =
   | 'context'
   | 'compaction'
   | 'provider'
-  | 'models'
   | 'usage'
   | 'session'
   | 'memories';

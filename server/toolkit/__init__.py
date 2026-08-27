@@ -1,7 +1,5 @@
 import logging
 
-from server.permissions.service import PermissionService
-
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
 from .catalog import (
     CapabilityCatalog,
@@ -15,7 +13,6 @@ from .registry import ToolRegistry
 from .registry_validation import validate_registry
 from .resolver import DISCOVERY_TOOLS, SchemaResolver, build_mode_tool_seed
 from .schema_metrics import estimate_tool_schema_tokens, measure_registry_schema_tokens
-from .tools.agent_tool import SubAgentTool
 from .tools.bash import BashTool
 from .tools.file_delete import FileDeleteTool
 from .tools.file_edit import FileEditTool
@@ -59,7 +56,6 @@ __all__ = [
     "McpToolWrapper",
     "MultiEditTool",
     "SchemaResolver",
-    "SubAgentTool",
     "TodoTool",
     "ToolContext",
     "ToolInventoryEntry",
@@ -80,13 +76,12 @@ __all__ = [
 def create_default_registry(
     timeout: int = 30,
     provider: object | None = None,
-    permission_service: PermissionService | None = None,
     hooks: object | None = None,
+    config: object | None = None,
 ) -> ToolRegistry:
     from .middleware import (
         HookMiddleware,
         LoggingMiddleware,
-        PermissionMiddleware,
         SafetyCheckMiddleware,
     )
     from .middleware.plan_write import PlanWriteGuard
@@ -103,6 +98,17 @@ def create_default_registry(
     registry.register(GlobTool())
     registry.register(GrepTool())
     registry.register(ListDirTool())
+    # WP6: structural query family — read-only, evidence-carrying lookups
+    # over the tree-sitter symbol graph (callers/outline/blast radius).
+    from .tools.code_graph_tools import (
+        CodeBlastRadiusTool,
+        CodeCallersTool,
+        CodeOutlineTool,
+    )
+
+    registry.register(CodeCallersTool())
+    registry.register(CodeOutlineTool())
+    registry.register(CodeBlastRadiusTool())
     registry.register(WebfetchTool(provider=provider))
     registry.register(WebsearchTool())
     registry.register(JobOutputTool())
@@ -112,8 +118,20 @@ def create_default_registry(
     registry.register(LspDiagnosticsTool())
     registry.register(LspDefinitionTool())
     registry.register(LspRenameTool())
-    agent_tool = SubAgentTool(provider=provider)
-    registry.register(agent_tool)
+    # WP5 (D3/D7, completed): the legacy write-capable "agent" tool has been
+    # deleted; explore is the sole delegation surface. See
+    # docs/WP5_EXPLORE_DELEGATION_PLAN.md §5.2.5.
+    if config is not None and getattr(config, "explore_delegation", "tool") != "off":
+        from .tools.explore_tool import ExploreTool
+
+        registry.register(
+            ExploreTool(
+                config=config,
+                provider=provider,
+                tool_registry=registry,
+                weak_model=getattr(config, "weak_model", None),
+            )
+        )
     registry.register(DiscoverCapabilitiesTool(registry=registry))
     registry.register(GetToolDefinitionTool(registry=registry))
     if hooks is not None:
@@ -121,8 +139,6 @@ def create_default_registry(
 
         registry.register_middleware(HookMiddleware(HookRunner(hooks)))
     registry.register_middleware(SafetyCheckMiddleware())
-    if permission_service is not None:
-        registry.register_middleware(PermissionMiddleware(service=permission_service))
     validation_errors = validate_registry(registry)
     if validation_errors:
         logger.warning("Tool registry validation failed at startup:")

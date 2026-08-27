@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from server.config.settings import AppSettings, HooksConfig
 from server.domain.hooks import HookRunner
-from server.persistence.connection import Database
-from server.persistence.repositories import MessageRepository, SessionRepository
 from server.sessions.service import DefaultSessionService
+from server.storage import StorageHome
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.toolkit import ToolRegistry
 from server.toolkit.base import ToolContext, ToolResult
 from server.toolkit.middleware import HookMiddleware
@@ -168,46 +168,37 @@ class TestHookRegistryE2E:
 
 class TestSessionStartHook:
     async def test_session_start_fires(self, temp_dir):
-        db = Database(str(temp_dir / "test.db"))
-        await db.connect()
-        try:
-            svc = DefaultSessionService(
-                session_repo=SessionRepository(db),
-                message_repo=MessageRepository(db),
-                hooks=HooksConfig(session_start=["echo started >> session-hook.txt"]),
-            )
-            session = await svc.create(title="hook test", workspace_root=str(temp_dir))
-            marker = temp_dir / "session-hook.txt"
-            assert marker.read_text().strip() == "started"
-            assert session.id
-        finally:
-            await db.close()
+        svc = DefaultSessionService(
+            session_repo=FileSessionRepository(StorageHome(temp_dir)),
+            message_repo=FileMessageRepository(StorageHome(temp_dir)),
+            hooks=HooksConfig(session_start=["echo started >> session-hook.txt"]),
+        )
+        session = await svc.create(title="hook test", workspace_root=str(temp_dir))
+        assert session.id
+        marker = temp_dir / "session-hook.txt"
+        # PowerShell's >> writes UTF-16; decode tolerantly and strip NULs so
+        # the assertion is shell-encoding agnostic.
+        content = marker.read_text(encoding="utf-8", errors="ignore")
+        assert content.replace("\x00", "").strip() == "started"
 
     async def test_no_session_start_without_hooks(self, temp_dir):
-        db = Database(str(temp_dir / "test.db"))
-        await db.connect()
-        try:
-            svc = DefaultSessionService(
-                session_repo=SessionRepository(db), message_repo=MessageRepository(db)
-            )
-            await svc.create(title="no hooks", workspace_root=str(temp_dir))
-            assert not (temp_dir / "session-hook.txt").exists()
-        finally:
-            await db.close()
+        svc = DefaultSessionService(
+            session_repo=FileSessionRepository(StorageHome(temp_dir)),
+            message_repo=FileMessageRepository(StorageHome(temp_dir)),
+        )
+        await svc.create(title="no hooks", workspace_root=str(temp_dir))
+        assert not (temp_dir / "session-hook.txt").exists()
 
     async def test_session_start_title_substitution(self, temp_dir):
-        db = Database(str(temp_dir / "test.db"))
-        await db.connect()
-        try:
-            svc = DefaultSessionService(
-                session_repo=SessionRepository(db),
-                message_repo=MessageRepository(db),
-                hooks=HooksConfig(session_start=["echo title={title} >> titles.txt"]),
-            )
-            await svc.create(title="my-session", workspace_root=str(temp_dir))
-            assert (temp_dir / "titles.txt").read_text().strip() == "title=my-session"
-        finally:
-            await db.close()
+        svc = DefaultSessionService(
+            session_repo=FileSessionRepository(StorageHome(temp_dir)),
+            message_repo=FileMessageRepository(StorageHome(temp_dir)),
+            hooks=HooksConfig(session_start=["echo title={title} >> titles.txt"]),
+        )
+        await svc.create(title="my-session", workspace_root=str(temp_dir))
+        assert (temp_dir / "titles.txt").read_text(encoding="utf-8", errors="ignore").replace(
+            "\x00", ""
+        ).strip() == "title=my-session"
 
 
 class TestCreateDefaultRegistryHooks:

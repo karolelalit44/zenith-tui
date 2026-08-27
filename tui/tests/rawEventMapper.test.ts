@@ -228,7 +228,9 @@ describe('rawEventMapper session/context/token (QA-9)', () => {
   });
 
   it('keeps truly-unmapped kinds on the UNKNOWN_EVENT fallback', () => {
-    const evt = mapRawEvent('agent_status', { status: 'working' }, 'evt_unk');
+    // `agent_status` used to be the canonical unmapped specimen; it is now a
+    // mapped sub-agent lifecycle kind (see agentOrchestrationMapper.test.ts).
+    const evt = mapRawEvent('definitely_not_a_real_kind', { status: 'working' }, 'evt_unk');
     expect(evt.kind).toBe('warning');
     if (evt.kind !== 'warning') return;
     expect(evt.code).toBe('UNKNOWN_EVENT');

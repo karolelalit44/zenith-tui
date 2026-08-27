@@ -26,8 +26,8 @@ from server.config.constants import RUNNING_SUMMARY_MESSAGE_LIMIT
 
 if TYPE_CHECKING:
     from server.config.settings import AppSettings
-    from server.persistence.repositories import MessageRepository, SessionRepository
     from server.providers.base import BaseProvider
+    from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,8 @@ class RunningSummaryScheduler:
         self,
         config: AppSettings,
         provider: BaseProvider,
-        session_repo: SessionRepository,
-        message_repo: MessageRepository,
+        session_repo: FileSessionRepository,
+        message_repo: FileMessageRepository,
     ) -> None:
         self._config = config
         self._provider = provider

@@ -43,16 +43,6 @@ export interface CostSummaryItem {
   total_output: number;
 }
 
-export interface BudgetStatus {
-  active: boolean;
-  max_session_cost: number;
-  max_daily_cost: number;
-  max_monthly_cost: number;
-  session_cost?: number;
-  daily_cost?: number;
-  monthly_cost?: number;
-}
-
 export interface StepTokenUsage {
   id?: string;
   session_id: string;
@@ -127,35 +117,6 @@ class TokenUsageService extends BaseApiService {
       return data.data;
     } catch {
       return [];
-    }
-  }
-
-  async fetchBudgetStatus(sessionId: string): Promise<BudgetStatus> {
-    try {
-      return await this.get<BudgetStatus>(`/usage/budget/${sessionId}`);
-    } catch {
-      return { active: false, max_session_cost: 0, max_daily_cost: 0, max_monthly_cost: 0 };
-    }
-  }
-
-  async upsertBudget(
-    sessionId: string,
-    maxSessionCost: number,
-    maxDailyCost: number,
-    maxMonthlyCost: number,
-    active: boolean = true,
-  ): Promise<boolean> {
-    try {
-      const result = await this.post<{ ok: boolean }>('/usage/budget', {
-        session_id: sessionId,
-        max_session_cost: maxSessionCost,
-        max_daily_cost: maxDailyCost,
-        max_monthly_cost: maxMonthlyCost,
-        active,
-      });
-      return result.ok;
-    } catch {
-      return false;
     }
   }
 

@@ -1,4 +1,5 @@
 import { appConfig } from '../../config/appConfig';
+import { BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS, BACKEND_RESPONSE_PLACEHOLDER_LABEL } from '../../constants/events';
 import type { Scenario, ScenarioMode } from '../../types/scenario';
 import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scenario/types';
 import { mapRawEvent, uid } from './rawEventMapper';
@@ -224,10 +225,9 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       if (kind === 'thinking' && lastEventKind === 'thinking' && eventIndex > 0) {
         const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
-        for (const t of newThoughts) {
-          const text = typeof t === 'string' ? t : t.text;
-          if (text) mergedThinkingThoughts.push(text);
-        }
+        mergedThinkingThoughts = newThoughts
+          .map((t) => (typeof t === 'string' ? t : t.text))
+          .filter(Boolean) as string[];
 
         const mergedId = mergedThinkingId ?? (mapped as import('../../types/scenario').ThinkingEvent).id;
         mergedThinkingId = mergedId;
@@ -278,17 +278,20 @@ export class BackendScenarioProvider implements ScenarioProvider {
     timerHandle = setTimeout(() => {
       timerHandle = null;
       if (eventIndex === 0 && !completed) {
+        // Live-only progress row instead of a permanent message: progress
+        // events are stripped from scrollback once the turn completes, so
+        // this latency indicator never pollutes history.
         onEvent(
           {
-            kind: 'message',
+            kind: 'progress',
             id: uid(),
-            text: 'Waiting for backend response...',
-            partial: false,
+            label: BACKEND_RESPONSE_PLACEHOLDER_LABEL,
+            steps: [],
           },
           eventIndex++,
         );
       }
-    }, 2000);
+    }, BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS);
 
     return {
       abort: () => {

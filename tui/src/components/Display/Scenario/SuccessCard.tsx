@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import React from 'react';
+import React, { useRef } from 'react';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { estimateTokensForEvents, formatTokenCount } from '../../../services/api/tokenEstimationService';
 import { useTheme } from '../../../theme/ThemeContext';
@@ -32,13 +32,19 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   ];
 
   // Duration in whole 1-second increments (updates only on 1s changes).
-  // Prefer the server-reported elapsedMs; the shared tick is a render signal,
-  // not a clock, so only fall back to it while a value is still missing.
-  // NOTE: the synthesized live status row carries elapsedMs: 0, which is a
-  // missing value, not a real measurement — a nullish-coalesce would treat 0
-  // as truthy and freeze the timer at zero, so compare explicitly.
+  // Prefer the server-reported elapsedMs. The shared tick is ONLY a render
+  // signal — `tick * 100` would measure time since APP LAUNCH (the tick
+  // counter is global and never resets per turn), which showed absurd
+  // durations like "32 minutes" on a fresh turn. Measure from this card's
+  // own mount instead, mirroring ToolStepCard's pendingStartRef pattern.
+  const runStartRef = useRef<number | null>(null);
+  if (isLiveRunning && runStartRef.current === null) {
+    runStartRef.current = Date.now();
+  }
   const reportedElapsedMs = event.elapsedMs ?? 0;
-  const elapsedMs = reportedElapsedMs > 0 ? reportedElapsedMs : isLiveRunning ? tick * 100 : undefined;
+  const liveElapsedMs =
+    isLiveRunning && runStartRef.current !== null ? Math.max(1000, Date.now() - runStartRef.current) : undefined;
+  const elapsedMs = reportedElapsedMs > 0 ? reportedElapsedMs : liveElapsedMs;
   const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
 
   // Used tokens calculation. `tokenInfo.used` is the composed-context occupancy

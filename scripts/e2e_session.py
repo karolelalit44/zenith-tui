@@ -108,10 +108,16 @@ async def run_session_test(prompts: list[str]) -> dict:
             nonlocal rpc_id
             rpc_id += 1
             rid = f"p_{rpc_id}"
-            await ws.send(json.dumps({
-                "jsonrpc": "2.0", "id": rid, "method": "prompt.send",
-                "params": {"content": prompt, "mode": "build", "session_id": sid},
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": rid,
+                        "method": "prompt.send",
+                        "params": {"content": prompt, "mode": "build", "session_id": sid},
+                    }
+                )
+            )
             events: list[dict] = []
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
@@ -148,8 +154,10 @@ async def run_session_test(prompts: list[str]) -> dict:
         resume_err = resume_r.get("error")
         if resume_err:
             # This is expected — CREATED -> RESUMED is invalid
-            bug("session.resume on CREATED",
-                f"silently swallowed ValueError: {resume_err.get('message', '')}")
+            bug(
+                "session.resume on CREATED",
+                f"silently swallowed ValueError: {resume_err.get('message', '')}",
+            )
         else:
             ok("session.resume (succeeded)")
 
@@ -163,41 +171,48 @@ async def run_session_test(prompts: list[str]) -> dict:
 
         for i, prompt in enumerate(prompts):
             log("")
-            log(f"--- Prompt {i+1}/{len(prompts)} ---")
+            log(f"--- Prompt {i + 1}/{len(prompts)} ---")
             log(f"  SENT: {prompt}")
 
             events = await send_prompt(prompt, sid)
             kinds = [e["kind"] for e in events]
-            finals = [e for e in events if e["kind"] == "message"
-                      and not e.get("data", {}).get("partial")]
-            partials = [e for e in events if e["kind"] == "message"
-                        and e.get("data", {}).get("partial")]
+            finals = [
+                e for e in events if e["kind"] == "message" and not e.get("data", {}).get("partial")
+            ]
+            partials = [
+                e for e in events if e["kind"] == "message" and e.get("data", {}).get("partial")
+            ]
             response = finals[0]["data"]["text"] if finals else ""
             suc = next((e for e in events if e["kind"] == "success"), None)
             ti = suc["data"].get("tokenInfo", {}) if suc else {}
 
             log(f"  RECV: {response[:200]}")
-            log(f"  META: tokens={ti.get('used','?')}/{ti.get('total','?')}"
-                f" partials={len(partials)} events={kinds}")
+            log(
+                f"  META: tokens={ti.get('used', '?')}/{ti.get('total', '?')}"
+                f" partials={len(partials)} events={kinds}"
+            )
 
-            results["transcript"].append({
-                "prompt": prompt, "response": response,
-                "partial_count": len(partials),
-                "used_tokens": ti.get("used", 0),
-                "total_tokens": ti.get("total", 0),
-                "iterations": suc["data"].get("iterations", 0) if suc else 0,
-                "elapsed_ms": suc["data"].get("elapsedMs", 0) if suc else 0,
-                "events": kinds,
-            })
+            results["transcript"].append(
+                {
+                    "prompt": prompt,
+                    "response": response,
+                    "partial_count": len(partials),
+                    "used_tokens": ti.get("used", 0),
+                    "total_tokens": ti.get("total", 0),
+                    "iterations": suc["data"].get("iterations", 0) if suc else 0,
+                    "elapsed_ms": suc["data"].get("elapsedMs", 0) if suc else 0,
+                    "events": kinds,
+                }
+            )
 
             if response:
-                ok(f"prompt_{i+1}.response")
+                ok(f"prompt_{i + 1}.response")
             else:
-                fail(f"prompt_{i+1}.response", "empty")
+                fail(f"prompt_{i + 1}.response", "empty")
             if "success" in kinds:
-                ok(f"prompt_{i+1}.success")
+                ok(f"prompt_{i + 1}.success")
             else:
-                fail(f"prompt_{i+1}.success", f"got {kinds}")
+                fail(f"prompt_{i + 1}.success", f"got {kinds}")
 
         # =============================================================
         # PHASE 3: Verify session in list_all
@@ -229,8 +244,12 @@ async def run_session_test(prompts: list[str]) -> dict:
         log("=" * 70)
 
         our = next(
-            (s for s in (sessions if isinstance(sessions, list) else [])
-             if s.get("id") == sid or s.get("session_id") == sid), None
+            (
+                s
+                for s in (sessions if isinstance(sessions, list) else [])
+                if s.get("id") == sid or s.get("session_id") == sid
+            ),
+            None,
         )
         if our:
             state = our.get("state", our.get("status", "unknown"))
@@ -246,10 +265,12 @@ async def run_session_test(prompts: list[str]) -> dict:
         if pause_err:
             msg = pause_err.get("message", "")
             if "Invalid session transition" in msg:
-                bug("session.pause state machine",
+                bug(
+                    "session.pause state machine",
                     f"session in state '{state}' cannot pause. "
                     f"prompt.send writes directly to message_repo, never "
-                    f"transitions state to ACTIVE via session_service.add_message()")
+                    f"transitions state to ACTIVE via session_service.add_message()",
+                )
             else:
                 fail("session.pause", msg[:200])
         else:
@@ -278,19 +299,25 @@ async def run_session_test(prompts: list[str]) -> dict:
 
         events2 = await send_prompt(followup, sid)
         kinds2 = [e["kind"] for e in events2]
-        finals2 = [e for e in events2 if e["kind"] == "message"
-                   and not e.get("data", {}).get("partial")]
+        finals2 = [
+            e for e in events2 if e["kind"] == "message" and not e.get("data", {}).get("partial")
+        ]
         response2 = finals2[0]["data"]["text"] if finals2 else ""
         suc2 = next((e for e in events2 if e["kind"] == "success"), None)
         ti2 = suc2["data"].get("tokenInfo", {}) if suc2 else {}
 
         log(f"  RECV: {response2[:200]}")
-        log(f"  META: tokens={ti2.get('used','?')}/{ti2.get('total','?')} events={kinds2}")
+        log(f"  META: tokens={ti2.get('used', '?')}/{ti2.get('total', '?')} events={kinds2}")
 
-        results["transcript"].append({
-            "prompt": followup, "response": response2, "events": kinds2,
-            "used_tokens": ti2.get("used", 0), "total_tokens": ti2.get("total", 0),
-        })
+        results["transcript"].append(
+            {
+                "prompt": followup,
+                "response": response2,
+                "events": kinds2,
+                "used_tokens": ti2.get("used", 0),
+                "total_tokens": ti2.get("total", 0),
+            }
+        )
 
         if response2:
             ok("followup.response")
@@ -303,8 +330,10 @@ async def run_session_test(prompts: list[str]) -> dict:
         if any(w in lower for w in ("2", "four", "first")):
             ok("followup.context_continuity")
         else:
-            fail("followup.context_continuity",
-                 f"model did not remember first prompt: {response2[:100]}")
+            fail(
+                "followup.context_continuity",
+                f"model did not remember first prompt: {response2[:100]}",
+            )
 
         # =============================================================
         # PHASE 6: Export session, verify history
@@ -459,10 +488,16 @@ async def tui_window_test() -> dict:
         nonlocal_rpc_id = 0
         nonlocal_rpc_id += 1
         rid = f"p_{nonlocal_rpc_id}"
-        await ws.send(json.dumps({
-            "jsonrpc": "2.0", "id": rid, "method": "prompt.send",
-            "params": {"content": prompt1, "mode": "build", "session_id": tui_sid},
-        }))
+        await ws.send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid,
+                    "method": "prompt.send",
+                    "params": {"content": prompt1, "mode": "build", "session_id": tui_sid},
+                }
+            )
+        )
 
         events1 = []
         deadline = time.monotonic() + 60
@@ -480,8 +515,9 @@ async def tui_window_test() -> dict:
                 break
 
         kinds1 = [e["kind"] for e in events1]
-        finals1 = [e for e in events1 if e["kind"] == "message"
-                   and not e.get("data", {}).get("partial")]
+        finals1 = [
+            e for e in events1 if e["kind"] == "message" and not e.get("data", {}).get("partial")
+        ]
         response1 = finals1[0]["data"]["text"] if finals1 else ""
         log(f"  RECV: {response1[:200]}")
         log(f"  EVENTS: {kinds1}")
@@ -517,10 +553,16 @@ async def tui_window_test() -> dict:
 
         nonlocal_rpc_id += 1
         rid2 = f"p_{nonlocal_rpc_id}"
-        await ws.send(json.dumps({
-            "jsonrpc": "2.0", "id": rid2, "method": "prompt.send",
-            "params": {"content": prompt2, "mode": "build", "session_id": tui_sid},
-        }))
+        await ws.send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid2,
+                    "method": "prompt.send",
+                    "params": {"content": prompt2, "mode": "build", "session_id": tui_sid},
+                }
+            )
+        )
 
         events2 = []
         deadline2 = time.monotonic() + 60
@@ -538,8 +580,9 @@ async def tui_window_test() -> dict:
                 break
 
         kinds2 = [e["kind"] for e in events2]
-        finals2 = [e for e in events2 if e["kind"] == "message"
-                   and not e.get("data", {}).get("partial")]
+        finals2 = [
+            e for e in events2 if e["kind"] == "message" and not e.get("data", {}).get("partial")
+        ]
         response2 = finals2[0]["data"]["text"] if finals2 else ""
         log(f"  RECV: {response2[:200]}")
         log(f"  EVENTS: {kinds2}")
@@ -554,8 +597,7 @@ async def tui_window_test() -> dict:
         if any(w in lower2 for w in ("12", "twelve")):
             ok("tui.context_continuity (got 12)")
         else:
-            fail("tui.context_continuity",
-                 f"expected 12, got: {response2[:100]}")
+            fail("tui.context_continuity", f"expected 12, got: {response2[:100]}")
 
         # Final screenshot
         time.sleep(2)
@@ -625,19 +667,22 @@ def main() -> int:
         log("CONVERSATION TRANSCRIPT:")
         log("-" * 70)
         for i, t in enumerate(results["transcript"]):
-            log(f"  [{i+1}] SENT: {t['prompt']}")
+            log(f"  [{i + 1}] SENT: {t['prompt']}")
             log(f"      RECV: {t['response'][:150]}")
             log(f"      TOKENS: {t.get('used_tokens', '?')}/{t.get('total_tokens', '?')}")
             log(f"      EVENTS: {t.get('events', [])}")
         log("-" * 70)
-        log(f"TOTAL: {len(all_passed)} passed, {len(all_failed)} failed, "
-            f"{len(all_bugs)} bugs found")
+        log(
+            f"TOTAL: {len(all_passed)} passed, {len(all_failed)} failed, {len(all_bugs)} bugs found"
+        )
         log("=" * 70)
 
         ts = time.strftime("%Y%m%d_%H%M%S")
         report = {
-            "passed": all_passed, "failed": all_failed,
-            "warned": all_warned, "bugs": all_bugs,
+            "passed": all_passed,
+            "failed": all_failed,
+            "warned": all_warned,
+            "bugs": all_bugs,
             "transcript": results["transcript"],
         }
         report_file = LOG_DIR / f"session_tui_e2e_report_{ts}.json"

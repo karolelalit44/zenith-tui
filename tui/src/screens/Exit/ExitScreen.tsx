@@ -39,7 +39,6 @@ export const ExitScreen: React.FC = () => {
       alignItems="flex-start"
       justifyContent="flex-start"
     >
-      {}
       <Box flexDirection="row" alignItems="center">
         <Text color={phase === 'saving' ? theme.colors.status.warning : theme.colors.status.success}>
           {phase === 'saving' ? '○' : '■'}
@@ -50,7 +49,6 @@ export const ExitScreen: React.FC = () => {
         </Text>
       </Box>
 
-      {}
       {(phase === 'saved' || phase === 'bye') && (
         <Box flexDirection="row" alignItems="center">
           <Text color={phase === 'bye' ? theme.colors.status.success : theme.colors.status.warning}>
@@ -61,7 +59,6 @@ export const ExitScreen: React.FC = () => {
         </Box>
       )}
 
-      {}
       {phase === 'bye' && (
         <Box flexDirection="row" alignItems="center" marginTop={1}>
           <Text color={theme.colors.status.success} bold>

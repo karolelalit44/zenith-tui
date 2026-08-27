@@ -117,6 +117,11 @@ _VALID_TRANSITIONS: dict[SessionState, set[SessionState]] = {
         SessionState.DRAFT,
         SessionState.ACTIVE,
         SessionState.ARCHIVED,
+        # A freshly created session whose client reconnects (page refresh /
+        # transient WS drop) before finishing any work must be resumable;
+        # rejecting created→resumed forced a spurious warning on every
+        # reconnect-to-new-session (F4).
+        SessionState.RESUMED,
     },
     SessionState.DRAFT: {SessionState.ACTIVE, SessionState.ARCHIVED},
     SessionState.INITIALIZING: {SessionState.ACTIVE, SessionState.ERROR, SessionState.ARCHIVED},

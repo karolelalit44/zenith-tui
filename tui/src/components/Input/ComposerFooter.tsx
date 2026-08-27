@@ -1,7 +1,6 @@
 import { Box, Text } from 'ink';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
-import { modelStore } from '../../services/providers/ModelStore';
 import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types/scenario';
 import { computeFooterLayout } from '../../utils/footerLayout';
@@ -40,12 +39,8 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
   }) => {
     const { theme } = useTheme();
     const { columns } = useTerminalDimensions();
-    const [, forceUpdate] = useState(0);
 
-    useEffect(() => modelStore.subscribe(() => forceUpdate((x) => x + 1)), []);
-
-    const sel = modelStore.current;
-    const chip = sel ? modelStore.toDisplayString(sel) : modelFallback;
+    const chip = modelFallback;
 
     const layout = computeFooterLayout({
       columns,

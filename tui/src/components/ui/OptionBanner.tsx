@@ -39,24 +39,27 @@ export function OptionBanner<T = string>({
     [options.length],
   );
 
-  useInput((_input, key) => {
-    if (key.leftArrow) {
-      move(-1);
-      return;
-    }
-    if (key.rightArrow) {
-      move(1);
-      return;
-    }
-    if (key.return) {
-      const option = options[index];
-      if (option) onSelect(option.value);
-      return;
-    }
-    if (key.escape) {
-      onClose();
-    }
-  });
+  useInput(
+    (_input, key) => {
+      if (key.leftArrow) {
+        move(-1);
+        return;
+      }
+      if (key.rightArrow) {
+        move(1);
+        return;
+      }
+      if (key.return) {
+        const option = options[index];
+        if (option) onSelect(option.value);
+        return;
+      }
+      if (key.escape) {
+        onClose();
+      }
+    },
+    { isActive: true },
+  );
 
   return (
     <Box flexDirection="row" width="100%" alignItems="center" marginBottom={1}>

@@ -22,14 +22,35 @@ const UsageModal: React.FC<UsageModalProps> = ({ onClose }) => {
   const { theme } = useTheme();
   const [stats, setStats] = useState<TokenUsageStats | null>(null);
   const [costData, setCostData] = useState<CostSummaryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useInput((_char, key) => {
     if (key.escape || key.return) onClose();
   });
 
   useEffect(() => {
-    tokenUsageService.fetchStats().then(setStats);
-    tokenUsageService.fetchCostSummary('all').then(setCostData);
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      tokenUsageService.fetchStats().catch((err) => {
+        console.error('Failed to fetch token stats:', err);
+        return null;
+      }),
+      tokenUsageService.fetchCostSummary('all').catch((err) => {
+        console.error('Failed to fetch cost summary:', err);
+        return [] as CostSummaryItem[];
+      }),
+    ])
+      .then(([statsResult, costResult]) => {
+        setStats(statsResult);
+        setCostData(costResult ?? []);
+      })
+      .catch((err) => {
+        setError('Failed to load usage data');
+        console.error('Usage modal load error:', err);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const totals = stats?.totals;
@@ -44,6 +65,20 @@ const UsageModal: React.FC<UsageModalProps> = ({ onClose }) => {
           </Text>
           <Text color={theme.colors.text.muted}>Press Esc or Enter to close</Text>
         </Box>
+
+        {loading && (
+          <Box paddingY={1}>
+            <Text color={theme.colors.text.dim} italic>
+              Loading usage data...
+            </Text>
+          </Box>
+        )}
+
+        {error && (
+          <Box paddingY={1}>
+            <Text color={theme.colors.status.error}>{error}</Text>
+          </Box>
+        )}
 
         {totals && (
           <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>

@@ -5,12 +5,25 @@ from pydantic import BaseModel, Field, field_validator
 from .constants import (
     BUILD_MODE,
     DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_EXPLORE_DELEGATION,
+    DEFAULT_EXPLORE_TOKEN_BUDGET,
+    EXPLORE_DELEGATION_MODES,
+    EXPLORE_TOKEN_BUDGET_ENV,
     PLAN_MODE,
     READ_ONLY_MODE,
     READ_ONLY_TOOLS,
+    SCOUT_GRAPH_TOOLS,
+    SCOUT_MODE,
 )
 from .env import optional_env, optional_float, optional_int, optional_int_none
 from .providers import ProviderConfig
+
+
+def default_home() -> str:
+    from pathlib import Path
+
+    return str(Path.home() / ".zenith")
+
 
 CORE_PLAN_TOOLS = [
     "file_read",
@@ -61,10 +74,25 @@ READ_ONLY_MODE_CONFIG = AgentModeConfig(
     sub_agent=False,
     tool_choice="none",
 )
+SCOUT_MODE_CONFIG = AgentModeConfig(
+    name=SCOUT_MODE,
+    # WP6: structural query family rides along with the read tools so scouts
+    # answer relational questions in one call instead of grep-hop chains.
+    allowed_tools=[*READ_ONLY_TOOLS, *SCOUT_GRAPH_TOOLS],
+    allowed_mcp={},
+    description=(
+        "Read-only codebase investigation for delegated specialist agents "
+        "(Apogee crewmate): evidence-gathering with structural symbol queries; "
+        "no mutation or delegation."
+    ),
+    sub_agent=False,
+    tool_choice="auto",
+)
 AGENT_MODES: dict[str, AgentModeConfig] = {
     PLAN_MODE: PLAN_MODE_CONFIG,
     BUILD_MODE: BUILD_MODE_CONFIG,
     READ_ONLY_MODE: READ_ONLY_MODE_CONFIG,
+    SCOUT_MODE: SCOUT_MODE_CONFIG,
 }
 
 
@@ -91,7 +119,7 @@ class HooksConfig(BaseModel):
 
 class BootstrapDefaults(BaseModel):
     active_provider: str = ""
-    db_path: str = optional_env("ZENITH_DB_PATH", "data/zenith.db")
+    home_dir: str = Field(default_factory=lambda: optional_env("ZENITH_HOME", str(default_home())))
     log_level: str = optional_env("ZENITH_LOG_LEVEL", "INFO")
     max_context_tokens: int = Field(
         default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", DEFAULT_CONTEXT_WINDOW), ge=1000
@@ -115,7 +143,7 @@ class AppSettings(BaseModel):
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
     active_provider: str = DEFAULTS.active_provider
     workspace_root: str = "."
-    db_path: str = DEFAULTS.db_path
+    home_dir: str = DEFAULTS.home_dir
     log_level: str = DEFAULTS.log_level
     tools: ToolConfig = Field(default_factory=ToolConfig)
     max_context_tokens: int = DEFAULTS.max_context_tokens
@@ -138,6 +166,20 @@ class AppSettings(BaseModel):
     weak_model: str | None = Field(
         default=None,
         description="Optional cheap model for summaries, commit messages (two-tier strategy)",
+    )
+    explore_delegation: str = Field(
+        default=DEFAULT_EXPLORE_DELEGATION,
+        description=(
+            "Explore delegation governance: 'off' (no explore tool, no pre-loop "
+            "routing), 'tool' (ONLY the mid-turn explore tool delegates — the "
+            "recommended default), 'proactive' (explore tool PLUS legacy pre-loop "
+            "capability routing)."
+        ),
+    )
+    explore_token_budget: int = Field(
+        default=optional_int(EXPLORE_TOKEN_BUDGET_ENV, DEFAULT_EXPLORE_TOKEN_BUDGET),
+        ge=1_000,
+        description="Aggregate token ceiling across explore children per rolling window",
     )
     repo_map_enabled: bool = True
     repo_map_tokens: int | None = Field(
@@ -162,12 +204,15 @@ class AppSettings(BaseModel):
     def validate_active_provider(cls, v: str) -> str:
         return (v or "").strip()
 
-    @field_validator("db_path")
+    @field_validator("explore_delegation")
     @classmethod
-    def validate_db_path(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("db_path cannot be empty")
-        return v
+    def validate_explore_delegation(cls, v: str) -> str:
+        mode = (v or "").strip().lower()
+        if mode not in EXPLORE_DELEGATION_MODES:
+            raise ValueError(
+                f"explore_delegation must be one of {', '.join(EXPLORE_DELEGATION_MODES)}"
+            )
+        return mode
 
     def get_active_provider_config(self) -> ProviderConfig | None:
         return self.providers.get(self.active_provider)

@@ -22,11 +22,11 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-import websockets  # noqa: E402
+import websockets
 
 WS_URL = os.environ.get("ZENITH_WS_URL", "ws://127.0.0.1:8765/ws")
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -48,7 +48,7 @@ def next_id() -> str:
 
 
 def ts() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
 def divider(title: str) -> str:
@@ -94,7 +94,7 @@ async def ws_collect_events(ws, timeout: float = 60) -> list[dict]:
         remaining = deadline - time.time()
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=max(0.1, remaining))
-        except (TimeoutError, asyncio.TimeoutError):
+        except TimeoutError:
             break
         data = json.loads(raw)
         if data.get("method") == "ping":

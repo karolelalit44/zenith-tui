@@ -76,7 +76,7 @@ def _build(
     async_summary_enabled: bool = True,
 ) -> tuple[RunningSummaryScheduler, _FakeProvider, _FakeMessageRepo, _FakeSessionRepo]:
     config = AppSettings(
-        db_path="data/test.db",
+        home_dir="data/test.db",
         workspace_root=".",
         weak_model=None,
         async_summary_enabled=async_summary_enabled,

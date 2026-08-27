@@ -167,7 +167,7 @@ def test_config(temp_dir):
     return AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir / "test.db"),
         workspace_root=str(temp_dir),
     )
 
@@ -312,9 +312,7 @@ async def test_progress_events_derive_from_executed_tools(test_config):
         assert ev.data.get("label"), f"progress event missing label: {ev.data}"
         assert isinstance(ev.data.get("steps"), list)
     last_steps = progress[-1].data.get("steps") or []
-    assert len(last_steps) >= 2, (
-        "progress events must accumulate steps for each executed tool"
-    )
+    assert len(last_steps) >= 2, "progress events must accumulate steps for each executed tool"
     labels = " ".join(s.get("label", "") for s in last_steps)
     assert "Writing files" in labels, labels
     assert "Reading files" in labels, labels
@@ -350,7 +348,7 @@ async def test_cumulative_usage_does_not_hard_stop(temp_dir):
     config = AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir / "test.db"),
         workspace_root=str(temp_dir),
     )
     agent = AgentLoop(config, provider, tool_registry=create_default_registry())
@@ -373,16 +371,14 @@ async def test_composed_context_hard_stops_before_calling_the_llm(temp_dir):
     config = AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir / "test.db"),
         workspace_root=str(temp_dir),
         max_context_tokens=1200,
     )
     agent = AgentLoop(config, provider, tool_registry=create_default_registry())
 
     events = []
-    async for event in agent.process_prompt(
-        "Do the work " + "x " * 2000, "s1", [], "build"
-    ):
+    async for event in agent.process_prompt("Do the work " + "x " * 2000, "s1", [], "build"):
         events.append(event)
 
     errors = [e for e in events if e.kind == EventKind.ERROR]
@@ -735,8 +731,8 @@ async def test_context_exhausted_pre_loop_emits_manifest(test_config):
 @pytest.mark.asyncio
 async def test_stream_error_emits_manifest(test_config):
     """4.6: ZenithError from stream emits turn_manifest before returning."""
-    from server.domain.events import EventKind
     from server.domain.errors import ZenithError
+    from server.domain.events import EventKind
 
     class _StreamErrorProvider(BaseProvider):
         def __init__(self):

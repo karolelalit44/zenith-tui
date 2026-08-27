@@ -9,6 +9,7 @@ from server.config.constants import (
     PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
+from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -89,6 +90,8 @@ class FileEditTool(BaseTool):
         resolved = validate_path(rel_path, workspace_root)
         if resolved is None:
             return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
+        if blocked_as_missing(get_matcher(workspace_root), rel_path):
+            return ToolResult(success=False, error=f"File not found: {rel_path}")
         old = params.get("old_content", "")
         new = params.get("new_content", "")
         if not resolved.exists():

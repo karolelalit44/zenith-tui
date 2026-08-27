@@ -1,6 +1,7 @@
 import type { ConversationTurn } from '../hooks/useConversation';
 import { mapRawEvent } from '../services/transport/rawEventMapper';
 import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
+import { pairToolEvents } from './pairToolEvents';
 
 /**
  * Converts backend session-history messages (chronological) into conversation
@@ -64,20 +65,26 @@ function buildEventsFromAssistantMessage(msg: Record<string, unknown>): Scenario
     .filter((ev) => !(ev.kind === 'message' && (ev.data as Record<string, unknown>)?.partial === true))
     .map((ev) => mapRawEvent(String(ev.kind), (ev.data as Record<string, unknown>) || {}, String(ev.id)));
 
-  if (events.length === 0) {
+  // Persisted tool_call/tool_result pairs are folded into single tool_step
+  // events here (same contract as the live reducer) so restored scrollback
+  // renders ONE coherent execution row per tool instead of a duplicate
+  // pending-style arrow row plus a separate result row.
+  const paired = pairToolEvents(events);
+
+  if (paired.length === 0) {
     if (msg.content) {
-      events.push({
+      paired.push({
         kind: 'message',
         id: `evt_hist_msg_${msg.id}`,
         text: String(msg.content),
         partial: false,
       } as ScenarioEvent);
     }
-    events.push({
+    paired.push({
       kind: 'success',
       id: `evt_hist_ok_${msg.id}`,
       message: 'done',
     } as ScenarioEvent);
   }
-  return events;
+  return paired;
 }

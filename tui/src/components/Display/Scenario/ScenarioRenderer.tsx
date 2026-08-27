@@ -9,6 +9,7 @@ import type {
   TurnManifestEvent,
 } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
+import { foldReadOnlyRepeats, pairToolEvents, progressDuplicatesPendingToolStep } from '../../../utils/pairToolEvents';
 import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
 import { componentRegistry } from './componentRegistry';
 
@@ -17,6 +18,8 @@ interface ScenarioRendererProps {
   isRunning: boolean;
   isHistorical?: boolean;
   thinkingCollapsed?: boolean;
+  /** /clam — collapses thinking blocks to a single summary line. */
+  calmMode?: boolean;
   historyExpanded?: boolean;
   workspaceName?: string;
   gitBranch?: string;
@@ -50,6 +53,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     isRunning,
     isHistorical = false,
     thinkingCollapsed = false,
+    calmMode = false,
     historyExpanded = false,
     workspaceName,
     gitBranch,
@@ -59,12 +63,13 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     const renderContext = useMemo(
       () => ({
         thinkingCollapsed,
+        calmMode,
         isHistorical,
         isRunning,
         workspaceName,
         gitBranch,
       }),
-      [thinkingCollapsed, isHistorical, isRunning, workspaceName, gitBranch],
+      [thinkingCollapsed, calmMode, isHistorical, isRunning, workspaceName, gitBranch],
     );
 
     const rows = process.stdout.rows ?? 24;
@@ -80,13 +85,80 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     }, [events, hasOverflow, expanded, dynamicLimit]);
 
     const visibleEvents = useMemo(() => {
-      // Consolidate multiple agent_orchestration events into a single stable card
-      const orchEvents = events.filter((e): e is AgentOrchestrationEvent => e.kind === 'agent_orchestration');
+      // Thinking stays in the stream in every mode; its visibility contract is
+      // handled inside ThinkingBlock (full by default, collapsed under calm
+      // mode or an explicit user toggle).
+      let source = events;
+      // Session lifecycle notices ("Session created: ...") are backend
+      // plumbing, never part of the conversation transcript.
+      source = source.filter((e) => !String(e.kind).startsWith('session_'));
+      // Progress rows are LIVE-ONLY instrumentation. After completion the
+      // SuccessCard status row supersedes them; keeping them in scrollback
+      // triple-echoed every tool call.
+      if (!isRunning) {
+        source = source.filter((e) => e.kind !== 'progress');
+      } else {
+        // While running, a progress row that merely echoes an in-flight tool
+        // (same command the terminal-window card already shows) is dropped so
+        // each execution lives in exactly ONE place.
+        source = source.filter((e) => e.kind !== 'progress' || !progressDuplicatesPendingToolStep(e, events));
+      }
+      // Defensive pairing: any residual tool_call/tool_result siblings (e.g.
+      // from non-standard replay paths) fold into single tool_step rows.
+      source = pairToolEvents(source);
+      // Consecutive identical read-only invocations collapse into one row with
+      // a ×N badge instead of echoing identical Read/Grep rows.
+      source = foldReadOnlyRepeats(source);
+      // THINKING POSITIONAL FIDELITY: the backend emits one thinking event
+      // PER LLM ITERATION, positioned exactly where reasoning happened in the
+      // timeline (think → tool → think → tool …). Like opencode / Codex /
+      // Claude Code, blocks stay at their original positions so users can see
+      // at which point the model reasoned relative to each action. Only truly
+      // ADJACENT duplicate records are folded (safety net below).
+      const grouped: ScenarioEvent[] = [];
+      for (const ev of source) {
+        const prev = grouped[grouped.length - 1];
+        if (ev.kind === 'thinking' && prev && prev.kind === 'thinking') {
+          continue; // collapse back-to-back duplicates from split streams
+        }
+        grouped.push(ev);
+      }
+      const source2 = grouped;
+      const orchEvents = source2.filter((e): e is AgentOrchestrationEvent => e.kind === 'agent_orchestration');
       let consolidatedOrch: AgentOrchestrationEvent | null = null;
       if (orchEvents.length > 0) {
         const latest = orchEvents[orchEvents.length - 1];
         const crewmatesMap = new Map<string, CrewmateAgent>();
         const timelineEntries: TimelineEntry[] = [];
+
+        // Fold raw sub-agent lifecycle kinds into the card timeline so the
+        // crewmate story stays in one place (no standalone rows).
+        const rawAgentEntries: TimelineEntry[] = [];
+        for (const e of source2) {
+          if (e.kind === 'agent_spawned') {
+            rawAgentEntries.push({
+              timestamp: e.id,
+              message: `Spawned ${e.name} (${e.role})`,
+              type: 'info',
+            });
+          } else if (e.kind === 'agent_status') {
+            if (e.activity) {
+              rawAgentEntries.push({ timestamp: e.id, message: e.activity, type: 'info' });
+            }
+          } else if (e.kind === 'agent_complete') {
+            rawAgentEntries.push({
+              timestamp: e.id,
+              message: e.resultSummary || `${e.agentId} completed`,
+              type: 'success',
+            });
+          } else if (e.kind === 'agent_failed') {
+            rawAgentEntries.push({
+              timestamp: e.id,
+              message: e.error || `${e.agentId} failed`,
+              type: 'error',
+            });
+          }
+        }
 
         for (const oe of orchEvents) {
           if (oe.crewmates) {
@@ -104,6 +176,13 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
                 timelineEntries.push(tl);
               }
             }
+          }
+        }
+        for (const tl of rawAgentEntries) {
+          if (
+            !timelineEntries.some((existing) => existing.timestamp === tl.timestamp && existing.message === tl.message)
+          ) {
+            timelineEntries.push(tl);
           }
         }
 
@@ -126,7 +205,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const consolidatedCompaction = consolidateCompactionEvents(events);
       const consolidatedBoard = consolidateTodoBoardEvents(events);
 
-      for (const e of events) {
+      for (const e of source) {
         if (e.kind === 'agent_orchestration') {
           if (!orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
@@ -142,6 +221,14 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         } else if (e.kind === 'todo_test') {
           // The assertion/edge-case report is an internal test layer — the
           // rendered todo window shows the board only, so skip these events.
+        } else if (
+          e.kind === 'agent_spawned' ||
+          e.kind === 'agent_status' ||
+          e.kind === 'agent_complete' ||
+          e.kind === 'agent_failed'
+        ) {
+          // Raw sub-agent lifecycle kinds are folded into the consolidated
+          // orchestration card's timeline above; never render standalone.
         } else if (
           e.kind === 'context_compaction_started' ||
           e.kind === 'context_compaction_phase' ||
@@ -170,7 +257,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         ];
       }
       return result;
-    }, [events, isHistorical]);
+    }, [events, isRunning, isHistorical]);
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.

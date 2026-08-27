@@ -4,8 +4,8 @@ import { COMPACTION_PHASE_ORDER, COMPACTION_TRIGGER_LABELS } from '../../../conf
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { formatTokenCount } from '../../../services/api/tokenEstimationService';
-import { modelStore } from '../../../services/providers/ModelStore';
 import { useTheme } from '../../../theme/ThemeContext';
+import type { Theme } from '../../../theme/theme';
 import type { CompactionPhase, ContextCompactionFlowEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
 import type { EventRenderContext } from './componentRegistry';
@@ -28,7 +28,7 @@ const PHASE_LABEL: Record<CompactionPhase, string> = {
 };
 
 /** Phase accent color for the live status row. */
-function phaseColor(phase: CompactionPhase, themeColors: any): string {
+function phaseColor(phase: CompactionPhase, themeColors: Theme['colors']): string {
   switch (phase) {
     case 'compacting':
       return themeColors.status.warning;
@@ -96,7 +96,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
   const progress = idx < 0 ? 0 : (idx + 1) / COMPACTION_PHASE_ORDER.length;
   const filled = Math.round(BAR_WIDTH * progress);
 
-  const modelLabel = modelStore.current ? modelStore.toDisplayString(modelStore.current) : '';
+  const modelLabel = '';
 
   // Token transition line shared between the live progress row and the summary.
   const transitionStr =
@@ -147,7 +147,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
 
       {isActive ? (
         <>
-          <Box flexDirection="row" alignItems="center" paddingLeft={2} marginTop={0}>
+          <Box flexDirection="row" alignItems="center" paddingLeft={2}>
             <Box width={2} flexShrink={0}>
               <Text color={color} bold>
                 {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}
@@ -158,7 +158,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
             </Text>
             {transitionStr ? <Text color={theme.colors.text.muted}> {transitionStr}</Text> : null}
           </Box>
-          <Box flexDirection="row" alignItems="center" paddingLeft={2} marginTop={0}>
+          <Box flexDirection="row" alignItems="center" paddingLeft={2}>
             <Box flexGrow={0}>
               <Text color={theme.colors.text.muted}>{'█'.repeat(filled)}</Text>
               <Text color={theme.colors.text.dim}>{'░'.repeat(BAR_WIDTH - filled)}</Text>

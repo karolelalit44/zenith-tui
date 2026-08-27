@@ -27,11 +27,9 @@ function renderManifest(event: TurnManifestEvent) {
 }
 
 describe('TurnManifestCard', () => {
-  it('shows a completed turn with no changes', () => {
+  it('renders nothing for a completed turn with no changes (declutter)', () => {
     const { lastFrame } = renderManifest(makeManifest());
-    const frame = lastFrame();
-    expect(frame).toContain('✓ Turn complete');
-    expect(frame).toContain('no changes');
+    expect(lastFrame() || '').toBe('');
   });
 
   it('lists created files with their sizes', () => {

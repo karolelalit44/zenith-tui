@@ -7,26 +7,26 @@ from typing import Any
 from server.config.constants import (
     BROAD_PATTERN_THRESHOLD,
     CONCURRENCY_GROUP_READONLY,
-    DEFAULT_SEARCH_EXCLUDED_DIRS,
-    DEFAULT_SEARCH_EXCLUDED_FILES,
     GLOB_MAX_OUTPUT_CHARS,
     GLOB_MAX_RESULTS,
     PERMISSION_READ,
     TOOL_DOMAIN_WORKSPACE_DISCOVERY,
 )
+from server.workspace.ignore import get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..brace_expand import expand_braces
 
 
-def _is_excluded(rel_path: Path, excluded_dirs: set[str], excluded_files: set[str]) -> bool:
-    for part in rel_path.parts[:-1]:
-        if part in excluded_dirs or part.startswith(".git"):
-            return True
-    filename = rel_path.name
-    if filename in excluded_files:
-        return True
-    return len(rel_path.parts) == 1 and rel_path.parts[0] in excluded_dirs
+def _pattern_is_unscoped(pattern: str) -> bool:
+    """True when the pattern is not pinned to a named top-level directory.
+
+    ``**/*.py``, ``*`` and ``**/*`` sweep the whole workspace; ``tui/**/*`` is
+    scoped. Unscoped patterns that over-match get a directory summary so the
+    structure is visible even when the file list truncates (P4.2).
+    """
+    first = pattern.split("/", 1)[0]
+    return first in ("*", "**")
 
 
 def _build_directory_summary(file_rel_paths: list[Path]) -> str:
@@ -56,7 +56,7 @@ def _build_directory_summary(file_rel_paths: list[Path]) -> str:
 class GlobTool(BaseTool):
     name = "glob"
     description = (
-        "Find files by glob pattern. Automatically excludes node_modules, .git, .venv, etc. "
+        "Find files by glob pattern. Paths matched by .zenithignore are skipped entirely. "
         "Scope pattern to a subfolder (e.g. 'server/**/*.py') for faster and focused results."
     )
     requires_mode = None
@@ -83,17 +83,12 @@ class GlobTool(BaseTool):
                     "description": (
                         "Glob pattern, preferably scoped to a subdirectory (e.g. 'server/**/*.py'). "
                         "Brace expansion is supported (e.g. 'src/**/*.{ts,tsx}'). "
-                        "Default exclusions (.git, node_modules, .venv, __pycache__) are applied automatically."
+                        "Paths matched by .zenithignore are applied automatically."
                     ),
                 },
                 "path": {
                     "type": "string",
                     "description": "Directory to search (defaults to the workspace root)",
-                },
-                "include_ignored": {
-                    "type": "boolean",
-                    "description": "If true, include default ignored folders like node_modules, .git, and .venv",
-                    "default": False,
                 },
             },
             "required": ["pattern"],
@@ -105,7 +100,6 @@ class GlobTool(BaseTool):
             pattern = "**/*"
         base = Path(workspace_root).resolve()
         requested = params.get("path") or ""
-        include_ignored = bool(params.get("include_ignored", False))
 
         search_path = (
             Path(requested) if Path(requested).is_absolute() else base / requested
@@ -115,8 +109,8 @@ class GlobTool(BaseTool):
         if not search_path.exists():
             return ToolResult(success=False, error=f"Search path not found: {search_path}")
 
-        excluded_dirs = set(DEFAULT_SEARCH_EXCLUDED_DIRS)
-        excluded_files = set(DEFAULT_SEARCH_EXCLUDED_FILES)
+        matcher = get_matcher(workspace_root)
+        matcher.refresh()
 
         try:
             matched_rel_paths: list[Path] = []
@@ -128,7 +122,7 @@ class GlobTool(BaseTool):
                         rel = f.relative_to(base)
                     except ValueError:
                         rel = f
-                    if not include_ignored and _is_excluded(rel, excluded_dirs, excluded_files):
+                    if matcher.is_ignored(rel):
                         continue
                     matched_rel_paths.append(rel)
 
@@ -141,7 +135,7 @@ class GlobTool(BaseTool):
                     metadata={"count": 0, "shown": 0, "truncated": False, "files": []},
                 )
 
-            is_broad = pattern in ("*", "**", "**/*", "*/*") and total >= BROAD_PATTERN_THRESHOLD
+            is_broad = total >= BROAD_PATTERN_THRESHOLD and _pattern_is_unscoped(pattern)
             summary_prefix = _build_directory_summary(matched_rel_paths) if is_broad else ""
 
             truncated = total > GLOB_MAX_RESULTS

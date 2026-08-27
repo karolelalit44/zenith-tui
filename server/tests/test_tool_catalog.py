@@ -35,8 +35,10 @@ def make_tool(*, name: str, schema: dict | None = None, **attrs):
 
 
 EXPECTED_TOOLS = {
-    "agent",
     "bash",
+    "code_blast_radius",
+    "code_callers",
+    "code_outline",
     "discover_capabilities",
     "file_delete",
     "file_edit",
@@ -97,7 +99,7 @@ class TestToolInventory:
         inventory = build_inventory(registry)
         names = {entry.name for entry in inventory}
         assert names == EXPECTED_TOOLS
-        assert len(inventory) == 20
+        assert len(inventory) == len(EXPECTED_TOOLS)
 
     def test_every_tool_maps_to_known_capability(self):
         catalog = build_catalog()
@@ -127,11 +129,13 @@ class TestToolInventory:
         assert inventory["bash"].concurrency_group == "shell"
         assert inventory["file_write"].concurrency_group == "workspace_mutation"
         assert inventory["webfetch"].permission_scope == "network"
-        assert inventory["agent"].permission_scope == "sub_agent"
+        # WP5 D7: the legacy write-capable "agent" tool is no longer on the
+        # default registry surface; subagent-class permission lives on explore.
+        assert "agent" not in inventory
 
     def test_baseline_schema_tokens(self):
         baseline = measure_registry_schema_tokens(create_default_registry())
-        assert baseline["tool_count"] == 20
+        assert baseline["tool_count"] == len(EXPECTED_TOOLS)
         assert baseline["total_tokens"] > 0
         assert set(baseline["tools"]) == EXPECTED_TOOLS
 

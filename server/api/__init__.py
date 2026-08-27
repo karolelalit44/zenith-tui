@@ -21,7 +21,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler("zenith_server.log", mode="w")],
     force=True,
 )
-for _noisy in ("aiosqlite", "sqlalchemy.engine", "sqlalchemy.engine.Engine", "LiteLLM"):
+for _noisy in ("LiteLLM",):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 __all__ = [
     "Connection",

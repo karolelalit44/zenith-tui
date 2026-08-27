@@ -6,7 +6,6 @@ from server.api.websocket import ZenithHandler
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
-from server.persistence.connection import Database
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
 
@@ -38,17 +37,18 @@ def test_config(temp_dir):
     return AppSettings(
         providers={"test": ProviderConfig(model="test-model", is_active=True)},
         active_provider="test",
-        db_path=str(temp_dir / "test.db"),
+        home_dir=str(temp_dir),
         workspace_root=str(temp_dir),
     )
 
 
 @pytest.fixture
-async def test_db(test_config):
-    db = Database(test_config.db_path)
-    await db.connect()
-    yield db
-    await db.close()
+def test_home(test_config):
+    from server.storage import StorageHome, ensure_materialized
+
+    h = StorageHome(test_config.home_dir)
+    ensure_materialized(h)
+    return h
 
 
 @pytest.fixture
@@ -59,8 +59,8 @@ def test_registry():
 
 
 @pytest.mark.asyncio
-async def test_e2e_health(test_config, test_db, test_registry):
-    handler = ZenithHandler(test_config, test_db, test_registry)
+async def test_e2e_health(test_config, test_home, test_registry):
+    handler = ZenithHandler(test_config, test_home, test_registry)
     app = create_app()
     app.state.handler = handler
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -70,8 +70,8 @@ async def test_e2e_health(test_config, test_db, test_registry):
 
 
 @pytest.mark.asyncio
-async def test_e2e_session_create(test_config, test_db, test_registry):
-    handler = ZenithHandler(test_config, test_db, test_registry)
+async def test_e2e_session_create(test_config, test_home, test_registry):
+    handler = ZenithHandler(test_config, test_home, test_registry)
     session = await handler.session_repo.create(
         __import__("server.domain.session", fromlist=["Session"]).Session(title="Test")
     )
@@ -81,8 +81,8 @@ async def test_e2e_session_create(test_config, test_db, test_registry):
 
 
 @pytest.mark.asyncio
-async def test_e2e_prompt_processing(test_config, test_db, test_registry):
-    ZenithHandler(test_config, test_db, test_registry)
+async def test_e2e_prompt_processing(test_config, test_home, test_registry):
+    ZenithHandler(test_config, test_home, test_registry)
     agent = __import__("server.agents.loop", fromlist=["AgentLoop"]).AgentLoop(
         test_config, EchoProvider()
     )
@@ -95,8 +95,8 @@ async def test_e2e_prompt_processing(test_config, test_db, test_registry):
 
 
 @pytest.mark.asyncio
-async def test_e2e_full_workflow(test_config, test_db, test_registry):
-    handler = ZenithHandler(test_config, test_db, test_registry)
+async def test_e2e_full_workflow(test_config, test_home, test_registry):
+    handler = ZenithHandler(test_config, test_home, test_registry)
     from datetime import datetime, timedelta
 
     from server.domain.message import Message
@@ -133,14 +133,14 @@ async def test_e2e_full_workflow(test_config, test_db, test_registry):
 
 
 @pytest.mark.asyncio
-async def test_e2e_provider_list_models(test_config, test_db, test_registry):
+async def test_e2e_provider_list_models(test_config, test_home, test_registry):
     provider = test_registry.require("test")
     models = await provider.list_models()
     assert "test-model" in models
 
 
 @pytest.mark.asyncio
-async def test_e2e_provider_validate(test_config, test_db, test_registry):
+async def test_e2e_provider_validate(test_config, test_home, test_registry):
     provider = test_registry.require("test")
     valid = await provider.validate()
     assert valid is True
@@ -174,10 +174,10 @@ async def test_e2e_error_handling():
 
 
 @pytest.mark.asyncio
-async def test_e2e_http_health_and_status(test_config, test_db, test_registry):
+async def test_e2e_http_health_and_status(test_config, test_home, test_registry):
     import server.api.server as srv
 
-    handler = ZenithHandler(test_config, test_db, test_registry)
+    handler = ZenithHandler(test_config, test_home, test_registry)
     app = create_app()
     original_handler = srv._handler
     srv._handler = handler
@@ -199,8 +199,8 @@ async def test_e2e_http_health_and_status(test_config, test_db, test_registry):
 
 
 @pytest.mark.asyncio
-async def test_e2e_websocket_session_and_prompt(test_config, test_db, test_registry):
-    handler = ZenithHandler(test_config, test_db, test_registry)
+async def test_e2e_websocket_session_and_prompt(test_config, test_home, test_registry):
+    handler = ZenithHandler(test_config, test_home, test_registry)
     session = await handler.session_repo.create(
         __import__("server.domain.session", fromlist=["Session"]).Session(title="WS Test")
     )
