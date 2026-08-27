@@ -9,84 +9,61 @@ interface ProgressBarProps {
   event: ProgressEvent;
 }
 
+/**
+ * Compact live activity row for agent tool execution.
+ *
+ * One line: current-step status icon + label, with a dim done/total counter.
+ * The old design (big percent bar + full checklist) stacked visual noise on
+ * every snapshot; all the information a user needs while a turn runs is
+ * WHAT is running right now and HOW MUCH is left.
+ *
+ * Rows that merely echo an in-flight tool (same command the terminal window
+ * card already shows) are suppressed upstream — see
+ * `progressDuplicatesPendingToolStep`. Esc-to-cancel lives ONLY on the
+ * turn-level status row so the affordance is unique.
+ */
 export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
   const tick = useAnimationTick();
 
-  const barWidth = 20;
+  const steps = event.steps;
+  const activeIdx = steps.findIndex((s) => s.status === 'active');
+  const lastIdx = steps.length - 1;
+  const current = steps[activeIdx >= 0 ? activeIdx : lastIdx];
+  const doneCount = steps.filter((s) => s.status === 'done').length;
 
-  let progress: number;
-  if (typeof event.percent === 'number') {
-    progress = event.percent / 100;
-  } else if (event.steps.length > 0) {
-    const doneCount = event.steps.filter((s) => s.status === 'done').length;
-    progress = doneCount / event.steps.length;
-  } else {
-    progress = 0;
+  let icon = '·';
+  let iconColor = theme.colors.text.dim;
+  if (current?.status === 'active') {
+    icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
+    iconColor = theme.colors.text.ethereal;
+  } else if (current?.status === 'error') {
+    icon = '✗';
+    iconColor = theme.colors.status.error;
+  } else if (steps.length > 0 && doneCount === steps.length) {
+    icon = '✓';
+    iconColor = theme.colors.status.success;
   }
 
-  const filled = Math.round(barWidth * progress);
-
   return (
-    <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
-      <Box flexDirection="row" alignItems="center" marginBottom={1}>
-        <Text color={theme.colors.status.warning} bold>
-          * {event.label}
-        </Text>
-        <Text color={theme.colors.text.muted}> </Text>
-        <Text color={theme.colors.status.success}>{'\u2588'.repeat(filled)}</Text>
-        <Text color={theme.colors.text.muted}>{'\u2591'.repeat(barWidth - filled)}</Text>
-        <Text color={theme.colors.text.muted}> </Text>
-        <Text color={theme.colors.text.bright} bold>
-          {Math.round(progress * 100)}%
-        </Text>
-        {event.iteration !== undefined && (
-          <>
-            <Text color={theme.colors.text.muted}> </Text>
-            <Text color={theme.colors.text.dim}>(iter {event.iteration})</Text>
-          </>
-        )}
+    <Box flexDirection="row" width="100%" marginBottom={1} paddingX={1} alignItems="center">
+      <Box width={2} flexShrink={0}>
+        <Text color={iconColor}>{icon}</Text>
       </Box>
-
-      {event.steps.length > 0 && (
-        <Box flexDirection="column" paddingLeft={1}>
-          {event.steps.map((step, idx) => {
-            let icon: string;
-            let color: string;
-            let textColor: string;
-            switch (step.status) {
-              case 'done':
-                icon = '✓';
-                color = theme.colors.status.success;
-                textColor = theme.colors.text.bright;
-                break;
-              case 'active':
-                icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
-                color = theme.colors.text.ethereal;
-                textColor = theme.colors.text.bright;
-                break;
-              case 'error':
-                icon = '✗';
-                color = theme.colors.status.error;
-                textColor = theme.colors.text.error;
-                break;
-              default:
-                icon = '·';
-                color = theme.colors.text.dim;
-                textColor = theme.colors.text.muted;
-                break;
-            }
-            return (
-              <Box key={idx} flexDirection="row" alignItems="center">
-                <Box width={2}>
-                  <Text color={color}>{icon}</Text>
-                </Box>
-                <Text color={textColor}>{step.label}</Text>
-              </Box>
-            );
-          })}
-        </Box>
+      <Text color={theme.colors.text.bright} wrap="truncate-end">
+        {current?.label ?? event.label}
+      </Text>
+      {steps.length > 1 && (
+        <Text color={theme.colors.text.muted}>
+          {' '}
+          {doneCount}/{steps.length}
+        </Text>
+      )}
+      {typeof event.percent === 'number' && event.percent > 0 && event.percent < 100 && (
+        <Text color={theme.colors.text.muted}> · {Math.round(event.percent)}%</Text>
       )}
     </Box>
   );
 });
+
+ProgressBar.displayName = 'ProgressBar';

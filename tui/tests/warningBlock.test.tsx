@@ -62,9 +62,9 @@ describe('WarningBlock', () => {
     expect(frame).toContain('RATE_LIMIT');
   });
 
-  it('truncates long messages with a ctrl+d hint', () => {
+  it('truncates long messages with a ctrl+e hint', () => {
     const frame = renderWarning(makeWarning({ message: 'x'.repeat(300) }));
-    expect(frame).toContain('ctrl+d to show full details');
+    expect(frame).toContain('ctrl+e to show full details');
     expect(frame).not.toContain('x'.repeat(300));
   });
 });

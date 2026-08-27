@@ -20,6 +20,7 @@ export interface Theme {
       error: string;
       bright: string;
       dim: string;
+      heading: string;
     };
     status: {
       success: string;
@@ -44,6 +45,13 @@ export interface Theme {
     };
     shadow: {
       ascii: string;
+    };
+    decorative: {
+      trafficLight: {
+        red: string;
+        yellow: string;
+        green: string;
+      };
     };
     logo: string[];
   };

@@ -6,18 +6,21 @@ from typing import TYPE_CHECKING
 from fastapi import WebSocket
 
 import server.providers.responder as r
-from server.config.constants import BUILD_MODE
+from server.config.constants import BUILD_MODE, SESSION_TITLE_MAX_CHARS
 from server.config.settings import AGENT_MODES
 from server.domain.message import Message
-from server.persistence.connection import Database
-from server.persistence.repositories import MessageRepository, SessionRepository
-from server.persistence.repositories.workspace import SessionWorkspaceRepository
 from server.sessions.export import SessionExporter
 from server.sessions.service import DefaultSessionService, SessionService
 from server.skills.loader import SkillLoader
+from server.storage import StorageHome
+from server.storage.search_store import FileSearchRepository
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
+from server.storage.usage_store import FileTokenUsageRepository
+from server.storage.workspace_store import FileWorkspaceRepository
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
-from .protocol import make_error_response, make_response
+from server.domain.session import SessionState
+from .protocol import make_error_response, make_response, serialize_event
 
 if TYPE_CHECKING:
     from server.config.settings import AppSettings
@@ -25,9 +28,19 @@ if TYPE_CHECKING:
     from server.toolkit.registry import ToolRegistry
 
     from ..agents.prompt_executor import PromptExecutor
-    from ..permissions.service import DefaultPermissionService
     from .websocket import ConnectionManager
+
 logger = logging.getLogger(__name__)
+
+
+def _clean_title(content: str) -> str:
+    """Human-friendly session title: collapsed whitespace, hard cut -> ellipsis."""
+    import re
+
+    flat = re.sub(r"\s+", " ", content).strip()
+    if len(flat) <= SESSION_TITLE_MAX_CHARS:
+        return flat
+    return flat[: SESSION_TITLE_MAX_CHARS - 1].rstrip() + "…"
 
 
 def _normalize_attachments(raw) -> list[dict]:
@@ -59,23 +72,24 @@ class MethodHandlers:
     def __init__(
         self,
         config: AppSettings,
-        db: Database,
+        home: StorageHome,
         registry: ProviderRegistry,
         tool_registry: ToolRegistry,
         session_service: SessionService | None = None,
     ) -> None:
         self.config = config
+        self.home = home
         self.registry = registry
         self.tool_registry = tool_registry
-        self.session_repo = SessionRepository(db)
-        self.message_repo = MessageRepository(db)
+        self.session_repo = FileSessionRepository(home)
+        self.message_repo = FileMessageRepository(home)
         self.skill_loader = SkillLoader(config.workspace_root)
         self.exporter = SessionExporter()
         self.manager: ConnectionManager | None = None
-        self._permission_service: DefaultPermissionService | None = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
-        self._workspace_repo = SessionWorkspaceRepository(db)
+        self._workspace_repo = FileWorkspaceRepository(home)
+        self.usage_repo = FileTokenUsageRepository(home)
 
     def reload_config(self) -> None:
         from server.config.loader import load_config
@@ -188,9 +202,14 @@ class MethodHandlers:
         if not session:
             await ws.send_text(make_error_response(rid, -32602, "Session not found"))
             return None
+        prior_state = session.state
+        rejected: str | None = None
         try:
             session = await svc.resume(sid)
         except ValueError as exc:
+            # A genuinely invalid transition (e.g. archived → resumed). Surface it
+            # to the user via the response and the live event stream, not just logs.
+            rejected = str(exc)
             logger.warning("Resume rejected for session %s: %s", sid, exc)
         try:
             from server.agents.session_workspace import load_from_db
@@ -205,18 +224,24 @@ class MethodHandlers:
             replayed = await self.manager.replay_events(sid, ws)
         since = params.get("since_sequence", 0)
         sync_events = await svc.get_sync_events(sid, since_sequence=since)
-        await ws.send_text(
-            make_response(
-                rid,
-                {
-                    "session": session.model_dump(mode="json"),
-                    "messages": [m.model_dump(mode="json") for m in messages],
-                    "events_replayed": replayed,
-                    "sync_events": sync_events,
-                    "latest_sequence": await svc.get_latest_sync_sequence(sid),
-                },
+        result = {
+            "session": session.model_dump(mode="json"),
+            "messages": [m.model_dump(mode="json") for m in messages],
+            "events_replayed": replayed,
+            "sync_events": sync_events,
+            "latest_sequence": await svc.get_latest_sync_sequence(sid),
+        }
+        # Re-resume (already resumed) is expected on reconnect, not an error:
+        # report it as a benign notice rather than a rejection.
+        if rejected:
+            result["warning"] = rejected
+        elif prior_state == SessionState.RESUMED:
+            result["notice"] = "Session was already resumed; continuing with existing state."
+        await ws.send_text(make_response(rid, result))
+        if rejected:
+            await ws.send_text(
+                serialize_event(r.warning(rejected, sid, code="RESUME_REJECTED"))
             )
-        )
         return sid
 
     async def _session_update(self, ws, rid, params, session_id) -> None:
@@ -270,6 +295,9 @@ class MethodHandlers:
         from server.agents.session_workspace import reset_session
 
         reset_session(sid)
+        from server.agents.compaction_service import cleanup_session
+
+        cleanup_session(sid)
         if self.manager:
             self.manager.drop_buffer(sid)
         await ws.send_text(make_response(rid, {"status": "deleted"}))
@@ -335,15 +363,13 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"events": events, "latest_sequence": latest}))
 
     async def _session_search(self, ws, rid, params, session_id) -> None:
-        from server.persistence.search import SearchRepository
-
         query = (params.get("query", "") or "").strip()
         if not query:
             await ws.send_text(make_error_response(rid, -32602, "query is required"))
             return
         sid = params.get("session_id", session_id)
         limit = int(params.get("limit", 20))
-        repo = SearchRepository(self.session_repo.db)
+        repo = FileSearchRepository(self.home)
         try:
             hits = await repo.search(query, limit=limit, session_id=sid)
             parity = await repo.index_parity()
@@ -407,7 +433,7 @@ class MethodHandlers:
                     )
             if not session_id:
                 svc = self._resolve_service()
-                session = await svc.create(title=content[:50])
+                session = await svc.create(title=_clean_title(content))
                 session_id = session.id
         return session_id
 
@@ -440,9 +466,7 @@ class MethodHandlers:
             # here could clobber concurrent token-count/summary writers.
             if hasattr(self.session_repo, "set_model"):
                 await self.session_repo.set_model(session_id, model_override)
-                await self.session_repo.merge_metadata(
-                    session_id, {"last_model": model_override}
-                )
+                await self.session_repo.merge_metadata(session_id, {"last_model": model_override})
         except Exception as exc:
             logger.warning("Failed to persist model override for session %s: %s", session_id, exc)
 
@@ -542,8 +566,9 @@ class MethodHandlers:
                 max_tokens=max_tokens,
                 attachments=attachments,
             )
-        except Exception:
+        except Exception as e:
             logger.exception("Prompt execution failed for session %s", session_id)
+            await ws.send_text(make_error_response(rid, -32603, f"Prompt failed: {e}"))
         return session_id
 
     async def _prompt_continue(self, ws, rid, params, session_id) -> str | None:
@@ -581,9 +606,7 @@ class MethodHandlers:
         await ws.send_text(make_response(rid, {"cancelled": cancelled}))
         return session_id
 
-    async def _context_compact(
-        self, ws, rid, session_id, focus: str | None = None
-) -> str | None:
+    async def _context_compact(self, ws, rid, session_id, focus: str | None = None) -> str | None:
         if not session_id:
             await ws.send_text(make_error_response(rid, -32602, "No active session"))
             return None

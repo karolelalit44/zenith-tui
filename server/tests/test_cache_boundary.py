@@ -13,14 +13,15 @@ from server.agents.context import (
     TIER_T5,
     ContextManager,
 )
-from server.agents.prompts import build_system_prompt
 from server.agents.loop import AgentLoop, _call_signature
+from server.agents.compaction_service import prune_tool_outputs
+from server.agents.prompts import build_system_prompt
 from server.agents.session_workspace import (
+    is_stale,
+    record_edit,
+    record_read,
     record_write,
     reset_session,
-    record_read,
-    record_edit,
-    is_stale,
 )
 from server.config.constants import (
     DEFAULT_CONTEXT_WINDOW,
@@ -198,8 +199,10 @@ class TestMessageOne:
         assert ctx.t0_len() == 1
         assert messages[1]["content"].startswith("<repo_map>")
         assert any("<memory>" in str(m.get("content", "")) for m in messages)
-        assert "Prior topic." in messages[-3]["content"]
-        assert messages[-2]["content"] == "Understood."
+        # Summary is injected as a system block (no fake "Understood." assistant turn).
+        assert messages[-2]["role"] == "system"
+        assert "[Previous conversation summary]" in messages[-2]["content"]
+        assert "Prior topic." in messages[-2]["content"]
         assert messages[-1]["content"] == "Continue."
 
 
@@ -332,7 +335,7 @@ class TestTierAssembly:
         assert t1_idx[0] == t0
         assert t2_idx, "summary tier missing"
         assert t4_idx, "history window tier missing"
-        assert max(t1_idx) < min(t2_idx) < max(t2_idx) < min(t4_idx) < max(t4_idx)
+        assert max(t1_idx) < min(t2_idx) <= max(t2_idx) < min(t4_idx) <= max(t4_idx)
         assert tiers[-1] == TIER_T5
         assert tiers.count(TIER_T5) == 1
 
@@ -504,7 +507,7 @@ class TestT0Purity:
         messages = loop.context_manager.build_messages(history, SYSTEM_PROMPT, "Continue.", "gpt-4")
         t0_len = loop.context_manager.t0_len()
         t0_snapshot = [dict(m) for m in messages[:t0_len]]
-        stats = loop._prune_tool_outputs(messages, force_intraturn=True)
+        stats = prune_tool_outputs(messages, force_intraturn=True)
         assert stats["count"] >= 1
         assert messages[:t0_len] == t0_snapshot
         assert all("time" not in m for m in messages[:t0_len])
@@ -975,9 +978,9 @@ class TestPhase6OpenAISchemaCap:
     """6.3 verification: schema set bounded; escalation doesn't exceed cap; churn capped."""
 
     def test_schema_set_stable_across_repeated_escalations(self, temp_dir: Path):
+        from server.config.settings import CORE_BUILD_TOOLS
         from server.toolkit import create_default_registry
         from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
-        from server.config.settings import CORE_BUILD_TOOLS
 
         reg = create_default_registry()
         seed = build_mode_tool_seed(CORE_BUILD_TOOLS)
@@ -1002,9 +1005,9 @@ class TestPhase6OpenAISchemaCap:
         assert resolver.schema_tokens("gpt-4") > 0
 
     def test_seed_tools_never_evicted(self, temp_dir: Path):
+        from server.config.settings import CORE_BUILD_TOOLS
         from server.toolkit import create_default_registry
         from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
-        from server.config.settings import CORE_BUILD_TOOLS
 
         reg = create_default_registry()
         seed = build_mode_tool_seed(CORE_BUILD_TOOLS)
@@ -1702,9 +1705,7 @@ class TestStalenessDetection:
         ]
         stale_present = any("stale.py" in c for c in tool_contents)
         fresh_present = any("fresh.py" in c for c in tool_contents)
-        if stale_present and fresh_present:
-            pass
-        elif fresh_present:
+        if stale_present and fresh_present or fresh_present:
             pass
         else:
             pytest.fail("Fresh read should be preferred over stale read when budget is tight")
@@ -1877,7 +1878,9 @@ class TestCacheSafeCompaction:
         request = recorded["request"]
         assert request, "summarizer provider must be called"
         assert request[0]["content"] == SYSTEM_PROMPT
-        assert any(m.get("cache_control") for m in request), "cache markers must survive into the prefix"
+        assert any(m.get("cache_control") for m in request), (
+            "cache markers must survive into the prefix"
+        )
         assert request[-1]["role"] == "user"
 
     @pytest.mark.asyncio

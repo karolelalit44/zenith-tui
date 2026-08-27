@@ -12,8 +12,18 @@ def event(kind: EventKind, data: dict, session_id: str) -> Event:
     return Event(kind=kind, data=data, session_id=session_id)
 
 
-def thinking(text: str, session_id: str) -> Event:
-    return event(EventKind.THINKING, {"text": text}, session_id)
+def thinking(
+    text: str,
+    session_id: str,
+    partial: bool = False,
+    duration_ms: int | None = None,
+) -> Event:
+    data: dict = {"text": text}
+    if partial:
+        data["partial"] = True
+    if duration_ms is not None:
+        data["duration"] = duration_ms
+    return event(EventKind.THINKING, data, session_id)
 
 
 def message_event(text: str, session_id: str, partial: bool = False, iteration: int = 0) -> Event:

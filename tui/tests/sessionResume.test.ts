@@ -102,9 +102,17 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const turns = convertHistoryToTurns(messages, mode);
     expect(turns).toHaveLength(1);
     const evs = turns[0].events;
+    // Unpaired persisted calls fold into interrupted tool_step rows (never
+    // silent drops, never duplicate pending arrows).
     expect(evs).toHaveLength(3);
     expect(evs[0]).toMatchObject({ kind: 'thinking', id: 'evt_t1' });
-    expect(evs[1]).toMatchObject({ kind: 'tool_call', id: 'evt_tc1', tool: 'file_read' });
+    expect(evs[1]).toMatchObject({
+      kind: 'tool_step',
+      id: 'evt_tc1',
+      tool: 'file_read',
+      success: false,
+      metadata: { interrupted: true },
+    });
     expect(evs[2]).toMatchObject({ kind: 'success', id: 'evt_ok1' });
   });
 

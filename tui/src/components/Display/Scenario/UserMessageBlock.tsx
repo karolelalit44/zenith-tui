@@ -1,7 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
-import { modelStore } from '../../../services/providers/ModelStore';
 import { useTheme } from '../../../theme/ThemeContext';
 
 interface UserMessageBlockProps {
@@ -42,7 +41,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
     const displayTime = termCols >= 80 ? (timestampLong ?? timestamp ?? '') : (timestamp ?? '');
 
     // Resolve model label
-    const modelLabel = model ?? (modelStore.current ? modelStore.toDisplayString(modelStore.current) : '');
+    const modelLabel = model ?? '';
 
     return (
       <Box flexDirection="column" width={contentWidth} marginTop={1} marginBottom={1}>
@@ -86,3 +85,5 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
     );
   },
 );
+
+UserMessageBlock.displayName = 'UserMessageBlock';

@@ -17,7 +17,7 @@ def detect_model_tier(
 ) -> ModelTier:
     if catalog is None:
         try:
-            from server.persistence.repositories import load_catalog
+            from server.storage.catalog_compat import load_catalog
 
             catalog = load_catalog()
         except Exception:

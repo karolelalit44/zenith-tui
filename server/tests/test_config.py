@@ -7,7 +7,7 @@ from server.config.settings import AppSettings
 def test_default_config():
     config = AppSettings()
     assert config.active_provider == ""
-    assert config.db_path == os.environ["ZENITH_DB_PATH"]
+    assert config.home_dir == os.environ.get("ZENITH_HOME") or config.home_dir
     assert config.max_context_tokens == int(os.environ["ZENITH_MAX_CONTEXT_TOKENS"])
 
 

@@ -5,12 +5,13 @@ import pytest
 
 from server.agents.loop import AgentLoop
 from server.agents.session_workspace import read_heavy_output
+from server.config.constants import HEAVY_TOOL_ISOLATION_PREVIEW_CHARS
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.toolkit.base import BaseTool, ToolResult
 from server.toolkit.registry import ToolRegistry
 
-HEAVY_TEXT = "line of output\n" * 4000  # ~64K chars, well over the 5000-token threshold
+HEAVY_TEXT = "line of output\n" * 4000  # ~64K chars, well over the heavy-tool threshold
 
 
 class _HeavyDumpTool(BaseTool):
@@ -61,7 +62,7 @@ class _SummarizingProvider:
 
 def _make_loop(temp_dir, provider, registry: ToolRegistry | None = None) -> AgentLoop:
     return AgentLoop(
-        AppSettings(db_path=str(temp_dir / "test.db"), workspace_root=str(temp_dir)),
+        AppSettings(home_dir=str(temp_dir / "test.db"), workspace_root=str(temp_dir)),
         provider,
         tool_registry=registry,
     )
@@ -78,9 +79,11 @@ async def test_heavy_output_is_summarized_and_stored(temp_dir):
     assert stored.exists()
     assert stored.read_text(encoding="utf-8") == HEAVY_TEXT
     assert read_heavy_output("s1", rel) == HEAVY_TEXT
-    assert "Summary of output" in result.output
+    assert "Output truncated (" in result.output
     assert "file_read" in result.output
-    assert len(result.output) < 2000
+    # The in-context preview is bounded by HEAVY_TOOL_ISOLATION_PREVIEW_CHARS
+    # plus the (short) truncation marker overhead.
+    assert len(result.output) < HEAVY_TOOL_ISOLATION_PREVIEW_CHARS + 256
     assert loop._heavy_tools_summarized == 1
 
 
@@ -136,5 +139,5 @@ async def test_success_event_contains_heavy_tools_counter(temp_dir):
         if ev.kind == EventKind.TOOL_RESULT and ev.data.get("tool") == "heavy_dump"
     ]
     assert tool_msgs, "the heavy tool result must be emitted"
-    assert "Summary of output" in tool_msgs[0]
+    assert "Output truncated (" in tool_msgs[0]
     assert HEAVY_TEXT not in tool_msgs[0]

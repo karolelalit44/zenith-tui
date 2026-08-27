@@ -106,9 +106,7 @@ def record_edit(session_id: str, path: str) -> None:
     with _LOCK:
         rec = _session_map(session_id).get(path)
         if rec is None:
-            rec = SessionFileRecord(
-                path=path, content_hash="", size=0, edits=1, last_edited_at=now
-            )
+            rec = SessionFileRecord(path=path, content_hash="", size=0, edits=1, last_edited_at=now)
         else:
             rec.edits += 1
             rec.last_edited_at = now

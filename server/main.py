@@ -32,69 +32,33 @@ def serve(host: str | None, port: int | None):
 
 
 @cli.group()
-def db():
-    pass
+def storage():
+    """File-storage maintenance commands (replaces the old `db` group)."""
 
 
-def _resolve_db_option(db_path: str | None) -> str:
-    from server.persistence.connection import resolve_db_path
+@storage.command()
+def init():
+    from server.storage import StorageHome, ensure_materialized, resolve_home
 
-    return db_path or resolve_db_path()
-
-
-@db.command()
-@click.option("--db-path", default=None, help="Override database path")
-def init(db_path: str | None):
-    from server.persistence.startup import DatabaseStartupService
-
-    target = _resolve_db_option(db_path)
-    result = DatabaseStartupService(target).run()
-    click.echo(f"Database ready: mode={result['mode']} version={result['version']} path={target}")
+    home = StorageHome(resolve_home())
+    ensure_materialized(home)
+    click.echo(f"Storage ready: {home.root}")
 
 
-@db.command()
-@click.option("--db-path", default=None, help="Override database path")
-def migrate(db_path: str | None):
-    from server.persistence.startup import DatabaseStartupService
+@storage.command()
+def check():
+    from server.storage import StorageHome, resolve_home
 
-    target = _resolve_db_option(db_path)
-    result = DatabaseStartupService(target).run()
-    click.echo(
-        f"Migrated: mode={result['mode']} version={result['version']} applied={result['applied']}"
+    home = StorageHome(resolve_home())
+    ok = all(
+        p.exists()
+        for p in (
+            home.providers_path,
+            home.models_path,
+        )
     )
-
-
-@db.command()
-@click.option("--db-path", default=None, help="Override database path")
-def current(db_path: str | None):
-    from server.persistence.startup import get_current_version
-
-    target = _resolve_db_option(db_path)
-    version = get_current_version(target)
-    click.echo(f"DB: {target}")
-    click.echo(f"Current revision: {version or '(not migrated)'}")
-
-
-@db.command()
-@click.option("--db-path", default=None, help="Override database path")
-def history(db_path: str | None):
-    from server.persistence.migrations import runner
-
-    target = _resolve_db_option(db_path)
-    applied = set(runner.get_applied(target))
-    click.echo(f"DB: {target}")
-    for m in runner.discover():
-        state = "applied " if m["version"] in applied else "pending "
-        click.echo(f"  [{state}] {m['version']}  {m['title']}  ({m['filename']})")
-
-
-@db.command()
-@click.option("--db-path", default=None, help="Override database path")
-def downgrade(db_path: str | None):
-    target = _resolve_db_option(db_path)
-    click.echo(
-        f"Downgrade is not supported. DB: {target} — revert schema changes with a new forward migration instead."
-    )
+    click.echo(f"Home:   {home.root}")
+    click.echo(f"Catalog materialized: {ok}")
 
 
 @cli.command()
@@ -106,7 +70,7 @@ def status():
     registry = ProviderRegistry.from_config(config.providers, config.active_provider)
     click.echo(f"Active provider: {config.active_provider}")
     click.echo(f"Workspace:       {config.workspace_root}")
-    click.echo(f"DB path:         {config.db_path}")
+    click.echo(f"Storage home:    {config.home_dir}")
     click.echo(f"Providers:       {registry.list_providers()}")
     provider = registry.get(config.active_provider)
     if provider:

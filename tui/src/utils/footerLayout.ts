@@ -56,10 +56,11 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
   const modeLabel = input.mode === 'plan' ? '[PLAN] ' : '[BUILD] ';
 
   // Cumulative run/API telemetry — the footer count is run usage, never the
-  // composed-context occupancy (which belongs in the gauge below).
+  // composed-context occupancy (which belongs in the gauge below). Labeled
+  // explicitly so the two figures cannot be confused (P6.2).
   const runCount = typeof input.runTokens === 'number' ? input.runTokens : (input.totalTokens ?? 0);
   const hasRunUsage = runCount > 0 || typeof input.runTokens === 'number' || typeof input.totalTokens === 'number';
-  const tokenUsage = hasRunUsage ? `${input.runEstimated === true ? '~' : ''}${formatRunTokens(runCount)}` : '';
+  const tokenUsage = hasRunUsage ? `RUN ${input.runEstimated === true ? '~' : ''}${formatRunTokens(runCount)} tok` : '';
   const tokenCount = tokenUsage;
   const maxTokens =
     typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0 ? `${input.effectiveMaxTokens}` : '0';
@@ -72,7 +73,7 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
   const filled = gaugePercent !== null ? Math.round((gaugePercent / 100) * FOOTER_GAUGE_BLOCKS) : 0;
   const gauge =
     gaugePercent !== null
-      ? `[${'█'.repeat(filled)}${'░'.repeat(FOOTER_GAUGE_BLOCKS - filled)}] ${input.windowEstimated === true ? '~' : ''}${gaugePercent}%`
+      ? `[${'█'.repeat(filled)}${'░'.repeat(FOOTER_GAUGE_BLOCKS - filled)}] ${input.windowEstimated === true ? '~' : ''}CTX ${gaugePercent}%`
       : '';
   const showGauge = gauge !== '';
 

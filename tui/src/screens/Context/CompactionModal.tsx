@@ -14,7 +14,7 @@ interface CompactionModalProps {
   onClose: () => void;
 }
 
-const PRESERVED_LABELS: [key: string, label: string, key2?: string][] = [
+const PRESERVED_LABELS: [key: string, label: string][] = [
   ['requirements', 'Requirements'],
   ['decisions', 'Decisions'],
   ['openTasks', 'Open tasks'],

@@ -150,9 +150,10 @@ class TestToolRegistry:
         assert "not available" in result.error
 
 
+# WP5 D7: the legacy "agent" tool is no longer registered; explore takes over
+# delegation-class duties on the default surface.
 BUILD_ONLY_TOOLS = [
     "bash",
-    "agent",
     "job_kill",
     "file_delete",
     "multi_edit",
@@ -184,6 +185,8 @@ class TestModeGating:
         build_names = set(reg.list_tools_for_mode("build"))
         for name in BUILD_ONLY_TOOLS + PLAN_TRACKING_TOOLS:
             assert name in build_names, f"{name} missing from build mode"
+        # WP5 D7: the legacy "agent" tool is gone from the surface.
+        assert "agent" not in build_names
 
     def test_plan_mode_offers_writable_plan_tools(self):
         reg = create_default_registry()
@@ -194,7 +197,7 @@ class TestModeGating:
     @pytest.mark.asyncio
     async def test_plan_mode_execution_rejects_leaked_tools(self):
         reg = create_default_registry()
-        for name in ("bash", "agent", "job_kill", "file_delete", "multi_edit"):
+        for name in ("bash", "job_kill", "file_delete", "multi_edit"):
             result = await reg.execute(name, {"command": "echo hi"}, ".", mode="plan")
             assert not result.success
             assert "not available" in result.error
@@ -213,7 +216,6 @@ class TestReadOnlyModeGating:
         "file_edit",
         "file_delete",
         "bash",
-        "agent",
         "todo",
         "job_kill",
         "multi_edit",
@@ -249,15 +251,15 @@ class TestReadOnlyModeGating:
     @pytest.mark.asyncio
     async def test_read_only_mode_execution_rejects_execution_tools(self):
         reg = create_default_registry()
-        for name in ("bash", "agent", "todo"):
+        for name in ("bash", "todo"):
             result = await reg.execute(name, {}, ".", mode="read_only")
             assert not result.success
             assert "not available" in result.error
 
     def test_read_only_openai_tools_match_seed(self):
-        from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
         from server.agents.validation import schemas_to_openai_tools
         from server.config.settings import READ_ONLY_MODE_CONFIG
+        from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
         reg = create_default_registry()
         resolver = SchemaResolver(
@@ -743,7 +745,7 @@ class TestGrepTool:
         assert result.metadata["count"] == 2
 
     @pytest.mark.asyncio
-    async def test_grep_broad_search_prunes_excluded_dirs(self, temp_dir):
+    async def test_grep_broad_search_prunes_excluded_dirs(self, temp_dir, monkeypatch):
         import server.toolkit.tools.grep as grep_mod
 
         (temp_dir / "keep.py").write_text("needle in keep")
@@ -757,7 +759,7 @@ class TestGrepTool:
             searched.append(Path(path))
             yield from []
 
-        grep_mod._iter_source_files = _spy
+        monkeypatch.setattr(grep_mod, "_iter_source_files", _spy)
         tool = GrepTool()
         result = await tool.execute({"pattern": "needle"}, str(temp_dir))
         assert result.success
@@ -803,7 +805,11 @@ class TestDefaultRegistry:
         assert "lsp_diagnostics" in tools
         assert "lsp_definition" in tools
         assert "lsp_rename" in tools
-        assert "agent" in tools
+        # WP5 D7: legacy write-capable agent tool removed; explore is the
+        # delegation surface and requires an injected config.
+        assert "agent" not in tools
+        assert "explore" not in tools
+        assert len(tools) == 22
         assert "discover_capabilities" in tools
         assert "get_tool_definition" in tools
-        assert len(tools) == 20
+        assert len(tools) == 22

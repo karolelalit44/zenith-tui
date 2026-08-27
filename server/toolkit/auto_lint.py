@@ -89,9 +89,9 @@ async def run_lint(
     cmd = f"{linter_name} {flags} {rel_path}"
     logger.info("Auto-lint%s: %s", " (fix)" if fix else "", cmd)
     try:
-        process = await asyncio.create_subprocess_shell(
-            cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=workspace_root
-        )
+        from server.shell_runner import run_shell_command
+
+        process = await run_shell_command(cmd, cwd=workspace_root)
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
         output = stdout.decode("utf-8", errors="replace")
         error_output = stderr.decode("utf-8", errors="replace")

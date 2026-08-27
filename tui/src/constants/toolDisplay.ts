@@ -22,7 +22,63 @@ export const LSP_DIAGNOSTICS_TOOL = 'lsp_diagnostics';
 export const LSP_RENAME_TOOL = 'lsp_rename';
 export const AGENT_TOOL = 'agent';
 export const AGENT_TOOL_ALIAS = 'agent_tool';
+/** WP5: model-invocable explore delegation (Apogee crewmate). */
+export const EXPLORE_TOOL = 'explore';
 export const TODO_TOOL = 'todo';
+
+/** Legacy backend aliases for the canonical file tools. */
+export const READ_FILE_ALIAS = 'read_file';
+export const WRITE_FILE_ALIAS = 'write_file';
+export const CREATE_FILE_ALIAS = 'create_file';
+export const EDIT_FILE_ALIAS = 'edit_file';
+export const DELETE_FILE_ALIAS = 'delete_file';
+export const GREP_SEARCH_ALIAS = 'grep_search';
+
+/**
+ * Execution-timeline tool categories. Every timeline row branches on one of
+ * these sets instead of re-declaring ad-hoc tool-name arrays.
+ */
+export const SHELL_TOOL_SET: ReadonlySet<string> = new Set([BASH_TOOL, EXECUTE_TOOL, RUN_COMMAND_TOOL, TERMINAL_TOOL]);
+
+export const FILE_READ_TOOL_SET: ReadonlySet<string> = new Set([FILE_READ_TOOL, READ_FILE_ALIAS]);
+
+export const SEARCH_TOOL_SET: ReadonlySet<string> = new Set(['grep', GREP_SEARCH_ALIAS, 'glob']);
+
+export const LIST_DIR_TOOL_SET: ReadonlySet<string> = new Set([LIST_DIR_TOOL, 'ls', 'dir']);
+
+export const FILE_MUTATION_TOOL_SET: ReadonlySet<string> = new Set([
+  FILE_WRITE_TOOL,
+  WRITE_FILE_ALIAS,
+  CREATE_FILE_ALIAS,
+  FILE_EDIT_TOOL,
+  EDIT_FILE_ALIAS,
+  MULTI_EDIT_TOOL,
+]);
+
+export const FILE_DELETE_TOOL_SET: ReadonlySet<string> = new Set([FILE_DELETE_TOOL, DELETE_FILE_ALIAS]);
+
+export const LSP_TOOL_SET: ReadonlySet<string> = new Set([LSP_DEFINITION_TOOL, LSP_DIAGNOSTICS_TOOL, LSP_RENAME_TOOL]);
+
+/** Read-only tools eligible for consecutive-repeat folding (×N badge). */
+export const REPEATABLE_READ_ONLY_TOOL_SET: ReadonlySet<string> = new Set([
+  ...FILE_READ_TOOL_SET,
+  ...SEARCH_TOOL_SET,
+  ...LIST_DIR_TOOL_SET,
+  LSP_DEFINITION_TOOL,
+  LSP_DIAGNOSTICS_TOOL,
+]);
+
+/** Error text stamped onto a tool_call whose tool_result never arrived. */
+export const INTERRUPTED_TOOL_ERROR = 'execution interrupted before completion';
+
+/** ToolStep metadata key carrying the folded-consecutive-run count. */
+export const TOOL_META_REPEAT_COUNT = 'repeatCount';
+
+/** ToolStep metadata flag marking an execution that never completed. */
+export const TOOL_META_INTERRUPTED = 'interrupted';
+
+/** Matches cancellation/interruption phrasing in tool errors. */
+export const CANCELLED_ERROR_PATTERN = /\b(cancel|interrupt|abort)/i;
 
 export const TOOL_VERB_LABELS: Record<string, string> = {
   [FILE_WRITE_TOOL]: 'Create',
@@ -55,6 +111,7 @@ export const TOOL_VERB_LABELS: Record<string, string> = {
   [LSP_RENAME_TOOL]: 'Rename',
   [AGENT_TOOL]: 'Delegate',
   [AGENT_TOOL_ALIAS]: 'Delegate',
+  [EXPLORE_TOOL]: 'Scout',
   [TODO_TOOL]: 'Track',
   mcp_tool: 'MCP action',
 };

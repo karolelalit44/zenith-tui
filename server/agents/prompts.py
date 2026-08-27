@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import logging
 import platform
 from pathlib import Path
+
 from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
+from server.providers.llm_provider import is_gemini_3_plus
 from server.config.constants import (
     BUILD_MODE,
     CHARS_PER_TOKEN,
@@ -34,9 +37,27 @@ Infer the user's intended action. Execute by default. If they explicitly request
 
 ## WORKFLOW
 - For changes: inspect only the files and symbols needed to understand the task, modify, then verify the result. Prefer targeted reads and searches over broad scans; read before editing.
+- Never glob `**/*` at the workspace root or grep repo-wide as a first step: scope every search to the subsystem directory the task concerns, then narrow.
 - For bugs: reproduce -> isolate -> fix the root cause -> verify with the smallest targeted check.
 - Batch independent calls only; never dependent ones. Use the smallest capable tool. Tools only when they add verified value; general knowledge needs none.
+- For ANY "how does X work", "where is Y", or "explain Z" research question: delegate to explore (isolated scout) instead of scanning yourself. Explore runs in its own context window and returns a focused report without bloating yours. Only use grep/read directly when you already know the exact file or symbol.
 - Scale verification to the change: tests/runs for code; content and consistency checks for docs and data. Never claim unrun verification; if it cannot run, say why. Verify content, not tool success: read written files back and compare against the requirement.
+
+## RESEARCH QUESTIONS
+When the user asks "how does X work", "where is Y", "explain Z", or any investigation question:
+1. Use explore with a clear objective, NOT grep+read. Explore is an isolated scout that searches the codebase and returns evidence-backed findings.
+2. If you must investigate directly: scope grep to the relevant subsystem (e.g. path="server/agents"), never grep repo-wide. Read 200-line slices, not whole files.
+3. After reading 3-4 files, synthesize your answer. Do not exhaust the workspace.
+
+## TOOLS KNOWLEDGE
+- /compact: manually triggers context compaction (folds old messages into summary)
+- explore: isolated scout agent for codebase research — own context window, returns structured report
+- file_read: read files; use offset/limit for targeted slices
+- grep: search file contents; always scope with path= and include=
+- glob: find files; always scope to a subdirectory
+
+## COMPLETION
+Questions, analyses, and research requests end with the answer itself: once you can answer, write the full answer as your final message and emit no tool calls after it. Re-running an identical call to "confirm" is waste; a tool call emitted after your delivered final answer is a defect.
 
 ## DEPTH & FORMAT
 Match the request: simple questions and greetings get short replies; complex or explicitly detailed requests get structured, complete answers - sections/lists when multiple parts exist, format suited to the artifact.
@@ -259,6 +280,16 @@ def build_system_prompt(
     project_context = _build_project_context(root, max_context_tokens)
     if project_context:
         sections.append(f"<project_context>\n{project_context}\n</project_context>")
+    # Gemini 3+ no longer accepts temperature/top_p/top_k sampling controls, so
+    # steer output style explicitly through instructions instead of sampling.
+    if is_gemini_3_plus(model_name):
+        sections.append(
+            "## SAMPLING STYLE\n"
+            "This model does not accept temperature, top_p, or top_k controls. "
+            "Produce deterministic, precise, well-structured output; let the depth "
+            "and format guidance above govern tone and length rather than sampling "
+            "randomness. Avoid hedging and unnecessary variation between runs."
+        )
     return "\n\n".join(sections)
 
 
@@ -281,12 +312,38 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
     os_name = platform.system()
     shell_name = "powershell" if os_name == "Windows" else "bash"
     if os_name == "Windows":
-        constraint = "The bash tool runs in PowerShell on Windows. Write commands only for PowerShell."
+        constraint = (
+            "The bash tool runs in PowerShell on Windows. Write commands only for PowerShell."
+        )
     else:
         constraint = (
             "The bash tool runs in bash. Use bash syntax; never Windows PowerShell "
             "cmdlets. Write commands for bash."
         )
-    return (
-        f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root}\n{constraint}"
-    )
+    # Scan workspace root for top-level directory structure
+    ws = Path(workspace_root)
+    top_dirs = []
+    top_files = []
+    try:
+        for entry in sorted(ws.iterdir()):
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                top_dirs.append(entry.name + "/")
+            else:
+                top_files.append(entry.name)
+    except OSError:
+        pass
+    structure_lines = []
+    if top_dirs:
+        structure_lines.append(f"Top-level directories: {', '.join(top_dirs[:12])}")
+    if top_files:
+        structure_lines.append(f"Top-level files: {', '.join(top_files[:8])}")
+    structure = "\n".join(structure_lines) if structure_lines else ""
+    parts = [
+        f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root}",
+        constraint,
+    ]
+    if structure:
+        parts.append(structure)
+    return "\n".join(parts)

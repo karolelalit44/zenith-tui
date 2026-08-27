@@ -69,7 +69,7 @@ export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClos
   useEffect(() => {
     setLoading(true);
     wsClient
-      .listAllSessions({ limit: 5, include_archived: false })
+      .listAllSessions({ limit: 25, include_archived: false })
       .then((list) => {
         if (!mounted.current) return;
         // Sort by updated_at descending (most recent first)

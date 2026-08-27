@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid as _uuid
 from datetime import datetime
 from typing import Any
 
@@ -134,7 +135,6 @@ class DefaultSessionService(SessionService):
         self,
         session_repo: Any,
         message_repo: Any,
-        token_usage_repo: Any | None = None,
         checkpoint_repo: Any | None = None,
         sync_event_repo: Any | None = None,
         status_history_repo: Any | None = None,
@@ -144,7 +144,6 @@ class DefaultSessionService(SessionService):
     ) -> None:
         self._session_repo = session_repo
         self._message_repo = message_repo
-        self._token_usage_repo = token_usage_repo
         self._checkpoint_repo = checkpoint_repo
         self._sync_event_repo = sync_event_repo
         self._status_history_repo = status_history_repo
@@ -292,6 +291,12 @@ class DefaultSessionService(SessionService):
 
     async def resume(self, session_id: str) -> Session:
         session = await self.require(session_id)
+        # Idempotent: a client reconnects, replays buffered events, then calls
+        # resume again. Re-resuming an already-resumed session is a no-op, not a
+        # transition error. This guards the double-resume race seen on reconnect.
+        if session.state == SessionState.RESUMED:
+            logger.info("Resume is idempotent for session %s (already resumed)", session_id)
+            return session
         result = await self._transition(session, SessionState.RESUMED, "Session resumed")
         self._publish(EventKind.SESSION_RESUMED, {"session_id": session_id}, session_id=session_id)
         return result
@@ -450,7 +455,7 @@ class DefaultSessionService(SessionService):
         await self._session_repo.create(new_session)
         messages = await self.get_history(session_id)
         for msg in messages:
-            msg.id = str(__import__("uuid").uuid4())
+            msg.id = str(_uuid.uuid4())
             msg.session_id = new_session.id
             msg.created_at = datetime.now()
             await self._message_repo.create(msg)

@@ -15,6 +15,10 @@ export type EventKind =
   | 'context_compaction_phase'
   | 'context_compaction_flow'
   | 'agent_orchestration'
+  | 'agent_spawned'
+  | 'agent_status'
+  | 'agent_complete'
+  | 'agent_failed'
   | 'todo_board'
   | 'todo_test'
   | 'session_created'
@@ -38,6 +42,8 @@ export interface ThinkingEvent {
   id: string;
   thoughts: string[] | ThinkingThought[];
   duration: number;
+  /** Streaming placeholder — replaced in place by the next partial/final. */
+  partial?: boolean;
 }
 
 export interface FileLine {
@@ -315,6 +321,44 @@ export interface AgentOrchestrationEvent {
   activeStep?: string;
 }
 
+export interface AgentSpawnedEvent {
+  kind: 'agent_spawned';
+  id: string;
+  agentId: string;
+  name: string;
+  role: string;
+  taskId: string;
+  capability: string;
+  parentSessionId?: string;
+  model?: string;
+}
+
+export interface AgentStatusEvent {
+  kind: 'agent_status';
+  id: string;
+  agentId: string;
+  status: string;
+  activity?: string;
+  progress?: number;
+}
+
+export interface AgentCompleteEvent {
+  kind: 'agent_complete';
+  id: string;
+  agentId: string;
+  taskId: string;
+  resultSummary?: string;
+  status?: string;
+}
+
+export interface AgentFailedEvent {
+  kind: 'agent_failed';
+  id: string;
+  agentId: string;
+  taskId: string;
+  error?: string;
+}
+
 export type TodoStatus = 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
 
 export type TodoPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -539,6 +583,10 @@ export type ScenarioEvent =
   | ContextCompactionFlowEvent
   | TurnManifestEvent
   | AgentOrchestrationEvent
+  | AgentSpawnedEvent
+  | AgentStatusEvent
+  | AgentCompleteEvent
+  | AgentFailedEvent
   | TodoBoardEvent
   | TodoTestEvent
   | SessionInfoEvent

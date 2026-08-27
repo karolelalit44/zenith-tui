@@ -56,19 +56,19 @@ describe('ErrorBlock', () => {
     expect(frame).toContain('Wait for the rate limit to reset.');
   });
 
-  it('truncates long messages and expands on ctrl+d', async () => {
+  it('truncates long messages and expands on ctrl+e', async () => {
     const longMessage = 'x'.repeat(300);
     const { lastFrame, stdin } = renderError(makeError({ message: longMessage }));
     const truncated = lastFrame();
     expect(truncated).toContain('…');
-    expect(truncated).toContain('ctrl+d to show full details');
-    expect(truncated).not.toContain('ctrl+d to hide full details');
+    expect(truncated).toContain('ctrl+e to show full details');
+    expect(truncated).not.toContain('ctrl+e to hide full details');
 
-    stdin.write('\x04');
+    stdin.write('\x05');
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const expanded = lastFrame();
-    expect(expanded).toContain('ctrl+d to hide full details');
+    expect(expanded).toContain('ctrl+e to hide full details');
     expect(expanded).not.toContain('…');
   });
 
@@ -76,7 +76,7 @@ describe('ErrorBlock', () => {
     const { lastFrame } = renderError(makeError({ message: 'short' }));
     const frame = lastFrame();
     expect(frame).toContain('short');
-    expect(frame).not.toContain('ctrl+d');
+    expect(frame).not.toContain('ctrl+e');
     expect(frame).not.toContain('…');
   });
 });

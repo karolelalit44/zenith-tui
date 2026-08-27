@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 def _compute_signature(
     tool_name: str, params: dict, result_output: str, workspace_root: str | None = None
 ) -> str:
-    canonical = (
-        canonicalize_path_values(params, workspace_root) if workspace_root else params
-    )
+    canonical = canonicalize_path_values(params, workspace_root) if workspace_root else params
     h = hashlib.sha256()
     h.update(tool_name.encode("utf-8"))
     h.update(b"\x00")

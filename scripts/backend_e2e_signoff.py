@@ -1,7 +1,7 @@
 """Real-backend end-to-end signoff for Zenith (Build mode + Plan mode).
 
 Spawns an isolated instance of the actual ``server`` package (fresh temp
-workspace + a copy of the repo's ``data/zenith.db`` so the provider config is
+    workspace + a cloned ``user_profile.json`` (isolated storage home) so the provider config is
 identical, real provider, real model) and drives it over the real WebSocket
 JSON-RPC protocol. Verifies, and fails loudly on any violation of:
 
@@ -87,31 +87,40 @@ class Backend:
         if self.base_url:
             log(f"Using existing backend: {self.base_url}")
             return
-        src_db = REPO_ROOT / "data" / "zenith.db"
-        if not src_db.exists():
+        src_home = Path(os.environ.get("ZENITH_HOME", str(Path.home() / ".zenith")))
+        src_profile = src_home / "user_profile.json"
+        if not src_profile.exists():
             raise SystemExit(
-                f"Repository database not found at {src_db}. Start the server once "
-                "so the provider config exists."
+                f"No user_profile.json found at {src_profile}. Run the setup wizard once "
+                "so provider credentials exist."
             )
         self.tmpdir = tempfile.TemporaryDirectory(prefix="zenith_e2e_")
         tmp = Path(self.tmpdir.name)
         self.workspace = tmp / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
-        db_copy = tmp / "e2e.db"
-        shutil.copy2(src_db, db_copy)
+        # Isolated storage home: clone identity/credentials + catalog, no sessions.
+        e2e_home = tmp / "home"
+        e2e_home.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_profile, e2e_home / "user_profile.json")
+        for name in ("providers.json", "models.json"):
+            src_file = src_home / name
+            if src_file.exists():
+                shutil.copy2(src_file, e2e_home / name)
         port = _free_port()
         launcher = tmp / "launcher.py"
         launcher.write_text(
             _LAUNCHER.format(
                 repo_root=str(REPO_ROOT),
                 workspace=str(self.workspace),
-                db_path=str(db_copy),
+                home=str(e2e_home),
                 port=port,
             ),
             encoding="utf-8",
         )
-        log(f"Spawning isolated backend on 127.0.0.1:{port} "
-            f"(workspace={self.workspace}, db={db_copy.name})")
+        log(
+            f"Spawning isolated backend on 127.0.0.1:{port} "
+            f"(workspace={self.workspace}, home={e2e_home.name})"
+        )
         self.proc = subprocess.Popen(
             [sys.executable, str(launcher)],
             cwd=str(REPO_ROOT),
@@ -144,8 +153,10 @@ class Backend:
                     health = client.get(f"{self.base_url}/health").json()
                     status = client.get(f"{self.base_url}/status").json()
                 if health.get("status") == "ok" and status.get("ready") is True:
-                    log(f"Backend ready: provider={status.get('provider')} "
-                        f"workspace={status.get('workspace')}")
+                    log(
+                        f"Backend ready: provider={status.get('provider')} "
+                        f"workspace={status.get('workspace')}"
+                    )
                     return
             except Exception:
                 pass
@@ -189,23 +200,15 @@ class Backend:
             self.tmpdir.cleanup()
 
 
-_LAUNCHER = '''\
+_LAUNCHER = """\
 import os, sys
 REPO = {repo_root!r}
 WS = {workspace!r}
-DB = {db_path!r}
+HOME = {home!r}
 sys.path.insert(0, REPO)
-# Export keys from the repo's .keys file into the environment (never logged).
-try:
-    for line in open(os.path.join(REPO, ".keys"), encoding="utf-8"):
-        line = line.strip()
-        if line and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
-except OSError:
-    pass
 os.chdir(WS)
-os.environ["ZENITH_DB_PATH"] = DB
+# Credentials resolve exclusively from user_profile.json inside ZENITH_HOME.
+os.environ["ZENITH_HOME"] = HOME
 os.environ["ZENITH_LOG_LEVEL"] = "INFO"
 os.environ["ZENITH_E2E_INSTRUMENT"] = "1"
 import server.api.server as api
@@ -223,7 +226,7 @@ uvicorn.run(
     ws_ping_interval=None,
     ws_ping_timeout=None,
 )
-'''
+"""
 
 
 async def _rpc(ws, method: str, params: dict | None = None, timeout: float = TURN_TIMEOUT):
@@ -277,8 +280,7 @@ def _assert_turn_contract(events: list[dict], mode: str, *, require_tool: bool) 
         check("tool_call" in kinds, f"{mode}: 'tool_call' response type present")
         check("tool_result" in kinds, f"{mode}: 'tool_result' response type present")
     else:
-        log(f"  [info] {mode}: tool_use={'tool_call' in kinds} "
-            f"(tool_call={'tool_call' in kinds})")
+        log(f"  [info] {mode}: tool_use={'tool_call' in kinds} (tool_call={'tool_call' in kinds})")
     check("error" not in kinds, f"{mode}: no error events")
     success = _success_event(events)
     data = success.get("data") or {}
@@ -344,9 +346,14 @@ def _assert_thinking_excluded(messages: list[dict]) -> None:
     """Thinking may live in event history only, never in persisted message content."""
     for m in messages:
         content = m.get("content") or ""
-        if content and any(marker in content.lower() for marker in ("[thinking]", "</thinking>", "thinking:")):
-            check(False, "thinking excluded from persisted message content",
-                  f"role={m.get('role')} content starts: {content[:120]}")
+        if content and any(
+            marker in content.lower() for marker in ("[thinking]", "</thinking>", "thinking:")
+        ):
+            check(
+                False,
+                "thinking excluded from persisted message content",
+                f"role={m.get('role')} content starts: {content[:120]}",
+            )
             return
     check(True, "thinking excluded from persisted message content")
 
@@ -432,8 +439,11 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     check(created.exists(), "build: artifact/README.md exists on disk", str(created))
     if created.exists():
         text = created.read_text(encoding="utf-8", errors="replace")
-        check("Hello from Zenith e2e" in text, "build: file content contains the requested text",
-              repr(text[:80]))
+        check(
+            "Hello from Zenith e2e" in text,
+            "build: file content contains the requested text",
+            repr(text[:80]),
+        )
     check(not (ws_root / "artifect").exists(), "build: NO typo'd 'artifect' folder (fidelity)")
     extra = [
         p.relative_to(ws_root).as_posix()
@@ -458,11 +468,15 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     messages = await _resume_messages(ws, sid)
     await _drain_ws(ws)
     roles = [m.get("role") for m in messages]
-    check(roles == ["user", "assistant"], "build: exactly two persisted messages (user, assistant)",
-          str(roles))
+    check(
+        roles == ["user", "assistant"],
+        "build: exactly two persisted messages (user, assistant)",
+        str(roles),
+    )
     assistant_msg = messages[1]
     final_text = "".join(
-        e.get("data", {}).get("text", "") for e in events
+        e.get("data", {}).get("text", "")
+        for e in events
         if e.get("kind") == "message" and not e.get("data", {}).get("partial")
     )
     check(
@@ -494,7 +508,7 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
         "prompt.send",
         {
             "content": "What file did you create in your previous response in this session? "
-                       "Answer briefly with the exact path.",
+            "Answer briefly with the exact path.",
             "mode": "build",
         },
     )
@@ -502,7 +516,8 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     events2 = await _collect_turn(ws)
     success2 = _assert_turn_contract(events2, "build-follow-up", require_tool=False)
     followup_text = " ".join(
-        e.get("data", {}).get("text", "") for e in events2
+        e.get("data", {}).get("text", "")
+        for e in events2
         if e.get("kind") == "message" and not e.get("data", {}).get("partial")
     )
     check(
@@ -553,8 +568,11 @@ async def _run_build_checks(ws, backend: Backend, httpx) -> None:
     if steps:
         inp = sum(int(s.get("input_tokens") or 0) for s in steps)
         out = sum(int(s.get("output_tokens") or 0) for s in steps)
-        check(inp > 0 and out > 0, "build: input+output tokens > 0 across steps",
-              f"input={inp} output={out}")
+        check(
+            inp > 0 and out > 0,
+            "build: input+output tokens > 0 across steps",
+            f"input={inp} output={out}",
+        )
     totals = stats.get("totals") or {}
     check(bool(totals), "build: /usage/token-stats totals present", str(totals))
 
@@ -581,12 +599,16 @@ async def _run_plan_checks(ws, backend: Backend) -> None:
 
     calls = _tool_calls(events)
     plan_writes = [
-        c for c in calls
+        c
+        for c in calls
         if c[0] in ("file_write", "file_edit")
         and (c[1].get("path") or "").strip().lower() in ("plan.md", "todo.md")
     ]
-    check(bool(plan_writes), "plan: wrote via file_write/file_edit to plan.md/todo.md",
-          str([c for c in calls if c[0] in ("file_write", "file_edit")]))
+    check(
+        bool(plan_writes),
+        "plan: wrote via file_write/file_edit to plan.md/todo.md",
+        str([c for c in calls if c[0] in ("file_write", "file_edit")]),
+    )
     bash_calls = [c for c in calls if c[0] == "bash"]
     check(not bash_calls, "plan: no bash/mutating tool used in plan mode", str(bash_calls))
 
@@ -653,7 +675,7 @@ def _parse_args() -> argparse.Namespace:
         "--base-url",
         default=None,
         help="Attach to an already-running backend (e.g. http://127.0.0.1:8765) "
-             "instead of spawning an isolated instance.",
+        "instead of spawning an isolated instance.",
     )
     return parser.parse_args()
 

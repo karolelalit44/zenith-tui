@@ -24,12 +24,6 @@ describe('dispatchCommand registry dispatch', () => {
     expect(ctx.openOverlay).toHaveBeenCalledWith('provider');
   });
 
-  it('dispatches /models to the models overlay', () => {
-    const ctx = makeContext();
-    expect(dispatchCommand('/models', ctx)).toBe(true);
-    expect(ctx.openOverlay).toHaveBeenCalledWith('models');
-  });
-
   it('dispatches /memories to the memories overlay', () => {
     const ctx = makeContext();
     expect(dispatchCommand('/memories', ctx)).toBe(true);

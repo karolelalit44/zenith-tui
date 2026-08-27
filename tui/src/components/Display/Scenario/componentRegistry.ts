@@ -19,6 +19,7 @@ import { WarningBlock } from './WarningBlock';
 
 export interface EventRenderContext {
   thinkingCollapsed?: boolean;
+  calmMode?: boolean;
   isHistorical?: boolean;
   isRunning?: boolean;
   workspaceName?: string;

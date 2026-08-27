@@ -7,7 +7,7 @@ from .constants import (
     PORT_ENV_VAR,
     WS_PATH,
 )
-from .loader import create_default_config, load_config, save_config
+from .loader import create_default_config, load_config
 from .providers import ProviderConfig
 from .settings import DEFAULTS, AppSettings, BootstrapDefaults, ToolConfig
 
@@ -26,5 +26,4 @@ __all__ = [
     "ToolConfig",
     "create_default_config",
     "load_config",
-    "save_config",
 ]

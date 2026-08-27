@@ -79,7 +79,7 @@ def test_repo_map_honors_small_budget(sample_workspace):
 
 def _make_config(temp_dir, **overrides) -> AppSettings:
     defaults: dict[str, Any] = {
-        "db_path": str(temp_dir / "test.db"),
+        "home_dir": str(temp_dir / "test.db"),
         "workspace_root": str(temp_dir),
         "max_context_tokens": DEFAULT_CONTEXT_WINDOW,
         "repo_map_tokens": 2000,

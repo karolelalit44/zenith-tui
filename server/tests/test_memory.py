@@ -65,7 +65,7 @@ class TestMemoryInContext:
         config = AppSettings(
             max_context_tokens=DEFAULT_CONTEXT_WINDOW,
             repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
@@ -79,7 +79,7 @@ class TestMemoryInContext:
         config = AppSettings(
             max_context_tokens=DEFAULT_CONTEXT_WINDOW,
             repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
@@ -94,7 +94,7 @@ class TestMemoryInContext:
             max_context_tokens=DEFAULT_CONTEXT_WINDOW,
             repo_map_enabled=False,
             memory_enabled=False,
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
@@ -107,7 +107,7 @@ class TestMemoryInContext:
         config = AppSettings(
             max_context_tokens=8000,
             repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
@@ -120,7 +120,7 @@ class TestMemoryInContext:
         config = AppSettings(
             max_context_tokens=DEFAULT_CONTEXT_WINDOW,
             repo_map_enabled=False,
-            db_path=str(temp_dir / "test.db"),
+            home_dir=str(temp_dir / "test.db"),
             workspace_root=str(temp_dir),
         )
         cm = ContextManager(config)
@@ -141,7 +141,7 @@ class TestMemoryInContext:
             AppSettings(
                 max_context_tokens=DEFAULT_CONTEXT_WINDOW,
                 repo_map_enabled=False,
-                db_path=str(temp_dir / "test.db"),
+                home_dir=str(temp_dir / "test.db"),
                 workspace_root=str(temp_dir),
             )
         )

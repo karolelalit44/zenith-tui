@@ -92,13 +92,12 @@ _ABS_PATH_PREFIX = "\0abs:"
 
 def _is_path_key(key: str) -> bool:
     base = key.lstrip("_").lower()
-    return (
-        base in _PATH_CANONICAL_ALIASES
-        or base in _LITERAL_PATH_KEYS
-    )
+    return base in _PATH_CANONICAL_ALIASES or base in _LITERAL_PATH_KEYS
 
 
-def canonicalize_path_values(params: dict[str, Any], workspace_root: str | None = None) -> dict[str, Any]:
+def canonicalize_path_values(
+    params: dict[str, Any], workspace_root: str | None = None
+) -> dict[str, Any]:
     """Resolve path-valued params against ``workspace_root`` into stable identities.
 
     Equivalent spellings of the same file — ``sessions.py``, ``./sessions.py`` and

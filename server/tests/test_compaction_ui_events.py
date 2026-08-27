@@ -17,6 +17,9 @@ class FakeProvider:
     def count_tokens(self, text: str, model: str | None = None) -> int:
         return max(1, len(text) // 4)
 
+    async def complete(self, request, tools=None):
+        return "Objective\n- completed compaction summary"
+
 
 class TestCompactionUIEvents:
     @staticmethod
@@ -99,6 +102,37 @@ class TestCompactionUIEvents:
         assert len(warning_events) == 0, f"Expected 0 raw warning events, got: {warning_events}"
 
     @pytest.mark.asyncio
+    async def test_compaction_emits_degraded_warning_on_provider_failure(self, temp_dir: Path):
+        """When the summarizer provider errors, the degraded summary is surfaced
+        to the user (warning event) instead of being silently swallowed."""
+        cfg = AppSettings(workspace_root=str(temp_dir), max_context_tokens=4000)
+        provider = _FailingProvider()
+        loop = AgentLoop(config=cfg, provider=provider)
+        history = [
+            Message(session_id="s1", role="user", content=f"turn {i} " + "x" * 2200)
+            for i in range(6)
+        ]
+        messages = [
+            {"role": "user", "content": "Find items"},
+            {
+                "role": "user",
+                "content": "[Tool: glob | Status: SUCCESS]\n" + "f.py\n" * 2000,
+                "digest": "[Tool: glob | Status: SUCCESS] Found 2000 files",
+            },
+        ]
+        events = []
+        async for ev in loop._maybe_summarize(history=history, session_id="s1", messages=messages):
+            events.append(ev)
+
+        # A fallback summary lets compaction still complete (degraded, not fatal).
+        ended = next(ev for ev in events if ev.kind == EventKind.CONTEXT_COMPACTION_ENDED)
+        assert ended.data.get("status") == "completed"
+
+        warning_events = [ev for ev in events if ev.kind == EventKind.WARNING]
+        assert len(warning_events) == 1, f"Expected 1 degraded warning, got: {warning_events}"
+        assert warning_events[0].data.get("code") == "SUMMARIZATION_DEGRADED"
+
+    @pytest.mark.asyncio
     async def test_compaction_events_carry_per_tier_tokens(self, temp_dir: Path):
         # Per-tier payloads are only complete on a real compaction (the
         # verifying phase carries tokensAfter); use a small window so the
@@ -141,3 +175,14 @@ class TestCompactionUIEvents:
         assert set(ended.data["tokensAfter"].keys()) == tiers
         assert ended.data["tokensSaved"] > 0
         assert "failed" not in ended.data
+
+
+class _FailingProvider:
+    name = "fake-fail"
+    model = "fake-model"
+
+    def count_tokens(self, text: str, model: str | None = None) -> int:
+        return max(1, len(text) // 4)
+
+    async def complete(self, request, tools=None):
+        raise RuntimeError("simulated provider outage")

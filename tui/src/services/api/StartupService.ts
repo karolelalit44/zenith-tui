@@ -1,6 +1,5 @@
 import { appConfig } from '../../config/appConfig';
 import type { AppStartupState, StartupResult } from '../../types/startup';
-import { modelStore } from '../providers/ModelStore';
 import { providerRepository } from '../providers/ProviderRepository';
 import { ApiError, BaseApiService } from './BaseApiService';
 
@@ -88,7 +87,6 @@ export class StartupService extends BaseApiService {
 
     try {
       await providerRepository.refreshFromBackend();
-      await modelStore.hydrate();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this._state = { phase: 'error', result: null, error: message };

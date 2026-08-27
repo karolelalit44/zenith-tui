@@ -208,8 +208,12 @@ async def ws_validate(prompt: str, timeout: int) -> dict:
                 warn(f"event.{k}", "not emitted")
 
         # Streaming
-        partials = [e for e in events if e["kind"] == "message" and e.get("data", {}).get("partial")]
-        finals = [e for e in events if e["kind"] == "message" and not e.get("data", {}).get("partial")]
+        partials = [
+            e for e in events if e["kind"] == "message" and e.get("data", {}).get("partial")
+        ]
+        finals = [
+            e for e in events if e["kind"] == "message" and not e.get("data", {}).get("partial")
+        ]
         if partials:
             ok(f"streaming.partials ({len(partials)})")
         else:
@@ -369,7 +373,9 @@ def main() -> int:
         for n in results["warned"]:
             log(f"  WARN  {n}")
         log("")
-        log(f"Total: {len(results['passed'])} passed, {len(results['failed'])} failed, {len(results['warned'])} warned")
+        log(
+            f"Total: {len(results['passed'])} passed, {len(results['failed'])} failed, {len(results['warned'])} warned"
+        )
         log("=" * 70)
 
         # Save report

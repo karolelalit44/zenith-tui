@@ -34,13 +34,15 @@ describe('E2E: todo lifecycle pipeline', () => {
 
     const { lastFrame } = render(
       <ThemeProvider>
-        <ScenarioRenderer events={state} isRunning={false} thinkingCollapsed={false} />
+        <ScenarioRenderer events={state} isRunning={false} thinkingCollapsed={false} historyExpanded={true} />
       </ThemeProvider>,
     );
     const frame = lastFrame();
 
     // Realistic response framing around the todo work.
-    expect(frame).toContain('TodoStore API');
+    // Read rows are content-free by design: path + line count, never a dump
+    // of the file's API surface.
+    expect(frame).toContain('todoStore.ts');
     expect(frame).toContain('HRMS onboarding module');
 
     // Minimal board table: SN | todo title | status, no column header.
@@ -62,7 +64,7 @@ describe('E2E: todo lifecycle pipeline', () => {
 
     const { lastFrame } = render(
       <ThemeProvider>
-        <ScenarioRenderer events={state} isRunning={true} thinkingCollapsed={false} />
+        <ScenarioRenderer events={state} isRunning={true} thinkingCollapsed={false} historyExpanded={true} />
       </ThemeProvider>,
     );
     const frame = lastFrame();

@@ -8,11 +8,15 @@ from server.domain.domain import ScenarioMode, SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.domain.session import Session
-from server.persistence.repositories.sessions import MessageRepository, SessionRepository
+from server.storage.session_store import FileMessageRepository, FileSessionRepository
 
 
 class SessionImporter:
-    def __init__(self, session_repo: SessionRepository, message_repo: MessageRepository):
+    def __init__(
+        self,
+        session_repo: FileSessionRepository,
+        message_repo: FileMessageRepository,
+    ):
         self.session_repo = session_repo
         self.message_repo = message_repo
 

@@ -38,7 +38,7 @@ describe('E2E: full showcase pipeline', () => {
 
     const { lastFrame } = render(
       <ThemeProvider>
-        <ScenarioRenderer events={state} isRunning={false} thinkingCollapsed={false} />
+        <ScenarioRenderer events={state} isRunning={false} thinkingCollapsed={false} historyExpanded={true} />
       </ThemeProvider>,
     );
     const frame = lastFrame();
@@ -46,7 +46,9 @@ describe('E2E: full showcase pipeline', () => {
     // Lifecycle half: the board table shows the completed T1 alongside the
     // HRMS stream.
     expect(frame).toMatch(/T1\s+Build the HRMS employee onboarding module \(Django\)\s+success/);
-    expect(frame).toContain('TodoStore API');
+    // Read rows are content-free by design: path + line count, never a dump
+    // of the file's API surface.
+    expect(frame).toContain('todoStore.ts');
 
     // HRMS half: orchestration, compaction, and the shipped build.
     expect(frame).toContain('⚡ CAPTAIN ZENITH COMMAND CENTER');
@@ -70,7 +72,7 @@ describe('E2E: full showcase pipeline', () => {
 
     const { lastFrame } = render(
       <ThemeProvider>
-        <ScenarioRenderer events={state} isRunning={true} thinkingCollapsed={false} />
+        <ScenarioRenderer events={state} isRunning={true} thinkingCollapsed={false} historyExpanded={true} />
       </ThemeProvider>,
     );
     const frame = lastFrame();

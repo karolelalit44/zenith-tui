@@ -5,7 +5,6 @@ import pytest
 from server.toolkit.base import BaseTool, ToolContext, ToolMiddleware, ToolResult
 from server.toolkit.middleware import (
     LoggingMiddleware,
-    PermissionMiddleware,
     SafetyCheckMiddleware,
 )
 from server.toolkit.registry import ToolRegistry
@@ -196,36 +195,6 @@ class TestSafetyCheckMiddleware:
         ctx = ToolContext(request_id="r1", mode="build")
         result = await mw.before_execute("file_read", {"path": "/etc/passwd"}, ctx)
         assert result is True
-
-
-class TestPermissionMiddleware:
-    @pytest.mark.asyncio
-    async def test_no_callback_allows(self):
-        mw = PermissionMiddleware()
-        ctx = ToolContext(request_id="r1", mode="build")
-        result = await mw.before_execute("bash", {"command": "ls"}, ctx)
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_callback_approves(self):
-        async def approve(name, params, ctx):
-            return True
-
-        mw = PermissionMiddleware(check=approve)
-        ctx = ToolContext(request_id="r1", mode="build")
-        result = await mw.before_execute("bash", {"command": "ls"}, ctx)
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_callback_denies(self):
-        async def deny(name, params, ctx):
-            return ToolResult(success=False, error="denied")
-
-        mw = PermissionMiddleware(check=deny)
-        ctx = ToolContext(request_id="r1", mode="build")
-        result = await mw.before_execute("bash", {"command": "ls"}, ctx)
-        assert isinstance(result, ToolResult)
-        assert not result.success
 
 
 class TestLoggingMiddleware:
