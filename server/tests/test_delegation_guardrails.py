@@ -8,9 +8,9 @@ import server.agents.delegation.orchestrator as orch_module
 from server.agents.delegation import (
     AGENT_TIMEOUT_SECONDS,
     MAX_DELEGATION_DEPTH,
-    SCOUT_CONTEXT_BUDGET_TOKENS,
+    CREWMATE_CONTEXT_BUDGET_TOKENS,
     CaptainOrchestrator,
-    CodebaseScout,
+    ApogeeCrewmate,
 )
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
@@ -45,7 +45,7 @@ class _ExplodingProvider(BaseProvider):
         super().__init__("boom", "boom-model")
 
     async def complete(self, messages, tools=None):
-        raise RuntimeError("provider exploded mid-scout")
+        raise RuntimeError("provider exploded mid-crewmate")
 
     async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
         response = await self.complete(messages, tools)
@@ -98,9 +98,9 @@ class TestConstants:
     def test_guardrail_values_match_spec(self):
         assert MAX_DELEGATION_DEPTH == 1
         assert AGENT_TIMEOUT_SECONDS == 150
-        assert SCOUT_CONTEXT_BUDGET_TOKENS == 64_000
-        assert CodebaseScout.max_crewmates == 0
-        assert CodebaseScout.delegation_depth == 0
+        assert CREWMATE_CONTEXT_BUDGET_TOKENS == 64_000
+        assert ApogeeCrewmate.max_crewmates == 0
+        assert ApogeeCrewmate.delegation_depth == 0
 
 
 class TestDepthLimit:
@@ -109,7 +109,7 @@ class TestDepthLimit:
         orchestrator = CaptainOrchestrator(AppSettings(), _SleepProvider(), tool_registry=None)
         events = []
         async for event in orchestrator.investigate(
-            "Investigate sessions", CodebaseScout, "s-parent", depth=MAX_DELEGATION_DEPTH
+            "Investigate sessions", ApogeeCrewmate, "s-parent", depth=MAX_DELEGATION_DEPTH
         ):
             events.append(event)
         assert orchestrator.last_result is not None
@@ -123,11 +123,11 @@ class TestContextBudget:
     @pytest.mark.parametrize(
         ("configured", "expected"),
         [
-            (200_000, SCOUT_CONTEXT_BUDGET_TOKENS),
+            (200_000, CREWMATE_CONTEXT_BUDGET_TOKENS),
             (16_000, 16_000),
         ],
     )
-    async def test_budget_caps_into_scout_config(self, monkeypatch, temp_dir, configured, expected):
+    async def test_budget_caps_into_crewmate_config(self, monkeypatch, temp_dir, configured, expected):
         captured = {}
         from server.agents import context as context_module
 
@@ -139,7 +139,7 @@ class TestContextBudget:
 
         monkeypatch.setattr(context_module, "ContextManager", spying_cm)
 
-        from server.agents.delegation.scout import ScoutRun, run_scout
+        from server.agents.delegation.scout import CrewmateRun, run_crewmate
         from server.agents.delegation.task_envelope import build_task_envelope
 
         config = AppSettings(
@@ -149,19 +149,19 @@ class TestContextBudget:
         )
         task = build_task_envelope(
             objective="Investigate sessions",
-            definition=CodebaseScout,
+            definition=ApogeeCrewmate,
             session_id=f"s-cap-{configured}",
-            max_context_tokens=SCOUT_CONTEXT_BUDGET_TOKENS,
+            max_context_tokens=CREWMATE_CONTEXT_BUDGET_TOKENS,
         )
         task.child_session_id = f"child-cap-{configured}"
 
-        async for _ in run_scout(
+        async for _ in run_crewmate(
             config=config,
             provider=_InstantProvider(),
             tool_registry=None,
             task=task,
-            definition=CodebaseScout,
-            run=ScoutRun(),
+            definition=ApogeeCrewmate,
+            run=CrewmateRun(),
         ):
             pass
         assert captured["max_context_tokens"] == expected
@@ -189,13 +189,13 @@ class TestTimeout:
         events = []
         async for event in orchestrator.investigate(
             "Investigate how sessions are persisted and what would change over time",
-            CodebaseScout,
+            ApogeeCrewmate,
             parent.id,
         ):
             events.append(event)
         assert orchestrator.last_result.status == "timed_out"
         kinds = [e.kind for e in events]
-        assert kinds.count(EventKind.AGENT_FAILED) == 1
+        assert kinds.count(EventKind.CREWMATE_FAILED) == 1
         assert events[-1].kind == EventKind.SUCCESS
 
 
@@ -218,12 +218,12 @@ class TestFailureIsolation:
         events = []
         async for event in orchestrator.investigate(
             "Investigate how sessions are persisted across the whole codebase today",
-            CodebaseScout,
+            ApogeeCrewmate,
             parent.id,
         ):
             events.append(event)
         assert orchestrator.last_result.status == "failed"
         assert "exploded" in (orchestrator.last_result.error or "")
         kinds = [e.kind for e in events]
-        assert EventKind.AGENT_FAILED in kinds
+        assert EventKind.CREWMATE_FAILED in kinds
         assert kinds[-1] == EventKind.SUCCESS

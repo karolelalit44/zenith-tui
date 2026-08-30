@@ -53,6 +53,8 @@ def test_openai_compatible_save_config(temp_dir):
 
     profile_text = (temp_dir / "user_profile.json").read_text(encoding="utf-8")
     assert "sk-tokenrouter-secret-key" in profile_text
-    for catalog in ("providers.json", "models.json"):
+    for catalog in ("zenith_catalog.json",):
         text = (temp_dir / catalog).read_text(encoding="utf-8")
         assert "sk-tokenrouter-secret-key" not in text
+    assert not (temp_dir / "providers.json").exists()
+    assert not (temp_dir / "models.json").exists()

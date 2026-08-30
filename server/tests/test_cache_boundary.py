@@ -38,7 +38,6 @@ def _base_config(**kwargs) -> AppSettings:
     defaults = dict(
         max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         repo_map_enabled=False,
-        memory_enabled=False,
     )
     defaults.update(kwargs)
     return AppSettings(**defaults)
@@ -66,7 +65,6 @@ class TestT0Boundary:
             ctx,
             "Do the thing.",
             repo_map="module a.py:1-10",
-            memory="favorite color is blue",
             plan_block="1. step one",
             summary="Previous topic was caching.",
         )
@@ -127,7 +125,6 @@ class TestMessageOne:
             "First prompt.",
             history=[],
             repo_map="module a.py:1-10",
-            memory="favorite color is blue",
             plan_block="1. step one",
         )
         assert ctx.t0_len() == 1
@@ -139,7 +136,7 @@ class TestMessageOne:
 
     def test_message1_suppresses_volatile_blocks(self):
         ctx = ContextManager(_base_config())
-        messages = _build(ctx, "First.", history=[], memory="secret memory", repo_map="a.py:1-1")
+        messages = _build(ctx, "First.", history=[], repo_map="a.py:1-1")
         text = str(messages)
         assert "<memory>" not in text
         assert "<repo_map>" not in text
@@ -193,12 +190,10 @@ class TestMessageOne:
             "Continue.",
             history=[],
             summary="Prior topic.",
-            memory="favorite color is blue",
             repo_map="a.py:1-10",
         )
         assert ctx.t0_len() == 1
         assert messages[1]["content"].startswith("<repo_map>")
-        assert any("<memory>" in str(m.get("content", "")) for m in messages)
         # Summary is injected as a system block (no fake "Understood." assistant turn).
         assert messages[-2]["role"] == "system"
         assert "[Previous conversation summary]" in messages[-2]["content"]
@@ -318,7 +313,6 @@ class TestTierAssembly:
             "Final prompt.",
             history=self._history(),
             repo_map="module a.py:1-10",
-            memory="user prefers terse replies",
             plan_block="1. step one\n2. step two",
             summary="Earlier topic was caching.",
         )
@@ -448,7 +442,6 @@ class TestT0Purity:
                 history=self._varying_history(),
                 summary=f"summary number {i}",
                 repo_map="module a.py:1-10",
-                memory="user prefers terse replies",
                 plan_block=f"{i}. step",
             )
             t0 = messages[: ctx.t0_len()]
@@ -535,7 +528,6 @@ class TestTokenBudgeter:
             "gpt-4",
             summary="Conversation summary text.",
             repo_map="module a.py:1-10",
-            memory="prefers terse replies",
             plan_block="1. plan step",
         )
         AgentLoop._inject_session_state(messages, sid)
@@ -623,7 +615,6 @@ class TestSublinearGrowth:
             workspace_root=str(temp_dir),
             max_context_tokens=window,
             repo_map_enabled=False,
-            memory_enabled=False,
             context_compaction_threshold=0.30,
         )
         ctx = ContextManager(cfg)
@@ -679,7 +670,6 @@ class TestSublinearGrowth:
             workspace_root=str(temp_dir),
             max_context_tokens=window,
             repo_map_enabled=False,
-            memory_enabled=False,
         )
         ctx = ContextManager(cfg)
         ctx.token_counter._available = False
@@ -814,7 +804,6 @@ class TestPhase5OutboundTierOrder:
             ],
             summary="Earlier.",
             repo_map="mod.py",
-            memory="likes terse",
         )
         tiers = ctx.tiers()
         t0s = [i for i, t in enumerate(tiers) if t == TIER_T0]
@@ -1084,7 +1073,6 @@ class TestPhase7ContextComposer:
             "Fix the bug.",
             history=[],
             repo_map="a.py",
-            memory="color is blue",
             plan_block="1. step one",
         )
         assert ctx.tiers() == [TIER_T0, TIER_T5]
@@ -1814,7 +1802,6 @@ class TestMultiTierCacheBreakpoints:
             history=[_msg("assistant", "ok")],
             summary="prev summary",
             repo_map="a.py",
-            memory="remember x",
         )
         bounds = ctx.tier_boundaries()
         assert bounds["t0_end"] <= bounds["t1_end"] <= bounds["t2_end"] <= bounds["t4_end"]

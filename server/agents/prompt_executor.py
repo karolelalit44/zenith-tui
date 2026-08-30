@@ -22,7 +22,7 @@ from server.agents.run_state import (
     update_from_event,
 )
 from server.agents.running_summary import RunningSummaryScheduler
-from server.agents.sub_agent import SubAgentLoop
+from server.agents.crewmate_loop import CrewmateLoop
 from server.config.constants import (
     ATTACHMENT_MAX_FILE,
     ATTACHMENT_MAX_TOTAL,
@@ -659,7 +659,7 @@ class PromptExecutor:
         _original_model: str | None = None
         _original_temperature: float | None = None
         _original_max_tokens: int | None = None
-        # Bound before any early return (plan-ready / SubAgentLoop handoff):
+        # Bound before any early return (plan-ready / CrewmateLoop handoff):
         # the finally block reads these, and an UnboundLocalError there would
         # skip assistant-message persistence and terminal-event delivery.
         agent: RecoverableAgentLoop | None = None
@@ -704,17 +704,17 @@ class PromptExecutor:
                 )
 
             mode_config = AGENT_MODES.get(mode)
-            sub_agent_handoff = (
+            crewmate_handoff = (
                 mode == BUILD_MODE
                 and plan_context
                 and plan_approved
                 and mode_config
-                and mode_config.sub_agent
+                and mode_config.crewmate
             )
 
             # Captain delegation route: capability-driven dispatch to a
             # specialist agent. Never hijacks plan mode, never competes with
-            # the plan->build SubAgentLoop handoff (trigger conditions are
+            # the plan->build CrewmateLoop handoff (trigger conditions are
             # disjoint); non-matching prompts fall through to the normal loop.
             # Governance (WP5 D3, revised after live incident): 'tool' (the
             # default) means ONLY the mid-turn explore tool delegates — the
@@ -723,7 +723,7 @@ class PromptExecutor:
             # (fixed 120s timeout, no budgets), starving the better tool path.
             if (
                 mode != PLAN_MODE
-                and not sub_agent_handoff
+                and not crewmate_handoff
                 and self._config.explore_delegation == EXPLORE_DELEGATION_PROACTIVE
             ):
                 routed_definition = self._specialist_registry.route(content)
@@ -758,15 +758,15 @@ class PromptExecutor:
                     )
                     return
 
-            if sub_agent_handoff:
-                logger.info("Spawning SubAgentLoop for session %s (plan→build handoff)", session_id)
-                sub_agent = SubAgentLoop(
+            if crewmate_handoff:
+                logger.info("Spawning CrewmateLoop for session %s (plan→build handoff)", session_id)
+                crewmate_loop = CrewmateLoop(
                     self._config,
                     self._provider,
                     self._tool_registry,
                     compaction_service=self._compaction_service,
                 )
-                async for event in sub_agent.run(
+                async for event in crewmate_loop.run(
                     session_id=session_id,
                     plan_output=plan_context,
                     user_prompt=content,
@@ -778,7 +778,7 @@ class PromptExecutor:
                     if manager:
                         await manager.send_event(session_id, event)
                 logger.info(
-                    "SubAgentLoop completed for session %s: %d events", session_id, event_count
+                    "CrewmateLoop completed for session %s: %d events", session_id, event_count
                 )
                 return
             context_manager = self._context_manager

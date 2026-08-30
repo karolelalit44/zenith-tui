@@ -5,7 +5,6 @@ import type { OverlayType } from '../hooks/useOverlayManager';
 import { CompactionModal } from '../screens/Context/CompactionModal';
 import { ContextModal } from '../screens/Context/ContextModal';
 import { HelpModal } from '../screens/Help/HelpModal';
-import { MemoriesModal } from '../screens/Memory/MemoriesModal';
 import { ModeSelectScreen } from '../screens/ModeSelect';
 import { ProviderFlow } from '../screens/Provider/ProviderFlow';
 import { SessionBrowserModal } from '../screens/Session/SessionBrowserModal';
@@ -117,11 +116,6 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
               onClose();
             }}
           />
-        </Box>
-      )}
-      {overlay === 'memories' && (
-        <Box flexDirection="column" marginTop={1} width="100%">
-          <MemoriesModal onClose={onClose} />
         </Box>
       )}
     </>

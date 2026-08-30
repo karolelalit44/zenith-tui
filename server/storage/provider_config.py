@@ -1,9 +1,8 @@
 """File-backed provider configuration — replaces provider_config_repo.
 
 State split:
-- ``providers.json``  : catalog definitions (no secrets, no user credentials)
+- ``zenith_catalog.json`` : catalog definitions (providers + nested models; no secrets)
 - ``user_profile.json``: apiKeys map + per-provider settings + active ids
-- ``models.json``     : all models (builtin seed rows + user-added rows)
 
 Function signatures mirror the legacy repo so call sites only swap the
 import and pass a :class:`StorageHome` instead of ``db_path``.
@@ -175,7 +174,7 @@ def save_provider_config(
 
 
 def upsert_provider_models(home: StorageHome, provider: str, models: list[dict]) -> None:
-    """Persist user-added/curated models for a provider into models.json."""
+    """Persist user-added/curated models for a provider into the catalog."""
     for m in models or []:
         mid = str(m.get("id") or "").strip()
         if not mid:

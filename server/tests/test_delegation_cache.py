@@ -9,20 +9,20 @@ from server.agents.delegation.agent_result import AgentResult
 
 
 def _result(summary: str = "found it") -> AgentResult:
-    return AgentResult(task_id="t", agent_id="codebase-scout", summary=summary)
+    return AgentResult(task_id="t", agent_id="apogee", summary=summary)
 
 
 class TestSignature:
     def test_deterministic_and_normalized(self):
-        a = task_signature("  Find   the SESSION store ", "codebase-scout", "sess-1")
-        b = task_signature("find the session store", "codebase-scout", "sess-1")
+        a = task_signature("  Find   the SESSION store ", "apogee", "sess-1")
+        b = task_signature("find the session store", "apogee", "sess-1")
         assert a == b
-        assert a == task_signature("find the session store", "codebase-scout", "sess-1")
+        assert a == task_signature("find the session store", "apogee", "sess-1")
 
     def test_varies_by_agent_and_session(self):
-        sig = task_signature("objective", "codebase-scout", "s1")
+        sig = task_signature("objective", "apogee", "s1")
         assert sig != task_signature("objective", "other", "s1")
-        assert sig != task_signature("objective", "codebase-scout", "s2")
+        assert sig != task_signature("objective", "apogee", "s2")
 
 
 class TestCache:

@@ -3,8 +3,8 @@
 Layout:
 
     <home>/user_profile.json     identity, API keys (sole secret store), preferences
-    <home>/providers.json        provider definitions — no secrets
-    <home>/models.json           model catalog + pricing — no secrets
+    <home>/zenith_catalog.json   single provider catalog (providers + nested
+                                 models) — no secrets
     <home>/memory/               project memory index (+ markdown facts)
     <home>/projects/<slug>/      one folder per workspace (Claude Code style);
                                  each session is ONE append-only JSONL:
@@ -22,7 +22,7 @@ from .atomic import (
     rewrite_jsonl_atomic,
     write_json_atomic,
 )
-from .builtin_seed import MODELS_BY_KEY, PROVIDERS, SEED_VERSION
+from .builtin_seed import PROVIDERS, SEED_VERSION, iter_builtin_models
 from .catalog_store import (
     CatalogValidationError,
     delete_provider,
@@ -33,7 +33,6 @@ from .catalog_store import (
     upsert_model,
     upsert_provider,
 )
-from .memory_store import FileProjectMemoryRepository, ProjectMemoryEntry
 from .paths import HOME_ENV_VAR, StorageHome, default_home, resolve_home
 from .profile_store import (
     get_api_key,
@@ -55,18 +54,16 @@ from .workspace_store import FileWorkspaceRepository
 
 __all__ = [
     "HOME_ENV_VAR",
-    "MODELS_BY_KEY",
     "PROVIDERS",
     "SEED_VERSION",
+    "iter_builtin_models",
     "CatalogValidationError",
     "FileCheckpointRepository",
     "FileMessageRepository",
-    "FileProjectMemoryRepository",
     "FileSessionRepository",
     "FileSyncEventRepository",
     "FileTokenUsageRepository",
     "FileWorkspaceRepository",
-    "ProjectMemoryEntry",
     "StorageHome",
     "append_jsonl_sync",
     "default_home",

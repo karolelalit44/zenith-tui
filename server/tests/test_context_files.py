@@ -1,108 +1,71 @@
-from server.agents.prompts import (
-    _budget_chars,
-    _build_project_context,
-    build_system_prompt,
-)
-from server.config.constants import CHARS_PER_TOKEN
-from server.workspace.context import load_context_files
+from pathlib import Path
+
+from server.agents.prompts import build_plan_system_prompt, build_system_prompt
+import server.config.constants as constants
+import server.workspace as workspace
 
 
-def _write(root, name: str, content: str) -> None:
+def _write(root: Path, name: str, content: str) -> None:
     p = root / name
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
 
 
-class TestZenithContextFiles:
-    def test_zenith_local_md_not_loaded_into_system_prompt(self, tmp_path):
-        _write(tmp_path, "zenith.local.md", "# Zenith local instructions\nBuild things carefully.")
+class TestNoContextFilesAppended:
+    """Regression tests verifying context and instruction markdown files are never appended to prompt context."""
+
+    def test_markdown_files_not_injected_into_build_system_prompt(self, tmp_path):
+        _write(tmp_path, "zenith.md", "# Zenith project instructions\nCustom secret rule.")
+        _write(tmp_path, "CLAUDE.md", "claude specific context")
+        _write(tmp_path, "AGENTS.md", "agents instructions")
+        _write(tmp_path, "GEMINI.md", "gemini guidelines")
+        _write(tmp_path, "CRUSH.md", "crush rules")
+        _write(tmp_path, ".cursorrules", "cursor rules")
+        _write(tmp_path, ".clinerules", "cline rules")
+        _write(tmp_path, ".github/copilot-instructions.md", "copilot instructions")
+
         prompt = build_system_prompt(workspace_root=str(tmp_path), mode="build")
+
         assert "<project_context>" not in prompt
-        assert "# Zenith local instructions" not in prompt
-        assert "Build things carefully." not in prompt
+        assert "</project_context>" not in prompt
+        assert "Custom secret rule." not in prompt
+        assert "claude specific context" not in prompt
+        assert "agents instructions" not in prompt
+        assert "gemini guidelines" not in prompt
+        assert "crush rules" not in prompt
+        assert "cursor rules" not in prompt
+        assert "cline rules" not in prompt
+        assert "copilot instructions" not in prompt
 
-    def test_zenith_md_loaded_into_system_prompt(self, tmp_path):
-        _write(tmp_path, "zenith.md", "# Zenith project instructions\nRun pytest before finishing.")
-        prompt = build_system_prompt(workspace_root=str(tmp_path), mode="build")
-        assert "# Zenith project instructions" in prompt
-        assert "Run pytest before finishing." in prompt
+    def test_markdown_files_not_injected_into_plan_system_prompt(self, tmp_path):
+        _write(tmp_path, "zenith.md", "plan instructions should not be read")
+        _write(tmp_path, "CLAUDE.md", "claude instructions")
 
-    def test_zenith_files_load_before_claude_md(self, tmp_path):
-        _write(tmp_path, "zenith.md", "zenith-content")
-        _write(tmp_path, "zenith.local.md", "zenith-local-content")
-        _write(tmp_path, "CLAUDE.md", "claude-content")
-        files = load_context_files(str(tmp_path))
-        names = [f.path for f in files]
-        assert names[0].endswith("zenith.md")
-        assert not any(n.endswith("zenith.local.md") for n in names)
-        claude_idx = next((i for i, n in enumerate(names) if n.endswith("CLAUDE.md")), None)
-        if claude_idx is not None:
-            assert claude_idx > 0
+        prompt = build_plan_system_prompt(workspace_root=str(tmp_path))
 
-    def test_zenith_local_md_without_project_file(self, tmp_path):
-        _write(tmp_path, "zenith.md", "zenith-content")
-        _write(tmp_path, "zenith.local.md", "zenith-local-content")
-        files = load_context_files(str(tmp_path))
-        names = [f.path for f in files]
-        assert len(files) == 1
-        assert names[0].endswith("zenith.md")
+        assert "<project_context>" not in prompt
+        assert "plan instructions should not be read" not in prompt
+        assert "claude instructions" not in prompt
 
-    def test_oversized_file_is_skipped(self, tmp_path, monkeypatch):
-        _write(tmp_path, "zenith.md", "x" * 100000)
-        files = load_context_files(str(tmp_path))
-        assert files == []
+    def test_parent_directory_markdown_files_not_injected(self, tmp_path):
+        parent_dir = tmp_path / "parent"
+        ws_dir = parent_dir / "project"
+        ws_dir.mkdir(parents=True, exist_ok=True)
 
-    def test_very_long_file_is_truncated(self, tmp_path, monkeypatch):
-        _write(tmp_path, "zenith.md", "\n".join(f"line {i}" for i in range(600)))
-        files = load_context_files(str(tmp_path))
-        assert files and files[0].content
-        assert "... (truncated at 500 lines)" in files[0].content
+        _write(parent_dir, "zenith.md", "parent zenith instructions")
+        _write(parent_dir, "CLAUDE.md", "parent claude instructions")
 
-    def test_zenith_local_md_longer_than_project_file_is_not_loaded(self, tmp_path):
-        _write(tmp_path, "zenith.md", "short-content")
-        _write(tmp_path, "zenith.local.md", "# header\n" + "y" * 200)
-        files = load_context_files(str(tmp_path))
-        assert files
-        assert not any(f.path.endswith("zenith.local.md") for f in files)
-        assert any(f.path.endswith("zenith.md") for f in files)
+        prompt = build_system_prompt(workspace_root=str(ws_dir), mode="build")
 
-    def test_project_file_and_local_override_loaded(self, tmp_path):
-        _write(tmp_path, "zenith.md", "# header\n" + "y" * 500)
-        _write(tmp_path, "zenith.local.md", "zenith-local-content")
-        files = load_context_files(str(tmp_path))
-        assert files
-        assert any(f.path.endswith("zenith.md") for f in files)
-        assert not any(f.path.endswith("zenith.local.md") for f in files)
+        assert "<project_context>" not in prompt
+        assert "parent zenith instructions" not in prompt
+        assert "parent claude instructions" not in prompt
 
+    def test_workspace_module_does_not_export_context_files_loaders(self):
+        assert not hasattr(workspace, "ContextFile")
+        assert not hasattr(workspace, "load_context_files")
+        assert not hasattr(workspace, "format_context_files")
 
-class TestContextFileSizeGuards:
-    def test_oversized_file_is_skipped(self, tmp_path):
-        _write(tmp_path, "zenith.md", "x" * 100000)
-        files = load_context_files(str(tmp_path))
-        assert not any("zenith.md" in f.path for f in files)
-
-    def test_very_long_file_is_truncated(self, tmp_path):
-        _write(tmp_path, "zenith.md", "\n".join(f"line {i}" for i in range(600)))
-        prompt = build_system_prompt(workspace_root=str(tmp_path), mode="build")
-        assert "... (truncated at 500 lines)" in prompt
-
-
-class TestProjectContextTokenBudget:
-    def test_budget_scales_with_context_window(self):
-        big = int(128_000 * CHARS_PER_TOKEN * 0.08) + 1
-        small = int(8_000 * CHARS_PER_TOKEN * 0.08) + 1
-        assert _budget_chars(128_000, 0.08, 1_000_000) == big - 1
-        assert _budget_chars(8_000, 0.08, 1_000_000) == small - 1
-        assert _budget_chars(128_000, 0.08, 10_000) == 10_000
-
-    def test_project_context_capped_at_budget(self, tmp_path):
-        _write(tmp_path, "zenith.md", "\n".join(f"line {i:03d} content" for i in range(500)))
-        context = _build_project_context(str(tmp_path), max_context_tokens=4_000)
-        assert len(context) <= 4_000 * CHARS_PER_TOKEN * 0.08
-        assert "truncated to fit the token budget" in context
-
-    def test_small_context_not_truncated(self, tmp_path):
-        _write(tmp_path, "zenith.md", "short instructions")
-        context = _build_project_context(str(tmp_path), max_context_tokens=128_000)
-        assert context
-        assert "truncated to fit the token budget" not in context
+    def test_constants_do_not_contain_project_context_budget(self):
+        assert not hasattr(constants, "PROJECT_CONTEXT_BUDGET_RATIO")
+        assert not hasattr(constants, "PROJECT_CONTEXT_MAX_CHARS")

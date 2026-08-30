@@ -28,7 +28,7 @@ from server.agents.delegation.agent_definition import (
 )
 from server.agents.delegation.orchestrator import CaptainOrchestrator
 from server.config.constants import (
-    CONCURRENCY_GROUP_SUBAGENT,
+    CONCURRENCY_GROUP_CREWMATE,
     COST_CLASS_HIGH,
     DEFAULT_ENRICH_TIMEOUT_SECONDS,
     DEFAULT_EXPLORE_THOROUGHNESS,
@@ -44,9 +44,9 @@ from server.config.constants import (
     LATENCY_CLASS_HIGH,
     APPOGEE_AGENT_NAME,
     APPOGEE_AGENT_ROLE,
-    PERMISSION_SUBAGENT,
+    PERMISSION_CREWMATE,
     RISK_MEDIUM,
-    TOOL_DOMAIN_SUBAGENT,
+    TOOL_DOMAIN_CREWMATE,
 )
 from server.config.env import optional_float
 from server.config.settings import AppSettings
@@ -96,23 +96,23 @@ _spawn_semaphore = asyncio.Semaphore(EXPLORE_PARALLEL_DEFAULT)
 class ExploreTool(BaseTool):
     name = "explore"
     description = (
-        "Delegate a focused read-only codebase investigation to an isolated scout "
+        "Delegate a focused read-only codebase investigation to an isolated "
         "crewmate (default: Apogee) that returns evidence-backed findings with "
         "confidence levels. Use for multi-file 'how does X work' questions. Do NOT "
         "use when the target file is known, one grep suffices, or the repo is tiny. "
         "Issue independent objectives as separate calls together; synthesize by theme."
     )
-    capability_id = "sub_agent"
+    capability_id = "crewmate"
     requires_mode = None
     read_only = True
-    concurrency_group = CONCURRENCY_GROUP_SUBAGENT
-    permission_scope = PERMISSION_SUBAGENT
-    domains = (TOOL_DOMAIN_SUBAGENT,)
+    concurrency_group = CONCURRENCY_GROUP_CREWMATE
+    permission_scope = PERMISSION_CREWMATE
+    domains = (TOOL_DOMAIN_CREWMATE,)
     search_terms = (
         "explore",
         "investigate",
         "delegate",
-        "scout",
+        "crewmate",
         "apogee",
         "research",
         "find code",
@@ -261,8 +261,8 @@ class ExploreTool(BaseTool):
                 metadata=self._metadata(
                     thoroughness,
                     status="failed",
-                    agent_name=definition.name,
-                    agent_role=definition.role,
+                    crewmate_name=definition.name,
+                    crewmate_role=definition.role,
                 ),
             )
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -272,7 +272,7 @@ class ExploreTool(BaseTool):
             return ToolResult(
                 success=False,
                 error="Explore mission produced no result.",
-                metadata=self._metadata(thoroughness, agent_name=definition.name),
+                metadata=self._metadata(thoroughness, crewmate_name=definition.name),
             )
         _ledger.record(result.metrics.tokens_used)
 
@@ -281,8 +281,8 @@ class ExploreTool(BaseTool):
         meta = self._metadata(
             thoroughness,
             status=result.status,
-            agent_name=definition.name,
-            agent_role=definition.role,
+            crewmate_name=definition.name,
+            crewmate_role=definition.role,
             result=result,
             cached=cached,
             elapsed_ms=elapsed_ms or result.metrics.elapsed_ms,
@@ -306,7 +306,7 @@ class ExploreTool(BaseTool):
             return objective
         prompt = (
             "Rewrite this codebase investigation objective into a precise research "
-            "brief for a read-only scout agent: state the deliverable shape, the "
+            "brief for a read-only crewmate: state the deliverable shape, the "
             "scope boundaries, and what evidence would answer it. Output ONLY the "
             f"brief.\nObjective: {objective}"
         )
@@ -364,8 +364,8 @@ class ExploreTool(BaseTool):
         thoroughness: str,
         *,
         status: str = "started",
-        agent_name: str = APPOGEE_AGENT_NAME,
-        agent_role: str = APPOGEE_AGENT_ROLE,
+        crewmate_name: str = APPOGEE_AGENT_NAME,
+        crewmate_role: str = APPOGEE_AGENT_ROLE,
         result: Any = None,
         cached: bool = False,
         elapsed_ms: int = 0,
@@ -373,8 +373,8 @@ class ExploreTool(BaseTool):
         meta: dict = {
             "explore_status": status,
             "thoroughness": thoroughness,
-            "agent_name": agent_name,
-            "agent_role": agent_role,
+            "crewmate_name": crewmate_name,
+            "crewmate_role": crewmate_role,
         }
         if cached:
             meta["cached"] = True

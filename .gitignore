@@ -35,15 +35,16 @@ data
 *_repo/
 *cache
 
-*todo*
-*plan*
-!docs/session_leak_and_plan_mode_fix_plan.md
-
-package-lock.json
+# Local planning scratch docs — matched by name so real source/test files
+# containing these substrings (e.g. test_persistence_storage_plan.py) stay tracked.
 todo.md
 plan.md
+
+package-lock.json
 zenith*
+.zenithignore
 .claude
 .freebuff
 .vscode
 .agents
+__pycache__

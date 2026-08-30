@@ -2,8 +2,8 @@
 
 Replaces the usage half of ``TokenUsageRepository`` (token_usage /
 pricing tables). Per-session rows live in ``sessions/<id>.usage.jsonl``.
-Pricing resolves from ``models.json`` directly, so the separate pricing
-table/seed step disappears (decision D15).
+Pricing resolves from ``zenith_catalog.json`` directly, so the separate
+pricing table/seed step disappears (decision D15).
 
 Context-degradation diagnostics were removed entirely (decision D12):
 ``record_degradation`` no longer exists and efficiency stats report zero
@@ -33,7 +33,7 @@ class FileTokenUsageRepository:
     # ── pricing ───────────────────────────────────────────────────────
     def _catalog_stamp(self) -> int | None:
         try:
-            return self.home.models_path.stat().st_mtime_ns
+            return self.home.catalog_path.stat().st_mtime_ns
         except OSError:
             return None
 
@@ -42,16 +42,17 @@ class FileTokenUsageRepository:
         if self._price_cache is None or stamp != self._price_cache_stamp:
             cache: dict[str, dict] = {}
             try:
-                doc = read_json(self.home.models_path, None) or {}
-                for entry in (doc.get("models") or {}).values():
-                    p = entry.get("pricing") or {}
-                    key = f"{entry.get('providerId')}:{entry.get('id')}"
-                    cache[key] = {
-                        "input": float(p.get("input", 0.0)),
-                        "output": float(p.get("output", 0.0)),
-                        "cache_read": float(p.get("cache_read", 0.0)),
-                        "cache_creation": float(p.get("cache_creation", 0.0)),
-                    }
+                doc = read_json(self.home.catalog_path, None) or {}
+                for prov in doc.get("providers") or []:
+                    for entry in prov.get("models") or []:
+                        p = entry.get("pricing") or {}
+                        key = f"{prov.get('id')}:{entry.get('id')}"
+                        cache[key] = {
+                            "input": float(p.get("input", 0.0)),
+                            "output": float(p.get("output", 0.0)),
+                            "cache_read": float(p.get("cache_read", 0.0)),
+                            "cache_creation": float(p.get("cache_creation", 0.0)),
+                        }
             except Exception:
                 cache = {}
             self._price_cache = cache

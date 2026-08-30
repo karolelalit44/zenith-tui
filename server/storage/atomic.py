@@ -10,7 +10,6 @@ through the atomic replace path.
 """
 
 from __future__ import annotations
-
 import json
 import logging
 import os
@@ -32,11 +31,6 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-# os.replace() raises PermissionError on Windows while ANY thread or
-# process holds the destination open (Python opens files without
-# FILE_SHARE_DELETE). Writers within this process are serialized per
-# target below; a bounded retry absorbs external holders (editors,
-# antivirus, backup tools).
 _replace_locks: dict[str, threading.RLock] = {}
 _replace_locks_guard = threading.Lock()
 _REPLACE_RETRIES = 20

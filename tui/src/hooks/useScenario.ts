@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LIVE_PROGRESS_EVENT_ID } from '../constants/events';
-import type { ScenarioRunner } from '../services/scenario/types';
+import type { ScenarioRunner } from '../types/scenario';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
 import type {

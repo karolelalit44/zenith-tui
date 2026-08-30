@@ -2,7 +2,7 @@ import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
 import type {
-  AgentOrchestrationEvent,
+  CaptainOrchestrationEvent,
   CrewmateAgent,
   ScenarioEvent,
   TimelineEntry,
@@ -124,37 +124,37 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         grouped.push(ev);
       }
       const source2 = grouped;
-      const orchEvents = source2.filter((e): e is AgentOrchestrationEvent => e.kind === 'agent_orchestration');
-      let consolidatedOrch: AgentOrchestrationEvent | null = null;
+      const orchEvents = source2.filter((e): e is CaptainOrchestrationEvent => e.kind === 'captain_orchestration');
+      let consolidatedOrch: CaptainOrchestrationEvent | null = null;
       if (orchEvents.length > 0) {
         const latest = orchEvents[orchEvents.length - 1];
         const crewmatesMap = new Map<string, CrewmateAgent>();
         const timelineEntries: TimelineEntry[] = [];
 
-        // Fold raw sub-agent lifecycle kinds into the card timeline so the
+        // Fold raw crewmate lifecycle kinds into the card timeline so the
         // crewmate story stays in one place (no standalone rows).
         const rawAgentEntries: TimelineEntry[] = [];
         for (const e of source2) {
-          if (e.kind === 'agent_spawned') {
+          if (e.kind === 'crewmate_spawned') {
             rawAgentEntries.push({
               timestamp: e.id,
               message: `Spawned ${e.name} (${e.role})`,
               type: 'info',
             });
-          } else if (e.kind === 'agent_status') {
+          } else if (e.kind === 'crewmate_status') {
             if (e.activity) {
               rawAgentEntries.push({ timestamp: e.id, message: e.activity, type: 'info' });
             }
-          } else if (e.kind === 'agent_complete') {
+          } else if (e.kind === 'crewmate_complete') {
             rawAgentEntries.push({
               timestamp: e.id,
-              message: e.resultSummary || `${e.agentId} completed`,
+              message: e.resultSummary || `${e.crewmateId} completed`,
               type: 'success',
             });
-          } else if (e.kind === 'agent_failed') {
+          } else if (e.kind === 'crewmate_failed') {
             rawAgentEntries.push({
               timestamp: e.id,
-              message: e.error || `${e.agentId} failed`,
+              message: e.error || `${e.crewmateId} failed`,
               type: 'error',
             });
           }
@@ -187,7 +187,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         }
 
         consolidatedOrch = {
-          kind: 'agent_orchestration',
+          kind: 'captain_orchestration',
           id: orchEvents[0].id,
           stage: latest.stage,
           captainMessage: latest.captainMessage,
@@ -206,7 +206,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const consolidatedBoard = consolidateTodoBoardEvents(events);
 
       for (const e of source) {
-        if (e.kind === 'agent_orchestration') {
+        if (e.kind === 'captain_orchestration') {
           if (!orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
             orchInserted = true;
@@ -221,14 +221,14 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         } else if (e.kind === 'todo_test') {
           // The assertion/edge-case report is an internal test layer — the
           // rendered todo window shows the board only, so skip these events.
-        } else if (
-          e.kind === 'agent_spawned' ||
-          e.kind === 'agent_status' ||
-          e.kind === 'agent_complete' ||
-          e.kind === 'agent_failed'
-        ) {
-          // Raw sub-agent lifecycle kinds are folded into the consolidated
-          // orchestration card's timeline above; never render standalone.
+      } else if (
+        e.kind === 'crewmate_spawned' ||
+        e.kind === 'crewmate_status' ||
+        e.kind === 'crewmate_complete' ||
+        e.kind === 'crewmate_failed'
+      ) {
+        // Raw crewmate lifecycle kinds are folded into the consolidated
+        // orchestration card's timeline above; never render standalone.
         } else if (
           e.kind === 'context_compaction_started' ||
           e.kind === 'context_compaction_phase' ||

@@ -12,8 +12,8 @@ from .constants import (
     PLAN_MODE,
     READ_ONLY_MODE,
     READ_ONLY_TOOLS,
-    SCOUT_GRAPH_TOOLS,
-    SCOUT_MODE,
+    CREWMATE_GRAPH_TOOLS,
+    CREWMATE_MODE,
 )
 from .env import optional_env, optional_float, optional_int, optional_int_none
 from .providers import ProviderConfig
@@ -43,7 +43,7 @@ class AgentModeConfig:
     allowed_mcp: dict[str, list[str]] | None = None
     description: str = ""
     model_override: str | None = None
-    sub_agent: bool = False
+    crewmate: bool = False
     tool_choice: str = "auto"
 
 
@@ -52,7 +52,7 @@ PLAN_MODE_CONFIG = AgentModeConfig(
     allowed_tools=CORE_PLAN_TOOLS,
     allowed_mcp={},
     description="Read-only analysis and planning with core tools and dynamic escalation.",
-    sub_agent=False,
+    crewmate=False,
 )
 # Always-offered schemas. Web research tools stay registered and are promoted on
 # demand (get_tool_definition or a direct call auto-escalates), so a pure code
@@ -63,7 +63,7 @@ BUILD_MODE_CONFIG = AgentModeConfig(
     allowed_tools=CORE_BUILD_TOOLS,
     allowed_mcp=None,
     description="Full execution with core tools and dynamic schema escalation.",
-    sub_agent=True,
+    crewmate=True,
     tool_choice="auto",
 )
 READ_ONLY_MODE_CONFIG = AgentModeConfig(
@@ -71,28 +71,28 @@ READ_ONLY_MODE_CONFIG = AgentModeConfig(
     allowed_tools=READ_ONLY_TOOLS,
     allowed_mcp={},
     description="Pure read-only investigation: no file-mutation tools attached.",
-    sub_agent=False,
+    crewmate=False,
     tool_choice="none",
 )
-SCOUT_MODE_CONFIG = AgentModeConfig(
-    name=SCOUT_MODE,
-    # WP6: structural query family rides along with the read tools so scouts
+CREWMATE_MODE_CONFIG = AgentModeConfig(
+    name=CREWMATE_MODE,
+    # WP6: structural query family rides along with the read tools so crewmates
     # answer relational questions in one call instead of grep-hop chains.
-    allowed_tools=[*READ_ONLY_TOOLS, *SCOUT_GRAPH_TOOLS],
+    allowed_tools=[*READ_ONLY_TOOLS, *CREWMATE_GRAPH_TOOLS],
     allowed_mcp={},
     description=(
         "Read-only codebase investigation for delegated specialist agents "
         "(Apogee crewmate): evidence-gathering with structural symbol queries; "
         "no mutation or delegation."
     ),
-    sub_agent=False,
+    crewmate=False,
     tool_choice="auto",
 )
 AGENT_MODES: dict[str, AgentModeConfig] = {
     PLAN_MODE: PLAN_MODE_CONFIG,
     BUILD_MODE: BUILD_MODE_CONFIG,
     READ_ONLY_MODE: READ_ONLY_MODE_CONFIG,
-    SCOUT_MODE: SCOUT_MODE_CONFIG,
+    CREWMATE_MODE: CREWMATE_MODE_CONFIG,
 }
 
 
@@ -188,7 +188,6 @@ class AppSettings(BaseModel):
         le=32000,
         description="Token budget for the repo map. None = auto (context/8, clamped to 1024-4096)",
     )
-    memory_enabled: bool = True
     async_summary_enabled: bool = True
     mcp_servers: dict[str, McpServerConfig] = Field(
         default_factory=dict,

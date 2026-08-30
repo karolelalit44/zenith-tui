@@ -16,12 +16,11 @@ from server.config.constants import (
     APPOGEE_AGENT_ID,
     APPOGEE_AGENT_NAME,
     APPOGEE_AGENT_ROLE,
+    CREWMATE_MODE,
     READ_ONLY_TOOLS,
 )
 
-SCOUT_MODE = "scout"
-
-AGENT_RESULT_SCHEMA: dict = {
+CREWMATE_RESULT_SCHEMA: dict = {
     "type": "object",
     "required": ["task_id", "agent_id", "status", "summary"],
     "properties": {
@@ -81,7 +80,7 @@ class AgentDefinition(BaseModel):
     avoid_for: list[str] = Field(default_factory=list)
     allowed_tools: list[str] = Field(default_factory=list)
     allowed_mcp: dict = Field(default_factory=dict)
-    output_schema: dict = Field(default_factory=lambda: AGENT_RESULT_SCHEMA)
+    output_schema: dict = Field(default_factory=lambda: CREWMATE_RESULT_SCHEMA)
     can_delegate: bool = False
     max_crewmates: int = 0
     allowed_crewmates: list[str] = Field(default_factory=list)
@@ -89,10 +88,10 @@ class AgentDefinition(BaseModel):
     model_override: str | None = None
 
 
-CodebaseScout = AgentDefinition(
-    id="codebase-scout",
-    name="Codebase Scout",
-    role="Codebase Investigator",
+ApogeeCrewmate = AgentDefinition(
+    id=APPOGEE_AGENT_ID,
+    name=APPOGEE_AGENT_NAME,
+    role=APPOGEE_AGENT_ROLE,
     description=(
         "Read-only codebase investigator: traces how a feature works, where "
         "state lives, and what a change would touch, returning evidence-backed "
@@ -136,11 +135,8 @@ def build_apogee_definition(model_override: str | None = None) -> AgentDefinitio
     ``model_override`` implements the hybrid routing decision — cheap model
     for quick/standard missions, the parent's own model for deep ones.
     """
-    return CodebaseScout.model_copy(
+    return ApogeeCrewmate.model_copy(
         update={
-            "id": APPOGEE_AGENT_ID,
-            "name": APPOGEE_AGENT_NAME,
-            "role": APPOGEE_AGENT_ROLE,
             "description": (
                 "Read-only codebase explorer: scoped, evidence-backed "
                 "investigation returning findings with confidence levels."

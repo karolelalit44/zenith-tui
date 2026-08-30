@@ -27,8 +27,8 @@ import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
 
 /** Shape of the metadata payload the server attaches to explore results. */
 interface ExploreMeta {
-  agent_name?: string;
-  agent_role?: string;
+  crewmate_name?: string;
+  crewmate_role?: string;
   thoroughness?: string;
   cached?: boolean;
   tokens_used?: number;
@@ -47,8 +47,8 @@ function readExploreMeta(metadata: Record<string, unknown> | undefined): Explore
     return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
   };
   return {
-    agent_name: typeof m.agent_name === 'string' ? m.agent_name : undefined,
-    agent_role: typeof m.agent_role === 'string' ? m.agent_role : undefined,
+    crewmate_name: typeof m.crewmate_name === 'string' ? m.crewmate_name : undefined,
+    crewmate_role: typeof m.crewmate_role === 'string' ? m.crewmate_role : undefined,
     thoroughness: typeof m.thoroughness === 'string' ? m.thoroughness : undefined,
     cached: m.cached === true,
     tokens_used: num('tokens_used'),
@@ -65,7 +65,7 @@ function readExploreMeta(metadata: Record<string, unknown> | undefined): Explore
 
 /**
  * WP5 crewmate card for `explore` missions: a modern, compact dossier for
- * the dispatched scout — identity header, live elapsed while flying, then
+ * the dispatched crewmate — identity header, live elapsed while flying, then
  * confidence chips + summary once the report lands.
  */
 const ExploreCrewCard: React.FC<{
@@ -79,8 +79,8 @@ const ExploreCrewCard: React.FC<{
 }> = React.memo(({ event, isPending, state, elapsedMs, tick }) => {
   const { theme } = useTheme();
   const meta = readExploreMeta(event.metadata);
-  const agentName = meta.agent_name ?? 'Apogee';
-  const agentRole = meta.agent_role ?? 'Codebase Explorer';
+  const crewmateName = meta.crewmate_name ?? 'Apogee';
+  const crewmateRole = meta.crewmate_role ?? 'Codebase Explorer';
   const objective = collapseFirstLine(String(event.params.objective ?? ''));
   const ok = state === 'success';
   const summary =
@@ -140,9 +140,9 @@ const ExploreCrewCard: React.FC<{
             ◆{' '}
           </Text>
           <Text color={theme.colors.text.bright} bold wrap="truncate-end">
-            {agentName}
+            {crewmateName}
           </Text>
-          <Text color={theme.colors.text.dim}> · {agentRole}</Text>
+          <Text color={theme.colors.text.dim}> · {crewmateRole}</Text>
           <Box flexGrow={1} flexShrink={1} />
           {!isPending && meta.cached ? (
             <Box flexShrink={0} marginRight={1}>

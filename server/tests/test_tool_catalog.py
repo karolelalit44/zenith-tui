@@ -76,7 +76,7 @@ class TestCapabilityCatalog:
             "lsp_analysis",
             "lsp_refactoring",
             "task_tracking",
-            "sub_agent",
+            "crewmate",
             "mcp_tool",
             "tool_discovery",
         ):
@@ -130,7 +130,7 @@ class TestToolInventory:
         assert inventory["file_write"].concurrency_group == "workspace_mutation"
         assert inventory["webfetch"].permission_scope == "network"
         # WP5 D7: the legacy write-capable "agent" tool is no longer on the
-        # default registry surface; subagent-class permission lives on explore.
+        # default registry surface; crewmate-class permission lives on explore.
         assert "agent" not in inventory
 
     def test_baseline_schema_tokens(self):

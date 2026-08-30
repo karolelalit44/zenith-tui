@@ -433,27 +433,6 @@ async def test_tools_list(r: TestResult, client: RPCClient):
         r.fail("tools.list", str(resp.get("error")))
 
 
-async def test_memory_ops(r: TestResult, client: RPCClient):
-    """Test memory.list, memory.add, memory.delete."""
-    resp = await client.call("memory.list", {})
-    if not resp.get("error"):
-        r.ok("memory.list")
-    else:
-        r.fail("memory.list", str(resp.get("error")))
-
-    resp = await client.call("memory.add", {"key": "test_key", "value": "test_value"})
-    if not resp.get("error"):
-        r.ok("memory.add")
-    else:
-        r.fail("memory.add", str(resp.get("error")))
-
-    resp = await client.call("memory.delete", {"key": "test_key"})
-    if not resp.get("error"):
-        r.ok("memory.delete")
-    else:
-        r.fail("memory.delete", str(resp.get("error")))
-
-
 async def test_context_compact(r: TestResult, client: RPCClient):
     """Test context.compact."""
     resp = await client.call("session.create", {"title": "Compact Test"})
@@ -615,7 +594,7 @@ async def test_event_kind_coverage(r: TestResult, client: RPCClient, skip_prompt
         "context_compacted",
         "context_compaction_ended",
         "context_compaction_phase",
-        "agent_orchestration",
+        "captain_orchestration",
         "turn_manifest",
         "todo_board",
         "todo_test",
@@ -702,10 +681,6 @@ async def main(timeout: float, skip_prompt: bool):
             logging.info("")
             logging.info("--- TOOLS ---")
             await test_tools_list(r, client)
-
-            logging.info("")
-            logging.info("--- MEMORY ---")
-            await test_memory_ops(r, client)
 
             logging.info("")
             logging.info("--- CONTEXT COMPACT ---")

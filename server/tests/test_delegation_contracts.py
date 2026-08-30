@@ -7,7 +7,7 @@ from server.agents.delegation import (
     AgentDefinition,
     AgentResult,
     AgentTask,
-    CodebaseScout,
+    ApogeeCrewmate,
     EvidenceRef,
     Finding,
     build_task_envelope,
@@ -17,7 +17,7 @@ from server.agents.delegation import (
 
 class TestAgentResultDefaults:
     def test_result_defaults_are_safe(self):
-        result = AgentResult(task_id="t-1", agent_id="codebase-scout")
+        result = AgentResult(task_id="t-1", agent_id="apogee")
         assert result.status == "completed"
         assert result.summary == ""
         assert result.findings == []
@@ -112,42 +112,42 @@ class TestAgentTask:
     def test_envelope_fields_from_definition(self):
         task = build_task_envelope(
             objective="Investigate sessions",
-            definition=CodebaseScout,
+            definition=ApogeeCrewmate,
             session_id="s-1",
             max_context_tokens=64_000,
         )
         assert isinstance(task, AgentTask)
-        assert task.agent_id == CodebaseScout.id
-        assert task.capability == CodebaseScout.capabilities[0]
+        assert task.agent_id == ApogeeCrewmate.id
+        assert task.capability == ApogeeCrewmate.capabilities[0]
         assert task.depth == 0
         assert task.child_session_id is None
         assert task.task_id
 
-    def test_scout_definition_is_not_a_delegator(self):
-        scout: AgentDefinition = CodebaseScout
-        assert scout.can_delegate is False
-        assert scout.max_crewmates == 0
-        assert scout.allowed_crewmates == []
-        assert scout.delegation_depth == 0
-        assert set(scout.allowed_tools) == {"file_read", "glob", "grep", "list_dir"}
-        assert scout.allowed_mcp == {}
+    def test_crewmate_definition_is_not_a_delegator(self):
+        crewmate: AgentDefinition = ApogeeCrewmate
+        assert crewmate.can_delegate is False
+        assert crewmate.max_crewmates == 0
+        assert crewmate.allowed_crewmates == []
+        assert crewmate.delegation_depth == 0
+        assert set(crewmate.allowed_tools) == {"file_read", "glob", "grep", "list_dir"}
+        assert crewmate.allowed_mcp == {}
 
 
 class TestTaskSignature:
     def test_deterministic(self):
-        s1 = task_signature("investigate sessions", "codebase-scout", "s1")
-        s2 = task_signature("investigate sessions", "codebase-scout", "s1")
+        s1 = task_signature("investigate sessions", "apogee", "s1")
+        s2 = task_signature("investigate sessions", "apogee", "s1")
         assert s1 == s2
 
     def test_normalizes_case_and_whitespace(self):
-        s1 = task_signature("  Investigate   SESSIONS  ", "codebase-scout", "s1")
-        s2 = task_signature("investigate sessions", "codebase-scout", "s1")
+        s1 = task_signature("  Investigate   SESSIONS  ", "apogee", "s1")
+        s2 = task_signature("investigate sessions", "apogee", "s1")
         assert s1 == s2
 
     def test_differs_across_agent_or_session(self):
-        base = task_signature("obj", "codebase-scout", "s1")
+        base = task_signature("obj", "apogee", "s1")
         assert base != task_signature("obj", "other-agent", "s1")
-        assert base != task_signature("obj", "codebase-scout", "s2")
+        assert base != task_signature("obj", "apogee", "s2")
 
     def test_differs_across_objectives(self):
         assert task_signature("obj A", "a", "s") != task_signature("obj B", "a", "s")
