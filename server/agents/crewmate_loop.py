@@ -17,7 +17,7 @@ from .recovery import RecoverableAgentLoop
 logger = logging.getLogger(__name__)
 
 
-class SubAgentLoop:
+class CrewmateLoop:
     def __init__(
         self,
         config: AppSettings,
@@ -77,12 +77,12 @@ class SubAgentLoop:
                 )
                 await message_repo.create(assistant_msg)
                 logger.info(
-                    "Sub-agent message persisted: session=%s %d chars",
+                    "Crewmate message persisted: session=%s %d chars",
                     child_session_id,
                     len(response_text),
                 )
             except Exception:
-                logger.exception("Failed to persist sub-agent message")
+                logger.exception("Failed to persist crewmate message")
         if session_repo and metrics:
             try:
                 parent = await session_repo.get(session_id)
@@ -107,7 +107,7 @@ class SubAgentLoop:
             from server.domain.session import Session
 
             child = Session(
-                title=f"sub-agent-{parent.title}",
+                title=f"crewmate-{parent.title}",
                 mode=parent.mode,
                 parent_session_id=parent_id,
                 workspace_root=parent.workspace_root,
@@ -116,10 +116,10 @@ class SubAgentLoop:
                 model=parent.model,
             )
             child.transition(SessionState.ACTIVE)
-            created = await session_repo.create(child)
+            created = await self._session_repo.create(child)
             parent.add_child(created.id)
-            await session_repo.update(parent)
-            logger.info("Created child session %s → %s for sub-agent", parent_id, created.id)
+            await self._session_repo.update(parent)
+            logger.info("Created child session %s → %s for crewmate", parent_id, created.id)
             return created.id
         except Exception as e:
             logger.warning("Failed to create child session: %s", e)

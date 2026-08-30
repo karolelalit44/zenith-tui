@@ -306,10 +306,10 @@ class TestSeedRefreshPreservesEdits:
                 "baseUrl": "http://my-proxy.local/v1",
             },
         )
-        self._age_seed(home, home.providers_path)
+        self._age_seed(home, home.catalog_path)
         ensure_materialized(home)
 
-        providers = json.loads(home.providers_path.read_text(encoding="utf-8"))
+        providers = json.loads(home.catalog_path.read_text(encoding="utf-8"))
         entries = [p for p in providers.get("providers", []) if p.get("id") == "groq"]
         assert len(entries) == 1, "duplicate groq after refresh"
         assert entries[0]["baseUrl"] == "http://my-proxy.local/v1"
@@ -320,10 +320,11 @@ class TestSeedRefreshPreservesEdits:
         ensure_materialized(home)
         builtin_gemini_models = [
             m
-            for m in json.loads(home.models_path.read_text(encoding="utf-8"))
-            .get("models", {})
-            .values()
-            if m.get("providerId") == "gemini"
+            for provider in json.loads(home.catalog_path.read_text(encoding="utf-8")).get(
+                "providers", []
+            )
+            for m in provider.get("models", [])
+            if provider.get("id") == "gemini"
         ]
         assert builtin_gemini_models, "expected seeded gemini models"
         target = builtin_gemini_models[0]
@@ -338,11 +339,16 @@ class TestSeedRefreshPreservesEdits:
                 "pricing": {"input": 9.0, "output": 42.0},
             },
         )
-        self._age_seed(home, home.models_path)
+        self._age_seed(home, home.catalog_path)
         ensure_materialized(home)
 
-        models_doc = json.loads(home.models_path.read_text(encoding="utf-8"))
-        matches = [m for m in models_doc.get("models", {}).values() if m.get("id") == target_id]
+        models_doc = json.loads(home.catalog_path.read_text(encoding="utf-8"))
+        matches = [
+            m
+            for provider in models_doc.get("providers", [])
+            for m in provider.get("models", [])
+            if isinstance(m, dict) and m.get("id") == target_id
+        ]
         assert len(matches) == 1, "duplicate model id after refresh"
         assert matches[0]["pricing"]["input"] == 9.0
         assert matches[0]["pricing"]["output"] == 42.0
@@ -430,11 +436,9 @@ class TestSeedIdempotence:
     def test_double_materialization_is_stable(self, temp_dir: Path):
         home = StorageHome(temp_dir)
         ensure_materialized(home)
-        providers_before = home.providers_path.read_text(encoding="utf-8")
-        models_before = home.models_path.read_text(encoding="utf-8")
+        catalog_before = home.catalog_path.read_text(encoding="utf-8")
         ensure_materialized(home)
-        assert home.providers_path.read_text(encoding="utf-8") == providers_before
-        assert home.models_path.read_text(encoding="utf-8") == models_before
+        assert home.catalog_path.read_text(encoding="utf-8") == catalog_before
 
     def test_user_entries_survive_refresh(self, temp_dir: Path):
         from server.storage import catalog_store
@@ -463,9 +467,9 @@ class TestSeedIdempotence:
             },
         )
         # Force a refresh by pretending an older seed is on disk.
-        doc = read_json(home.providers_path, {})
+        doc = read_json(home.catalog_path, {})
         doc["seedVersion"] = catalog_store.builtin_seed.SEED_VERSION - 1
-        write_json_atomic(home.providers_path, doc)
+        write_json_atomic(home.catalog_path, doc)
 
         ensure_materialized(home)
         providers = catalog_store.read_providers(home)
@@ -493,9 +497,12 @@ class TestProfileStore:
             api_key="gsk_abc",
             model="llama-3.3-70b-versatile",
         )
-        for name in ("providers.json", "models.json"):
+        for name in ("zenith_catalog.json",):
             assert "AQ.secret123" not in (home.root / name).read_text(encoding="utf-8")
             assert "gsk_abc" not in (home.root / name).read_text(encoding="utf-8")
+        # Legacy split files must not be recreated.
+        assert not (home.root / "providers.json").exists()
+        assert not (home.root / "models.json").exists()
         saved = load_profile(home)
         assert saved["apiKeys"]["gemini"] == "AQ.secret123"
 

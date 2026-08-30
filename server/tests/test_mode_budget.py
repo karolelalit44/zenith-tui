@@ -39,7 +39,6 @@ def _base_config(**kwargs) -> AppSettings:
     defaults = dict(
         max_context_tokens=DEFAULT_CONTEXT_WINDOW,
         repo_map_enabled=False,
-        memory_enabled=False,
     )
     defaults.update(kwargs)
     return AppSettings(**defaults)

@@ -52,7 +52,7 @@ describe('E2E: HRMS build pipeline', () => {
     expect(frame).toContain('12 iters');
   });
 
-  it('renders the live mid-build state with running sub-agents', () => {
+  it('renders the live mid-build state with running crewmates', () => {
     const emitted = collectHrmsBuildEvents();
     const state = buildState(emitted.slice(0, 40));
 

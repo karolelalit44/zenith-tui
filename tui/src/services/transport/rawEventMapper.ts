@@ -1,8 +1,8 @@
 import type {
-  AgentCompleteEvent,
-  AgentFailedEvent,
-  AgentSpawnedEvent,
-  AgentStatusEvent,
+  CrewmateCompleteEvent,
+  CrewmateFailedEvent,
+  CrewmateSpawnedEvent,
+  CrewmateStatusEvent,
   CompactionPhase,
   CompactionStatus,
   ContextPreservation,
@@ -367,9 +367,9 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         sessionId: String(d.session_id || ''),
       };
 
-    case 'agent_orchestration':
+    case 'captain_orchestration':
       return {
-        kind: 'agent_orchestration',
+        kind: 'captain_orchestration',
         id,
         stage: (d.stage as any) || 'working',
         captainMessage: String(d.captainMessage || d.message || ''),
@@ -379,11 +379,11 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         activeStep: d.activeStep ? String(d.activeStep) : undefined,
       };
 
-    case 'agent_spawned': {
-      const spawned: AgentSpawnedEvent = {
-        kind: 'agent_spawned',
+    case 'crewmate_spawned': {
+      const spawned: CrewmateSpawnedEvent = {
+        kind: 'crewmate_spawned',
         id,
-        agentId: String(d.agent_id || ''),
+        crewmateId: String(d.crewmate_id || d.agent_id || ''),
         name: String(d.name || ''),
         role: String(d.role || ''),
         taskId: String(d.task_id || ''),
@@ -394,34 +394,34 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
       return spawned;
     }
 
-    case 'agent_status':
+    case 'crewmate_status':
       return {
-        kind: 'agent_status',
+        kind: 'crewmate_status',
         id,
-        agentId: String(d.agent_id || ''),
+        crewmateId: String(d.crewmate_id || d.agent_id || ''),
         status: String(d.status || ''),
         activity: d.activity ? String(d.activity) : undefined,
         progress: typeof d.progress === 'number' ? d.progress : undefined,
-      } satisfies AgentStatusEvent;
+      } satisfies CrewmateStatusEvent;
 
-    case 'agent_complete':
+    case 'crewmate_complete':
       return {
-        kind: 'agent_complete',
+        kind: 'crewmate_complete',
         id,
-        agentId: String(d.agent_id || ''),
+        crewmateId: String(d.crewmate_id || d.agent_id || ''),
         taskId: String(d.task_id || ''),
         resultSummary: d.result_summary ? String(d.result_summary) : undefined,
         status: d.status ? String(d.status) : undefined,
-      } satisfies AgentCompleteEvent;
+      } satisfies CrewmateCompleteEvent;
 
-    case 'agent_failed':
+    case 'crewmate_failed':
       return {
-        kind: 'agent_failed',
+        kind: 'crewmate_failed',
         id,
-        agentId: String(d.agent_id || ''),
+        crewmateId: String(d.crewmate_id || d.agent_id || ''),
         taskId: String(d.task_id || ''),
         error: d.error ? String(d.error) : undefined,
-      } satisfies AgentFailedEvent;
+      } satisfies CrewmateFailedEvent;
 
     case 'context_compacted':
       return {

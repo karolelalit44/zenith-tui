@@ -15,7 +15,7 @@ const VALID_KINDS = new Set([
   'success',
   'progress',
   'plan_ready',
-  'agent_orchestration',
+  'captain_orchestration',
   'context_compacted',
   'context_compaction_started',
   'context_compaction_ended',
@@ -88,7 +88,7 @@ function toRaw(e: ScenarioEvent): Record<string, unknown> {
       base.session_id = e.sessionId;
       return base;
     }
-    case 'agent_orchestration': {
+    case 'captain_orchestration': {
       base.stage = e.stage;
       base.captainMessage = e.captainMessage;
       if (e.plan) base.plan = e.plan;

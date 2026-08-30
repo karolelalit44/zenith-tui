@@ -195,15 +195,6 @@ export const commandRegistry: CommandDef[] = [
     run: (ctx) => ctx.openOverlay('session'),
   },
   {
-    id: 'memories',
-    slash: '/memories',
-    title: '/memories',
-    description: 'View project & session memories',
-    category: 'View',
-    keywords: ['memory', 'facts', 'remember', 'knowledge', 'durable'],
-    run: (ctx) => ctx.openOverlay('memories'),
-  },
-  {
     id: 'exit',
     slash: '/exit',
     title: '/exit',

@@ -4,15 +4,15 @@ Owns the full delegation pathway for one investigation:
 
 1. duplicate detection via the Repository Intelligence Cache;
 2. lifecycle orchestration events (thinking -> delegating -> working ->
-   complete) plus raw ``agent_spawned``/``agent_status``/``agent_complete``/
-   ``agent_failed`` kinds alongside;
+    complete) plus raw ``crewmate_spawned``/``crewmate_status``/``crewmate_complete``/
+    ``crewmate_failed`` kinds alongside;
 3. an isolated child session per mission;
 4. a bounded run (timeout, context budget, read-only guard);
 5. structured ``AgentResult`` assembly, persistence and caching;
 6. one final ``success`` event built from the result — the scenario terminal.
 
 Guardrails (spec): depth <= MAX_DELEGATION_DEPTH, one child per run,
-AGENT_TIMEOUT_SECONDS per agent, SCOUT_CONTEXT_BUDGET_TOKENS context cap.
+AGENT_TIMEOUT_SECONDS per agent, CREWMATE_CONTEXT_BUDGET_TOKENS context cap.
 """
 
 from __future__ import annotations
@@ -33,10 +33,10 @@ from .agent_definition import AgentDefinition
 from .agent_result import AgentResult
 from .scout import (
     ACTIVITY_MAX_CHARS,
-    ScoutRun,
+    CrewmateRun,
     assemble_result,
-    register_scout_guard,
-    run_scout,
+    register_crewmate_guard,
+    run_crewmate,
 )
 from .task_envelope import AgentTask, build_task_envelope, task_signature
 
@@ -47,7 +47,7 @@ MAX_CHILDREN_PER_RUN = 1
 # Routed missions get the 'deep' budget: free/mini models reason slowly, and
 # the 2026-08-26 incident showed 120s cancelling real investigations.
 AGENT_TIMEOUT_SECONDS = 150
-SCOUT_CONTEXT_BUDGET_TOKENS = 64_000
+CREWMATE_CONTEXT_BUDGET_TOKENS = 64_000
 DELEGATION_CACHE_TTL_SECONDS = 300
 WORKING_EVENT_CAP = 3
 
@@ -144,7 +144,7 @@ class CaptainOrchestrator:
             data["timeline"] = timeline
         if active_step:
             data["activeStep"] = active_step
-        return Event(kind=EventKind.AGENT_ORCHESTRATION, data=data, session_id=session_id)
+        return Event(kind=EventKind.CAPTAIN_ORCHESTRATION, data=data, session_id=session_id)
 
     @staticmethod
     def _crewmate(
@@ -176,9 +176,9 @@ class CaptainOrchestrator:
 
     def _spawned_event(self, definition: AgentDefinition, task: AgentTask) -> Event:
         return Event(
-            kind=EventKind.AGENT_SPAWNED,
+            kind=EventKind.CREWMATE_SPAWNED,
             data={
-                "agent_id": definition.id,
+                "crewmate_id": definition.id,
                 "name": definition.name,
                 "role": definition.role,
                 "task_id": task.task_id,
@@ -192,9 +192,9 @@ class CaptainOrchestrator:
     @staticmethod
     def _status_event(agent_id: str, status: str, activity: str, progress: int) -> Event:
         return Event(
-            kind=EventKind.AGENT_STATUS,
+            kind=EventKind.CREWMATE_STATUS,
             data={
-                "agent_id": agent_id,
+                "crewmate_id": agent_id,
                 "status": status,
                 "activity": activity[:ACTIVITY_MAX_CHARS],
                 "progress": progress,
@@ -246,7 +246,7 @@ class CaptainOrchestrator:
             session_id=parent_session_id,
             max_context_tokens=min(
                 self._config.max_context_tokens,
-                max_context_tokens or SCOUT_CONTEXT_BUDGET_TOKENS,
+                max_context_tokens or CREWMATE_CONTEXT_BUDGET_TOKENS,
             ),
             context_digest=self._context_digest(history),
             parent_task_id=parent_task_id,
@@ -270,7 +270,7 @@ class CaptainOrchestrator:
                     {
                         "id": task.task_id[:8],
                         "title": content[:ACTIVITY_MAX_CHARS],
-                        "assignedAgent": crewmate_id,
+                        "assignedCrewmate": crewmate_id,
                         "status": "completed",
                     }
                 ],
@@ -287,9 +287,9 @@ class CaptainOrchestrator:
                 active_step="complete",
             )
             yield Event(
-                kind=EventKind.AGENT_COMPLETE,
+                kind=EventKind.CREWMATE_COMPLETE,
                 data={
-                    "agent_id": definition.id,
+                    "crewmate_id": definition.id,
                     "task_id": task.task_id,
                     "result_summary": result.summary[:ACTIVITY_MAX_CHARS],
                     "status": result.status,
@@ -306,7 +306,7 @@ class CaptainOrchestrator:
             return
 
         # Structural guarantee of MAX_CHILDREN_PER_RUN: exactly one child
-        # session is created per run, below, and scout max_crewmates == 0.
+        # session is created per run, below, and crewmate max_crewmates == 0.
         self._in_flight = True
         self.children_spawned = 0
         try:
@@ -344,17 +344,17 @@ class CaptainOrchestrator:
             child_session_id = await self._create_child_session(parent_session_id)
             task.child_session_id = child_session_id
             self.children_spawned += 1
-            register_scout_guard(self._tool_registry)
+            register_crewmate_guard(self._tool_registry)
 
             # ---- working ------------------------------------------------- #
-            run = ScoutRun()
+            run = CrewmateRun()
             child_events: list[Event] = []
             working_emitted = 0
             last_activity = ""
             timed_out = False
             try:
                 async with asyncio.timeout(resolved_timeout):
-                    async for child_event in run_scout(
+                    async for child_event in run_crewmate(
                         config=self._config,
                         provider=self._provider,
                         tool_registry=self._tool_registry,
@@ -467,9 +467,9 @@ class CaptainOrchestrator:
             )
             if ok:
                 yield Event(
-                    kind=EventKind.AGENT_COMPLETE,
+                    kind=EventKind.CREWMATE_COMPLETE,
                     data={
-                        "agent_id": definition.id,
+                        "crewmate_id": definition.id,
                         "task_id": task.task_id,
                         "result_summary": result.summary[:ACTIVITY_MAX_CHARS],
                         "status": result.status,
@@ -478,9 +478,9 @@ class CaptainOrchestrator:
                 )
             else:
                 yield Event(
-                    kind=EventKind.AGENT_FAILED,
+                    kind=EventKind.CREWMATE_FAILED,
                     data={
-                        "agent_id": definition.id,
+                        "crewmate_id": definition.id,
                         "task_id": task.task_id,
                         "error": (result.error or result.summary)[:ACTIVITY_MAX_CHARS],
                     },
@@ -550,7 +550,7 @@ class CaptainOrchestrator:
         return text if len(text) >= 40 else ""
 
     async def _create_child_session(self, parent_id: str) -> str:
-        """Isolated child session (SubAgentLoop pattern)."""
+        """Isolated child session (CrewmateLoop pattern)."""
         if not self._session_repo:
             import uuid
 
@@ -564,7 +564,7 @@ class CaptainOrchestrator:
             from server.domain.session import Session
 
             child = Session(
-                title=f"scout-{parent.title}",
+                title=f"crewmate-{parent.title}",
                 mode=parent.mode,
                 parent_session_id=parent_id,
                 workspace_root=parent.workspace_root,
@@ -575,14 +575,14 @@ class CaptainOrchestrator:
             parent.add_child(created.id)
             await self._session_repo.update(parent)
             logger.info(
-                "Scout child session %s -> %s (parent %s)",
+                "Crewmate child session %s -> %s (parent %s)",
                 created.id,
                 child.title,
                 parent_id,
             )
             return created.id
         except Exception as exc:
-            logger.warning("Failed to create scout child session: %s", exc)
+            logger.warning("Failed to create crewmate child session: %s", exc)
             import uuid
 
             return str(uuid.uuid4())
@@ -594,7 +594,7 @@ class CaptainOrchestrator:
         result: AgentResult,
         child_events: list[Event],
     ) -> None:
-        """Child assistant message + parent counters (SubAgentLoop.run pattern)."""
+        """Child assistant message + parent counters (CrewmateLoop.run pattern)."""
         try:
             if self._message_repo:
                 assistant_msg = Message(
@@ -605,7 +605,7 @@ class CaptainOrchestrator:
                 )
                 await self._message_repo.create(assistant_msg)
         except Exception:
-            logger.exception("Failed to persist scout child message")
+            logger.exception("Failed to persist crewmate child message")
         try:
             if self._session_repo:
                 parent = await self._session_repo.get(parent_session_id)
@@ -614,7 +614,7 @@ class CaptainOrchestrator:
                     parent.message_count += 1
                     await self._session_repo.update(parent)
         except Exception:
-            logger.warning("Failed to update parent token totals after scout run")
+            logger.warning("Failed to update parent token totals after crewmate run")
 
     @staticmethod
     def _activity_from(event: Event) -> str:
@@ -647,7 +647,7 @@ class CaptainOrchestrator:
         return "\n".join(lines)
 
 
-def _metrics_from(run: ScoutRun):
+def _metrics_from(run: CrewmateRun):
     from .agent_result import AgentMetrics
 
     return AgentMetrics(

@@ -13,13 +13,10 @@ edits take effect on the next tool call (mtime/size fingerprint reload).
 """
 
 from __future__ import annotations
-
 import logging
 import threading
 from pathlib import Path
-
 from pathspec import GitIgnoreSpec
-
 from server.config.constants import (
     DEFAULT_ZENITH_IGNORE_CONTENT,
     ZENITH_IGNORE_FILE_NAME,
@@ -99,7 +96,7 @@ class ZenithIgnoreMatcher:
         if not normalized or normalized == ZENITH_IGNORE_FILE_NAME:
             return False
         assert self._spec is not None  # set by __init__/refresh
-        return bool(self._spec.match_file(normalized))
+        return self._spec.match_file(normalized)
 
     def is_ignored_dir(self, rel_dir: str | Path) -> bool:
         """True when a workspace-relative directory must be pruned."""
@@ -107,7 +104,7 @@ class ZenithIgnoreMatcher:
         if not normalized or normalized == ZENITH_IGNORE_FILE_NAME:
             return False
         assert self._spec is not None
-        return bool(self._spec.match_file(normalized + "/"))
+        return self._spec.match_file(normalized + "/")
 
 
 _matchers: dict[str, ZenithIgnoreMatcher] = {}

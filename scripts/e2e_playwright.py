@@ -442,12 +442,6 @@ async def run_tests(headless: bool, timeout: float):
             else:
                 fail("tools.list", str(tools_resp.get("error")))
 
-            mem_list = await rpc("memory.list", {})
-            if not mem_list.get("error"):
-                ok("memory.list")
-            else:
-                fail("memory.list", str(mem_list.get("error")))
-
             logging.info("")
             logging.info("--- SESSION DELETE ---")
 

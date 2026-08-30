@@ -52,7 +52,7 @@ class ComponentRegistry {
     this.register('progress', ProgressBar as EventComponentType);
     this.register('plan_ready', PlanReadyBlock as EventComponentType);
     this.register('turn_manifest', TurnManifestCard as EventComponentType);
-    this.register('agent_orchestration', CaptainOrchestratorBlock as EventComponentType);
+    this.register('captain_orchestration', CaptainOrchestratorBlock as EventComponentType);
     this.register('todo_board', TodoBoardBlock as unknown as EventComponentType);
     this.register('context_compaction_flow', CompactionFlowBlock as EventComponentType);
     // Session/context/token housekeeping events render as dim status lines.

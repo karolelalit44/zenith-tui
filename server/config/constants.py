@@ -17,7 +17,7 @@ DEFAULT_CONTEXT_WINDOW = 128000
 BUILD_MODE = "build"
 PLAN_MODE = "plan"
 READ_ONLY_MODE = "read_only"
-SCOUT_MODE = "scout"
+CREWMATE_MODE = "crewmate"
 
 READ_ONLY_TOOLS = ["file_read", "glob", "grep", "list_dir"]
 
@@ -129,7 +129,7 @@ ITERATION_GUIDANCE_LEVELS: list[tuple[int, str]] = [
 ]
 
 # ---- WP5: explore delegation (Apogee crewmate) -------------------------------
-# Model-invocable read-only exploration backed by the Captain/Scout pathway.
+# Model-invocable read-only exploration backed by the Captain/Crewmate pathway.
 # Named for the highest point of an orbit — kin to Zenith itself.
 EXPLORE_TOOL = "explore"
 APPOGEE_AGENT_ID = "apogee"
@@ -171,14 +171,14 @@ EXPLORE_CUSTOM_ROLE_MAX_CHARS = 48
 EXPLORE_CUSTOM_FOCUS_MAX_CHARS = 600
 
 # ---- WP6: structural retrieval (graph queries + mission brief) ---------------
-# Scout-facing structural query tools over the tree-sitter symbol graph.
+# Crewmate-facing structural query tools over the tree-sitter symbol graph.
 CODE_CALLERS_TOOL = "code_callers"
 CODE_OUTLINE_TOOL = "code_outline"
 CODE_BLAST_RADIUS_TOOL = "code_blast_radius"
-SCOUT_GRAPH_TOOLS = (CODE_CALLERS_TOOL, CODE_OUTLINE_TOOL, CODE_BLAST_RADIUS_TOOL)
+CREWMATE_GRAPH_TOOLS = (CODE_CALLERS_TOOL, CODE_OUTLINE_TOOL, CODE_BLAST_RADIUS_TOOL)
 GRAPH_QUERY_MAX_RESULTS = 20
 GRAPH_QUERY_MAX_OUTPUT_CHARS = 4_000
-# Mission brief injected into the scout prompt at spawn (SubagentStart pattern).
+# Mission brief injected into the crewmate prompt at spawn (CrewmateStart pattern).
 EXPLORE_BRIEF_TOP_SYMBOLS = 12
 EXPLORE_BRIEF_MAX_CHARS = 1_600
 BRIEF_CACHE_TTL_SECONDS = 60.0
@@ -264,7 +264,7 @@ SMALL_CONTEXT_WINDOW = 32_000
 LARGE_CONTEXT_WINDOW = 200_000
 MAX_OUTPUT_TOKENS_CLAMP = 32_768
 
-TOOL_GUIDELINES_DIR = ".zenith"
+TOOL_GUIDELINES_DIR = ""
 TOOL_GUIDELINES_FILE_NAME = "tool-guidelines.md"
 
 MAX_TOOL_NAME_LENGTH = 64
@@ -286,14 +286,14 @@ PERMISSION_DELETE = "delete"
 PERMISSION_COMMAND = "command"
 PERMISSION_NETWORK = "network"
 PERMISSION_MCP = "mcp"
-PERMISSION_SUBAGENT = "sub_agent"
+PERMISSION_CREWMATE = "crewmate"
 
 CONCURRENCY_GROUP_READONLY = "read_only"
 CONCURRENCY_GROUP_WORKSPACE_MUTATION = "workspace_mutation"
 CONCURRENCY_GROUP_SHELL = "shell"
 CONCURRENCY_GROUP_LSP = "lsp"
 CONCURRENCY_GROUP_MCP = "mcp"
-CONCURRENCY_GROUP_SUBAGENT = "sub_agent"
+CONCURRENCY_GROUP_CREWMATE = "crewmate"
 
 COST_CLASS_LOW = "low"
 COST_CLASS_MEDIUM = "medium"
@@ -309,7 +309,7 @@ TOOL_DOMAIN_EXECUTION = "execution"
 TOOL_DOMAIN_VCS = "vcs"
 TOOL_DOMAIN_WEB_MCP = "web_mcp"
 TOOL_DOMAIN_TASK = "task"
-TOOL_DOMAIN_SUBAGENT = "sub_agent"
+TOOL_DOMAIN_CREWMATE = "crewmate"
 TOOL_DOMAIN_DISCOVERY = "discovery"
 
 CAPABILITY_TOOL_DISCOVERY = "tool_discovery"
@@ -464,8 +464,6 @@ MAX_EVENT_OUTPUT = 5000
 
 # System-prompt budget allocation (chars, approximated at CHARS_PER_TOKEN).
 # These bound dynamic sections so total context stays under control.
-PROJECT_CONTEXT_BUDGET_RATIO = 0.08
-PROJECT_CONTEXT_MAX_CHARS = 24_000
 SKILLS_BUDGET_RATIO = 0.05
 SKILLS_MAX_CHARS = 12_000
 

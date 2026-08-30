@@ -18,7 +18,6 @@ from server.domain.events import Event, EventKind
 from server.storage import (
     FileCheckpointRepository,
     FileMessageRepository,
-    FileProjectMemoryRepository,
     FileSessionRepository,
     FileSyncEventRepository,
     FileTokenUsageRepository,
@@ -75,11 +74,6 @@ def usage_repo(home):
 @pytest.fixture
 def workspace_repo(home):
     return FileWorkspaceRepository(home)
-
-
-@pytest.fixture
-def memory_repo(home):
-    return FileProjectMemoryRepository(home)
 
 
 @pytest.fixture

@@ -1,21 +1,21 @@
-"""Integration tests for the Codebase Scout runner (read-only mission mechanics)."""
+"""Integration tests for the Apogee crewmate runner (read-only mission mechanics)."""
 
 import json
 
 import pytest
 
-from server.agents.delegation import CodebaseScout
+from server.agents.delegation import ApogeeCrewmate
 from server.agents.delegation.scout import (
     FORWARDABLE_KINDS,
-    ScoutReadOnlyGuard,
-    ScoutRun,
+    CrewmateReadOnlyGuard,
+    CrewmateRun,
     assemble_result,
-    build_scout_prompt,
-    register_scout_guard,
-    run_scout,
+    build_crewmate_prompt,
+    register_crewmate_guard,
+    run_crewmate,
 )
 from server.agents.delegation.task_envelope import build_task_envelope
-from server.config.constants import READ_ONLY_TOOLS, SCOUT_GRAPH_TOOLS, SCOUT_MODE
+from server.config.constants import READ_ONLY_TOOLS, CREWMATE_GRAPH_TOOLS, CREWMATE_MODE
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
@@ -51,11 +51,11 @@ def _final_answer() -> str:
     return "Investigation complete.\n\n```json\n" + json.dumps(payload) + "\n```\n"
 
 
-class _ScriptedScoutProvider(BaseProvider):
+class _ScriptedCrewmateProvider(BaseProvider):
     """Step 1: one real read tool call. Step 2: the AgentResult JSON block."""
 
     def __init__(self, final_text: str | None = None, fail: bool = False):
-        super().__init__("scoutscript", "scout-model")
+        super().__init__("crewmatescript", "crewmate-model")
         self.call_count = 0
         self.tool_names_seen: list[list[str]] = []
         self.modes_seen: list[str] = []
@@ -65,7 +65,7 @@ class _ScriptedScoutProvider(BaseProvider):
     async def complete(self, messages, tools=None):
         self.call_count += 1
         if self.fail:
-            raise RuntimeError("scout provider exploded")
+            raise RuntimeError("crewmate provider exploded")
         if self.call_count == 1:
             return '```tool\n{"tool": "file_read", "params": {"path": "notes.txt"}}\n```'
         return self.final_text or "no findings"
@@ -81,13 +81,13 @@ class _ScriptedScoutProvider(BaseProvider):
         return True
 
     async def list_models(self):
-        return ["scout-model"]
+        return ["crewmate-model"]
 
 
 @pytest.fixture
 def test_config(temp_dir):
     return AppSettings(
-        home_dir=str(temp_dir / "scout.db"),
+        home_dir=str(temp_dir / "crewmate.db"),
         workspace_root=str(temp_dir),
     )
 
@@ -101,7 +101,7 @@ def workspace(temp_dir):
 def _make_task(session_id: str = "child-1"):
     task = build_task_envelope(
         objective="Investigate how sessions are persisted and what a JSONL migration would change",
-        definition=CodebaseScout,
+        definition=ApogeeCrewmate,
         session_id="parent-1",
         max_context_tokens=64_000,
     )
@@ -109,15 +109,15 @@ def _make_task(session_id: str = "child-1"):
     return task
 
 
-async def _collect_scout(config, provider, task, registry=None):
-    run = ScoutRun()
+async def _collect_crewmate(config, provider, task, registry=None):
+    run = CrewmateRun()
     events = []
-    async for event in run_scout(
+    async for event in run_crewmate(
         config=config,
         provider=provider,
         tool_registry=registry or create_default_registry(),
         task=task,
-        definition=CodebaseScout,
+        definition=ApogeeCrewmate,
         run=run,
     ):
         events.append(event)
@@ -127,10 +127,10 @@ async def _collect_scout(config, provider, task, registry=None):
 class TestEvidenceBackedFindings:
     @pytest.mark.asyncio
     async def test_scripted_read_produces_verified_findings(self, test_config, workspace):
-        provider = _ScriptedScoutProvider(final_text=_final_answer())
-        run, _events = await _collect_scout(test_config, provider, _make_task(), None)
+        provider = _ScriptedCrewmateProvider(final_text=_final_answer())
+        run, _events = await _collect_crewmate(test_config, provider, _make_task(), None)
         assert run.response_text.strip(), "final answer must be captured"
-        result = assemble_result(_make_task(), CodebaseScout, run)
+        result = assemble_result(_make_task(), ApogeeCrewmate, run)
         assert result.status == "completed"
         assert "SessionRepository" in result.summary
         assert result.findings[0].confidence == "verified"
@@ -145,9 +145,9 @@ class TestEvidenceBackedFindings:
 
     @pytest.mark.asyncio
     async def test_unparseable_output_becomes_unverified_fallback(self, test_config, workspace):
-        provider = _ScriptedScoutProvider(final_text="plain prose, no json block")
-        run, _ = await _collect_scout(test_config, provider, _make_task(), None)
-        result = assemble_result(_make_task(), CodebaseScout, run)
+        provider = _ScriptedCrewmateProvider(final_text="plain prose, no json block")
+        run, _ = await _collect_crewmate(test_config, provider, _make_task(), None)
+        result = assemble_result(_make_task(), ApogeeCrewmate, run)
         assert result.status == "completed"
         assert result.unverified == [run.response_text.strip()]
         assert result.findings == []
@@ -167,13 +167,13 @@ class TestReadOnlyToolSurface:
         return None
 
     @pytest.mark.asyncio
-    async def test_only_read_only_tools_offered_in_scout_mode(self, test_config, workspace):
-        provider = _ScriptedScoutProvider(final_text=_final_answer())
-        await _collect_scout(test_config, provider, _make_task(), create_default_registry())
+    async def test_only_read_only_tools_offered_in_crewmate_mode(self, test_config, workspace):
+        provider = _ScriptedCrewmateProvider(final_text=_final_answer())
+        await _collect_crewmate(test_config, provider, _make_task(), create_default_registry())
         assert provider.tool_names_seen, "provider never received a tool surface"
         allowed = (
             set(READ_ONLY_TOOLS)
-            | set(SCOUT_GRAPH_TOOLS)
+            | set(CREWMATE_GRAPH_TOOLS)
             | {"discover_capabilities", "get_tool_definition"}
         )
         offered = {
@@ -188,15 +188,15 @@ class TestReadOnlyToolSurface:
         assert "bash" not in offered
 
 
-class TestScoutReadOnlyGuard:
+class TestCrewmateReadOnlyGuard:
     @pytest.mark.asyncio
-    async def test_guard_blocks_mutation_tools_in_scout_mode_end_to_end(self, workspace):
+    async def test_guard_blocks_mutation_tools_in_crewmate_mode_end_to_end(self, workspace):
         registry = create_default_registry()
-        guard = register_scout_guard(registry)
+        guard = register_crewmate_guard(registry)
 
         from server.toolkit.base import ToolContext, ToolResult
 
-        ctx = ToolContext(request_id="r1", mode=SCOUT_MODE, workspace_root=str(workspace))
+        ctx = ToolContext(request_id="r1", mode=CREWMATE_MODE, workspace_root=str(workspace))
 
         blocked = await guard.before_execute("file_write", {}, ctx)
         assert isinstance(blocked, ToolResult)
@@ -215,18 +215,18 @@ class TestScoutReadOnlyGuard:
             "file_write",
             {"path": "hacked.txt", "content": "nope"},
             str(workspace),
-            mode=SCOUT_MODE,
+            mode=CREWMATE_MODE,
         )
         assert result.success is False
         assert not (workspace / "hacked.txt").exists()
 
     def test_register_dedupes_by_type(self):
         registry = create_default_registry()
-        first = register_scout_guard(registry)
-        second = register_scout_guard(registry)
+        first = register_crewmate_guard(registry)
+        second = register_crewmate_guard(registry)
         assert first is second
         count = sum(
-            1 for mw in getattr(registry, "_middleware", []) if isinstance(mw, ScoutReadOnlyGuard)
+            1 for mw in getattr(registry, "_middleware", []) if isinstance(mw, CrewmateReadOnlyGuard)
         )
         assert count == 1
 
@@ -234,42 +234,42 @@ class TestScoutReadOnlyGuard:
 class TestInterceptedTerminals:
     @pytest.mark.asyncio
     async def test_success_intercepted_and_token_info_captured(self, test_config, workspace):
-        provider = _ScriptedScoutProvider(final_text=_final_answer())
-        run, events = await _collect_scout(test_config, provider, _make_task(), None)
+        provider = _ScriptedCrewmateProvider(final_text=_final_answer())
+        run, events = await _collect_crewmate(test_config, provider, _make_task(), None)
         kinds = [e.kind for e in events]
         assert EventKind.SUCCESS not in kinds, "SUCCESS must be intercepted"
         assert EventKind.ERROR not in kinds
         assert set(FORWARDABLE_KINDS) & set(kinds), "forwardable child events were yielded"
         assert isinstance(run.token_info, dict)
         assert {"used", "total", "percent"} <= set(run.token_info.keys())
-        result = assemble_result(_make_task(), CodebaseScout, run)
+        result = assemble_result(_make_task(), ApogeeCrewmate, run)
         assert result.metrics.tokens_used >= 0
         assert result.metrics.iterations >= 1
 
     @pytest.mark.asyncio
     async def test_provider_error_captured_not_raised(self, test_config, workspace):
-        provider = _ScriptedScoutProvider(fail=True)
-        run, _events = await _collect_scout(test_config, provider, _make_task(), None)
+        provider = _ScriptedCrewmateProvider(fail=True)
+        run, _events = await _collect_crewmate(test_config, provider, _make_task(), None)
         assert "exploded" in (run.last_error or "")
         result = assemble_result(
-            _make_task(), CodebaseScout, run, status="failed", error=run.last_error
+            _make_task(), ApogeeCrewmate, run, status="failed", error=run.last_error
         )
         assert result.status == "failed"
         assert "exploded" in (result.error or "")
 
 
 class TestPromptContract:
-    def test_build_scout_prompt_contains_contract(self):
+    def test_build_crewmate_prompt_contains_contract(self):
         from server.agents.delegation.task_envelope import build_task_envelope as build
 
         task = build(
             objective="Trace session persistence",
-            definition=CodebaseScout,
+            definition=ApogeeCrewmate,
             session_id="p",
             max_context_tokens=64_000,
             context_digest="captain knows: sqlite exists",
         )
-        prompt = build_scout_prompt(task)
+        prompt = build_crewmate_prompt(task)
         assert "Trace session persistence" in prompt
         assert "READ-ONLY MANDATE" in prompt
         assert "OUTPUT CONTRACT" in prompt

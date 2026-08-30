@@ -41,51 +41,6 @@ async def test_simulation_context_compact_is_not_simulated():
     assert "Method not found" in errors[0]["error"]["message"]
 
 
-@pytest.mark.asyncio
-async def test_simulation_memory_list_returns_static_payload():
-    handler = _make_handler()
-    ws = _FakeWS()
-
-    returned = await handler._dispatch(ws, "memory.list", "memory_1", {}, None)
-    assert returned is None
-
-    responses = [m for m in ws.sent if m.get("id") == "memory_1"]
-    assert len(responses) == 1
-    result = responses[0]["result"]
-
-    memories = result["memories"]
-    assert isinstance(memories, list)
-    assert result["total"] == len(memories) == 9
-    assert len(memories) > 0
-
-    scopes = {m["scope"] for m in memories}
-    assert scopes == {"project", "session"}
-
-    for m in memories:
-        assert m["id"]
-        assert m["scope"] in {"project", "session"}
-        assert m["content"]
-        assert isinstance(m.get("pinned", False), bool)
-
-    assert any(m["pinned"] for m in memories)
-    assert any(m["scope"] == "project" for m in memories)
-    assert any(m["scope"] == "session" for m in memories)
-
-
-@pytest.mark.asyncio
-async def test_simulation_memory_list_ignores_params():
-    handler = _make_handler()
-    ws = _FakeWS()
-
-    returned = await handler._dispatch(
-        ws, "memory.list", "memory_2", {"scope": "session", "limit": 1}, None
-    )
-    assert returned is None
-
-    responses = [m for m in ws.sent if m.get("id") == "memory_2"]
-    assert len(responses) == 1
-    # Static backend: params are accepted for forward-compat but do not filter.
-    assert len(responses[0]["result"]["memories"]) == 9
 
 
 def test_todo_and_hrms_simulations_match_prompts_in_build_mode():
@@ -186,7 +141,7 @@ async def test_hrms_playback_streams_orchestration_and_compaction(monkeypatch):
 
     events = [m for m in ws.sent if m.get("method") == "event"]
     kinds = [e["params"]["kind"] for e in events]
-    assert kinds.count("agent_orchestration") == 7, kinds
+    assert kinds.count("captain_orchestration") == 7, kinds
     assert kinds.count("todo_board") == 17, kinds
     assert kinds.count("progress") == 3, kinds
     assert kinds.count("context_compaction_started") == 1, kinds
@@ -225,7 +180,7 @@ async def test_full_showcase_playback_combines_lifecycle_then_hrms(monkeypatch):
     assert kinds[0] == "thinking", kinds
     assert kinds.count("todo_test") == 8, kinds
     assert kinds.count("todo_board") == 26, kinds
-    assert kinds.count("agent_orchestration") == 12, kinds
+    assert kinds.count("captain_orchestration") == 12, kinds
     assert kinds.count("context_compaction_started") == 1, kinds
     assert kinds.count("error") == 1, kinds
     # Two success cards in the stream plus the trailing success the server

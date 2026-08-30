@@ -134,9 +134,6 @@ class MethodHandlers:
             "workspace.diff": lambda: self._workspace_diff(ws, rid, params),
             "workspace.log": lambda: self._workspace_log(ws, rid, params),
             "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
-            "memory.list": lambda: self._memory_list(ws, rid, params),
-            "memory.add": lambda: self._memory_add(ws, rid, params),
-            "memory.delete": lambda: self._memory_delete(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
         }
         handler = handlers.get(method)
@@ -747,47 +744,4 @@ class MethodHandlers:
             return self._session_service
         return DefaultSessionService(session_repo=self.session_repo, message_repo=self.message_repo)
 
-    async def _memory_list(self, ws, rid, params) -> None:
-        from server.sessions.memory import MemoryStore
 
-        store = MemoryStore(self.config.workspace_root)
-        text = store.load_plain()
-        await ws.send_text(make_response(rid, {"memory": text}))
-
-    async def _memory_add(self, ws, rid, params) -> None:
-        from server.sessions.memory import MemoryStore
-
-        key = params.get("key", "").strip()
-        value = params.get("value", "").strip()
-        if not key:
-            await ws.send_text(make_error_response(rid, -32602, "key is required"))
-            return
-        store = MemoryStore(self.config.workspace_root)
-        entry = f"- **{key}**: {value}" if value else f"- {key}"
-        store.append_project(entry)
-        await ws.send_text(make_response(rid, {"status": "ok", "key": key}))
-
-    async def _memory_delete(self, ws, rid, params) -> None:
-        from server.sessions.memory import MemoryStore
-
-        key = params.get("key", "").strip()
-        if not key:
-            await ws.send_text(make_error_response(rid, -32602, "key is required"))
-            return
-        store = MemoryStore(self.config.workspace_root)
-        project_path = store.project_path()
-        if not project_path.exists():
-            await ws.send_text(make_response(rid, {"deleted": False}))
-            return
-        text = project_path.read_text(encoding="utf-8", errors="replace")
-        lines = text.split("\n")
-        new_lines = []
-        deleted = False
-        for line in lines:
-            if key in line and line.strip().startswith("-"):
-                deleted = True
-                continue
-            new_lines.append(line)
-        if deleted:
-            project_path.write_text("\n".join(new_lines), encoding="utf-8")
-        await ws.send_text(make_response(rid, {"deleted": deleted}))

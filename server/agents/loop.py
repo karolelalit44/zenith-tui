@@ -558,9 +558,9 @@ class AgentLoop:
 
         name, role, task = self._explore_crewmate_identity(tool_params)
         return Event(
-            kind=EventKind.AGENT_SPAWNED,
+            kind=EventKind.CREWMATE_SPAWNED,
             data={
-                "agent_id": EXPLORE_TOOL,
+                "crewmate_id": EXPLORE_TOOL,
                 "name": name,
                 "role": role,
                 "task_id": str(uuid.uuid4())[:8],
@@ -582,9 +582,9 @@ class AgentLoop:
         )
         ok = bool(result.success)
         return Event(
-            kind=EventKind.AGENT_COMPLETE if ok else EventKind.AGENT_FAILED,
+            kind=EventKind.CREWMATE_COMPLETE if ok else EventKind.CREWMATE_FAILED,
             data={
-                "agent_id": spawn_data.get("agent_id") or EXPLORE_TOOL,
+                "crewmate_id": spawn_data.get("crewmate_id") or EXPLORE_TOOL,
                 "task_id": spawn_data.get("task_id") or "",
                 "result_summary": summary[:200],
                 "status": str(meta.get("explore_status") or ("completed" if ok else "failed")),
@@ -715,7 +715,6 @@ class AgentLoop:
             use_system_prompt=True,
             repo_map=repo_map,
             session_id=session_id,
-            project_memory=self._load_project_memory(),
             mode=mode,
         )
         self._inject_session_state(messages, session_id)
@@ -1272,7 +1271,7 @@ class AgentLoop:
                 skipped_calls: list[str] = []
                 newly_executed = False
 
-                # ---- WP5 Phase 4b: parallel scout fan-out -----------------
+                # ---- WP5 Phase 4b: parallel crewmate fan-out -----------------
                 # Several independent explore calls in one turn are dispatched
                 # concurrently (the tool's own semaphore caps width); results
                 # land in ``preexecuted`` and flow through the standard
@@ -1295,12 +1294,12 @@ class AgentLoop:
                     _fanout.append((_idx, _sig, _p))
                 if len(_fanout) >= 2:
                     logger.info(
-                        "Parallel scout fan-out: %d explore missions in one turn",
+                        "Parallel crewmate fan-out: %d explore missions in one turn",
                         len(_fanout),
                     )
                     yield _emit_progress_running(
                         EXPLORE_TOOL,
-                        f"fanning out {len(_fanout)} scouts in parallel",
+                        f"fanning out {len(_fanout)} crewmates in parallel",
                     )
                     _gathered = await asyncio.gather(
                         *(
@@ -1513,7 +1512,7 @@ class AgentLoop:
                         else None
                     )
                     if explore_crewmate is not None:
-                        # WP5: light the crewmate card the moment a scout
+                        # WP5: light the crewmate card the moment a crewmate
                         # departs; completion is stamped on its result below.
                         yield explore_crewmate
                     _pre = preexecuted.pop(call_index, None)
@@ -2109,14 +2108,3 @@ class AgentLoop:
         while idx < len(messages) and messages[idx].get("role") == "system":
             idx += 1
         messages.insert(idx, state_msg)
-
-    def _load_project_memory(self) -> str:
-        from server.sessions.memory import MemoryStore
-
-        try:
-            store = MemoryStore(self.config.workspace_root)
-            if store.project_path().exists():
-                return store.project_path().read_text(encoding="utf-8", errors="replace").strip()
-        except Exception:
-            logger.debug("Failed to load project memory", exc_info=True)
-        return ""

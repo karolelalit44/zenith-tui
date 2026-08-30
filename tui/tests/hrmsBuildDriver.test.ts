@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HRMS_PROMPT, runHrmsBuildSimulation } from '../src/services/scenario/hrmsBuildDriver';
 import type {
-  AgentOrchestrationEvent,
+  CaptainOrchestrationEvent,
   ScenarioEvent,
   TodoBoardEvent,
   ToolCallEvent,
@@ -20,7 +20,7 @@ describe('runHrmsBuildSimulation', () => {
       'thinking',
       'message',
       'plan_ready',
-      'agent_orchestration',
+      'captain_orchestration',
       'todo_board',
       'progress',
       'tool_call',
@@ -79,7 +79,7 @@ describe('runHrmsBuildSimulation', () => {
 
   it('keeps crewmate ids stable across orchestration events', () => {
     const { events } = run();
-    const orch = events.filter((e): e is AgentOrchestrationEvent => e.kind === 'agent_orchestration');
+    const orch = events.filter((e): e is CaptainOrchestrationEvent => e.kind === 'captain_orchestration');
     expect(orch.length).toBeGreaterThanOrEqual(4);
     const firstIds = (orch[0].crewmates ?? []).map((c) => c.id).sort();
     const lastIds = (orch[orch.length - 1].crewmates ?? []).map((c) => c.id).sort();

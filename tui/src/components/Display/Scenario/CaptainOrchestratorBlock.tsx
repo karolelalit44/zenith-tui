@@ -6,7 +6,7 @@ import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { Theme } from '../../../theme/theme';
 import type {
-  AgentOrchestrationEvent,
+  CaptainOrchestrationEvent,
   CrewmateAgent,
   CrewmateStatus,
   PlanItem,
@@ -14,7 +14,7 @@ import type {
 } from '../../../types/scenario';
 
 interface CaptainOrchestratorBlockProps {
-  event: AgentOrchestrationEvent;
+  event: CaptainOrchestrationEvent;
 }
 
 /** Render status icon and color for Execution Plan Items. */
@@ -102,7 +102,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
       stageColor = theme.colors.text.emerald;
       break;
     case 'delegating':
-      stageLabel = 'Dispatching Crewmate Agents';
+      stageLabel = 'Dispatching Crewmates';
       stageColor = theme.colors.status.warning;
       break;
     case 'working':
@@ -110,7 +110,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
       stageColor = theme.colors.status.info;
       break;
     case 'reviewing':
-      stageLabel = 'Evaluating Agent Results';
+      stageLabel = 'Evaluating Crewmate Results';
       stageColor = theme.colors.status.warning;
       break;
     case 'reassigning':
@@ -195,7 +195,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
                   <Text color={item.status === 'completed' ? theme.colors.text.muted : theme.colors.text.bright}>
                     {item.title}
                   </Text>
-                  {item.assignedAgent ? <Text color={theme.colors.text.dim}> — {item.assignedAgent}</Text> : null}
+                  {item.assignedCrewmate ? <Text color={theme.colors.text.dim}> — {item.assignedCrewmate}</Text> : null}
                 </Box>
               );
             })}
@@ -207,11 +207,11 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
           <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
             <Box flexDirection="row" marginBottom={0}>
               <Text color={theme.colors.status.warning} bold>
-                👥 CREWMATE SUB-AGENTS DISPATCH
+                👥 CREWMATES DISPATCH
               </Text>
               <Text color={theme.colors.text.dim}>
                 {' '}
-                ({event.crewmates.length} active worker{event.crewmates.length === 1 ? '' : 's'})
+                ({event.crewmates.length} crewmate{event.crewmates.length === 1 ? '' : 's'})
               </Text>
             </Box>
 

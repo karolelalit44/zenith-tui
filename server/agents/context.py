@@ -229,7 +229,6 @@ class ContextManager:
         self.config = config
         self.token_counter = TokenCounter()
         self._repo_map_cache: str | None = None
-        self._memory_cache: str | None = None
         self._aux_tokens = 0
         self._last_t0_len = 0
         self._last_tiers: list[str] = []
@@ -273,20 +272,6 @@ class ContextManager:
             self._repo_map_cache = ""
         return self._repo_map_cache
 
-    def get_memory(self) -> str:
-        if not self.config.memory_enabled:
-            return ""
-        if self._memory_cache is not None:
-            return self._memory_cache
-        try:
-            from server.sessions.memory import MemoryStore
-
-            self._memory_cache = MemoryStore(self.config.workspace_root).load()
-        except Exception as e:
-            logger.warning("Failed to load memory: %s", e)
-            self._memory_cache = ""
-        return self._memory_cache
-
     def build_messages(
         self,
         history: list[Message],
@@ -297,9 +282,7 @@ class ContextManager:
         plan_block: str | None = None,
         use_system_prompt: bool = True,
         repo_map: str | None = None,
-        memory: str | None = None,
         session_id: str | None = None,
-        project_memory: str | None = None,
         mode: str = BUILD_MODE,
     ) -> list[dict]:
         max_tokens = self._resolve_context_window(model)
@@ -319,12 +302,6 @@ class ContextManager:
             f"<repo_map>\n{repo_map_text}\n</repo_map>" if repo_map_text.strip() else ""
         )
         repo_map_tokens = self.token_counter.count(repo_map_block, model) if repo_map_block else 0
-        memory_text = memory if memory is not None else self.get_memory()
-        memory_block = f"<memory>\n{memory_text}\n</memory>" if memory_text.strip() else ""
-        memory_tokens = self.token_counter.count(memory_block, model) if memory_block else 0
-        pm_text = project_memory or ""
-        pm_block = f"<project_memory>\n{pm_text}\n</project_memory>" if pm_text.strip() else ""
-        pm_tokens = self.token_counter.count(pm_block, model) if pm_block else 0
         if use_system_prompt:
             system_tokens = self.token_counter.count(system_prompt, model)
             messages.append({"role": "system", "content": system_prompt})
@@ -332,7 +309,6 @@ class ContextManager:
             used = system_tokens
         else:
             used = 0
-        memory_injected = False
         # Message 1 (fresh session bucket): outbound is exactly T0 (static) +
         # T5 (verbatim prompt). No repo map, no memory, no plan, no summary,
         # no history, no session state. A resumed session (history or summary
@@ -348,44 +324,9 @@ class ContextManager:
                     len(repo_map_text),
                     repo_map_tokens,
                 )
-            if memory_block and not is_fresh:
-                if used + memory_tokens + pbuf <= budget:
-                    messages.append({"role": "system", "content": memory_block})
-                    self._last_tiers.append(TIER_T1)
-                    used += memory_tokens
-                    memory_injected = True
-                    logger.info(
-                        "Memory injected into context: %d chars, %d tokens",
-                        len(memory_text),
-                        memory_tokens,
-                    )
-                else:
-                    logger.warning(
-                        "Memory block too large to inject (%d tokens, budget %d)",
-                        memory_tokens,
-                        budget,
-                    )
         else:
             if not is_fresh:
                 used += repo_map_tokens
-                if memory_block and used + memory_tokens + pbuf <= budget:
-                    used += memory_tokens
-                    memory_injected = True
-                elif memory_block:
-                    logger.warning(
-                        "Memory block too large to inject (%d tokens, budget %d)",
-                        memory_tokens,
-                        budget,
-                    )
-        if pm_block and used + pm_tokens + pbuf <= budget:
-            messages.append({"role": "system", "content": pm_block})
-            self._last_tiers.append(TIER_T1)
-            used += pm_tokens
-            logger.info(
-                "Project memory injected: %d chars, %d tokens",
-                len(pm_text),
-                pm_tokens,
-            )
         if plan_block and not is_fresh:
             plan_tokens = self.token_counter.count(plan_block, model)
             if used + plan_tokens + pbuf <= budget:
@@ -528,8 +469,6 @@ class ContextManager:
             parts = [system_prompt]
             if repo_map_block:
                 parts.append(repo_map_block)
-            if memory_injected:
-                parts.append(memory_block)
             parts.append(new_prompt)
             new_entry = {"role": "user", "content": "\n\n".join(parts)}
         else:

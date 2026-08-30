@@ -12,7 +12,7 @@ import { TodoStore } from '../todo/todoStore';
  * Long, end-to-end BUILD-mode simulation: "Design a Django HRMS app".
  *
  * This driver exists to prove the frontend is capable of a full production
- * build session with sub-agents (captain + crewmates), a tracked todo board,
+ * build session with crewmates (captain + crewmates), a tracked todo board,
  * tool steps (including one that fails and recovers), warnings, a mid-turn
  * context compaction, a turn manifest, plan readiness, and a final success.
  * Every event uses an EXISTING ScenarioEvent kind — nothing new to render.
@@ -20,7 +20,7 @@ import { TodoStore } from '../todo/todoStore';
  * Contract details that matter for the UI:
  * - `tool_call` / `tool_result` share the SAME id + tool so `useScenario`
  *   pairs them into a single `tool_step` card.
- * - `agent_orchestration` crewmate ids stay STABLE across emissions so the
+ * - `captain_orchestration` crewmate ids stay STABLE across emissions so the
  *   renderer's consolidation merges their statuses instead of stacking cards.
  * - The mid-turn `error` is `recoverable: false` so no retry banner appears.
  * - Todo board snapshots come from the real TodoStore engine.
@@ -29,7 +29,7 @@ import { TodoStore } from '../todo/todoStore';
 export const HRMS_PROMPT =
   'Design and build a Django HRMS application end to end: employee records, departments, ' +
   'payroll, leave management, REST API with token auth, admin interface, seed data, and a ' +
-  'full test suite. Use sub-agents for parallel workstreams, track everything on the todo ' +
+  'full test suite. Use crewmates for parallel workstreams, track everything on the todo ' +
   'board, handle failures gracefully, and keep the build in context with compaction when needed.';
 
 export interface HrmsBuildRun {
@@ -48,12 +48,12 @@ interface CrewList {
 
 function planItems(): PlanItem[] {
   return [
-    { id: 'P1', title: 'Scaffold Django project + HRMS apps', assignedAgent: 'dev-backend', status: 'queued' },
-    { id: 'P2', title: 'Employee + Department models', assignedAgent: 'dev-models', status: 'queued' },
-    { id: 'P3', title: 'Payroll + Leave domain models', assignedAgent: 'dev-models', status: 'queued' },
-    { id: 'P4', title: 'REST API + token auth', assignedAgent: 'dev-backend', status: 'queued' },
-    { id: 'P5', title: 'Admin + seed data', assignedAgent: 'qa', status: 'queued' },
-    { id: 'P6', title: 'Test suite + CI pipeline', assignedAgent: 'qa', status: 'queued' },
+    { id: 'P1', title: 'Scaffold Django project + HRMS apps', assignedCrewmate: 'dev-backend', status: 'queued' },
+    { id: 'P2', title: 'Employee + Department models', assignedCrewmate: 'dev-models', status: 'queued' },
+    { id: 'P3', title: 'Payroll + Leave domain models', assignedCrewmate: 'dev-models', status: 'queued' },
+    { id: 'P4', title: 'REST API + token auth', assignedCrewmate: 'dev-backend', status: 'queued' },
+    { id: 'P5', title: 'Admin + seed data', assignedCrewmate: 'qa', status: 'queued' },
+    { id: 'P6', title: 'Test suite + CI pipeline', assignedCrewmate: 'qa', status: 'queued' },
   ];
 }
 
@@ -88,7 +88,7 @@ function crewmates(): CrewList {
     },
     docs: {
       id: 'docs',
-      name: 'Doc Scout',
+      name: 'Doc Cartographer',
       role: 'Documentation',
       task: 'HRMS usage + API docs',
       activity: 'Outlining README sections',
@@ -165,7 +165,7 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
     duration: 3800,
     thoughts: [
       {
-        text: 'The HRMS is broad: employees, departments, payroll, leave, auth. Split it into parallel workstreams so the captain coordinates sub-agents instead of doing everything serially.',
+        text: 'The HRMS is broad: employees, departments, payroll, leave, auth. Split it into parallel workstreams so the captain coordinates crewmates instead of doing everything serially.',
       },
       {
         text: 'Models first, then API, then admin/seed data, then tests. The docs agent can run in parallel. Track every artifact on the todo board so progress is visible.',
@@ -179,7 +179,7 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
   push({
     kind: 'message',
     id: 'hrms_msg_1',
-    text: 'Designing and building the **Django HRMS** app end to end. I will orchestrate parallel sub-agents, mirror every deliverable on the todo board, and run the full test suite before calling the build complete.',
+    text: 'Designing and building the **Django HRMS** app end to end. I will orchestrate parallel crewmates, mirror every deliverable on the todo board, and run the full test suite before calling the build complete.',
     partial: false,
   });
 
@@ -201,14 +201,14 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
   let crew = crewmates();
   let plan = planItems();
   push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'hrms_orch_1',
     stage: 'planning',
-    captainMessage: 'Breaking the HRMS into 6 workstreams and dispatching sub-agents for parallel execution.',
+    captainMessage: 'Breaking the HRMS into 6 workstreams and dispatching crewmates for parallel execution.',
     plan,
     crewmates: Object.values(crew),
     timeline: [
-      timeline('14:02:11', 'Plan ready — 6 workstreams, 4 sub-agents available'),
+      timeline('14:02:11', 'Plan ready — 6 workstreams, 4 crewmates available'),
       timeline('14:02:14', 'Assigning model work to Model Architect, API to Backend Agent'),
     ],
     activeStep: 'P1',
@@ -222,7 +222,7 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
     docs: { status: 'assigned' as const, progress: 5, activity: 'Outlining README' },
   });
   push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'hrms_orch_2',
     stage: 'delegating',
     captainMessage: 'Sub-agents dispatched. Model work and API work proceed in parallel.',
@@ -463,10 +463,10 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
   });
   plan = plan.map((p) => (p.id === 'P2' ? { ...p, status: 'completed' as const } : p));
   push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'hrms_orch_3',
     stage: 'working',
-    captainMessage: 'All sub-agents active. Model work ahead of schedule; API auth in progress.',
+    captainMessage: 'All crewmates active. Model work ahead of schedule; API auth in progress.',
     plan,
     crewmates: Object.values(crew),
     timeline: [
@@ -539,7 +539,7 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
     qa: { status: 'working' as const, progress: 50, activity: 'Preparing CI workflow' },
   });
   push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'hrms_orch_4',
     stage: 'reassigning',
     captainMessage: 'Payroll edge case found by the test suite — reassigning the fix so the build stays green.',
@@ -625,7 +625,7 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
     devBackend: { status: 'returning' as const, progress: 95, activity: 'Handing off final API files' },
   });
   push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'hrms_orch_ret',
     stage: 'working',
     captainMessage: 'Backend Agent is handing off the final API work — almost ready for the wrap-up.',
@@ -709,7 +709,7 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
         : { ...p, status: 'completed' as const },
   );
   push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'hrms_orch_5',
     stage: 'reviewing',
     captainMessage: 'Three workstreams complete. QA is validating the CI pass before I synthesize the final report.',
@@ -770,7 +770,7 @@ export function runHrmsBuildSimulation(): HrmsBuildRun {
   });
   plan = plan.map((p) => ({ ...p, status: 'completed' as const }));
   push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'hrms_orch_6',
     stage: 'complete',
     captainMessage: 'HRMS build complete — every workstream merged, all tests green.',

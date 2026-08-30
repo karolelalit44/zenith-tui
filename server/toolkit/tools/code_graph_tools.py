@@ -61,7 +61,7 @@ class CodeCallersTool(_CodeGraphTool):
         return {
             "type": "object",
             "properties": {
-                "symbol": {"type": "string", "description": "Identifier name, e.g. 'run_scout'"},
+                "symbol": {"type": "string", "description": "Identifier name, e.g. 'run_crewmate'"},
                 "max_results": {
                     "type": "integer",
                     "default": GRAPH_QUERY_MAX_RESULTS,

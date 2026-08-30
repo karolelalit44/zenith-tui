@@ -6,7 +6,7 @@ from server.config.constants import (
     ENRICH_DELIVERABLE_VERBS,
     ENRICH_SKIP_MIN_CHARS,
     GRAPH_QUERY_MAX_RESULTS,
-    SCOUT_GRAPH_TOOLS,
+    CREWMATE_GRAPH_TOOLS,
 )
 from server.config.settings import AppSettings
 from server.toolkit.tools.code_graph_tools import (
@@ -76,7 +76,7 @@ def test_max_results_cap(ws):
     assert len(sites) <= GRAPH_QUERY_MAX_RESULTS
 
 
-# ---- scout tools ----------------------------------------------------------
+# ---- crewmate tools --------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -151,8 +151,8 @@ def test_enrichment_gate_rules():
 # ---- retreat clause (absence is a valid report) ---------------------------
 
 
-def test_scout_prompt_carries_retreat_clause(temp_dir):
-    from server.agents.delegation.scout import build_scout_prompt
+def test_crewmate_prompt_carries_retreat_clause(temp_dir):
+    from server.agents.delegation.scout import build_crewmate_prompt
     from server.agents.delegation.task_envelope import AgentTask
 
     task = AgentTask(
@@ -162,37 +162,37 @@ def test_scout_prompt_carries_retreat_clause(temp_dir):
         session_id="s",
         max_context_tokens=32_000,
     )
-    prompt = build_scout_prompt(task, mission_brief=None)
+    prompt = build_crewmate_prompt(task, mission_brief=None)
     assert "RETREAT CLAUSE" in prompt
     assert "Reporting absence is a SUCCESS" in prompt
     assert "distinct searches" in prompt
 
 
 def test_salvage_instruction_preserves_absence_reporting():
-    from server.agents.delegation.scout import SCOUT_SALVAGE_INSTRUCTION
+    from server.agents.delegation.scout import CREWMATE_SALVAGE_INSTRUCTION
 
-    assert "does not exist is a valid completed report" in SCOUT_SALVAGE_INSTRUCTION
-
-
-# ---- scout allow-list regression -----------------------------------------
+    assert "does not exist is a valid completed report" in CREWMATE_SALVAGE_INSTRUCTION
 
 
-def test_structural_tools_allowed_in_scout_mode():
-    from server.agents.delegation.scout import _SCOUT_ALLOWED_TOOLS
-    from server.config.constants import SCOUT_GRAPH_TOOLS
-
-    assert set(SCOUT_GRAPH_TOOLS) <= _SCOUT_ALLOWED_TOOLS
+# ---- crewmate allow-list regression ---------------------------------------
 
 
-def test_scout_mode_schemas_offered(temp_dir):
-    from server.config.settings import SCOUT_MODE_CONFIG
+def test_structural_tools_allowed_in_crewmate_mode():
+    from server.agents.delegation.scout import _CREWMATE_ALLOWED_TOOLS
+    from server.config.constants import CREWMATE_GRAPH_TOOLS
+
+    assert set(CREWMATE_GRAPH_TOOLS) <= _CREWMATE_ALLOWED_TOOLS
+
+
+def test_crewmate_mode_schemas_offered(temp_dir):
+    from server.config.settings import CREWMATE_MODE_CONFIG
     from server.toolkit import create_default_registry
 
     reg = create_default_registry(config=AppSettings(workspace_root=str(temp_dir)))
     schemas = reg.get_schemas_for_mode(
-        "scout",
-        allowed_mcp=SCOUT_MODE_CONFIG.allowed_mcp,
-        allowed_tools=SCOUT_MODE_CONFIG.allowed_tools,
+        "crewmate",
+        allowed_mcp=CREWMATE_MODE_CONFIG.allowed_mcp,
+        allowed_tools=CREWMATE_MODE_CONFIG.allowed_tools,
     )
     names = {s["name"] for s in schemas}
-    assert set(SCOUT_GRAPH_TOOLS) <= names
+    assert set(CREWMATE_GRAPH_TOOLS) <= names

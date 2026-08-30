@@ -93,7 +93,7 @@ function lcTimeline(timestamp: string, message: string, type?: 'info' | 'success
  * Run the complete TODO/subtask lifecycle end to end: Create → Manage → Update
  * → Progress → Complete → Reopen → Persist.
  *
- * The stream mirrors a real assistant response: thinking + plan, sub-agent
+ * The stream mirrors a real assistant response: thinking + plan, crewmate
  * orchestration (captain + runner/verifier), paired tool calls, the lifecycle
  * scenario report (todo_test events), more tool calls, and a final response.
  * The todo BOARD snapshots ride along so the data pipeline stays intact, but
@@ -207,7 +207,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
   let plan = lifecyclePlanItems();
   let crew = lifecycleCrew();
   events.push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'lc_orch_1',
     stage: 'planning',
     captainMessage:
@@ -215,7 +215,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     plan,
     crewmates: Object.values(crew),
     timeline: [
-      lcTimeline('09:31:02', 'Plan ready — 4 workstreams, 2 sub-agents available'),
+      lcTimeline('09:31:02', 'Plan ready — 4 workstreams, 2 crewmates available'),
       lcTimeline('09:31:05', 'Runner picks up create → reopen; verifier preps reload checks'),
     ],
     activeStep: 'P1',
@@ -227,14 +227,14 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     verifier: { ...crew.verifier, status: 'assigned' as const, progress: 10, activity: 'Mapping persistence contract' },
   };
   events.push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'lc_orch_2',
     stage: 'delegating',
     captainMessage:
-      'Sub-agents dispatched. The runner begins with the create phase; the verifier awaits the persist phase.',
+      'Crewmates dispatched. The runner begins with the create phase; the verifier awaits the persist phase.',
     plan,
     crewmates: Object.values(crew),
-    timeline: [lcTimeline('09:31:09', 'Sub-agents dispatched', 'info')],
+    timeline: [lcTimeline('09:31:09', 'Crewmates dispatched', 'info')],
     activeStep: 'P1',
   });
 
@@ -367,7 +367,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     verifier: { ...crew.verifier, status: 'working' as const, progress: 30, activity: 'Drafting reload assertions' },
   };
   events.push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'lc_orch_3',
     stage: 'working',
     captainMessage:
@@ -485,7 +485,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     },
   };
   events.push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'lc_orch_4',
     stage: 'reviewing',
     captainMessage:
@@ -546,7 +546,7 @@ export function runTodoLifecycle(options: LifecycleDriverOptions = {}): Lifecycl
     },
   };
   events.push({
-    kind: 'agent_orchestration',
+    kind: 'captain_orchestration',
     id: 'lc_orch_5',
     stage: 'complete',
     captainMessage: 'Lifecycle complete — every phase passed and the board survived a fresh-store reload.',
