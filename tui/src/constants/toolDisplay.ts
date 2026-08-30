@@ -20,8 +20,8 @@ export const JOB_KILL_TOOL = 'job_kill';
 export const LSP_DEFINITION_TOOL = 'lsp_definition';
 export const LSP_DIAGNOSTICS_TOOL = 'lsp_diagnostics';
 export const LSP_RENAME_TOOL = 'lsp_rename';
-export const AGENT_TOOL = 'agent';
-export const AGENT_TOOL_ALIAS = 'agent_tool';
+export const CREWMATE_TOOL = 'agent';
+export const CREWMATE_TOOL_ALIAS = 'agent_tool';
 /** WP5: model-invocable explore delegation (Apogee crewmate). */
 export const EXPLORE_TOOL = 'explore';
 export const TODO_TOOL = 'todo';
@@ -109,9 +109,9 @@ export const TOOL_VERB_LABELS: Record<string, string> = {
   [LSP_DEFINITION_TOOL]: 'Inspect',
   [LSP_DIAGNOSTICS_TOOL]: 'Diagnose',
   [LSP_RENAME_TOOL]: 'Rename',
-  [AGENT_TOOL]: 'Delegate',
-  [AGENT_TOOL_ALIAS]: 'Delegate',
-  [EXPLORE_TOOL]: 'Scout',
+  [CREWMATE_TOOL]: 'Delegate',
+  [CREWMATE_TOOL_ALIAS]: 'Delegate',
+  [EXPLORE_TOOL]: 'Investigate',
   [TODO_TOOL]: 'Track',
   mcp_tool: 'MCP action',
 };
@@ -277,8 +277,8 @@ function formatLspRenameStatus(source: StatusSource): string {
   return `● Rename symbol${newName ? ` → ${newName}` : ''}`;
 }
 
-function formatAgentStatus(_source: StatusSource): string {
-  return '◈ Delegate to agent';
+function formatCrewmateStatus(_source: StatusSource): string {
+  return '◈ Delegate to crewmate';
 }
 
 function formatTodoStatus(source: StatusSource): string {
@@ -358,9 +358,9 @@ export function getToolStepStatusText(event: {
       return formatLspDiagnosticsStatus(event);
     case LSP_RENAME_TOOL:
       return formatLspRenameStatus(event);
-    case AGENT_TOOL:
-    case AGENT_TOOL_ALIAS:
-      return formatAgentStatus(event);
+    case CREWMATE_TOOL:
+    case CREWMATE_TOOL_ALIAS:
+      return formatCrewmateStatus(event);
     case TODO_TOOL:
       return formatTodoStatus(event);
     default:

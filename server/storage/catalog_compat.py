@@ -1,16 +1,17 @@
-"""Compatibility adapter exposing the legacy ``load_catalog()`` shape.
+"""Runtime catalog adapter reading the single ``zenith_catalog.json``.
 
 Downstream consumers (llm_provider, registry, validation, token_counter,
-agents/*) were written against the SQLite catalog reader. This module
-produces the exact same dict shape from ``providers.json`` /
-``models.json`` so those consumers only need an import swap.
+agents/*) were written against a catalog shape of
+``{"version": 1, "providers": {pid: {"...meta...", "models": [...]}}}``.
+This module projects the single-file catalog (a PROVIDERS-shaped list, each
+entry carrying a nested ``models`` array) into that exact shape so those
+consumers only needed an import swap.
 """
 
 from __future__ import annotations
 
 import threading
 
-from .atomic import read_json
 from .paths import StorageHome
 
 EMPTY_CATALOG: dict = {"version": 1, "providers": {}}
@@ -24,6 +25,12 @@ def invalidate_catalog_cache() -> None:
         _cache.clear()
 
 
+def _read_catalog_doc(home: StorageHome) -> dict:
+    from .catalog_store import read_catalog_doc
+
+    return read_catalog_doc(home)
+
+
 def load_catalog(home: StorageHome | None = None) -> dict:
     from .paths import resolve_home
 
@@ -32,26 +39,18 @@ def load_catalog(home: StorageHome | None = None) -> dict:
         cached = _cache.get(root_key)
         if cached is not None:
             return cached
-        built = _build(StorageHome(root_key))
+        built = _build(home or StorageHome(root_key))
         _cache[root_key] = built
         return built
 
 
 def _build(home: StorageHome) -> dict:
-    pdoc = read_json(home.providers_path, None)
-    mdoc = read_json(home.models_path, None)
-    if not isinstance(pdoc, dict) or not isinstance(pdoc.get("providers"), list):
-        return dict(EMPTY_CATALOG)
-    models_by_provider: dict[str, list[dict]] = {}
-    if isinstance(mdoc, dict):
-        for entry in (mdoc.get("models") or {}).values():
-            if not isinstance(entry, dict):
-                continue
-            models_by_provider.setdefault(str(entry.get("providerId")), []).append(entry)
+    from .catalog_store import CATALOG_VERSION
 
+    doc = _read_catalog_doc(home)
     providers: dict[str, dict] = {}
     for entry in sorted(
-        (p for p in pdoc["providers"] if isinstance(p, dict)),
+        (p for p in doc.get("providers", []) if isinstance(p, dict)),
         key=lambda p: (p.get("sortOrder", 99), str(p.get("id", ""))),
     ):
         pid = str(entry.get("id", ""))
@@ -61,7 +60,7 @@ def _build(home: StorageHome) -> dict:
         prefix = f"{pid}/"
         default_model = default_model.removeprefix(prefix)
         models = sorted(
-            (_model_runtime_shape(m) for m in models_by_provider.get(pid, [])),
+            (_model_runtime_shape(m) for m in entry.get("models", []) if isinstance(m, dict)),
             key=lambda m: (not m["is_default"], m["name"]),
         )
         providers[pid] = {
@@ -85,6 +84,7 @@ def _build(home: StorageHome) -> dict:
             "custom_flow": bool(entry.get("customFlow", False)),
             "rate_limit": entry.get("rateLimit", {}),
             "models": models,
+            "_catalog_version": CATALOG_VERSION,
         }
     return {"version": 1, "providers": providers}
 

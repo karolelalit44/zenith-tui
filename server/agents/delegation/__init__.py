@@ -1,23 +1,23 @@
 """Captain -> Specialist delegation architecture (vertical slice 1).
 
-Hierarchy: Captain owns decisions, Agents own missions, CrewMates own
-focused operations, Tools own execution. This package provides the
+Hierarchy: Captain owns decisions, Crewmates own missions and focused
+operations, Tools own execution. This package provides the
 capability-routed dispatcher surface and the first specialist, the
-Codebase Scout.
+Apogee Crewmate.
 """
 
-from .agent_definition import AgentDefinition, CodebaseScout
+from .agent_definition import AgentDefinition, ApogeeCrewmate
 from .agent_result import AgentMetrics, AgentResult, EvidenceRef, Finding
 from .orchestrator import (
     AGENT_TIMEOUT_SECONDS,
     DELEGATION_CACHE_TTL_SECONDS,
     MAX_CHILDREN_PER_RUN,
     MAX_DELEGATION_DEPTH,
-    SCOUT_CONTEXT_BUDGET_TOKENS,
+    CREWMATE_CONTEXT_BUDGET_TOKENS,
     CaptainOrchestrator,
     RepositoryIntelligenceCache,
 )
-from .scout import ScoutReadOnlyGuard, assemble_result, build_scout_prompt, run_scout
+from .scout import CrewmateReadOnlyGuard, assemble_result, build_crewmate_prompt, run_crewmate
 from .specialist_registry import (
     MIN_CAPABILITY_SCORE,
     SpecialistRegistry,
@@ -32,23 +32,23 @@ __all__ = [
     "MAX_CHILDREN_PER_RUN",
     "MAX_DELEGATION_DEPTH",
     "MIN_CAPABILITY_SCORE",
-    "SCOUT_CONTEXT_BUDGET_TOKENS",
+    "CREWMATE_CONTEXT_BUDGET_TOKENS",
     "AgentDefinition",
     "AgentMetrics",
     "AgentResult",
     "AgentTask",
     "CaptainOrchestrator",
-    "CodebaseScout",
+    "ApogeeCrewmate",
     "EvidenceRef",
     "Finding",
     "RepositoryIntelligenceCache",
-    "ScoutReadOnlyGuard",
+    "CrewmateReadOnlyGuard",
     "SpecialistRegistry",
     "assemble_result",
     "avoid_match",
-    "build_scout_prompt",
+    "build_crewmate_prompt",
     "build_task_envelope",
-    "run_scout",
+    "run_crewmate",
     "score_prompt",
     "task_signature",
 ]

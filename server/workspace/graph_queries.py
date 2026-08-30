@@ -1,20 +1,12 @@
-"""WP6 — structural queries over the workspace symbol graph.
+"""
 
-Definitions come from :class:`server.workspace.repo_map.RepoMap` (tree-sitter,
-mtime-cached, precise lines). References are backfilled by identifier scan —
-mirroring Aider's approach for grammars whose query files carry no
-``name.reference`` captures (ours are definition-only today). Every result
-carries ``file:line`` so the calling model verifies with one targeted read,
-consistent with the evidence rule governing reports.
 """
 
 from __future__ import annotations
-
 import logging
 import re
 import time
 from pathlib import Path
-
 from server.config.constants import (
     BRIEF_CACHE_TTL_SECONDS,
     EXPLORE_BRIEF_TOP_SYMBOLS,
@@ -37,7 +29,6 @@ class CodeGraph:
         self._root = Path(workspace_root).resolve()
         self._repo_map = RepoMap(str(self._root))
         self._defines: dict[str, set[str]] | None = None
-        # ident -> {file: [first ref lines]}
         self._references: dict[str, dict[str, list[int]]] | None = None
 
     # ------------------------------------------------------------------ #

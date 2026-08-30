@@ -3,7 +3,7 @@
 Pins three behaviors:
 1. a capability-matching prompt routes through CaptainOrchestrator;
 2. a non-matching prompt falls through to the normal agent loop unchanged;
-3. the plan->build SubAgentLoop handoff is byte-for-byte unaffected — and
+3. the plan->build CrewmateLoop handoff is byte-for-byte unaffected — and
    survives its early-return `finally` block (the UnboundLocalError fix).
 """
 
@@ -27,7 +27,7 @@ DEMO_PROMPT = (
 )
 
 
-def _scout_json() -> str:
+def _crewmate_json() -> str:
     payload = {
         "task_id": "ignored",
         "agent_id": "ignored",
@@ -47,11 +47,11 @@ class _FakeManager:
         self.events.append(event)
 
 
-class _PlainOrScoutProvider(BaseProvider):
-    """Explicit state machine: normal-loop text vs the delegated scout script.
+class _PlainOrCrewmateProvider(BaseProvider):
+    """Explicit state machine: normal-loop text vs the delegated crewmate script.
 
     Phase entry is keyed on ``OUTPUT CONTRACT`` — a marker that only exists
-    inside ``build_scout_prompt`` — never on cross-message content matching.
+    inside ``build_crewmate_prompt`` — never on cross-message content matching.
     """
 
     def __init__(self):
@@ -81,7 +81,7 @@ class _PlainOrScoutProvider(BaseProvider):
                 return '```tool\n{"tool": "file_read", "params": {"path": "notes.txt"}}\n```'
             return "Task complete."
         if "[Tool:" in transcript:
-            return _scout_json()
+            return _crewmate_json()
         return "Investigation finished without further reads."
 
     async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
@@ -122,7 +122,7 @@ def executor(test_config, storage_home):
     message_repo = FileMessageRepository(storage_home)
     ex = PromptExecutor(
         test_config,
-        _PlainOrScoutProvider(),
+        _PlainOrCrewmateProvider(),
         create_default_registry(),
         session_repo,
         message_repo,
@@ -141,15 +141,15 @@ def workspace(temp_dir):
 
 class TestDelegationRoute:
     @pytest.mark.asyncio
-    async def test_matching_prompt_routes_to_scout(self, executor, workspace):
+    async def test_matching_prompt_routes_to_crewmate(self, executor, workspace):
         session = await executor._session_repo.create(Session(title="routed"))
         manager = _FakeManager()
         await executor._execute(session.id, DEMO_PROMPT, "build", None, manager)
         await executor._summary_scheduler.drain()
 
         kinds = [e.kind for e in manager.events]
-        assert EventKind.AGENT_ORCHESTRATION in kinds
-        assert EventKind.AGENT_SPAWNED in kinds
+        assert EventKind.CAPTAIN_ORCHESTRATION in kinds
+        assert EventKind.CREWMATE_SPAWNED in kinds
         # C-F02 ordering: the executor holds back nothing on this path — our
         # success is followed by the end-of-run SESSION_SUMMARIZED snapshot.
         assert EventKind.SUCCESS in kinds
@@ -169,7 +169,7 @@ class TestDelegationRoute:
         message_repo = FileMessageRepository(storage_home)
         ex = PromptExecutor(
             config,
-            _PlainOrScoutProvider(),
+            _PlainOrCrewmateProvider(),
             create_default_registry(),
             session_repo,
             message_repo,
@@ -184,8 +184,8 @@ class TestDelegationRoute:
         await ex._summary_scheduler.drain()
 
         kinds = [e.kind for e in manager.events]
-        assert EventKind.AGENT_ORCHESTRATION not in kinds
-        assert EventKind.AGENT_SPAWNED not in kinds
+        assert EventKind.CAPTAIN_ORCHESTRATION not in kinds
+        assert EventKind.CREWMATE_SPAWNED not in kinds
         assert EventKind.SUCCESS in kinds, "prompt falls through to the normal loop"
 
     @pytest.mark.asyncio
@@ -201,8 +201,8 @@ class TestDelegationRoute:
         await executor._summary_scheduler.drain()
         assert executor._provider.call_count == calls_after_first
         kinds = [e.kind for e in second_manager.events]
-        assert EventKind.AGENT_ORCHESTRATION in kinds
-        assert EventKind.AGENT_SPAWNED not in kinds
+        assert EventKind.CAPTAIN_ORCHESTRATION in kinds
+        assert EventKind.CREWMATE_SPAWNED not in kinds
 
 
 class TestNormalLoopFallthrough:
@@ -214,15 +214,15 @@ class TestNormalLoopFallthrough:
         await executor._summary_scheduler.drain()
 
         kinds = [e.kind for e in manager.events]
-        assert EventKind.AGENT_ORCHESTRATION not in kinds
-        assert EventKind.AGENT_SPAWNED not in kinds
+        assert EventKind.CAPTAIN_ORCHESTRATION not in kinds
+        assert EventKind.CREWMATE_SPAWNED not in kinds
         assert EventKind.SUCCESS in kinds
 
 
-class TestSubAgentHandoffRegression:
+class TestCrewmateHandoffRegression:
     @pytest.mark.asyncio
     async def test_plan_build_handoff_unchanged_and_finally_safe(self, executor, workspace):
-        """The SubAgentLoop trigger must be untouched — and its early-return
+        """The CrewmateLoop trigger must be untouched — and its early-return
         path must no longer crash in the `finally` block (UnboundLocalError)."""
         session = await executor._session_repo.create(
             Session(
@@ -242,7 +242,7 @@ class TestSubAgentHandoffRegression:
         await executor._summary_scheduler.drain()
 
         kinds = [e.kind for e in manager.events]
-        assert EventKind.AGENT_ORCHESTRATION not in kinds
+        assert EventKind.CAPTAIN_ORCHESTRATION not in kinds
         assert EventKind.SUCCESS in kinds
         # the Phase-0 fix: assistant message persisted after the early return
         messages = await executor._message_repo.get_by_session(session.id)

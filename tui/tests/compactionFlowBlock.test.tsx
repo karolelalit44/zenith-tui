@@ -107,7 +107,7 @@ describe('CompactionFlowBlock', () => {
       afterTokens: 43_000,
       tokensSaved: 85_000,
       summary:
-        '## Objective\n- Make the zenith TUI /compact turn fully data-driven: a single JSON fixture holds the exact model output.\n\n## Next Move\n1. Render the summary body with TerminalMarkdown.\n\n## Relevant Files\n- `tui/src/fixtures/compaction-output.json` — canonical output.',
+        '## Objective\n- Make the zenith TUI /compact turn fully data-driven by streaming real backend compaction events over the WebSocket.\n\n## Next Move\n1. Render the summary body with TerminalMarkdown.\n\n## Relevant Files\n- `src/services/transport/BackendScenarioProvider.ts` — live compaction event stream.',
       preserved: { requirements: 12, decisions: 7, openTasks: 4, agents: 2 },
     };
     const { lastFrame } = render(
@@ -123,7 +123,7 @@ describe('CompactionFlowBlock', () => {
     expect(frame).toContain('Relevant Files');
     // Bullets and numbered steps render as structured list rows.
     expect(flattened).toContain(
-      'Make the zenith TUI /compact turn fully data-driven: a single JSON fixture holds the exact model output.',
+      'Make the zenith TUI /compact turn fully data-driven by streaming real backend compaction events over the WebSocket.',
     );
     expect(flattened).toContain('Render the summary body with TerminalMarkdown.');
     expect(frame).toContain('Preserved');

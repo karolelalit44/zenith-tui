@@ -50,13 +50,7 @@ def check():
     from server.storage import StorageHome, resolve_home
 
     home = StorageHome(resolve_home())
-    ok = all(
-        p.exists()
-        for p in (
-            home.providers_path,
-            home.models_path,
-        )
-    )
+    ok = all(p.exists() for p in (home.catalog_path,))
     click.echo(f"Home:   {home.root}")
     click.echo(f"Catalog materialized: {ok}")
 

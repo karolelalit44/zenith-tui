@@ -16,8 +16,8 @@ function makeExplore(overrides: Partial<ToolStepEvent> = {}): ToolStepEvent {
     error: '',
     metadata: {
       explore_status: 'completed',
-      agent_name: 'Apogee',
-      agent_role: 'Codebase Explorer',
+      crewmate_name: 'Apogee',
+      crewmate_role: 'Codebase Explorer',
       thoroughness: 'standard',
       tokens_used: 18_400,
       tool_calls: 9,
@@ -76,7 +76,7 @@ describe('ExploreCrewCard (WP5)', () => {
       makeExplore({
         success: false,
         output: '[explore] failed\nError: child provider down',
-        metadata: { explore_status: 'failed', agent_name: 'Vasco' },
+        metadata: { explore_status: 'failed', crewmate_name: 'Vasco' },
         error: 'child provider down',
       }),
     );

@@ -56,21 +56,17 @@ class StorageHome:
         self.lock = asyncio.Lock()
 
         self.profile_path = self.root / "user_profile.json"
-        self.providers_path = self.root / "providers.json"
-        self.models_path = self.root / "models.json"
-        self.memory_index_path = self.root / "memory" / "index.json"
+        # Single catalog file: providers each carry a nested "models" array,
+        # matching builtin_seed.PROVIDERS. Replaces the old split of
+        # providers.json + models.json.
+        self.catalog_path = self.root / "zenith_catalog.json"
         self.projects_dir = self.root / "projects"
 
     # -- layout ------------------------------------------------------------
-    @property
-    def memory_path(self) -> Path:
-        return self.root / "memory"
-
     def ensure_layout(self) -> None:
         for d in (
             self.root,
             self.projects_dir,
-            self.memory_path,
         ):
             d.mkdir(parents=True, exist_ok=True)
 

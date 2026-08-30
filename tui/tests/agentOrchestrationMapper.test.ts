@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { mapRawEvent } from '../src/services/transport/rawEventMapper';
 
-describe('rawEventMapper sub-agent lifecycle kinds', () => {
-  it('maps agent_spawned to a typed AgentSpawnedEvent', () => {
+describe('rawEventMapper crewmate lifecycle kinds', () => {
+  it('maps crewmate_spawned to a typed CrewmateSpawnedEvent', () => {
     const evt = mapRawEvent(
-      'agent_spawned',
+      'crewmate_spawned',
       {
-        agent_id: 'codebase-scout',
-        name: 'Codebase Scout',
-        role: 'Codebase Investigator',
+        crewmate_id: 'codebase-scout',
+        name: 'Apogee',
+        role: 'Codebase Cartographer',
         task_id: 'task-123',
         capability: 'persistence_analysis',
         parent_session_id: 'sess-parent',
@@ -17,22 +17,22 @@ describe('rawEventMapper sub-agent lifecycle kinds', () => {
       'evt_1',
     );
 
-    expect(evt.kind).toBe('agent_spawned');
-    if (evt.kind !== 'agent_spawned') return;
-    expect(evt.agentId).toBe('codebase-scout');
-    expect(evt.name).toBe('Codebase Scout');
-    expect(evt.role).toBe('Codebase Investigator');
+    expect(evt.kind).toBe('crewmate_spawned');
+    if (evt.kind !== 'crewmate_spawned') return;
+    expect(evt.crewmateId).toBe('codebase-scout');
+    expect(evt.name).toBe('Apogee');
+    expect(evt.role).toBe('Codebase Cartographer');
     expect(evt.taskId).toBe('task-123');
     expect(evt.capability).toBe('persistence_analysis');
     expect(evt.parentSessionId).toBe('sess-parent');
     expect(evt.model).toBe('gpt-test');
   });
 
-  it('maps agent_status with truncated activity and progress', () => {
+  it('maps crewmate_status with truncated activity and progress', () => {
     const evt = mapRawEvent(
-      'agent_status',
+      'crewmate_status',
       {
-        agent_id: 'codebase-scout',
+        crewmate_id: 'codebase-scout',
         status: 'working',
         activity: 'tool file_read: server/domain/session.py',
         progress: 50,
@@ -40,19 +40,19 @@ describe('rawEventMapper sub-agent lifecycle kinds', () => {
       'evt_2',
     );
 
-    expect(evt.kind).toBe('agent_status');
-    if (evt.kind !== 'agent_status') return;
-    expect(evt.agentId).toBe('codebase-scout');
+    expect(evt.kind).toBe('crewmate_status');
+    if (evt.kind !== 'crewmate_status') return;
+    expect(evt.crewmateId).toBe('codebase-scout');
     expect(evt.status).toBe('working');
     expect(evt.activity).toContain('file_read');
     expect(evt.progress).toBe(50);
   });
 
-  it('maps agent_complete with result summary', () => {
+  it('maps crewmate_complete with result summary', () => {
     const evt = mapRawEvent(
-      'agent_complete',
+      'crewmate_complete',
       {
-        agent_id: 'codebase-scout',
+        crewmate_id: 'codebase-scout',
         task_id: 'task-123',
         result_summary: 'Sessions persist via SQLite SessionRepository.',
         status: 'completed',
@@ -60,28 +60,28 @@ describe('rawEventMapper sub-agent lifecycle kinds', () => {
       'evt_3',
     );
 
-    expect(evt.kind).toBe('agent_complete');
-    if (evt.kind !== 'agent_complete') return;
-    expect(evt.agentId).toBe('codebase-scout');
+    expect(evt.kind).toBe('crewmate_complete');
+    if (evt.kind !== 'crewmate_complete') return;
+    expect(evt.crewmateId).toBe('codebase-scout');
     expect(evt.taskId).toBe('task-123');
     expect(evt.resultSummary).toBe('Sessions persist via SQLite SessionRepository.');
     expect(evt.status).toBe('completed');
   });
 
-  it('maps agent_failed with error text', () => {
+  it('maps crewmate_failed with error text', () => {
     const evt = mapRawEvent(
-      'agent_failed',
+      'crewmate_failed',
       {
-        agent_id: 'codebase-scout',
+        crewmate_id: 'codebase-scout',
         task_id: 'task-456',
         error: 'Investigation exceeded timeout.',
       },
       'evt_4',
     );
 
-    expect(evt.kind).toBe('agent_failed');
-    if (evt.kind !== 'agent_failed') return;
-    expect(evt.agentId).toBe('codebase-scout');
+    expect(evt.kind).toBe('crewmate_failed');
+    if (evt.kind !== 'crewmate_failed') return;
+    expect(evt.crewmateId).toBe('codebase-scout');
     expect(evt.taskId).toBe('task-456');
     expect(evt.error).toBe('Investigation exceeded timeout.');
   });

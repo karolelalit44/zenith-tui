@@ -40,11 +40,11 @@ _REPORT = """Investigation complete.
 ```"""
 
 
-class _ScoutScriptedProvider(BaseProvider):
+class _CrewmateScriptedProvider(BaseProvider):
     """Child turns are scripted; every prompt seen is recorded."""
 
     def __init__(self, final_reply: str | None = _REPORT, fail_child: bool = False):
-        super().__init__("scout-test", "parent-model-x")
+        super().__init__("crewmate-test", "parent-model-x")
         self.prompts: list[str] = []
         self.models_seen: list[str] = []
         self.final_reply = final_reply
@@ -109,7 +109,7 @@ def _run(coro):
 
 
 def test_explore_returns_structured_summary_within_cap(config, temp_dir):
-    provider = _ScoutScriptedProvider()
+    provider = _CrewmateScriptedProvider()
     result = _run(
         _tool(config, provider).execute({"objective": "how is compaction triggered"}, str(temp_dir))
     )
@@ -122,13 +122,13 @@ def test_explore_returns_structured_summary_within_cap(config, temp_dir):
     assert meta["explore_status"] == "completed"
     assert meta["verified_count"] == 1
     assert meta["proposed_count"] == 1
-    assert meta["agent_name"] == "Apogee"
+    assert meta["crewmate_name"] == "Apogee"
     assert meta["tokens_used"] > 0
 
 
 def test_child_transcript_stays_out_of_parent_context(config, temp_dir):
     marker = "INTERMEDIATE_CHILD_MARKER_XYZ"
-    provider = _ScoutScriptedProvider(final_reply=f"Working notes {marker}.\n\n{_REPORT}")
+    provider = _CrewmateScriptedProvider(final_reply=f"Working notes {marker}.\n\n{_REPORT}")
     result = _run(_tool(config, provider).execute({"objective": "trace state"}, str(temp_dir)))
 
     # The child's pre-report chatter is part of its own transcript only; the
@@ -138,7 +138,7 @@ def test_child_transcript_stays_out_of_parent_context(config, temp_dir):
 
 
 def test_custom_crewmate_runtime_params(config, temp_dir):
-    provider = _ScoutScriptedProvider()
+    provider = _CrewmateScriptedProvider()
     params = {
         "objective": "find where session state persists",
         "crewmate": {
@@ -149,8 +149,8 @@ def test_custom_crewmate_runtime_params(config, temp_dir):
     }
     result = _run(_tool(config, provider).execute(params, str(temp_dir)))
 
-    assert result.metadata["agent_name"] == "Vasco"
-    assert result.metadata["agent_role"] == "Persistence Analyst"
+    assert result.metadata["crewmate_name"] == "Vasco"
+    assert result.metadata["crewmate_role"] == "Persistence Analyst"
     joined = "\n".join(provider.prompts)
     assert "Crewmate focus: Prioritize storage adapters" in joined
     definition, focus = build_custom_definition(name="Vasco")
@@ -161,7 +161,7 @@ def test_custom_crewmate_runtime_params(config, temp_dir):
 
 
 def test_custom_crewmate_pinned_model_overrides_routing(config, temp_dir):
-    provider = _ScoutScriptedProvider()
+    provider = _CrewmateScriptedProvider()
     params = {
         "objective": "map entry points",
         "thoroughness": "deep",
@@ -172,28 +172,28 @@ def test_custom_crewmate_pinned_model_overrides_routing(config, temp_dir):
 
 
 def test_hybrid_model_routing_by_thoroughness(config, temp_dir):
-    """Scout-phase model follows D2 routing; the parent-side enrichment call
+    """Crewmate-phase model follows D2 routing; the parent-side enrichment call
     necessarily runs on the parent provider and is excluded here."""
 
-    def scout_models(provider):
+    def crewmate_models(provider):
         return [m for m, p in zip(provider.models_seen, provider.prompts) if "OBJECTIVE:" in p]
 
-    provider_quick = _ScoutScriptedProvider()
+    provider_quick = _CrewmateScriptedProvider()
     _run(
         _tool(config, provider_quick).execute(
             {"objective": "quick lookup", "thoroughness": "quick"}, str(temp_dir)
         )
     )
-    quick = scout_models(provider_quick)
+    quick = crewmate_models(provider_quick)
     assert quick and all(m == "weak-model-y" for m in quick), quick
 
-    provider_deep = _ScoutScriptedProvider()
+    provider_deep = _CrewmateScriptedProvider()
     _run(
         _tool(config, provider_deep).execute(
             {"objective": "deep sweep", "thoroughness": "deep"}, str(temp_dir)
         )
     )
-    deep = scout_models(provider_deep)
+    deep = crewmate_models(provider_deep)
     assert deep and all(m == "parent-model-x" for m in deep), deep
 
 
@@ -205,7 +205,7 @@ def test_governance_off_refuses_without_provider_calls(temp_dir):
         workspace_root=str(temp_dir),
         explore_delegation="off",
     )
-    provider = _ScoutScriptedProvider()
+    provider = _CrewmateScriptedProvider()
     result = _run(_tool(config, provider).execute({"objective": "x"}, str(temp_dir)))
 
     assert result.success is False
@@ -217,7 +217,7 @@ def test_token_budget_ledger_refuses_exhausted_window(config, temp_dir):
     """Real missions record spend; an exhausted window refuses up front."""
     from server.toolkit.tools.explore_tool import _ledger as global_ledger
 
-    provider = _ScoutScriptedProvider()
+    provider = _CrewmateScriptedProvider()
     first = _run(_tool(config, provider).execute({"objective": "mission one"}, str(temp_dir)))
     assert first.success is True
     recorded = global_ledger.window_total()
@@ -237,7 +237,7 @@ def test_token_budget_ledger_refuses_exhausted_window(config, temp_dir):
 
 
 def test_failed_mission_returns_actionable_report(config, temp_dir):
-    provider = _ScoutScriptedProvider(fail_child=True)
+    provider = _CrewmateScriptedProvider(fail_child=True)
     result = _run(_tool(config, provider).execute({"objective": "doomed"}, str(temp_dir)))
 
     assert result.success is False
@@ -251,7 +251,7 @@ def test_parent_todo_lifecycle_untouched_by_missions(config, temp_dir):
     get_todo_state(parent_session).add("Implement caching layer")
     before = get_todo_state(parent_session).snapshot()
 
-    provider = _ScoutScriptedProvider()
+    provider = _CrewmateScriptedProvider()
     _run(_tool(config, provider).execute({"objective": "survey persistence"}, str(temp_dir / "ws")))
 
     after = get_todo_state(parent_session).snapshot()
@@ -263,8 +263,8 @@ def test_parent_todo_lifecycle_untouched_by_missions(config, temp_dir):
 # ---- WP6: objective enrichment pre-pass -----------------------------------
 
 
-class _EnrichingProvider(_ScoutScriptedProvider):
-    """Answers the instruction-builder pre-pass, then serves the scout."""
+class _EnrichingProvider(_CrewmateScriptedProvider):
+    """Answers the instruction-builder pre-pass, then serves the crewmate."""
 
     def __init__(self):
         super().__init__()
@@ -337,7 +337,7 @@ def test_parallel_fanout_runs_batch_and_merges_duplicates(config, temp_dir):
             self.prompts.append(flat)
             if "OUTPUT CONTRACT" in flat:
                 return _REPORT
-            return "All scouts have reported; synthesis follows."
+            return "All crewmates have reported; synthesis follows."
 
         async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
             flat = self._flatten(messages)
@@ -383,4 +383,4 @@ def test_parallel_fanout_runs_batch_and_merges_duplicates(config, temp_dir):
     # The merged duplicate must NOT spawn a third child mission — the whole
     # point of fan-out dedupe is avoiding duplicate spend.
     child_missions = [p for p in provider.prompts if "OUTPUT CONTRACT" in p]
-    assert len(child_missions) == 2, f"expected 2 scout missions, got {len(child_missions)}"
+    assert len(child_missions) == 2, f"expected 2 crewmate missions, got {len(child_missions)}"

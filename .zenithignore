@@ -1,0 +1,50 @@
+# .zenithignore — paths Zenith treats as nonexistent (never scanned or altered).
+# Syntax mirrors .gitignore: one pattern per line, '#' comments,
+# trailing '/' pins a directory, '*' wildcards are allowed, '!' negates.
+.git/
+.svn/
+.hg/
+node_modules/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.mypy/
+.ruff_cache/
+.tox/
+.cache/
+htmlcov/
+.nyc_output/
+coverage/
+.venv/
+venv/
+dist/
+build/
+.next/
+.turbo/
+.gemini/
+.idea/
+.vscode/
+ref_repo/
+reference_repo/
+data/
+.env
+.env.*
+*.log
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+poetry.lock
+Cargo.lock
+
+# --- Zenith/agent state & local artifacts ---
+.zenith/
+.agents/
+.freebuff/
+.claude/
+.audit_tmp/
+scripts/e2e_logs/
+
+# --- Local-only working data ---
+memory/
+test_snapshots/
+

@@ -14,11 +14,11 @@ export type EventKind =
   | 'context_compaction_ended'
   | 'context_compaction_phase'
   | 'context_compaction_flow'
-  | 'agent_orchestration'
-  | 'agent_spawned'
-  | 'agent_status'
-  | 'agent_complete'
-  | 'agent_failed'
+  | 'captain_orchestration'
+  | 'crewmate_spawned'
+  | 'crewmate_status'
+  | 'crewmate_complete'
+  | 'crewmate_failed'
   | 'todo_board'
   | 'todo_test'
   | 'session_created'
@@ -299,7 +299,7 @@ export type PlanItemStatus = 'queued' | 'in_progress' | 'completed' | 'needs_rev
 export interface PlanItem {
   id: string;
   title: string;
-  assignedAgent?: string;
+  assignedCrewmate?: string;
   status: PlanItemStatus;
   details?: string;
 }
@@ -310,8 +310,8 @@ export interface TimelineEntry {
   type?: 'info' | 'success' | 'warning' | 'error' | 'reassign';
 }
 
-export interface AgentOrchestrationEvent {
-  kind: 'agent_orchestration';
+export interface CaptainOrchestrationEvent {
+  kind: 'captain_orchestration';
   id: string;
   stage: 'thinking' | 'planning' | 'delegating' | 'working' | 'reviewing' | 'reassigning' | 'synthesizing' | 'complete';
   captainMessage: string;
@@ -321,10 +321,10 @@ export interface AgentOrchestrationEvent {
   activeStep?: string;
 }
 
-export interface AgentSpawnedEvent {
-  kind: 'agent_spawned';
+export interface CrewmateSpawnedEvent {
+  kind: 'crewmate_spawned';
   id: string;
-  agentId: string;
+  crewmateId: string;
   name: string;
   role: string;
   taskId: string;
@@ -333,28 +333,28 @@ export interface AgentSpawnedEvent {
   model?: string;
 }
 
-export interface AgentStatusEvent {
-  kind: 'agent_status';
+export interface CrewmateStatusEvent {
+  kind: 'crewmate_status';
   id: string;
-  agentId: string;
+  crewmateId: string;
   status: string;
   activity?: string;
   progress?: number;
 }
 
-export interface AgentCompleteEvent {
-  kind: 'agent_complete';
+export interface CrewmateCompleteEvent {
+  kind: 'crewmate_complete';
   id: string;
-  agentId: string;
+  crewmateId: string;
   taskId: string;
   resultSummary?: string;
   status?: string;
 }
 
-export interface AgentFailedEvent {
-  kind: 'agent_failed';
+export interface CrewmateFailedEvent {
+  kind: 'crewmate_failed';
   id: string;
-  agentId: string;
+  crewmateId: string;
   taskId: string;
   error?: string;
 }
@@ -582,11 +582,11 @@ export type ScenarioEvent =
   | ContextCompactionPhaseEvent
   | ContextCompactionFlowEvent
   | TurnManifestEvent
-  | AgentOrchestrationEvent
-  | AgentSpawnedEvent
-  | AgentStatusEvent
-  | AgentCompleteEvent
-  | AgentFailedEvent
+  | CaptainOrchestrationEvent
+  | CrewmateSpawnedEvent
+  | CrewmateStatusEvent
+  | CrewmateCompleteEvent
+  | CrewmateFailedEvent
   | TodoBoardEvent
   | TodoTestEvent
   | SessionInfoEvent
@@ -623,4 +623,16 @@ export interface FileAttachment {
   name: string;
   mimeType: string;
   size: number;
+}
+
+export type ScenarioListener = (event: ScenarioEvent, index: number) => void;
+
+export interface ScenarioRunner {
+  abort: () => void;
+}
+
+export interface ScenarioProvider {
+  readonly name: string;
+  resolve(prompt: string, mode: ScenarioMode): Scenario;
+  execute(scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner;
 }

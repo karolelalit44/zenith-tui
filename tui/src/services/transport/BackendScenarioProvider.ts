@@ -1,7 +1,6 @@
 import { appConfig } from '../../config/appConfig';
 import { BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS, BACKEND_RESPONSE_PLACEHOLDER_LABEL } from '../../constants/events';
-import type { Scenario, ScenarioMode } from '../../types/scenario';
-import type { ScenarioListener, ScenarioProvider, ScenarioRunner } from '../scenario/types';
+import type { Scenario, ScenarioListener, ScenarioMode, ScenarioProvider, ScenarioRunner } from '../../types/scenario';
 import { mapRawEvent, uid } from './rawEventMapper';
 import { type WebSocketClient, wsClient } from './WebSocketClient';
 

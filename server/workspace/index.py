@@ -8,18 +8,14 @@ active workspace. Consumers:
   instead of dumping megabytes into the context.
 - Future context seeding / explore delegation.
 
-The scan is bounded (``MAX_INDEX_FILES``) so multi-million-file workspaces
-degrade to an approximate count rather than stalling the server.
 """
 
 from __future__ import annotations
-
 import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-
 from server.workspace.ignore import get_matcher
 
 logger = logging.getLogger(__name__)

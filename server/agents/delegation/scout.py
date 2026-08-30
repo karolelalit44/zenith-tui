@@ -1,15 +1,15 @@
-"""Codebase Scout runner: bounded read-only investigation.
+"""Apogee Crewmate runner: bounded read-only investigation.
 
 Owns the mission mechanics for the first specialist agent:
 
-- ``ScoutReadOnlyGuard`` middleware — structural backstop that blocks every
-  non-read tool while ``ctx.mode == SCOUT_MODE`` (``file_write``/``file_edit``
+- ``CrewmateReadOnlyGuard`` middleware — structural backstop that blocks every
+  non-read tool while ``ctx.mode == CREWMATE_MODE`` (``file_write``/``file_edit``
   are not mode-gated, so the schema-surface filter alone is not enough);
-- ``build_scout_prompt`` — objective + read-only mandate + AgentResult JSON
+- ``build_crewmate_prompt`` — objective + read-only mandate + AgentResult JSON
   output contract + evidence rules;
-- ``run_scout`` — fresh ``ContextManager`` + ``RecoverableAgentLoop`` in
-  ``SCOUT_MODE``; yields forwardable child events while intercepting
-  SUCCESS/ERROR into a ``ScoutRun`` outcome;
+- ``run_crewmate`` — fresh ``ContextManager`` + ``RecoverableAgentLoop`` in
+  ``CREWMATE_MODE``; yields forwardable child events while intercepting
+  SUCCESS/ERROR into a ``CrewmateRun`` outcome;
 - ``assemble_result`` — parses the fenced AgentResult JSON block and applies
   the evidence rule (a verified claim must cite path+snippet).
 """
@@ -27,8 +27,8 @@ from server.config.constants import (
     DISCOVER_CAPABILITIES_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     READ_ONLY_TOOLS,
-    SCOUT_GRAPH_TOOLS,
-    SCOUT_MODE,
+    CREWMATE_GRAPH_TOOLS,
+    CREWMATE_MODE,
 )
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.events import Event, EventKind
@@ -43,7 +43,7 @@ from .task_envelope import AgentTask
 logger = logging.getLogger(__name__)
 
 # Raw child events the parent transcript may see. SUCCESS/ERROR are
-# intercepted by the runner so the TUI never finalizes mid-scout. THINKING is
+# intercepted by the runner so the TUI never finalizes mid-crewmate. THINKING is
 # deliberately NOT forwarded: per-turn reasoning re-rendered in the parent
 # produced walls of near-identical blocks (2026-08-26 incident); the captain
 # timeline already summarizes activity.
@@ -60,12 +60,12 @@ MESSAGE_FORWARD_MAX_CHARS = 2_000
 THINKING_FORWARD_MAX_CHARS = 500
 ACTIVITY_MAX_CHARS = 200
 
-# Read tools plus the dynamic-escalation discovery pair: a scout may ask for
+# Read tools plus the dynamic-escalation discovery pair: a crewmate may ask for
 # another schema, but never gain a mutation tool through it. WP6 adds the
 # structural query family so relational questions are one-call lookups.
-_SCOUT_ALLOWED_TOOLS = (
+_CREWMATE_ALLOWED_TOOLS = (
     frozenset(READ_ONLY_TOOLS)
-    | set(SCOUT_GRAPH_TOOLS)
+    | set(CREWMATE_GRAPH_TOOLS)
     | {
         DISCOVER_CAPABILITIES_TOOL,
         GET_TOOL_DEFINITION_TOOL,
@@ -75,16 +75,16 @@ _SCOUT_ALLOWED_TOOLS = (
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
-class ScoutReadOnlyGuard(ToolMiddleware):
-    """Reject any tool outside the scout allow-list while in SCOUT_MODE."""
+class CrewmateReadOnlyGuard(ToolMiddleware):
+    """Reject any tool outside the crewmate allow-list while in CREWMATE_MODE."""
 
     def __init__(self) -> None:
         self.blocked_calls = 0
 
     async def before_execute(self, name: str, params: dict, ctx) -> bool | ToolResult:
-        if ctx.mode != SCOUT_MODE:
+        if ctx.mode != CREWMATE_MODE:
             return True
-        if name in _SCOUT_ALLOWED_TOOLS:
+        if name in _CREWMATE_ALLOWED_TOOLS:
             return True
         self.blocked_calls += 1
         return ToolResult(
@@ -96,18 +96,18 @@ class ScoutReadOnlyGuard(ToolMiddleware):
         )
 
 
-def register_scout_guard(registry: ToolRegistry) -> ScoutReadOnlyGuard:
+def register_crewmate_guard(registry: ToolRegistry) -> CrewmateReadOnlyGuard:
     """Register the guard on the shared registry once (dedupe by type)."""
     for mw in getattr(registry, "_middleware", []):
-        if isinstance(mw, ScoutReadOnlyGuard):
+        if isinstance(mw, CrewmateReadOnlyGuard):
             return mw
-    guard = ScoutReadOnlyGuard()
+    guard = CrewmateReadOnlyGuard()
     registry.register_middleware(guard)
     return guard
 
 
 @dataclass
-class ScoutRun:
+class CrewmateRun:
     """Mutable outcome accumulator filled while the child loop streams."""
 
     response_text: str = ""
@@ -125,7 +125,7 @@ def _truncate_event(event: Event, key: str, limit: int) -> Event:
     return event
 
 
-def build_scout_prompt(task: AgentTask, mission_brief: str | None = None) -> str:
+def build_crewmate_prompt(task: AgentTask, mission_brief: str | None = None) -> str:
     parts = [
         "You are on a delegated investigation mission.",
         f"Agent id: {task.agent_id}. Task id: {task.task_id}.",
@@ -214,10 +214,10 @@ def build_scout_prompt(task: AgentTask, mission_brief: str | None = None) -> str
     return "\n".join(parts)
 
 
-# WP5 Phase 3: budget-exhausted scouts must still produce the structured
+# WP5 Phase 3: budget-exhausted crewmates must still produce the structured
 # contract, so their salvage pass demands the fenced JSON block instead of
 # the generic final-answer prose.
-SCOUT_SALVAGE_INSTRUCTION = (
+CREWMATE_SALVAGE_INSTRUCTION = (
     "You have run out of steps. Produce your FINAL REPORT now as ONE fenced "
     "```json block matching the OUTPUT CONTRACT above, using only evidence "
     "already gathered in this conversation. No tools are available. List "
@@ -231,7 +231,7 @@ SCOUT_SALVAGE_INSTRUCTION = (
 def build_mission_brief(workspace_root: str) -> str | None:
     """Precomputed orientation block: workspace shape + hub symbols (WP6).
 
-    Best-effort by design — any failure returns ``None`` and the scout simply
+    Best-effort by design — any failure returns ``None`` and the crewmate simply
     explores without a brief. Hard-capped so it can never dominate the child
     prompt.
     """
@@ -262,7 +262,7 @@ def build_mission_brief(workspace_root: str) -> str | None:
         return None
 
 
-async def run_scout(
+async def run_crewmate(
     *,
     config: AppSettings,
     provider: BaseProvider,
@@ -270,7 +270,7 @@ async def run_scout(
     compaction_service=None,
     task: AgentTask,
     definition: AgentDefinition,
-    run: ScoutRun | None = None,
+    run: CrewmateRun | None = None,
 ) -> AsyncIterator[Event]:
     """Execute the mission in a fresh context; yield forwardable child events.
 
@@ -281,12 +281,12 @@ async def run_scout(
     from server.agents.context import ContextManager
     from server.agents.recovery import RecoverableAgentLoop
 
-    run = run if run is not None else ScoutRun()
+    run = run if run is not None else CrewmateRun()
     budget = min(config.max_context_tokens, max(task.max_context_tokens, 1))
-    scout_config = config.model_copy(update={"max_context_tokens": budget})
-    context_manager = ContextManager(scout_config)
+    crewmate_config = config.model_copy(update={"max_context_tokens": budget})
+    context_manager = ContextManager(crewmate_config)
     agent = RecoverableAgentLoop(
-        scout_config,
+        crewmate_config,
         provider,
         context_manager,
         tool_registry,
@@ -294,19 +294,19 @@ async def run_scout(
     )
     # WP5 Phase 3: budget exits inside the child must salvage into the
     # structured report contract, not generic prose.
-    agent._salvage_instruction = SCOUT_SALVAGE_INSTRUCTION
-    mode_config = AGENT_MODES.get(SCOUT_MODE)
+    agent._salvage_instruction = CREWMATE_SALVAGE_INSTRUCTION
+    mode_config = AGENT_MODES.get(CREWMATE_MODE)
     model_override = definition.model_override or (
         mode_config.model_override if mode_config else None
     )
     started = time.monotonic()
-    mission_brief = build_mission_brief(str(scout_config.workspace_root))
+    mission_brief = build_mission_brief(str(crewmate_config.workspace_root))
     try:
         async for event in agent.process_prompt(
-            prompt=build_scout_prompt(task, mission_brief),
+            prompt=build_crewmate_prompt(task, mission_brief),
             session_id=task.child_session_id or task.task_id,
             history=[],
-            mode=SCOUT_MODE,
+            mode=CREWMATE_MODE,
             model_override=model_override,
         ):
             kind = event.kind
@@ -322,7 +322,7 @@ async def run_scout(
                 run.token_info = token_info
                 continue
             if kind == EventKind.ERROR:
-                run.last_error = str(event.data.get("message") or "unknown scout error")
+                run.last_error = str(event.data.get("message") or "unknown crewmate error")
                 continue
             if kind == EventKind.MESSAGE:
                 text = event.data.get("text") or ""
@@ -350,12 +350,12 @@ async def run_scout(
 def assemble_result(
     task: AgentTask,
     definition: AgentDefinition,
-    run: ScoutRun,
+    run: CrewmateRun,
     *,
     status: str = "completed",
     error: str | None = None,
 ) -> AgentResult:
-    """Build an ``AgentResult`` from the scout's final fenced JSON block.
+    """Build an ``AgentResult`` from the crewmate's final fenced JSON block.
 
     Falls back to an unverified prose result when no parseable block exists.
     Applies the evidence rule before returning.

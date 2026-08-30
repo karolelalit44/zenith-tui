@@ -11,14 +11,11 @@ from server.config.constants import (
     CHARS_PER_TOKEN,
     DEFAULT_CONTEXT_WINDOW,
     PLAN_MODE,
-    PROJECT_CONTEXT_BUDGET_RATIO,
-    PROJECT_CONTEXT_MAX_CHARS,
     SKILLS_BUDGET_RATIO,
     SKILLS_MAX_CHARS,
     TOOL_GUIDELINES_DIR,
     TOOL_GUIDELINES_FILE_NAME,
 )
-from server.workspace.context import format_context_files, load_context_files
 
 logger = logging.getLogger(__name__)
 
@@ -40,18 +37,18 @@ Infer the user's intended action. Execute by default. If they explicitly request
 - Never glob `**/*` at the workspace root or grep repo-wide as a first step: scope every search to the subsystem directory the task concerns, then narrow.
 - For bugs: reproduce -> isolate -> fix the root cause -> verify with the smallest targeted check.
 - Batch independent calls only; never dependent ones. Use the smallest capable tool. Tools only when they add verified value; general knowledge needs none.
-- For ANY "how does X work", "where is Y", or "explain Z" research question: delegate to explore (isolated scout) instead of scanning yourself. Explore runs in its own context window and returns a focused report without bloating yours. Only use grep/read directly when you already know the exact file or symbol.
+- For ANY "how does X work", "where is Y", or "explain Z" research question: delegate to explore (isolated crewmate) instead of scanning yourself. Explore runs in its own context window and returns a focused report without bloating yours. Only use grep/read directly when you already know the exact file or symbol.
 - Scale verification to the change: tests/runs for code; content and consistency checks for docs and data. Never claim unrun verification; if it cannot run, say why. Verify content, not tool success: read written files back and compare against the requirement.
 
 ## RESEARCH QUESTIONS
 When the user asks "how does X work", "where is Y", "explain Z", or any investigation question:
-1. Use explore with a clear objective, NOT grep+read. Explore is an isolated scout that searches the codebase and returns evidence-backed findings.
+1. Use explore with a clear objective, NOT grep+read. Explore is an isolated crewmate that searches the codebase and returns evidence-backed findings.
 2. If you must investigate directly: scope grep to the relevant subsystem (e.g. path="server/agents"), never grep repo-wide. Read 200-line slices, not whole files.
 3. After reading 3-4 files, synthesize your answer. Do not exhaust the workspace.
 
 ## TOOLS KNOWLEDGE
 - /compact: manually triggers context compaction (folds old messages into summary)
-- explore: isolated scout agent for codebase research — own context window, returns structured report
+- explore: isolated crewmate for codebase research — own context window, returns structured report
 - file_read: read files; use offset/limit for targeted slices
 - grep: search file contents; always scope with path= and include=
 - glob: find files; always scope to a subdirectory
@@ -235,17 +232,6 @@ def _truncate_to_chars(text: str, max_chars: int) -> str:
     return text[:keep] + "\n... [content truncated to fit the token budget]"
 
 
-def _build_project_context(workspace_root: str, max_context_tokens: int) -> str:
-    context_files = load_context_files(workspace_root)
-    if not context_files:
-        return ""
-    formatted = format_context_files(context_files)
-    return _truncate_to_chars(
-        formatted,
-        _budget_chars(max_context_tokens, PROJECT_CONTEXT_BUDGET_RATIO, PROJECT_CONTEXT_MAX_CHARS),
-    )
-
-
 def _build_skills_section(skills_section: str, max_context_tokens: int) -> str:
     if not skills_section:
         return ""
@@ -277,9 +263,6 @@ def build_system_prompt(
     skills = _build_skills_section(skills_section, max_context_tokens)
     if skills:
         sections.append(skills)
-    project_context = _build_project_context(root, max_context_tokens)
-    if project_context:
-        sections.append(f"<project_context>\n{project_context}\n</project_context>")
     # Gemini 3+ no longer accepts temperature/top_p/top_k sampling controls, so
     # steer output style explicitly through instructions instead of sampling.
     if is_gemini_3_plus(model_name):

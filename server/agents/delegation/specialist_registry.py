@@ -102,10 +102,10 @@ class SpecialistRegistry:
 
     @classmethod
     def default(cls) -> SpecialistRegistry:
-        from .agent_definition import CodebaseScout
+        from .agent_definition import ApogeeCrewmate
 
         registry = cls()
-        registry.register(CodebaseScout)
+        registry.register(ApogeeCrewmate)
         return registry
 
     def register(self, definition: AgentDefinition) -> None:
