@@ -3,22 +3,8 @@
 import pytest
 
 from server.toolkit.tools._html_text import html_to_markdown
-from server.toolkit.tools.webfetch import WebfetchTool
+from server.toolkit.tools.webfetch import FetchResult, fetch_page
 from server.toolkit.tools.websearch import WebsearchTool, _parse_ddg_results
-
-
-class _FakeProvider:
-    """Minimal stand-in for LLMProvider.complete(messages, model=None)."""
-
-    def __init__(self, answer: str = "fake answer"):
-        self.answer = answer
-        self.last_messages = None
-        self.last_model = None
-
-    async def complete(self, messages, tools=None, model=None):
-        self.last_messages = messages
-        self.last_model = model
-        return self.answer
 
 
 class TestHtmlToMarkdown:
@@ -107,34 +93,149 @@ class TestWebsearchParsing:
         assert "No search query" in result.error
 
 
-class TestWebfetchExtraction:
-    @pytest.mark.asyncio
-    async def test_extract_answer_uses_provider(self):
-        provider = _FakeProvider(answer="Claude Code has WebSearch and WebFetch tools.")
-        tool = WebfetchTool(provider=provider)
-        answer = await tool._extract_answer("Some page body content", "What tools does it have?")
-        assert answer == "Claude Code has WebSearch and WebFetch tools."
-        assert provider.last_messages is not None
-        assert "What tools does it have?" in provider.last_messages[0]["content"]
-        assert "Some page body content" in provider.last_messages[0]["content"]
+class TestWebsearchExecution:
+    """Domain filtering + backend routing + API result parsing for websearch."""
 
     @pytest.mark.asyncio
-    async def test_extract_answer_none_on_provider_error(self):
-        class _Raising:
-            async def complete(self, messages, tools=None, model=None):
-                raise RuntimeError("boom")
+    async def test_allowed_domains_filters_results(self, monkeypatch):
+        tool = WebsearchTool()
 
-        tool = WebfetchTool(provider=_Raising())
-        assert await tool._extract_answer("body", "q") is None
+        async def _fake_ddg(query, max_results):
+            return [
+                {"title": "Match", "url": "https://github.com/foo", "snippet": "x"},
+                {"title": "Other", "url": "https://example.com/foo", "snippet": "y"},
+            ]
+
+        monkeypatch.setattr(tool, "_search_duckduckgo", _fake_ddg)
+        result = await tool.execute({"query": "q", "allowed_domains": ["github.com"]}, ".")
+        assert result.success
+        assert "https://github.com/foo" in result.output
+        assert "https://example.com/foo" not in result.output
+        assert result.metadata["count"] == 1
 
     @pytest.mark.asyncio
-    async def test_extract_with_provider_returns_answer(self, monkeypatch):
+    async def test_allowed_domains_empty_result(self, monkeypatch):
+        tool = WebsearchTool()
+
+        async def _fake_ddg(query, max_results):
+            return [{"title": "A", "url": "https://example.com/x", "snippet": "s"}]
+
+        monkeypatch.setattr(tool, "_search_duckduckgo", _fake_ddg)
+        result = await tool.execute({"query": "q", "allowed_domains": ["notthere.io"]}, ".")
+        assert result.success
+        assert result.output == "No results found."
+        assert result.metadata["count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_allowed_domains_case_and_dot_insensitive(self, monkeypatch):
+        tool = WebsearchTool()
+
+        async def _fake_ddg(query, max_results):
+            return [
+                {"title": "A", "url": "https://GitHub.com/x", "snippet": "s"},
+            ]
+
+        monkeypatch.setattr(tool, "_search_duckduckgo", _fake_ddg)
+        result = await tool.execute({"query": "q", "allowed_domains": [".GITHUB.COM"]}, ".")
+        assert result.success
+        assert result.metadata["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_max_results_passed_to_backend(self, monkeypatch):
+        tool = WebsearchTool()
+        seen = {}
+
+        async def _fake_ddg(query, max_results):
+            seen["max"] = max_results
+            return [{"title": str(i), "url": f"https://e.com/{i}", "snippet": ""} for i in range(6)]
+
+        monkeypatch.setattr(tool, "_search_duckduckgo", _fake_ddg)
+        result = await tool.execute({"query": "q", "max_results": 3}, ".")
+        assert seen["max"] == 3
+        assert result.success
+        assert result.metadata["count"] == 6  # backend does the slicing
+
+    @pytest.mark.parametrize(
+        "api,response,expected_url",
+        [
+            (
+                "tavily",
+                {"results": [{"title": "T", "url": "https://t.co/x", "content": "sn"}]},
+                "https://t.co/x",
+            ),
+            (
+                "brave",
+                {
+                    "web": {
+                        "results": [{"title": "B", "url": "https://b.co/x", "description": "sn"}]
+                    }
+                },
+                "https://b.co/x",
+            ),
+            (
+                "serper",
+                {"organic": [{"title": "S", "link": "https://s.co/x", "snippet": "sn"}]},
+                "https://s.co/x",
+            ),
+            (
+                "bing",
+                {"webPages": {"value": [{"name": "G", "url": "https://g.co/x", "snippet": "sn"}]}},
+                "https://g.co/x",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_api_backends_parse_results(self, monkeypatch, api, response, expected_url):
         import httpx
 
         class _Resp:
-            def __init__(self):
-                self.headers = {"content-type": "text/html"}
-                self.text = "<html><body><main><p>Claude Code ships WebSearch and WebFetch.</p></main></body></html>"
+            def __init__(self, data):
+                self._data = data
+
+            def json(self):
+                return self._data
+
+        class _FakeClient:
+            def __init__(self, *a, **k):
+                self._resp = _Resp(response)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return None
+
+            async def post(self, *a, **k):
+                return self._resp
+
+            async def get(self, *a, **k):
+                return self._resp
+
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+        tool = WebsearchTool()
+        results = await tool._search_api(api, "key", "query", 5)
+        assert results[0]["url"] == expected_url
+        assert results[0]["title"] in {"T", "B", "S", "G"}
+
+    @pytest.mark.asyncio
+    async def test_unknown_api_raises(self):
+        tool = WebsearchTool()
+        with pytest.raises(ValueError):
+            await tool._search_api("wat", "key", "q", 5)
+
+
+class TestFetchPage:
+    """Additive interface-lock tests for the pure fetch+convert ``fetch_page``."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_page_returns_converted_markdown(self, monkeypatch):
+        import httpx
+
+        body = "<html><body><main><h1>Title</h1><p>Some body text.</p></main></body></html>"
+
+        class _Resp:
+            headers = {"content-type": "text/html"}
+            text = body
 
             def raise_for_status(self):
                 return None
@@ -153,21 +254,23 @@ class TestWebfetchExtraction:
                 return _Resp()
 
         monkeypatch.setattr(httpx, "AsyncClient", _Client)
-        provider = _FakeProvider(answer="WebSearch + WebFetch.")
-        tool = WebfetchTool(provider=provider)
-        result = await tool.execute({"url": "https://example.com", "extract": "What tools?"}, ".")
-        assert result.success
-        assert result.output == "WebSearch + WebFetch."
-        assert result.metadata.get("extracted") is True
+        result = await fetch_page("https://example.com")
+        assert isinstance(result, FetchResult)
+        assert result.url == "https://example.com"
+        assert "Title" in result.markdown
+        assert "Some body text." in result.markdown
+        assert "<html" not in result.markdown
+        assert result.content_type == "text/html"
 
     @pytest.mark.asyncio
-    async def test_extract_without_provider_notes_fallback(self, monkeypatch):
+    async def test_fetch_page_non_html_truncates(self, monkeypatch):
         import httpx
 
+        raw = "a" * 500
+
         class _Resp:
-            def __init__(self):
-                self.headers = {"content-type": "text/html"}
-                self.text = "<html><body><main><p>Some body.</p></main></body></html>"
+            headers = {"content-type": "text/plain"}
+            text = raw
 
             def raise_for_status(self):
                 return None
@@ -186,8 +289,35 @@ class TestWebfetchExtraction:
                 return _Resp()
 
         monkeypatch.setattr(httpx, "AsyncClient", _Client)
-        tool = WebfetchTool()  # no provider
-        result = await tool.execute({"url": "https://example.com", "extract": "What?"}, ".")
-        assert result.success
-        assert "no model is available" in result.output
-        assert "Some body." in result.output
+        result = await fetch_page("https://example.com", max_chars=100)
+        assert result.truncated is True
+        assert "truncated at" in result.markdown
+        assert result.chars == 500
+
+    @pytest.mark.asyncio
+    async def test_fetch_page_propagates_http_error(self, monkeypatch):
+        import httpx
+
+        class _Resp:
+            headers = {"content-type": "text/html"}
+            text = ""
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError("404", request=None, response=None)
+
+        class _Client:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return None
+
+            async def get(self, url):
+                return _Resp()
+
+        monkeypatch.setattr(httpx, "AsyncClient", _Client)
+        with pytest.raises(httpx.HTTPStatusError):
+            await fetch_page("https://example.com")

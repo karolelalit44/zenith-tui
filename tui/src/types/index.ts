@@ -1,6 +1,7 @@
 export type {
   ErrorEvent,
   EventKind,
+  FileAttachment,
   MessageEvent,
   ProgressEvent,
   Scenario,

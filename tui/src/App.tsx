@@ -143,6 +143,8 @@ export const App: React.FC = () => {
     input,
     showAutocomplete,
     showFilePicker,
+    pickerPath,
+    pickerQuery,
     handleInputChange,
     handleAutocompleteSelect,
     clearInput,
@@ -154,6 +156,7 @@ export const App: React.FC = () => {
     historyDown,
     attachments,
     removeAttachment,
+    clearAttachments,
   } = useAutocomplete();
 
   const handleSetShowPalette = useCallback(
@@ -384,8 +387,9 @@ export const App: React.FC = () => {
       const modelId = activeProvider.config.model || activeProvider.meta.defaultModel || undefined;
 
       addHistory(trimmed);
-      addTurn(trimmed, selectedMode, modelId);
+      addTurn(trimmed, selectedMode, modelId, attachments);
       clearInput();
+      clearAttachments();
       setRetryTarget(null);
       setHistoryExpanded(false);
       startScenario(trimmed, selectedMode, providerId, modelId, attachments);
@@ -398,6 +402,7 @@ export const App: React.FC = () => {
       activeProvider.meta.defaultModel,
       addTurn,
       clearInput,
+      clearAttachments,
       commandCtx,
       addHistory,
       attachments,
@@ -587,6 +592,7 @@ export const App: React.FC = () => {
                       model={item.turn.model}
                       timestamp={item.turn.timestamp}
                       timestampLong={item.turn.timestampLong}
+                      attachments={item.turn.attachments}
                     />
                   </Box>
                 </Box>
@@ -710,7 +716,12 @@ export const App: React.FC = () => {
 
         {showFilePicker && (
           <Box marginTop={1} width="100%">
-            <FilePickerModal onSelectFile={insertFilePath} onClose={closeFilePicker} />
+            <FilePickerModal
+              onSelectFile={insertFilePath}
+              onClose={closeFilePicker}
+              initialPath={pickerPath}
+              initialQuery={pickerQuery}
+            />
           </Box>
         )}
 

@@ -140,12 +140,12 @@ async def test_session_summarized_precedes_terminal_and_is_persisted(test_config
         Event(kind=EventKind.MESSAGE, data={"text": "Hello world", "partial": False}),
         Event(kind=EventKind.SUCCESS, data={"iterations": 1}),
     ]
-    original_cls = pe_module.RecoverableAgentLoop
-    pe_module.RecoverableAgentLoop = _FakeAgentLoop
+    original_cls = pe_module.SimpleLoop
+    pe_module.SimpleLoop = _FakeAgentLoop
     try:
         await executor._execute(session.id, "do the thing", "build", None, manager)
     finally:
-        pe_module.RecoverableAgentLoop = original_cls
+        pe_module.SimpleLoop = original_cls
 
     kinds = _buffered_kinds(manager, session.id)
     assert "session_summarized" in kinds, f"summarized missing from transport stream: {kinds}"
@@ -187,12 +187,12 @@ async def test_session_summarized_error_terminal_ordering(test_config, test_home
         test_config, StubProvider(), type("R", (), {})(), session_repo, message_repo, _SkillLoader()
     )
     manager = ConnectionManager()
-    original_cls = pe_module.RecoverableAgentLoop
-    pe_module.RecoverableAgentLoop = _BoomAgent
+    original_cls = pe_module.SimpleLoop
+    pe_module.SimpleLoop = _BoomAgent
     try:
         await executor._execute(session.id, "break it", "build", None, manager)
     finally:
-        pe_module.RecoverableAgentLoop = original_cls
+        pe_module.SimpleLoop = original_cls
 
     kinds = _buffered_kinds(manager, session.id)
     assert "error" in kinds and "session_summarized" in kinds, kinds

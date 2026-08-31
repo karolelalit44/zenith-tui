@@ -326,6 +326,7 @@ WEBFETCH_MAX_BYTES_ENV = "ZENITH_WEBFETCH_MAX_BYTES"
 WEBSEARCH_TIMEOUT_ENV = "ZENITH_WEBSEARCH_TIMEOUT"
 DEFAULT_WEB_TIMEOUT = 30
 DEFAULT_WEBFETCH_MAX_BYTES = 40_000
+DEFAULT_WEBSEARCH_MAX_RESULTS = 8
 
 VALIDATION_TIMEOUT_ENV = "ZENITH_VALIDATION_TIMEOUT"
 DEFAULT_VALIDATION_TIMEOUT = 30
@@ -480,6 +481,17 @@ LOOP_IDENTICAL_CONSECUTIVE_LIMIT = 3
 MIN_REQUEST_INTERVAL_ENV = "ZENITH_MIN_REQUEST_INTERVAL"
 DEFAULT_MIN_REQUEST_INTERVAL = 0.0
 REQUEST_THROTTLE_JITTER = 0.5
+
+
+# --- module 01 (turn/loop) ---
+# New opencode/codex-style loop design knobs. Additive-only additions.
+# The loop stops emergently when the model emits no tool calls, so the only
+# bounds are one advisory step nudge and one safety guard against a repetitive
+# tool loop.
+DOOM_LOOP_THRESHOLD = 3  # consecutive identical (name + input) tool calls → ask permission before continuing
+MAX_STEPS_DEFAULT = 1_000_000  # advisory step cap (opencode/agent.steps default Infinity); never hit in practice
+MAX_STEPS_PROMPT = "You have been working on this task for a very long time. Wrap up: finish the current step, then produce your final answer. Do not start new tool calls."
+DOOM_LOOP_ASK_PROMPT = "The same tool call (same name and input) has repeated {count} times in a row. Reply with `approve` to continue anyway, or `stop` to end the turn."
 
 
 def default_max_tokens_for_context(context_window: int) -> int:

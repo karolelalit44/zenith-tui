@@ -161,7 +161,7 @@ def _make_executor(config, s_repo, m_repo):
 async def test_execute_persists_billed_and_occupancy_separately(
     config, session_repo, message_repo, monkeypatch
 ):
-    from server.agents.prompt_executor import PromptExecutor, RecoverableAgentLoop
+    from server.agents.prompt_executor import PromptExecutor, SimpleLoop
     from server.storage.usage_store import FileTokenUsageRepository
 
     session = Session(title="t")
@@ -188,7 +188,7 @@ async def test_execute_persists_billed_and_occupancy_separately(
             },
         )
 
-    monkeypatch.setattr(RecoverableAgentLoop, "process_prompt", fake_process_prompt)
+    monkeypatch.setattr(SimpleLoop, "process_prompt", fake_process_prompt)
     await executor._execute(session.id, "do it", "build", None, None)
 
     usage_repo = FileTokenUsageRepository(session_repo.home)

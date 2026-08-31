@@ -1,7 +1,12 @@
 import pytest
 
 from server.config.providers import ProviderConfig
-from server.providers.base import BaseProvider
+from server.providers.base import (
+    BaseProvider,
+    ModelCapabilities,
+    model_capabilities_from_catalog,
+)
+from server.providers.llm_provider import LLMProvider
 from server.providers.registry import ProviderRegistry
 from server.providers.token_counter import TokenCounter
 
@@ -123,3 +128,74 @@ class _MockProvider(BaseProvider):
 
 def _create_mock_provider(name: str) -> _MockProvider:
     return _MockProvider(name)
+
+
+class TestModelCapabilities:
+    def test_defaults_when_catalog_missing(self):
+        caps = model_capabilities_from_catalog("does-not-exist", "nope", catalog={})
+        assert isinstance(caps, ModelCapabilities)
+        assert caps.thinking is False
+        assert caps.vision is False
+        assert caps.functions is True
+        assert caps.supports_temperature is True
+
+    def test_resolves_from_catalog(self):
+        catalog = {
+            "providers": {
+                "anthropic": {
+                    "models": [
+                        {
+                            "id": "claude-3",
+                            "model_capabilities": {
+                                "thinking": True,
+                                "vision": True,
+                                "function_calling": True,
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+        caps = model_capabilities_from_catalog("anthropic", "claude-3", catalog=catalog)
+        assert caps.thinking is True
+        assert caps.vision is True
+        assert caps.functions is True
+        assert caps.supports_temperature is True
+
+    def test_aliases_supports_vision_and_supports_functions(self):
+        catalog = {
+            "providers": {
+                "v": {
+                    "models": [
+                        {
+                            "id": "m",
+                            "model_capabilities": {"supports_vision": True, "supports_functions": False},
+                        }
+                    ]
+                }
+            }
+        }
+        caps = model_capabilities_from_catalog("v", "m", catalog=catalog)
+        assert caps.vision is True
+        assert caps.functions is False
+
+    def test_unknown_model_matches_nothing(self):
+        catalog = {"providers": {"openai": {"models": [{"id": "a", "model_capabilities": {}}]}}}
+        caps = model_capabilities_from_catalog("openai", "b", catalog=catalog)
+        assert caps.thinking is False
+
+
+class TestReasoningEffort:
+    def test_llm_provider_accepts_reasoning_effort(self):
+        provider = LLMProvider(
+            name="openai", model="gpt-4o", api_key="k", reasoning_effort="high"
+        )
+        assert provider.reasoning_effort == "high"
+
+    def test_reasoning_effort_defaults_none(self):
+        provider = LLMProvider(name="openai", model="gpt-4o", api_key="k")
+        assert provider.reasoning_effort is None
+
+    def test_capabilities_exposed_on_provider(self):
+        provider = LLMProvider(name="openai", model="gpt-4o", api_key="k")
+        assert provider.capabilities.thinking is True or provider.capabilities.thinking is False

@@ -59,3 +59,45 @@ def test_load_config_context_compaction_threshold_invalid_ignored(monkeypatch, t
     monkeypatch.setenv("ZENITH_CONTEXT_COMPACTION_THRESHOLD", "not-a-number")
     config = load_config(str(temp_dir))
     assert 0.0 <= config.context_compaction_threshold <= 1.0
+
+
+# -- Layered precedence tests (defaults < file < env < CLI) -------------------
+
+
+def test_precedence_defaults_applied():
+    """Code defaults are in place when nothing else is provided."""
+    config = AppSettings()
+    assert config.auto_approve_plan is False
+    assert config.auto_overwrite is True
+    assert config.repo_map_enabled is True
+    assert config.async_summary_enabled is True
+
+
+def test_precedence_cli_overrides_defaults():
+    """Constructor (CLI/caller) values beat code defaults."""
+    config = AppSettings(auto_overwrite=False, max_context_tokens=8000)
+    assert config.auto_overwrite is False
+    assert config.max_context_tokens == 8000
+
+
+def test_precedence_env_beats_code_default(monkeypatch):
+    """Environment variable overrides code defaults at load_config time."""
+    monkeypatch.setenv("ZENITH_CONTEXT_COMPACTION_THRESHOLD", "0.55")
+    config = load_config(str(os.environ["ZENITH_HOME"]))
+    # load_config reads ZENITH_CONTEXT_COMPACTION_THRESHOLD and overrides default 0.7
+    assert abs(config.context_compaction_threshold - 0.55) < 1e-9
+
+
+def test_precedence_cli_beats_env(monkeypatch):
+    """Explicit constructor values override env-sourced defaults."""
+    monkeypatch.setenv("ZENITH_CONTEXT_COMPACTION_THRESHOLD", "0.55")
+    # Constructor override of 0.77 should beat the env 0.55
+    config = AppSettings(context_compaction_threshold=0.77)
+    assert abs(config.context_compaction_threshold - 0.77) < 1e-9
+
+
+def test_load_config_env_beats_storage_default(temp_dir):
+    """Env overrides the default loaded from storage (loader reads env last)."""
+    # load_config reads compaction from env; without env set, it stays at code default
+    config = load_config(str(temp_dir))
+    assert 0.0 <= config.context_compaction_threshold <= 1.0

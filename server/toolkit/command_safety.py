@@ -464,3 +464,50 @@ def assess_command(command: str) -> RiskAssessment:
         risk_level="safe",
         tier="workspace_write",
     )
+
+
+# --- Phase 1 additive: genuine permission/approval model (module 23 / 04) ---
+# Reframes the tier check into a codex/opencode-style permission decision that
+# returns whether a command needs human approval, plus what tier it falls in.
+# Purely additive: assess_command_risk remains the source of truth for callers;
+# this adds a permission-decision wrapper with an explicit allow/ask/deny result.
+
+
+class PermissionDecision:
+    """Result of evaluating a command against the permission model.
+
+    ``permission`` is one of ``"allow"`` (auto-run now), ``"ask"`` (needs
+    operator approval before running) or ``"deny"`` (never run in this mode).
+    ``tier`` mirrors the RiskAssessment tier label for policy lookups.
+    """
+
+    __slots__ = ("permission", "reason", "tier")
+
+    def __init__(self, permission: str, tier: str, reason: str = "") -> None:
+        self.permission = permission  # "allow" | "ask" | "deny"
+        self.tier = tier
+        self.reason = reason
+
+    def __bool__(self) -> bool:
+        return self.permission == "allow"
+
+
+def evaluate_permission(assessment: RiskAssessment) -> PermissionDecision:
+    """Map a RiskAssessment onto the allow/ask/deny permission model.
+
+    Read-only and workspace-write auto-allow; network and anything flagged
+    ``requires_approval`` turn into ``ask``; high-risk destructive commands
+    turn into ``deny`` (matching the sandbox layer's hard block).
+    """
+    if assessment.tier == "read_only":
+        return PermissionDecision("allow", assessment.tier)
+    if assessment.tier == "workspace_write":
+        if assessment.requires_approval or assessment.risk_level in ("medium", "high"):
+            return PermissionDecision("ask", assessment.tier, assessment.reason)
+        return PermissionDecision("allow", assessment.tier)
+    if assessment.tier == "network":
+        return PermissionDecision("ask", assessment.tier, assessment.reason)
+    # destructive
+    if assessment.risk_level == "high":
+        return PermissionDecision("deny", assessment.tier, assessment.reason)
+    return PermissionDecision("ask", assessment.tier, assessment.reason)

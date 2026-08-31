@@ -1,3 +1,15 @@
+"""Typed configuration model for Zenith.
+
+Precedence model (highest wins):
+  1. CLI / caller-supplied overrides — ``AppSettings(**overrides)`` or ``model_copy(update=...)``.
+  2. environment variables          — ``ZENITH_*`` scalars (read at import time via ``env.py``).
+  3. storage file                   — provider catalog + user profile (loaded by ``loader.load_config``).
+  4. code defaults                  — ``BootstrapDefaults`` / ``DEFAULTS`` / field defaults.
+
+``load_config()`` handles (3)+(2)+(4) together; callers add (1) via constructor
+overrides.  See ``loader.py`` for the merge implementation.
+"""
+
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-import os
+from dataclasses import dataclass
 from typing import Any
 
 from server.config.constants import (
@@ -26,15 +26,71 @@ from ._html_text import html_to_markdown
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_CHARS = optional_int(WEBFETCH_MAX_BYTES_ENV, DEFAULT_WEBFETCH_MAX_BYTES)
-_EXTRACT_MAX_CHARS = 25000
+
+
+@dataclass
+class FetchResult:
+    """Result of a pure fetch + convert-to-Markdown operation (opencode-style).
+
+    Never contains raw HTML; the page is always converted to clean Markdown and
+    truncated to ``max_chars``.
+    """
+
+    url: str
+    content_type: str
+    chars: int
+    markdown: str
+    truncated: bool
+
+
+async def fetch_page(
+    url: str,
+    *,
+    max_chars: int = _DEFAULT_MAX_CHARS,
+    timeout: int | None = None,
+    user_agent: str = DEFAULT_USER_AGENT,
+) -> FetchResult:
+    """Fetch *url* and convert it to Markdown — pure fetch + convert, no LLM extraction.
+
+    Matches opencode's ``tool/webfetch.ts``: a plain GET plus HTML→Markdown
+    conversion capped at ``max_chars``. Raises on transport/HTTP errors; parse
+    failures degrade gracefully to the raw (truncated) text.
+    """
+    import httpx
+
+    if timeout is None:
+        timeout = optional_int(WEBFETCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        headers={"User-Agent": user_agent},
+    ) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+
+    content_type = response.headers.get("content-type", "").lower()
+    raw = response.text
+    if "html" in content_type:
+        markdown = html_to_markdown(raw, max_chars=max_chars)
+    else:
+        markdown = raw[:max_chars]
+    truncated = len(markdown) >= max_chars and len(raw) > max_chars
+    if truncated:
+        markdown += f"\n\n[...truncated at {max_chars} chars; fetched page was {len(raw)} chars]"
+    return FetchResult(
+        url=url,
+        content_type=content_type,
+        chars=len(raw),
+        markdown=markdown,
+        truncated=truncated,
+    )
 
 
 class WebfetchTool(BaseTool):
     name = "webfetch"
     description = (
-        "Fetch a URL and read its content. By default returns the page converted to clean "
-        "Markdown (never raw HTML). For long pages, pass an 'extract' question to get just "
-        "the answer to that question instead of the full page. "
+        "Fetch a URL and read its content. Returns the page converted to clean "
+        "Markdown (never raw HTML). "
         "Use websearch to find sources, then webfetch to read one specific page."
     )
     capability_id = "web_fetch"
@@ -59,7 +115,6 @@ class WebfetchTool(BaseTool):
 
     def __init__(self, provider: Any | None = None) -> None:
         self._provider = provider
-        self._extract_model = os.environ.get("ZENITH_EXTRACT_MODEL", "").strip() or None
 
     def get_schema(self) -> dict:
         return {
@@ -68,14 +123,6 @@ class WebfetchTool(BaseTool):
                 "url": {
                     "type": "string",
                     "description": "URL to fetch (http/https only)",
-                },
-                "extract": {
-                    "type": "string",
-                    "description": (
-                        "Optional. A specific question to answer from the page. When provided, "
-                        "a fast model extracts just the answer from the page content (lossy but "
-                        "context-efficient). When omitted, returns the full page as clean Markdown."
-                    ),
                 },
                 "max_chars": {
                     "type": "integer",
@@ -100,70 +147,16 @@ class WebfetchTool(BaseTool):
             max_chars = _DEFAULT_MAX_CHARS
         max_chars = max(1000, min(max_chars, 200000))
         try:
-            import httpx
-
-            async with httpx.AsyncClient(
-                timeout=optional_int(WEBFETCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT),
-                follow_redirects=True,
-                headers={"User-Agent": DEFAULT_USER_AGENT},
-            ) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-            content_type = response.headers.get("content-type", "").lower()
-            raw = response.text
-            if "html" in content_type:
-                markdown = html_to_markdown(raw, max_chars=max_chars)
-            else:
-                markdown = raw[:max_chars]
-            truncated = len(markdown) >= max_chars and len(raw) > max_chars
-            if truncated:
-                markdown += (
-                    f"\n\n[...truncated at {max_chars} chars; fetched page was {len(raw)} chars]"
-                )
+            fetched = await fetch_page(url, max_chars=max_chars)
+            markdown = fetched.markdown
+            content_type = fetched.content_type
             if not markdown.strip():
                 return ToolResult(
                     success=True,
                     output="Page fetched but no readable text content was found.",
-                    metadata={"url": url, "content_type": content_type, "chars": len(raw)},
+                    metadata={"url": url, "content_type": content_type, "chars": fetched.chars},
                 )
-            extract = (params.get("extract") or "").strip()
-            metadata = {"url": url, "content_type": content_type, "chars": len(raw)}
-            if extract and self._provider is not None:
-                answer = await self._extract_answer(markdown, extract)
-                if answer is not None:
-                    metadata["extracted"] = True
-                    metadata["source_chars"] = len(markdown)
-                    return ToolResult(success=True, output=answer, metadata=metadata)
-                markdown = (
-                    f"[Webfetch extraction was unavailable; page content follows]\n\n{markdown}"
-                )
-            elif extract:
-                markdown = (
-                    f"[Webfetch extraction requested but no model is available; "
-                    f"page content follows]\n\n{markdown}"
-                )
+            metadata = {"url": url, "content_type": content_type, "chars": fetched.chars}
             return ToolResult(success=True, output=markdown, metadata=metadata)
         except Exception as e:
             return ToolResult(success=False, error=f"Failed to fetch {url}: {e}")
-
-    async def _extract_answer(self, content: str, question: str) -> str | None:
-        if self._provider is None:
-            return None
-        try:
-            excerpt = content[:_EXTRACT_MAX_CHARS]
-            prompt = (
-                "Read the page content below and answer the question. "
-                "Answer concisely, based ONLY on the content. If the page does not "
-                "contain the information, say exactly: 'The page does not contain "
-                "this information.' Do not mention the page content format.\n\n"
-                f"PAGE CONTENT:\n{excerpt}\n\n"
-                f"QUESTION: {question}\nANSWER:"
-            )
-            answer = await self._provider.complete(
-                [{"role": "user", "content": prompt}], model=self._extract_model
-            )
-            answer = (answer or "").strip()
-            return answer or None
-        except Exception:
-            logger.exception("webfetch extraction failed")
-            return None

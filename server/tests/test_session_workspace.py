@@ -12,13 +12,21 @@ import time
 
 from server.agents.session_state import render_session_state
 from server.agents.session_workspace import (
+    current_path_hash,
+    get_cached_read,
+    get_dirty_sessions,
+    invalidate_read_cache,
     is_identical_replay,
     is_stale,
     known_files,
+    mark_clean,
+    read_heavy_output,
     record_edit,
     record_read,
     record_write,
     reset_session,
+    store_cached_read_output,
+    store_heavy_output,
 )
 from server.config.constants import (
     CHARS_PER_TOKEN,
@@ -213,3 +221,123 @@ class TestStalenessTracking:
         reset_session("st8")
         record_read("st8", "a.py")
         assert is_stale("st8", "a.py") is False
+
+
+class TestReadCache:
+    """Gap coverage: read caching, hash-consistency, invalidation, bounds."""
+
+    def test_cached_read_returns_when_hash_matches(self):
+        reset_session("rc1")
+        store_cached_read_output("rc1", "a.py", "output text")
+        assert get_cached_read("rc1", "a.py", current_path_hash("output text")) == "output text"
+
+    def test_cached_read_none_when_hash_mismatch(self):
+        reset_session("rc2")
+        store_cached_read_output("rc2", "a.py", "output text")
+        # File changed on disk => different hash => cache dropped.
+        assert get_cached_read("rc2", "a.py", current_path_hash("DIFFERENT")) is None
+
+    def test_write_invalidates_read_cache(self):
+        reset_session("rc3")
+        store_cached_read_output("rc3", "a.py", "output text")
+        record_write("rc3", "a.py", "new content")
+        assert get_cached_read("rc3", "a.py", current_path_hash("new content")) is None
+
+    def test_explicit_invalidate_single_and_all(self):
+        reset_session("rc4")
+        for p in ("a.py", "b.py"):
+            store_cached_read_output("rc4", p, p)
+        invalidate_read_cache("rc4", "a.py")
+        assert get_cached_read("rc4", "a.py", current_path_hash("a.py")) is None
+        assert get_cached_read("rc4", "b.py", current_path_hash("b.py")) == "b.py"
+        invalidate_read_cache("rc4")
+        assert get_cached_read("rc4", "b.py", current_path_hash("b.py")) is None
+
+    def test_cache_bounded(self):
+        reset_session("rc5")
+        for i in range(10):
+            store_cached_read_output("rc5", f"f{i}.py", f"o{i}")
+        # All 10 fit under the 200 cap; no eviction occurs here.
+        assert get_cached_read("rc5", "f0.py", current_path_hash("o0")) == "o0"
+
+
+class TestHeavyOutputs:
+    """Gap coverage: full heavy-tool-output store and per-session isolation."""
+
+    def test_store_and_read_heavy_output(self):
+        reset_session("ho1")
+        store_heavy_output("ho1", "big/out.txt", "x" * 100_000)
+        assert read_heavy_output("ho1", "big/out.txt") == "x" * 100_000
+
+    def test_heavy_output_none_when_absent(self):
+        reset_session("ho2")
+        assert read_heavy_output("ho2", "missing.txt") is None
+
+    def test_heavy_outputs_isolated_per_session(self):
+        reset_session("ho3a")
+        reset_session("ho3b")
+        store_heavy_output("ho3a", "out.txt", "aaa")
+        assert read_heavy_output("ho3a", "out.txt") == "aaa"
+        assert read_heavy_output("ho3b", "out.txt") is None
+
+
+class TestDirtyEpoch:
+    """Gap coverage: dirty tracking + C-F07 lost-update guard."""
+
+    def test_mutations_mark_dirty(self):
+        reset_session("de1")
+        mark_clean("de1")
+        assert "de1" not in get_dirty_sessions()
+        record_write("de1", "a.py", "x")
+        assert "de1" in get_dirty_sessions()
+        mark_clean("de1")
+        assert "de1" not in get_dirty_sessions()
+
+    def test_reset_clears_dirty_flag(self):
+        reset_session("de2")
+        record_write("de2", "a.py", "x")
+        assert "de2" in get_dirty_sessions()
+        reset_session("de2")
+        assert "de2" not in get_dirty_sessions()
+
+    def test_flush_to_db_persists_and_clears_dirty(self):
+        import asyncio
+
+        reset_session("de3")
+        from server.agents.session_workspace import flush_to_db
+
+        record_write("de3", "a.py", "content")
+        record_write("de3", "b.py", "other")
+
+        class _FakeRepo:
+            def __init__(self):
+                self.saved = []
+
+            async def upsert_batch(self, session_id, batch):
+                self.saved.extend(batch)
+
+            async def delete_session(self, session_id):
+                pass
+
+        repo = _FakeRepo()
+        asyncio.run(flush_to_db("de3", repo))
+        assert len(repo.saved) == 2
+        assert "de3" not in get_dirty_sessions()
+        # Records remain in memory.
+        assert set(known_files("de3")) == {"a.py", "b.py"}
+
+    def test_flush_noop_when_not_dirty(self):
+        import asyncio
+
+        reset_session("de4")
+        from server.agents.session_workspace import flush_to_db
+
+        class _FakeRepo:
+            async def upsert_batch(self, session_id, batch):
+                raise AssertionError("should not run")
+
+            async def delete_session(self, session_id):
+                raise AssertionError("should not run")
+
+        # Nothing recorded => not dirty => flush must be a no-op.
+        asyncio.run(flush_to_db("de4", _FakeRepo()))

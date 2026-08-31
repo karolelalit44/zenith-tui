@@ -54,6 +54,10 @@ export interface SessionSummary {
 export interface PromptAttachment {
   path: string;
   name?: string;
+  /** 'file' | 'folder' — defaults to 'file' when absent. */
+  kind?: 'file' | 'folder';
+  /** Size in bytes when known. */
+  size?: number;
 }
 
 export interface PromptOptions {

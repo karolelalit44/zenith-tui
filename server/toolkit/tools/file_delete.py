@@ -15,6 +15,7 @@ from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
+from .file_mutation_queue import FILE_MUTATION_QUEUE
 
 
 def _count_entries(root: Path) -> int:
@@ -61,24 +62,27 @@ class FileDeleteTool(BaseTool):
         if not resolved.exists():
             return ToolResult(success=False, error=f"Not found: {rel_path}")
         try:
-            if resolved.is_dir():
-                removed = _count_entries(resolved)
-                shutil.rmtree(resolved)
+            # Serialize the destructive mutation so a concurrent tool cannot
+            # recreate a path mid-delete (opencode's file-mutation Semaphore).
+            async with FILE_MUTATION_QUEUE.mutation(workspace_root):
+                if resolved.is_dir():
+                    removed = _count_entries(resolved)
+                    shutil.rmtree(resolved)
+                    return ToolResult(
+                        success=True,
+                        output=f"Deleted directory '{rel_path}' ({removed} entries)",
+                        metadata={"path": str(resolved), "directory": True, "entries": removed},
+                    )
+                content = ""
+                try:
+                    content = resolved.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+                resolved.unlink()
                 return ToolResult(
                     success=True,
-                    output=f"Deleted directory '{rel_path}' ({removed} entries)",
-                    metadata={"path": str(resolved), "directory": True, "entries": removed},
+                    output=f"Deleted {rel_path}",
+                    metadata={"path": str(resolved), "content": content},
                 )
-            content = ""
-            try:
-                content = resolved.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
-            resolved.unlink()
-            return ToolResult(
-                success=True,
-                output=f"Deleted {rel_path}",
-                metadata={"path": str(resolved), "content": content},
-            )
         except Exception as e:
             return ToolResult(success=False, error=str(e))

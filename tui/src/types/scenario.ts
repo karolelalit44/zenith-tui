@@ -623,6 +623,8 @@ export interface FileAttachment {
   name: string;
   mimeType: string;
   size: number;
+  /** 'file' for a regular file, 'folder' for a directory reference. */
+  kind?: 'file' | 'folder';
 }
 
 export type ScenarioListener = (event: ScenarioEvent, index: number) => void;

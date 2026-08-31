@@ -1,9 +1,16 @@
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
-from server.agents.prompt_executor import ATTACHMENT_MAX_FILE, PromptExecutor, read_attachment
+from server.agents.prompt_executor import (
+    ATTACHMENT_MAX_FILE,
+    FOLDER_INLINE_MAX_ENTRIES,
+    PromptExecutor,
+    list_attachment,
+    read_attachment,
+)
 from server.config.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
@@ -287,7 +294,7 @@ class TestAttachmentGuards:
         injected = await executor._inject_attachments(
             "user text", [{"path": "a.txt"}, {"path": "missing.txt"}], "s1", None, events
         )
-        assert '<attachment path="a.txt">\nAAA\n</attachment>' in injected
+        assert '<attachment path="a.txt" kind="file">\nAAA\n</attachment>' in injected
         assert injected.endswith("user text")
         assert any(e.kind == EventKind.WARNING for e in events)
         assert any("missing.txt" in e.data.get("message", "") for e in events)
@@ -300,7 +307,7 @@ class TestAttachmentGuards:
         injected = await executor._inject_attachments(
             "user text", [{"path": "virtual.py", "content": "print('x')"}], "s1", None, events
         )
-        assert "<attachment path=\"virtual.py\">\nprint('x')\n</attachment>" in injected
+        assert '<attachment path="virtual.py" kind="file">\nprint(\'x\')\n</attachment>' in injected
         assert events == []
 
     @pytest.mark.asyncio
@@ -363,3 +370,200 @@ class TestNormalizeAttachments:
 
         assert _normalize_attachments(None) == []
         assert _normalize_attachments("nope") == []
+
+    def test_passes_through_kind_and_size(self):
+        from server.api.handlers import _normalize_attachments
+
+        raw = [
+            {"path": "a.txt", "name": "a.txt", "kind": "file", "size": 100},
+            {"path": "src", "name": "src", "kind": "folder", "size": 0},
+        ]
+        result = _normalize_attachments(raw)
+        assert result == [
+            {"path": "a.txt", "name": "a.txt", "kind": "file", "size": 100},
+            {"path": "src", "name": "src", "kind": "folder", "size": 0},
+        ]
+
+    def test_defaults_kind_to_file(self):
+        from server.api.handlers import _normalize_attachments
+
+        result = _normalize_attachments([{"path": "a.txt"}])
+        assert result == [{"path": "a.txt"}]
+
+
+class TestFolderAttachments:
+    @pytest.mark.asyncio
+    async def test_list_attachment_walks_tree_and_reports_sizes(self, temp_dir):
+        (temp_dir / "src").mkdir()
+        (temp_dir / "src" / "a.ts").write_text("x" * 10)
+        (temp_dir / "src" / "b.ts").write_text("y" * 20)
+        data, error = await list_attachment("src", str(temp_dir))
+        assert error is None
+        names = {e["name"]: e for e in data["entries"]}
+        assert names["a.ts"]["kind"] == "file"
+        assert names["a.ts"]["size"] == 10
+        assert data["total"] == 30
+        assert data["truncated"] is False
+
+    @pytest.mark.asyncio
+    async def test_list_attachment_respects_zenithignore(self, temp_dir):
+        (temp_dir / ".zenithignore").write_text("vendor/\nsecrets.txt\n")
+        (temp_dir / "vendor").mkdir()
+        (temp_dir / "vendor" / "dep.js").write_text("x")
+        (temp_dir / "secrets.txt").write_text("s3cr3t")
+        (temp_dir / "keep.txt").write_text("ok")
+        data, error = await list_attachment("", str(temp_dir))
+        assert error is None
+        names = {e["name"] for e in data["entries"]}
+        assert "keep.txt" in names
+        assert "secrets.txt" not in names
+        assert "dep.js" not in names
+
+    @pytest.mark.asyncio
+    async def test_list_attachment_escape_guard(self, temp_dir):
+        outside = temp_dir.parent / "outside_dir"
+        outside.mkdir(exist_ok=True)
+        data, error = await list_attachment("../outside_dir", str(temp_dir))
+        assert data is None
+        assert error == "path escapes workspace"
+
+    @pytest.mark.asyncio
+    async def test_list_attachment_missing_folder(self, temp_dir):
+        data, error = await list_attachment("nope", str(temp_dir))
+        assert data is None
+        assert error == "folder not found"
+
+    @pytest.mark.asyncio
+    async def test_folder_injection_inlines_tiny_folder(self, test_config, storage_home):
+        provider = RecordingProvider()
+        executor = _make_executor(test_config, provider, storage_home)
+        wr = Path(test_config.workspace_root)
+        (wr / "pkg").mkdir()
+        (wr / "pkg" / "one.txt").write_text("111")
+        (wr / "pkg" / "two.txt").write_text("222")
+        events = []
+        injected = await executor._inject_attachments(
+            "user text", [{"path": "pkg", "kind": "folder"}], "s1", None, events
+        )
+        assert '<file path="pkg/one.txt">\n111\n</file>' in injected
+        assert '<file path="pkg/two.txt">\n222\n</file>' in injected
+        assert events == []
+
+    @pytest.mark.asyncio
+    async def test_folder_injection_references_large_folder(self, test_config, storage_home):
+        provider = RecordingProvider()
+        executor = _make_executor(test_config, provider, storage_home)
+        root = Path(test_config.workspace_root) / "big"
+        root.mkdir()
+        for i in range(FOLDER_INLINE_MAX_ENTRIES + 5):
+            (root / f"f{i}.txt").write_text("x" * 100)
+        events = []
+        injected = await executor._inject_attachments(
+            "user text", [{"path": "big", "kind": "folder"}], "s1", None, events
+        )
+        # Large folders become a tree/scope reference, not individual file dumps.
+        assert "<file path=" not in injected
+        assert "directory `big`" in injected
+        assert events == []
+
+    @pytest.mark.asyncio
+    async def test_folder_injection_isolates_by_kind(self, test_config, storage_home):
+        provider = RecordingProvider()
+        executor = _make_executor(test_config, provider, storage_home)
+        root = Path(test_config.workspace_root) / "mix"
+        root.mkdir()
+        (root / "seen.txt").write_text("content")
+        outsider = Path(test_config.workspace_root) / "outsider.txt"
+        outsider.write_text("should not appear here")
+        events = []
+        injected = await executor._inject_attachments(
+            "user text", [{"path": "mix", "kind": "folder"}], "s1", None, events
+        )
+        assert "seen.txt" in injected
+        assert "outsider.txt" not in injected
+
+
+class TestLoopWiring:
+    """J1: the executor must run the new SimpleLoop and route its event stream
+    through the module-10 transport event-adapter (iter_client_events)."""
+
+    @pytest.mark.asyncio
+    async def test_executor_runs_simple_loop_to_terminal_success(self, test_config, storage_home):
+        provider = RecordingProvider()
+        executor = _make_executor(test_config, provider, storage_home)
+        session = await executor._session_repo.create(Session(title="Loop Wiring"))
+        terminal: list[EventKind] = []
+
+        async def _send(self, session_id, event):
+            terminal.append(event.kind)
+
+        await executor._execute(
+            session.id,
+            "say hello",
+            "build",
+            None,
+            type("M", (), {"send_event": _send})(),
+        )
+        await executor._summary_scheduler.drain()
+
+        # The new SimpleLoop must terminate with a SUCCESS event forwarded to
+        # the manager (terminal events are held for after the run-state snapshot).
+        assert EventKind.SUCCESS in terminal, "expected a terminal SUCCESS event"
+
+        # The turn completed and persisted an assistant message — the concrete
+        # observable contract of wiring the new engine into the executor.
+        messages = await executor._message_repo.get_by_session(session.id)
+        assert any(m.role == "assistant" for m in messages)
+        assert provider.calls, "SimpleLoop must have streamed via the provider"
+
+
+class TestRunStatusAdoption:
+    """The executor drives the module-07 (opencode `status.ts`) busy/idle flag.
+
+    The session flips to busy while a turn is in flight (persisted so observers
+    see it), and returns to idle last — after all run persistence has settled.
+    """
+
+    @pytest.mark.asyncio
+    async def test_session_busy_during_turn_then_idle_after(self, test_config, storage_home):
+        gate = asyncio.Event()
+        released = asyncio.Event()
+
+        class _GatedProvider(BaseProvider):
+            def __init__(self):
+                super().__init__("gated", "base-model")
+
+            async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+                yield ("working", None)
+                gate.set()
+                await released.wait()
+                yield ("done", None)
+
+            async def complete(self, messages, tools=None):
+                return "done"
+
+            async def validate(self):
+                return True
+
+            async def list_models(self):
+                return ["base-model"]
+
+        provider = _GatedProvider()
+        executor = _make_executor(test_config, provider, storage_home)
+        session = await executor._session_repo.create(Session(title="Status Adoption"))
+
+        run = asyncio.create_task(executor._execute(session.id, "do it", "build", None, None))
+
+        # Wait for the turn to start streaming, then assert the persisted row
+        # is BUSY while the SimpleLoop is mid-flight.
+        await asyncio.wait_for(gate.wait(), timeout=5)
+        active = await executor._session_repo.get(session.id)
+        assert active.run_status.value == "busy", "session should be BUSY during the turn"
+
+        # Release the turn and let it settle to idle.
+        released.set()
+        await run
+        await executor._summary_scheduler.drain()
+
+        settled = await executor._session_repo.get(session.id)
+        assert settled.run_status.value == "idle", "session should return to IDLE after the turn"

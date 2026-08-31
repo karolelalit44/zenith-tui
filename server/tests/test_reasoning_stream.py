@@ -14,7 +14,12 @@ New contract:
 
 import asyncio
 
-from server.agents.llm_stream import stream_completion
+from server.agents.llm_stream import (
+    ReasoningEffort,
+    ReasoningPart,
+    accumulate_reasoning_parts,
+    stream_completion,
+)
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
 
@@ -94,3 +99,69 @@ def test_tiny_content_plus_long_reasoning_stays_content_only():
     finals = [ev for ev in thinking if ev.data.get("partial") is not True]
     assert len(finals) == 1
     assert finals[0].data["text"] == "x" * 300
+
+
+# ---------------------------------------------------------------------------
+# Module 08 additive — reasoning as a Part (delta-merged), opencode-style.
+# ---------------------------------------------------------------------------
+
+
+class TestReasoningPart:
+    def test_delta_merge_in_place(self):
+        part = ReasoningPart()
+        assert part.kind == "start"
+        part.merge("a")
+        part.merge("b")
+        assert part.kind == "delta"
+        assert part.text == "ab"
+        part.finish(10)
+        assert part.kind == "end"
+        assert part.duration_ms == 10
+        snap = part.snapshot()
+        assert snap == {"kind": "end", "text": "ab", "durationMs": 10}
+
+
+class TestReasoningEffort:
+    def test_enum_values(self):
+        assert ReasoningEffort.MEDIUM.value == "medium"
+        assert ReasoningEffort.HIGH.value == "high"
+
+
+def _collect_parts(deltas):
+    parts = []
+
+    async def gen():
+        for d in deltas:
+            yield d
+
+    async def consume():
+        async for p in accumulate_reasoning_parts(gen()):
+            parts.append(p)
+
+    asyncio.run(consume())
+    return parts
+
+
+class TestAccumulateReasoningParts:
+    def test_single_short_delta_yields_start_and_end(self):
+        parts = _collect_parts(["abc"])
+        assert len(parts) == 1
+        assert parts[0]["kind"] == "start"
+        assert parts[0]["text"] == "abc"
+
+    def test_long_stream_yields_multiple_delta_snapshots_then_end(self):
+        chunk = "x" * 100
+        n = 5  # 500 chars total > 200-char threshold
+        parts = _collect_parts([chunk] * n)
+
+        # Every emitted snapshot carries the whole merged text so far (delta-merge).
+        assert parts[0]["kind"] == "delta"
+        assert all(p["kind"] in ("delta", "end") for p in parts)
+        last = parts[-1]
+        assert last["kind"] == "end"
+        assert last["text"] == chunk * n
+        assert isinstance(last["durationMs"], int)
+        # Texts are monotonically growing (merged in place), not disjoint chunks.
+        texts = [p["text"] for p in parts]
+        for earlier, later in zip(texts, texts[1:]):
+            assert later.startswith(earlier)

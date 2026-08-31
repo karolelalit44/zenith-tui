@@ -573,6 +573,31 @@ class TestFileEditTool:
         assert not result.success
         assert "not found" in result.error
 
+    @pytest.mark.asyncio
+    async def test_edit_fuzzy_match_with_small_and_large_blocks(self, temp_dir):
+        # _fuzzy_find operates on line windows of old_content; the fuzzy
+        # fallback must trigger the same way for short and long blocks
+        # (regression for the collapsed duplicate branch).
+        (temp_dir / "fuzz.txt").write_text(
+            "def original_function(arg):\n"
+            "    return arg * 2\n\n"
+            "def main():\n"
+            "    print(original_function(21))\n"
+        )
+        tool = FileEditTool()
+        # A near-miss two-line block (whitespace/typo deviation) not present
+        # verbatim, so the exact-match fast path is skipped.
+        result = await tool.execute(
+            {
+                "path": "fuzz.txt",
+                "old_content": "def original_funtion(arg):\n    return arg * 2",
+                "new_content": "def renamed(a):\n    return a * 2",
+            },
+            str(temp_dir),
+        )
+        assert result.success
+        assert result.metadata["match"] == "fuzzy"
+
 
 class TestFileDeleteTool:
     @pytest.mark.asyncio

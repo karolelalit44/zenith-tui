@@ -86,6 +86,7 @@ class ProviderRegistry:
                     temperature=model_defaults["temperature"],
                     enable_thinking=getattr(config, "enable_thinking", False) or catalog_thinking,
                     reasoning_budget=getattr(config, "reasoning_budget", None),
+                    reasoning_effort=getattr(config, "reasoning_effort", None),
                 )
                 registry.register(name, provider)
             except Exception as e:

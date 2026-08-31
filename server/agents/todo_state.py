@@ -1,14 +1,13 @@
-"""Session-scoped, persistent todo state (QA-5).
+"""Session-scoped todo checklist (simple store, no lifecycle state machine).
 
-Replaces the process-global ``TaskTracker`` singleton in
-``server/toolkit/tools/todo.py`` with a per-``session_id`` store. Todos are a
-per-session artifact: the board a plan produces is that session's todo list,
-isolated from every other session, and survives resumption.
+Provides a per-session in-memory todo list that the ``TodoTool`` reads and
+writes.  The store is keyed by ``session_id`` and lives in-process for the
+lifetime of the server.  Each mutation returns a snapshot so callers can
+persist it into session metadata or emit a ``todo_board`` event without a
+second read.
 
-The store is keyed by ``session_id`` and lives in-process for the lifetime of
-the server (mirroring the session workspace registry). Each mutation returns a
-snapshot so callers can persist it into ``session.metadata`` / emit a
-``todo_board`` event without a second read.
+Design follows opencode's todowrite: a plain checklist the model writes and
+reads — no lifecycle phases, no approval gates, no dependency graph.
 """
 
 from __future__ import annotations
@@ -17,27 +16,20 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-_TODO_STATUSES = ("pending", "in_progress", "completed", "blocked", "failed", "cancelled")
+_TODO_STATUSES = ("pending", "in_progress", "completed", "blocked", "cancelled")
 _PRIORITIES = ("low", "medium", "high")
 
-# Canonical todo.md checkbox markers per status (QA-5.8).
 _TODO_STATUS_MARKERS = {
     "pending": "[ ]",
     "in_progress": "[~]",
     "completed": "[x]",
     "blocked": "[!]",
-    "failed": "[!]",
     "cancelled": "[-]",
 }
 
 
 def render_todo_markdown(entries: list[dict] | list["TodoEntry"]) -> str:
-    """Render structured todos into the canonical ``todo.md`` artifact.
-
-    The artifact mirrors ``run_state.todo`` / ``TodoState.snapshot()`` exactly:
-    one checkbox line per entry, ordered, with status marker, non-default
-    priority and notes attached (QA-5.8).
-    """
+    """Render structured todos into the canonical ``todo.md`` artifact."""
     lines = ["# Todos", ""]
     for entry in entries:
         data = entry.to_dict() if isinstance(entry, TodoEntry) else entry
@@ -95,18 +87,38 @@ class TodoState:
         self._entries: dict[str, TodoEntry] = {}
         self._next_id = 1
 
+    def reset(self) -> None:
+        """Clear all entries (used by ``write`` action to replace the board)."""
+        self._entries.clear()
+        self._next_id = 1
+
     def add(
         self,
         title: str,
         priority: str = "medium",
+        status: str = "pending",
         depends_on: list[str] | None = None,
         notes: str = "",
+        existing_id: str | None = None,
     ) -> TodoEntry:
-        tid = f"t{self._next_id}"
-        self._next_id += 1
+        if existing_id and existing_id in self._entries:
+            entry = self._entries[existing_id]
+            entry.title = title
+            entry.status = status if status in _TODO_STATUSES else entry.status
+            entry.priority = priority if priority in _PRIORITIES else entry.priority
+            if depends_on is not None:
+                entry.depends_on = list(depends_on)
+            if notes:
+                entry.notes = notes
+            return entry
+
+        tid = existing_id if existing_id else f"t{self._next_id}"
+        if not existing_id:
+            self._next_id += 1
         entry = TodoEntry(
             id=tid,
             title=title,
+            status=status if status in _TODO_STATUSES else "pending",
             priority=priority if priority in _PRIORITIES else "medium",
             order=len(self._entries),
             depends_on=list(depends_on or []),
@@ -137,33 +149,7 @@ class TodoState:
         return entry
 
     def complete(self, task_id: str) -> TodoEntry | None:
-        entry = self._entries.get(task_id)
-        if entry is None:
-            return None
-        entry.status = "completed"
-        return entry
-
-    def fail(self, task_id: str) -> TodoEntry | None:
-        entry = self._entries.get(task_id)
-        if entry is None:
-            return None
-        entry.status = "failed"
-        return entry
-
-    def reopen(self, task_id: str) -> TodoEntry | None:
-        entry = self._entries.get(task_id)
-        if entry is None:
-            return None
-        entry.status = "pending"
-        return entry
-
-    def reorder(self, ordered_ids: list[str]) -> list[TodoEntry]:
-        """Reorder by the given id sequence; unknown ids keep their current place."""
-        pos = {tid: i for i, tid in enumerate(ordered_ids or [])}
-        entries = sorted(self._entries.values(), key=lambda e: (pos.get(e.id, 10**9), e.order))
-        for i, entry in enumerate(entries):
-            entry.order = i
-        return list(self._entries.values())
+        return self.update(task_id, status="completed")
 
     def remove(self, task_id: str) -> bool:
         if task_id not in self._entries:
@@ -221,6 +207,4 @@ def reset_todo_states() -> None:
     _SESSIONLESS_TODO.hydrate([])
 
 
-# A stable fallback for callers without a session (e.g. unit helpers). Production
-# paths always pass a real session id, so isolation holds in practice.
 _SESSIONLESS_TODO = TodoState("__sessionless__")

@@ -9,6 +9,8 @@ import logging
 import math
 import os
 from dataclasses import dataclass
+from enum import Enum
+from typing import Callable, Optional
 
 from server.config.constants import (
     BUILD_MODE,
@@ -612,3 +614,75 @@ class ContextManager:
             input_budget=max(0, window - reserve),
             breakdown=self.token_breakdown(messages),
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 additive — ContextFragment: explicit, provenance-tagged slots.
+# Mirrors codex context-fragments/src/fragment.rs ContextualUserFragment
+# { role, markers, body, content_kind } → render() → RenderedFragment, and
+# complements module-15 PromptSection (tagged prompt sections). Purely additive:
+# the 5-tier scored context machinery stays until Phase 3 re-wires build_messages
+# onto these fixed, tagged slots.
+# ---------------------------------------------------------------------------
+
+
+class ContentKind(str, Enum):
+    """The contextual content kind of a rendered fragment (codex content_kind)."""
+
+    TEXT = "text"
+    TOOL_OUTPUT = "tool_output"
+    SUMMARY = "summary"
+    MARKDOWN = "markdown"
+    REPO_MAP = "repo_map"
+    SYSTEM = "system"
+
+
+@dataclass
+class RenderedFragment:
+    """The rendered output of a ContextFragment: body + content_kind (codex)."""
+
+    body: str
+    content_kind: ContentKind
+
+
+@dataclass
+class ContextFragment:
+    """A provenance-tagged context injection slot (codex ContextualUserFragment).
+
+    ``role`` names the block (env, system_prompt, repo_map, skills, instructions,
+    summary, history, ...); ``body`` is either a static string or a callable
+    resolved lazily at render time; ``markers`` are the open/close tags; each
+    block declares its ``content_kind``. Rendering wraps the body in its markers
+    so every injected block is explicit and predictable.
+    """
+
+    role: str
+    body: str | Callable[[], str]
+    markers: Optional[tuple[str, str]] = None
+    content_kind: ContentKind = ContentKind.TEXT
+
+    def render(self) -> RenderedFragment:
+        text = self.body() if callable(self.body) else self.body
+        if self.markers:
+            open_tag, close_tag = self.markers
+            return RenderedFragment(f"{open_tag}\n{text}\n{close_tag}", self.content_kind)
+        return RenderedFragment(text, self.content_kind)
+
+    @property
+    def is_empty(self) -> bool:
+        body = self.body() if callable(self.body) else self.body
+        return not (body or "").strip()
+
+
+def tagged_fragment(
+    role: str,
+    body: str | Callable[[], str],
+    content_kind: ContentKind = ContentKind.TEXT,
+) -> ContextFragment:
+    """Build a fragment wrapped in the codex marker scheme ``<role>...</role>``."""
+    return ContextFragment(
+        role=role,
+        body=body,
+        markers=(f"<{role}>", f"</{role}>"),
+        content_kind=content_kind,
+    )

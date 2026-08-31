@@ -15,7 +15,8 @@ from server.agents.delegation import (
     RepositoryIntelligenceCache,
     SpecialistRegistry,
 )
-from server.agents.recovery import RecoverableAgentLoop
+from server.agents.simple_loop import SimpleLoop
+from server.api.event_adapter import iter_client_events
 from server.agents.run_state import (
     from_dict,
     merge_run_state,
@@ -42,6 +43,7 @@ from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.storage.usage_store import FileTokenUsageRepository
+from server.workspace.ignore import get_matcher
 
 if TYPE_CHECKING:
     from server.api.handlers import MethodHandlers
@@ -59,6 +61,15 @@ _HANDOFF_SUMMARY_CHARS = 800
 # tool/reasoning noise ever becoming the canonical message (evidence-aware
 # finalization, QA-3).
 _HANDOFF_MAX_CHARS = 4000
+
+# Folder attachments are treated as scope/reference, not raw content dumps.
+# These caps keep the injected tree small even for huge directories.
+FOLDER_TREE_MAX_ENTRIES = 200
+FOLDER_TREE_MAX_DEPTH = 6
+# A folder is inlined as content only when it is tiny; otherwise it becomes a
+# scope/tree reference the agent resolves with its file tools.
+FOLDER_INLINE_MAX_ENTRIES = 10
+FOLDER_INLINE_MAX_TOTAL = 100 * 1024
 
 
 def _read_file_head(path: str | Path) -> bytes:
@@ -92,6 +103,102 @@ async def read_attachment(path: str, workspace_root: str | Path) -> tuple[str | 
         return (text, None)
     except OSError as e:
         return (None, f"read failed: {e}")
+
+
+def _list_folder_entries(
+    root: Path,
+    rel_dir: str,
+    matcher,
+    max_entries: int,
+    max_depth: int,
+) -> tuple[list[dict], int]:
+    """Walk a folder and return (entry list, total bytes) bounded by caps.
+
+    Each entry is ``{ path, name, kind, size }``.
+    """
+    entries: list[dict] = []
+    total = 0
+    seen = 0
+
+    def walk(abs_path: Path, rel_path: str, depth: int) -> None:
+        nonlocal total, seen
+        if depth > max_depth or seen >= max_entries:
+            return
+        try:
+            children = sorted(
+                abs_path.iterdir(),
+                key=lambda p: (p.is_file(), p.name.lower()),
+            )
+        except OSError:
+            return
+        for child in children:
+            if seen >= max_entries:
+                return
+            rel = f"{rel_path}/{child.name}" if rel_path else child.name
+            try:
+                is_dir = child.is_dir()
+            except OSError:
+                continue
+            if is_dir:
+                if matcher.is_ignored_dir(rel):
+                    continue
+                entries.append({"path": rel, "name": child.name, "kind": "folder", "size": None})
+                seen += 1
+                walk(child, rel, depth + 1)
+            else:
+                if matcher.is_ignored(rel):
+                    continue
+                try:
+                    size = child.stat().st_size
+                except OSError:
+                    size = 0
+                entries.append({"path": rel, "name": child.name, "kind": "file", "size": size})
+                seen += 1
+                total += size
+
+    walk(root, rel_dir, 0)
+    return entries, total
+
+
+async def list_attachment(path: str, workspace_root: str | Path) -> tuple[dict | None, str | None]:
+    """Resolve a directory attachment into a bounded scope/tree reference."""
+    try:
+        root = Path(workspace_root).resolve()
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        candidate = candidate.resolve()
+        if not candidate.is_relative_to(root):
+            return (None, "path escapes workspace")
+        if not candidate.is_dir():
+            return (None, "folder not found")
+        matcher = get_matcher(root)
+        rel_dir = str(candidate.relative_to(root)).replace("\\", "/")
+        entries, total = _list_folder_entries(
+            candidate, rel_dir, matcher, FOLDER_TREE_MAX_ENTRIES, FOLDER_TREE_MAX_DEPTH
+        )
+        truncated = len(entries) >= FOLDER_TREE_MAX_ENTRIES
+        return ({"entries": entries, "truncated": truncated, "total": total}, None)
+    except OSError as e:
+        return (None, f"list failed: {e}")
+
+
+def _format_folder_tree(data: dict, rel_dir: str) -> str:
+    """Render a compact ASCII tree for a folder scope reference."""
+    entries = data.get("entries") or []
+    total = data.get("total", 0)
+    truncated = data.get("truncated", False)
+    lines = [f"directory `{rel_dir}` ({len(entries)} entries, ~{total} bytes)"]
+    for e in entries[:FOLDER_TREE_MAX_ENTRIES]:
+        kind = "[dir] " if e["kind"] == "folder" else ""
+        if e["kind"] == "file":
+            size = f" {e['size']}B" if e.get("size") else ""
+            lines.append(f"  {kind}{e['name']}{size}")
+        else:
+            lines.append(f"  {kind}{e['name']}/")
+    if truncated:
+        lines.append("  ... (truncated)")
+    return "\n".join(lines)
 
 
 def _turn_manifest_from_events(collected_events: list[Event]) -> dict | None:
@@ -356,9 +463,13 @@ class PromptExecutor:
             path = att.get("path", "") if isinstance(att, dict) else ""
             if not path:
                 continue
+            kind = att.get("kind", "file") if isinstance(att, dict) else "file"
             inline = att.get("content") if isinstance(att, dict) else None
+            # A user-supplied inline content overrides anything else.
             if isinstance(inline, str) and inline.strip():
                 text, error = (inline, None)
+            elif kind == "folder":
+                text, error = await self._resolve_folder_attachment(path)
             else:
                 read_text, error = await read_attachment(path, self._config.workspace_root)
                 text = read_text if isinstance(read_text, str) else ""
@@ -378,7 +489,7 @@ class PromptExecutor:
                 if manager:
                     await manager.send_event(session_id, warning)
                 continue
-            blocks.append(f'<attachment path="{path}">\n{text}\n</attachment>')
+            blocks.append(f'<attachment path="{path}" kind="{kind}">\n{text}\n</attachment>')
         if not blocks:
             return content
         injected = "\n\n".join(blocks) + "\n\n" + content
@@ -390,6 +501,47 @@ class PromptExecutor:
             len(injected),
         )
         return injected
+
+    async def _resolve_folder_attachment(self, path: str) -> tuple[str | None, str | None]:
+        """Resolve a directory attachment into an injectable text block.
+
+        Tiny folders (few entries, small total) are inlined as their content so
+        the model can work directly. Larger folders become a compact scope/tree
+        reference the agent resolves with its own file tools — never a raw dump.
+        """
+        data, error = await list_attachment(path, self._config.workspace_root)
+        if error:
+            return (None, error)
+        entries = data.get("entries") or []
+        total = data.get("total", 0)
+        # Inline tiny folders; reference everything else.
+        if len(entries) <= FOLDER_INLINE_MAX_ENTRIES and total <= FOLDER_INLINE_MAX_TOTAL:
+            root = Path(self._config.workspace_root).resolve()
+            candidate = Path(path)
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            candidate = candidate.resolve()
+            rel_dir = str(candidate.relative_to(root)).replace("\\", "/")
+            chunks: list[str] = []
+            for e in entries:
+                if e["kind"] != "file":
+                    continue
+                read_text, read_err = await read_attachment(e["path"], self._config.workspace_root)
+                if read_err:
+                    continue
+                chunks.append(f'<file path="{e["path"]}">\n{read_text}\n</file>')
+            body = "\n\n".join(chunks) if chunks else _format_folder_tree(data, rel_dir)
+            header = (
+                f"directory `{rel_dir}` ({len(entries)} entries, ~{total} bytes) — inlined contents"
+            )
+            return (f"{header}\n{body}", None)
+
+        rel_dir = str(Path(path).name)
+        if entries:
+            parent = str(Path(entries[0]["path"]).parent or "")
+            if parent:
+                rel_dir = parent
+        return (_format_folder_tree(data, rel_dir), None)
 
     async def _load_plan_context(self, session_id: str, mode: str) -> tuple[str, bool, str | None]:
         plan_context = ""
@@ -662,7 +814,7 @@ class PromptExecutor:
         # Bound before any early return (plan-ready / CrewmateLoop handoff):
         # the finally block reads these, and an UnboundLocalError there would
         # skip assistant-message persistence and terminal-event delivery.
-        agent: RecoverableAgentLoop | None = None
+        agent: SimpleLoop | None = None
         db_session = None
         summary_at_start: str | None = None
         # What actually ended the turn (AGENT_RELIABILITY_PLAN P1.4): the
@@ -782,12 +934,11 @@ class PromptExecutor:
                 )
                 return
             context_manager = self._context_manager
-            agent = RecoverableAgentLoop(
+            agent = SimpleLoop(
                 self._config,
                 self._provider,
-                context_manager,
-                self._tool_registry,
-                self._compaction_service,
+                context_manager=context_manager,
+                tool_registry=self._tool_registry,
             )
             db_session = await self._session_repo.get(session_id)
             summary_at_start = (db_session.metadata or {}).get("summary") if db_session else None
@@ -800,15 +951,30 @@ class PromptExecutor:
                 )
             skills_section = self._skill_loader.get_skill_prompt()
             logger.info("Agent initialized, skills loaded=%d chars", len(skills_section))
-            async for event in agent.process_prompt(
-                content,
-                session_id,
-                history,
-                mode,
-                skills_section=skills_section,
-                plan_context=plan_context,
-                model_override=None,
-                repo_map="" if mode == PLAN_MODE else None,
+            # Run-status (module 07 / opencode `status.ts`): flip the session to
+            # busy while this turn is in flight and persist, so the storage layer
+            # and any observer see a running session. Best-effort — a status
+            # write must never abort the turn itself.
+            if db_session is not None:
+                db_session.mark_busy()
+                try:
+                    await self._session_repo.update(db_session)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("Failed to persist busy status for %s: %s", session_id, exc)
+            # Phase-2 wiring (module 10): the new SimpleLoop is the turn engine,
+            # and its event stream is routed through the transport event-adapter
+            # so a future part-based message re-expresses into the TUI kinds.
+            async for event in iter_client_events(
+                agent.process_prompt(
+                    content,
+                    session_id,
+                    history,
+                    mode,
+                    skills_section=skills_section,
+                    plan_context=plan_context,
+                    model_override=None,
+                    repo_map="" if mode == PLAN_MODE else None,
+                )
             ):
                 event_count += 1
                 collected_events.append(event)
@@ -1040,5 +1206,14 @@ class PromptExecutor:
                     await flush_to_db(session_id, self._workspace_repo)
                 except Exception:
                     logger.debug("Failed to flush workspace to DB for %s", session_id)
+            # Release the session status last, after all persistence (run-state,
+            # assistant message, workspace flush) has settled — mirrors opencode
+            # where a session returns to idle only once the turn fully resolves.
+            if db_session is not None:
+                db_session.mark_idle()
+                try:
+                    await self._session_repo.update(db_session)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("Failed to persist idle status for %s: %s", session_id, exc)
             if completed_ok:
                 self._summary_scheduler.schedule(session_id)

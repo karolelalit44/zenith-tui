@@ -1,19 +1,34 @@
 import { Box, Text, useInput } from 'ink';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { type FileNode, getDirectoryContents, searchFiles } from '../../../services/fileExplorer';
 import { useTheme } from '../../../theme/ThemeContext';
 import { FileList } from './FileList';
 
 interface FilePickerModalProps {
-  onSelectFile: (relativePath: string) => void;
+  onSelectFile: (relativePath: string, kind: 'file' | 'folder') => void;
   onClose: () => void;
+  /** Initial directory to browse ('' = workspace root). */
+  initialPath?: string;
+  /** Initial filter seed (mid-text @ prefix). */
+  initialQuery?: string;
 }
 
-export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, onClose }) => {
+export const FilePickerModal: React.FC<FilePickerModalProps> = ({
+  onSelectFile,
+  onClose,
+  initialPath = '',
+  initialQuery = '',
+}) => {
   const { theme } = useTheme();
-  const [currentPath, setCurrentPath] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPath, setCurrentPath] = useState(initialPath);
+  const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setCurrentPath(initialPath);
+    setSearchQuery(initialQuery);
+    setActiveIndex(0);
+  }, [initialPath, initialQuery]);
 
   const items: FileNode[] = useMemo(() => {
     if (searchQuery.trim()) {
@@ -60,9 +75,19 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
       return;
     }
 
+    // Enter on a file selects the file; ctrl+space/alt on a dir selects the folder.
     if (key.return && selectedItem && !selectedItem.isDir) {
-      onSelectFile(selectedItem.relativePath);
+      onSelectFile(selectedItem.relativePath, 'file');
       onClose();
+      return;
+    }
+
+    // Select a folder (scope reference) without navigating into it.
+    if ((key.ctrl || key.meta) && (char === ' ' || char === 's' || char === 'S')) {
+      if (selectedItem?.isDir) {
+        onSelectFile(selectedItem.relativePath, 'folder');
+        onClose();
+      }
       return;
     }
 
@@ -95,7 +120,7 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
             {currentPath ? `./${currentPath}` : './ (workspace root)'}
           </Text>
         </Box>
-        <Text color={theme.colors.text.muted}>↑/↓ navigate · →/Enter enter · ← back · Esc exit</Text>
+        <Text color={theme.colors.text.muted}>↑/↓ · →/Enter in · ←/Esc · Ctrl+Space select dir</Text>
       </Box>
 
       {searchQuery && (
@@ -137,6 +162,22 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({ onSelectFile, 
       </Box>
 
       <FileList items={items} activeIndex={activeIndex} currentPath={currentPath} />
+
+      {/* Hint for folder selection */}
+      {items[activeIndex]?.isDir && (
+        <Box marginTop={1}>
+          <Text color={theme.colors.text.dim}>
+            Press{' '}
+            <Text color={theme.colors.status.info} bold>
+              Ctrl+Space
+            </Text>{' '}
+            to attach folder{' '}
+            <Text color={theme.colors.text.bright} bold>
+              {items[activeIndex]?.name}/
+            </Text>
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 };

@@ -52,8 +52,8 @@ export const AttachmentChips: React.FC<AttachmentChipsProps> = React.memo(({ att
             paddingX={1}
           >
             <Text color={theme.colors.status.info}>@</Text>
-            <Text color={theme.colors.text.ethereal}> {att.name}</Text>
-            <Text color={theme.colors.text.muted}> · {formatBytes(att.size)}</Text>
+            <Text color={theme.colors.text.ethereal}> {att.kind === 'folder' ? `${att.name}/` : att.name}</Text>
+            <Text color={theme.colors.text.muted}> · {att.kind === 'folder' ? 'folder' : formatBytes(att.size)}</Text>
             {onRemove && (
               <Text color={selectedIndex === idx ? theme.colors.status.error : theme.colors.text.dim}>
                 {selectedIndex === idx ? ' ×' : ' ·'}

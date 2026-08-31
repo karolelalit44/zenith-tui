@@ -26,7 +26,7 @@ describe('MultiLineTextInput', () => {
     app.stdin.write('part-two-');
     app.stdin.write('part-three');
 
-    expect(onChange).toHaveBeenLastCalledWith('part-one-part-two-part-three');
+    expect(onChange).toHaveBeenLastCalledWith('part-one-part-two-part-three', 28);
   });
 
   it('submits the full accumulated paste value on Enter', () => {

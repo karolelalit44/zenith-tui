@@ -1,3 +1,19 @@
+"""Layered configuration loader.
+
+Precedence (highest wins):
+  1. CLI / constructor overrides  — passed directly to ``AppSettings(...)``.
+  2. environment variables        — ``ZENITH_*`` scalars plus ``ZENITH_MCP_SERVERS``
+                                   and ``ZENITH_HOOKS`` JSON.
+  3. config file (storage)        — provider/model catalog + ``user_profile.json``
+                                   (active provider, api keys, per-provider settings).
+  4. code defaults                — ``AppSettings.field_defaults`` / ``constants.py``.
+
+``load_config()`` merges the storage file (3) with env overrides (2) into a typed
+``AppSettings`` object.  Callers that need CLI/constructor precedence pass values
+directly to the returned ``AppSettings`` (or ``model_copy(update=...)``) so their
+override beats everything below it.
+"""
+
 import json
 import logging
 import os

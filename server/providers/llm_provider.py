@@ -27,7 +27,7 @@ from server.domain.domain import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
 from server.storage.catalog_compat import load_catalog
 
-from .base import BaseProvider
+from .base import BaseProvider, model_capabilities_from_catalog
 from .token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
@@ -486,6 +486,7 @@ class LLMProvider(BaseProvider):
         base_url: str | None = None,
         enable_thinking: bool | None = None,
         reasoning_budget: int | None = None,
+        reasoning_effort: str | None = None,
         extra_params: dict | None = None,
         use_system_prompt: bool | None = None,
         streaming: bool | None = None,
@@ -512,6 +513,8 @@ class LLMProvider(BaseProvider):
             enable_thinking if enable_thinking is not None else model_cfg["enable_thinking"]
         )
         self.reasoning_budget = reasoning_budget
+        self.reasoning_effort = reasoning_effort
+        self.capabilities = model_capabilities_from_catalog(name, resolved_model)
         self.extra_params = (
             extra_params if extra_params is not None else model_cfg.get("extra_params")
         )
@@ -610,6 +613,8 @@ class LLMProvider(BaseProvider):
             if self.reasoning_budget is not None:
                 thinking_cfg["budget_tokens"] = self.reasoning_budget
             kwargs["thinking"] = thinking_cfg
+        if self.reasoning_effort:
+            kwargs["reasoning_effort"] = self.reasoning_effort
         if self.extra_params and isinstance(self.extra_params, dict):
             for k, v in self.extra_params.items():
                 if k not in ("api_key", "api_base", "model", "messages"):

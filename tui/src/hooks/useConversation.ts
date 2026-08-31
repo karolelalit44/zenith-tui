@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
-import type { ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo } from '../types/scenario';
+import type { FileAttachment, ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo } from '../types/scenario';
 
 export interface ConversationTurn {
   id: string;
@@ -14,6 +14,8 @@ export interface ConversationTurn {
   /** Long timestamp frozen at turn creation: "HH:MM, DD Mon" (e.g. "12:08, 12 Aug") */
   timestampLong: string;
   startedAt: number;
+  /** Attachments selected for this turn (snapshot at send time). */
+  attachments?: FileAttachment[];
 }
 
 /**
@@ -64,7 +66,7 @@ export interface UseConversationReturn {
   /** Latest composed-context occupancy snapshot from a completed turn (undefined when unknown). */
   contextInfo: ContextInfoSnapshot | undefined;
   staticKey: number;
-  addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
+  addTurn: (prompt: string, mode: ScenarioMode, model?: string, attachments?: FileAttachment[]) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: (events?: ScenarioEvent[]) => void;
   clearTurns: () => void;
@@ -169,31 +171,35 @@ export function useConversation(): UseConversationReturn {
     return snapshot;
   }, [turns]);
 
-  const addTurn = useCallback((prompt: string, mode: ScenarioMode, model?: string): string => {
-    // Freeze both formats at the exact moment the turn is created.
-    // The display component must never call new Date() — these values are immutable.
-    const now = new Date();
-    const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
-    const turnId = `turn_${Date.now()}`;
+  const addTurn = useCallback(
+    (prompt: string, mode: ScenarioMode, model?: string, attachments?: FileAttachment[]): string => {
+      // Freeze both formats at the exact moment the turn is created.
+      // The display component must never call new Date() — these values are immutable.
+      const now = new Date();
+      const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+      const turnId = `turn_${Date.now()}`;
 
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: turnId,
-        prompt,
-        mode,
-        model,
-        events: [],
-        isComplete: false,
-        timestamp: timeShort,
-        timestampLong: timeLong,
-        startedAt: Date.now(),
-      },
-    ]);
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: turnId,
+          prompt,
+          mode,
+          model,
+          events: [],
+          isComplete: false,
+          timestamp: timeShort,
+          timestampLong: timeLong,
+          startedAt: Date.now(),
+          attachments: attachments && attachments.length > 0 ? attachments.map((a) => ({ ...a })) : undefined,
+        },
+      ]);
 
-    return turnId;
-  }, []);
+      return turnId;
+    },
+    [],
+  );
 
   const completeActiveTurn = useCallback((events: ScenarioEvent[]) => {
     setTurns((prev) => {

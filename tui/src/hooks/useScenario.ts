@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LIVE_PROGRESS_EVENT_ID } from '../constants/events';
-import type { ScenarioRunner } from '../types/scenario';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
 import type {
@@ -8,6 +7,7 @@ import type {
   Scenario,
   ScenarioEvent,
   ScenarioMode,
+  ScenarioRunner,
   ThinkingEvent,
   ToolStepEvent,
   TurnManifestEvent,
@@ -339,7 +339,14 @@ export function useScenario(): UseScenarioReturn {
       }
 
       const promptAttachments =
-        attachments && attachments.length > 0 ? attachments.map((a) => ({ path: a.path, name: a.name })) : undefined;
+        attachments && attachments.length > 0
+          ? attachments.map((a) => ({
+              path: a.path,
+              name: a.name,
+              ...(a.kind ? { kind: a.kind } : {}),
+              ...(typeof a.size === 'number' ? { size: a.size } : {}),
+            }))
+          : undefined;
 
       wsClient
         .sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider, {

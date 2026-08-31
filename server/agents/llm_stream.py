@@ -5,6 +5,7 @@ import logging
 import time as _time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from enum import Enum
 
 from server.config.constants import THINKING_PARTIAL_EMIT_CHARS
 from server.domain.errors import ProviderError, RateLimitError
@@ -205,3 +206,80 @@ async def stream_completion(
         logger.exception("LLM stream error on turn %d", iteration)
         yield r.error(str(e), session_id)
         return
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 additive — reasoning as a first-class Part (module 08).
+# Mirrors opencode "reasoning-start / reasoning-delta / reasoning-end" parts
+# (delta-merged in place) and codex "ReasoningContentDelta". Purely additive:
+# the legacy THINKING event stream and THINKING_PARTIAL_EMIT_CHARS stay until
+# Phase 3 wires consumers (09 markdown_render, 10 transport) onto reasoning Parts.
+# ---------------------------------------------------------------------------
+
+_REASONING_EMIT_THRESHOLD = THINKING_PARTIAL_EMIT_CHARS
+
+
+class ReasoningEffort(str, Enum):
+    """Reasoning-effort config knob (codex ``ReasoningEffort``)."""
+
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+@dataclass
+class ReasoningPart:
+    """First-class reasoning part, delta-merged in place.
+
+    ``kind`` walks ``start -> delta* -> end``. Each ``merge`` appends text and
+    marks the part ``delta``; the resulting snapshot is the current merged
+    state, matching opencode's "updated in place" reasoning-delta and codex's
+    ``ReasoningContentDelta``.
+    """
+
+    kind: str = "start"
+    text: str = ""
+    duration_ms: int | None = None
+
+    def merge(self, delta: str) -> None:
+        self.text += delta
+        self.kind = "delta"
+
+    def finish(self, duration_ms: int | None = None) -> None:
+        self.kind = "end"
+        self.duration_ms = duration_ms
+
+    def snapshot(self) -> dict:
+        return {"kind": self.kind, "text": self.text, "durationMs": self.duration_ms}
+
+
+async def accumulate_reasoning_parts(
+    reasoning_iterator: AsyncIterator[str],
+) -> AsyncIterator[dict]:
+    """Fold a stream of reasoning deltas into reasoning Part snapshots.
+
+    Yields a ``delta`` part (the current merged state) whenever at least
+    ``_REASONING_EMIT_THRESHOLD`` new chars have accumulated, and a final
+    ``end`` part when the iterator is exhausted. The first emission carries
+    ``kind="start"`` if it is also the final (single-delta) emission. Additive;
+    not wired into the legacy THINKING event path yet.
+    """
+    part = ReasoningPart(kind="start", text="")
+    pending = 0
+    started = _time.monotonic()
+    emitted = False
+    async for delta in reasoning_iterator:
+        part.merge(delta)
+        pending += len(delta)
+        if pending >= _REASONING_EMIT_THRESHOLD:
+            pending = 0
+            yield part.snapshot()
+            emitted = True
+    if part.text:
+        part.finish(int((_time.monotonic() - started) * 1000))
+        # If nothing was emitted during streaming, this single emission is the
+        # complete part; start-duplicated only otherwise.
+        if not emitted:
+            part.kind = "start"
+        yield part.snapshot()

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import platform
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
-from server.agents.provider_adapters import detect_model_tier, get_tier_prompt_enhancements
 from server.providers.llm_provider import is_gemini_3_plus
 from server.config.constants import (
     BUILD_MODE,
@@ -256,9 +257,6 @@ def build_system_prompt(
         instructions,
         f"<env>\n{_build_env_section(root, mode)}\n</env>",
     ]
-    tier_enhancements = get_tier_prompt_enhancements(detect_model_tier(model_name, provider_name))
-    if tier_enhancements:
-        sections.append(tier_enhancements)
     sections.append(build_tool_reference_hint(root))
     skills = _build_skills_section(skills_section, max_context_tokens)
     if skills:
@@ -330,3 +328,82 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
     if structure:
         parts.append(structure)
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 additive — editable template files + tagged, composable sections.
+# Mirrors opencode's editable .txt prompt templates (session/system.ts +
+# ./prompt/*.txt) and codex's per-section world-state rendering.
+# tier-injection removed (Mars STEP 1.6); hardcoded BUILD/PLAN_INSTRUCTIONS
+# stay until Phase 3 wires consumers (01/02 prompt_sending, context) onto
+# this template/section surface.
+# ---------------------------------------------------------------------------
+
+_PROMPT_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "prompts" / "templates"
+
+
+@dataclass
+class PromptSection:
+    """A tagged, composable prompt section.
+
+    ``tag`` names the section (rendered ``<tag>…</tag>``); ``content`` is either
+    a static string or a callable resolved lazily at render time. A sentinel
+    (``None``) lets callers mark a section for omission when empty.
+    """
+
+    tag: str
+    content: str | Callable[[], str]
+    _rendered: str | None = field(default=None, init=False, repr=False)
+
+    def render(self) -> str:
+        text = self.content() if callable(self.content) else self.content
+        self._rendered = text
+        return f"<{self.tag}>\n{text}\n</{self.tag}>"
+
+    @property
+    def is_empty(self) -> bool:
+        if self._rendered is None:
+            self.render()
+        return not (self._rendered or "").strip()
+
+
+def load_prompt_template(mode: str = BUILD_MODE) -> str:
+    """Load an editable mode-instruction template (opencode .txt-style).
+
+    Selection is by mode today; provider/model-specific template selection
+    (opencode system.ts branches) is the Phase-2 extension point.
+    """
+    name = "plan.md" if mode == PLAN_MODE else "build.md"
+    return (_PROMPT_TEMPLATES_DIR / name).read_text(encoding="utf-8").strip()
+
+
+def default_template_sections(
+    mode: str = BUILD_MODE,
+    workspace_root: str = ".",
+    skills_section: str = "",
+    max_context_tokens: int = DEFAULT_CONTEXT_WINDOW,
+) -> list[PromptSection]:
+    """Compose the tagged, source-controlled prompt sections.
+
+    This is the additive "clean" composition that Phase 3 adopts once the
+    hardcoded instruction constants and tier-enhancement injection are removed:
+    instructions come from the editable template file, then env / tool-reference /
+    skills sections, composed independently per tag.
+    """
+    root = str(Path(workspace_root).resolve())
+    sections = [
+        PromptSection("instructions", load_prompt_template(mode=mode)),
+        PromptSection("env", lambda: _build_env_section(root, mode)),
+        PromptSection("tool_reference", lambda: build_tool_reference_hint(root)),
+    ]
+    skills = _build_skills_section(skills_section, max_context_tokens)
+    if skills:
+        sections.append(PromptSection("skills", skills))
+    else:
+        sections.append(PromptSection("skills", ""))
+    return sections
+
+
+def compose_system_context(sections: list[PromptSection]) -> list[str]:
+    """Render sections, omitting empty ones, into the assembled context parts."""
+    return [s.render() for s in sections if not s.is_empty]

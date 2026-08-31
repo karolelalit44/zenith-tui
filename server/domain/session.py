@@ -2,11 +2,24 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from .domain import ScenarioMode, SessionState
+
+
+class RunStatus(Enum):
+    """Simple session busy/idle status (opencode ``status.ts``).
+
+    Additive interface-lock (module 07): the over-engineered SessionState
+    machine stays until Phase 3; this minimal contract is what consumers and
+    the storage layer (module 21) will persist/resume from.
+    """
+
+    BUSY = "busy"
+    IDLE = "idle"
 
 
 class Session(BaseModel):
@@ -34,6 +47,7 @@ class Session(BaseModel):
     error_count: int = 0
     last_error: str | None = None
     agent_state: str = "idle"
+    run_status: RunStatus = RunStatus.IDLE
     export_format: str | None = None
     exported_at: datetime | None = None
 
@@ -41,6 +55,19 @@ class Session(BaseModel):
         _validate_session_transition(self.state, new_state)
         self.state = new_state
         self.updated_at = datetime.now()
+
+    def mark_busy(self) -> None:
+        self.run_status = RunStatus.BUSY
+        self.updated_at = datetime.now()
+
+    def mark_idle(self) -> None:
+        self.run_status = RunStatus.IDLE
+        self.updated_at = datetime.now()
+
+    @property
+    def status(self) -> str:
+        """Simple busy/idle status (the opencode/codex session status)."""
+        return self.run_status.value
 
     def archive(self) -> None:
         self.transition(SessionState.ARCHIVED)

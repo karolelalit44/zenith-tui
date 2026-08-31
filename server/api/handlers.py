@@ -62,6 +62,10 @@ def _normalize_attachments(raw) -> list[dict]:
             normalized["name"] = str(item["name"])
         if item.get("content") is not None:
             normalized["content"] = item["content"]
+        if item.get("kind") in ("file", "folder"):
+            normalized["kind"] = str(item["kind"])
+        if item.get("size") is not None and isinstance(item.get("size"), (int, float)):
+            normalized["size"] = int(item["size"])
         result.append(normalized)
         if len(result) >= 25:
             break
@@ -529,6 +533,15 @@ class MethodHandlers:
             user_msg.metadata["model"] = model_override
         if attachments:
             user_msg.metadata["attachment_paths"] = [a["path"] for a in attachments]
+            user_msg.metadata["attachment_refs"] = [
+                {
+                    "path": a.get("path", ""),
+                    "name": a.get("name", ""),
+                    "kind": a.get("kind", "file"),
+                    "size": a.get("size"),
+                }
+                for a in attachments
+            ]
         await self.message_repo.create(user_msg)
         provider = await self._resolve_provider_for_prompt(ws, rid, provider_name)
         if provider is None:

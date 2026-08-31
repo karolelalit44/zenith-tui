@@ -16,7 +16,7 @@ const STATIC_PLACEHOLDER = 'Ask anything...';
 
 interface CommandInputProps {
   input: string;
-  onInputChange: (value: string) => void;
+  onInputChange: (value: string, cursor?: number) => void;
   onSubmit: (value: string) => void;
   disabled?: boolean;
   disabledMessage?: string;

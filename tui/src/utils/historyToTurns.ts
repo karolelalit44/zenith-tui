@@ -1,6 +1,6 @@
 import type { ConversationTurn } from '../hooks/useConversation';
 import { mapRawEvent } from '../services/transport/rawEventMapper';
-import type { ScenarioEvent, ScenarioMode } from '../types/scenario';
+import type { FileAttachment, ScenarioEvent, ScenarioMode } from '../types/scenario';
 import { pairToolEvents } from './pairToolEvents';
 
 /**
@@ -36,13 +36,30 @@ export function convertHistoryToTurns(
 }
 
 function createTurnFromUserMessage(msg: Record<string, unknown>, defaultMode: ScenarioMode): ConversationTurn {
-  const mode = ((msg.metadata as Record<string, unknown>)?.mode as ScenarioMode) || defaultMode;
+  const metadata = (msg.metadata as Record<string, unknown>) || {};
+  const mode = (metadata?.mode as ScenarioMode) || defaultMode;
   const created = msg.created_at ? String(msg.created_at) : undefined;
+  const attachments = metadata?.attachment_refs
+    ? Array.isArray(metadata.attachment_refs)
+      ? (metadata.attachment_refs as Record<string, unknown>[])
+          .filter((a): a is Record<string, unknown> => Boolean(a && typeof a === 'object' && a.path))
+          .map((a) => {
+            const p = String(a.path);
+            return {
+              path: p,
+              name: String(a.name ?? p.split('/').pop() ?? p),
+              mimeType: a.kind === 'folder' ? 'inode/directory' : 'text/plain',
+              size: typeof a.size === 'number' ? a.size : 0,
+              kind: a.kind === 'folder' ? 'folder' : 'file',
+            } as FileAttachment;
+          })
+      : undefined
+    : undefined;
   return {
     id: `hist_${msg.id}`,
     prompt: String(msg.content || ''),
     mode,
-    model: (msg.metadata as Record<string, unknown>)?.model as string | undefined,
+    model: metadata?.model as string | undefined,
     events: [],
     isComplete: true,
     timestamp: created
@@ -52,6 +69,7 @@ function createTurnFromUserMessage(msg: Record<string, unknown>, defaultMode: Sc
       ? `${new Date(created).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}, ${new Date(created).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
       : '??:??',
     startedAt: created ? new Date(created).getTime() : Date.now(),
+    attachments,
   };
 }
 

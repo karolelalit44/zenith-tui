@@ -10,6 +10,7 @@ from server.config.constants import (
     COST_CLASS_MEDIUM,
     DEFAULT_USER_AGENT,
     DEFAULT_WEB_TIMEOUT,
+    DEFAULT_WEBSEARCH_MAX_RESULTS,
     LATENCY_CLASS_HIGH,
     PERMISSION_NETWORK,
     RISK_LOW,
@@ -20,7 +21,7 @@ from server.config.env import optional_int
 
 from ..base import BaseTool, ToolResult
 
-_DEFAULT_MAX_RESULTS = 8
+_DEFAULT_MAX_RESULTS = DEFAULT_WEBSEARCH_MAX_RESULTS
 
 
 class WebsearchTool(BaseTool):

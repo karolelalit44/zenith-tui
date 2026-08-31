@@ -1,6 +1,6 @@
 """QA-5: session-scoped, persistent todo system.
 
-Covers the TodoState store (all 8 ops, stable ids, session isolation), the
+Covers the TodoState store (all ops, stable ids, session isolation), the
 contextvar plumbing that gives the TodoTool its session id, the ``todo_board``
 event emitted on mutation, and plan-mode availability.
 """
@@ -50,21 +50,11 @@ class TestTodoStateOps:
         state = TodoState("s1")
         assert state.update("t99", status="completed") is None
 
-    def test_complete_fail_reopen(self):
+    def test_complete_via_update(self):
         state = TodoState("s1")
         t = state.add("Task")
-        assert state.complete(t.id).status == "completed"
-        assert state.fail(t.id).status == "failed"
-        assert state.reopen(t.id).status == "pending"
-
-    def test_reorder(self):
-        state = TodoState("s1")
-        a = state.add("A")
-        b = state.add("B")
-        c = state.add("C")
-        state.reorder([c.id, a.id, b.id])
-        ids = [e.id for e in state.list()]
-        assert ids == [c.id, a.id, b.id]
+        updated = state.update(t.id, status="completed")
+        assert updated.status == "completed"
 
     def test_remove(self):
         state = TodoState("s1")
@@ -94,7 +84,6 @@ class TestTodoStateOps:
         assert restored.list()[0].priority == "high"
         assert restored.list()[0].depends_on == ["x"]
         assert restored.list()[1].status == "completed"
-        # Next id continues past the hydrated ones.
         added = restored.add("C")
         assert added.id == "t3"
 
@@ -103,6 +92,14 @@ class TestTodoStateOps:
         t = state.add("Task")
         state.update(t.id, status="bogus")
         assert state.get(t.id).status == "pending"
+
+    def test_reset_clears_board(self):
+        state = TodoState("s1")
+        state.add("A")
+        state.add("B")
+        assert len(state.list()) == 2
+        state.reset()
+        assert len(state.list()) == 0
 
 
 class TestSessionIsolation:
@@ -121,7 +118,6 @@ class TestSessionIsolation:
     def test_remove_session_state(self):
         get_todo_state("s1").add("Task")
         remove_todo_state("s1")
-        # A fresh state for the same session id starts empty.
         assert get_todo_state("s1").list() == []
 
 
@@ -144,12 +140,11 @@ class TestContextVarPlumbing:
         registry2 = ToolRegistry()
         registry2.register(WrappingTool())
         result = await registry2.execute(
-            "todo", {"action": "add", "description": "T"}, "/tmp", session_id="ses-x"
+            "todo", {"action": "write", "tasks": [{"title": "T"}]}, "/tmp", session_id="ses-x"
         )
         assert result.success
         assert captured["session_id"] == "ses-x"
         assert result.metadata["board"]
-        # Board is in session ses-x only.
         assert [t["id"] for t in get_todo_state("ses-x").snapshot()] == ["t1"]
 
 
@@ -163,19 +158,22 @@ class TestTodoBoardEvent:
         registry = ToolRegistry()
         registry.register(TodoTool())
         result = await registry.execute(
-            "todo", {"action": "add", "description": "A board item"}, "/tmp", session_id="s-b"
+            "todo",
+            {"action": "write", "tasks": [{"title": "A board item"}]},
+            "/tmp",
+            session_id="s-b",
         )
         assert result.success
         events = await post_execution_hooks("todo", {}, result, "/tmp", "s-b")
         todo_events = [e for e in events if e.kind == EventKind.TODO_BOARD]
         assert len(todo_events) == 1
         ev = todo_events[0]
-        assert ev.data["action"] == "add"
+        assert ev.data["action"] == "write"
         board = ev.data["board"]
         assert isinstance(board, list) and board
         assert board[0]["id"] == "t1"
         assert board[0]["title"] == "A board item"
-        assert board[0]["status"] == "todo"  # mapped to frontend vocabulary
+        assert board[0]["status"] == "todo"
         assert board[0]["priority"] == "medium"
         assert "subtasks" in board[0]
         assert "updatedAt" in board[0]
@@ -198,7 +196,7 @@ class TestTodoBoardEvent:
         registry = ToolRegistry()
         registry.register(TodoTool())
         result, _ = await execute_tool(
-            registry, "todo", {"action": "add", "description": "X"}, "/tmp", "build"
+            registry, "todo", {"action": "write", "tasks": [{"title": "X"}]}, "/tmp", "build"
         )
         assert result.success
         assert result.metadata["board"]
@@ -213,7 +211,7 @@ class TestRenderTodoMarkdown:
         state.add("Working task")
         state.update("t2", status="in_progress")
         state.add("Completed task")
-        state.complete("t3")
+        state.update("t3", status="completed")
         text = render_todo_markdown(state.snapshot())
         assert "- [ ] Pending task" in text
         assert "- [~] Working task" in text
@@ -248,12 +246,12 @@ class TestRenderTodoMarkdown:
     def test_empty_board_renders_header_only(self):
         assert render_todo_markdown([]) == "# Todos\n\n"
 
-    def test_in_progress_and_failed_and_cancelled_markers(self):
+    def test_in_progress_and_blocked_and_cancelled_markers(self):
         state = TodoState("s1")
         state.add("A")
         state.update("t1", status="in_progress")
         state.add("B")
-        state.update("t2", status="failed")
+        state.update("t2", status="blocked")
         state.add("C")
         state.update("t3", status="cancelled")
         text = render_todo_markdown(state.snapshot())
