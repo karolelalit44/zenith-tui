@@ -16,7 +16,6 @@ from server.config.constants import (
     APPOGEE_AGENT_ID,
     APPOGEE_AGENT_NAME,
     APPOGEE_AGENT_ROLE,
-    CREWMATE_MODE,
     READ_ONLY_TOOLS,
 )
 

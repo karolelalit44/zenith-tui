@@ -51,29 +51,29 @@ User types prompt
 
 | # | Module | Folder | Status | Priority | Effort | Needs | Blocked-by |
 |---|--------|--------|--------|----------|--------|-------|-----------|
-| 01 | turn/loop | `turn/` | Pending | P0 | XL | 02,03 | — (first consumer) |
-| 02 | prompt_sending | `prompt_sending/` | Pending | P0 | M | 15 | 01 |
-| 03 | tool_service | `tool_service/` | Pending | P0 | L | — | — |
-| 04 | file_operations | `file_operations/` | Pending | P0 | M | — | 03 |
-| 05 | command_runner | `command_runner/` | Pending | P0 | L | — | 03 |
-| 06 | context | `context/` | Pending | P1 | L | 13,15 | 02 |
-| 07 | session_state | `session_state/` | Pending | P1 | M | — | 01 |
-| 08 | thinking_reasoning | `thinking_reasoning/` | Pending | P1 | S | 13 | 01 |
-| 09 | markdown_render | `markdown_render/` | Pending | P1 | M | — | 08 |
-| 10 | transport_event_contract | `transport_event_contract/` | Pending | P0 | M | — | 01,09 |
+| 01 | turn/loop | `turn/` | Interface-Locked | P0 | XL | 02,03 | — (first consumer) |
+| 02 | prompt_sending | `prompt_sending/` | Interface-Locked | P0 | M | 15 | 01 |
+| 03 | tool_service | `tool_service/` | Interface-Locked | P0 | L | — | — |
+| 04 | file_operations | `file_operations/` | Interface-Locked | P0 | M | — | 03 |
+| 05 | command_runner | `command_runner/` | Interface-Locked | P0 | L | — | 03 |
+| 06 | context | `context/` | Interface-Locked | P1 | L | 13,15 | 02 |
+| 07 | session_state | `session_state/` | Interface-Locked | P1 | M | — | 01 |
+| 08 | thinking_reasoning | `thinking_reasoning/` | Interface-Locked | P1 | S | 13 | 01 |
+| 09 | markdown_render | `markdown_render/` | Interface-Locked | P1 | M | — | 08 |
+| 10 | transport_event_contract | `transport_event_contract/` | Review | P0 | M | — | 01,09 |
 | 11 | subagents_orchestrator | `subagents_orchestrator/` | **OUT OF SCOPE** | — | — | — | — |
-| 12 | todo | `todo/` | Pending | P2 | S | — | 03 |
-| 13 | provider_layer | `provider_layer/` | Pending | P0 | L | — | — |
-| 14 | config_management | `config_management/` | Pending | P1 | M | — | — |
-| 15 | prompts | `prompts/` | Pending | P0 | M | 13 | — |
-| 16 | workspace_repo_map | `workspace_repo_map/` | Pending | P1 | L | — | 03 |
+| 12 | todo | `todo/` | Review | P2 | S | — | 03 |
+| 13 | provider_layer | `provider_layer/` | Interface-Locked | P0 | L | — | — |
+| 14 | config_management | `config_management/` | Interface-Locked | P1 | M | — | — |
+| 15 | prompts | `prompts/` | Interface-Locked | P0 | M | 13 | — |
+| 16 | workspace_repo_map | `workspace_repo_map/` | Interface-Locked | P1 | L | — | 03 |
 | 17 | skills | `skills/` | **OUT OF SCOPE** | — | — | — | — |
 | 18 | mcp | `mcp/` | **OUT OF SCOPE** | — | — | — | — |
 | 19 | lsp | `lsp/` | **OUT OF SCOPE** | — | — | — | — |
-| 20 | web_tools | `web_tools/` | Pending | P1 | M | — | 03 |
-| 21 | storage | `storage/` | Pending | P2 | M | — | 07 |
+| 20 | web_tools | `web_tools/` | Interface-Locked | P1 | M | — | 03 |
+| 21 | storage | `storage/` | In-Progress (Blocked) | P2 | M | — | 07 |
 | 22 | permissions | `permissions/` | **OUT OF SCOPE** | — | — | — | — |
-| 23 | toolkit_helpers | `toolkit_helpers/` | Pending | P1 | M | — | 03 |
+| 23 | toolkit_helpers | `toolkit_helpers/` | In-Progress (Blocked) | P1 | M | — | 03 |
 
 ### Parallel lanes (what can run concurrently)
 Agents may run these **lanes in parallel**; keep each module's files to its lane (see §4).
@@ -232,7 +232,7 @@ finish only after upstream is `Done`.
 |---|---|---|---|---|---|
 | 01 turn/loop | Jupiter | **Interface-Locked** | — | G1 PASS (3 new tests); G3 clean; G2 PASS (full suite green except pre-existing heavy-isolation failure) | P0 XL; Lane A; consumer of 02/03. LOCKED interface = `SimpleLoop.process_prompt(prompt, session_id, history, mode, skills_section, plan_context, model_override, repo_map) -> AsyncIterator[Event]` (mirrors AgentLoop; emergent stop / tool-then-stop / DOOM_LOOP guard; reuses context/stream/exec/compaction). New `server/agents/simple_loop.py` + module-01 constants block (additive-only). 02/10/14 may code against it. Old AgentLoop + removals (guidance/salvage/loop-detect/manifest/validation/provider_adapters) deferred to Phase 3. Pre-existing heavy-isolation test failure tracked (module-01 owned, old AgentLoop) |
 | 02 prompt_sending | Jupiter | **Interface-Locked** | — | G1 PASS (6 new tests); G3 clean; J1 wiring PASS (25 tests in test_prompt_overrides.py incl. new TestLoopWiring); J1 regression fix PASS (test_token_usage_occupancy + test_event_bus_wiring green) | P0 M; needs 15 (done) + 01 (locked). LOCKED interface = `server/agents/prompt_path.py` (`PromptPath.send(content, session_id, history, mode, skills_section, plan_context, model_override, repo_map, attachments) -> AsyncIterator[Event]`) + `resolve_user_parts` (resolves text/file/folder/inline/agent/MCP parts at prompt time) + `build_clean_system_context` (module-15 tagged surface). Single path, no delegation branching. Legacy PromptExecutor + 3-way delegation branch removal deferred to Phase 3. **J1 (Phase-2, swap inner loop only):** PromptExecutor._execute now builds module-01 `SimpleLoop` and wraps its stream in module-10 `iter_client_events`; persistence/delegation/terminal-sequencing preserved; TUI unaffected (verified by TestLoopWiring). Full `PromptPath.send` entry-point swap deferred. **J1-regression fixes:** two tests that relied on `prompt_executor.RecoverableAgentLoop` (which J1 removed from that module) updated to patch the new `prompt_executor.SimpleLoop` — `test_token_usage_occupancy.py` (token-recording path) + `test_event_bus_wiring.py` (C-F02 summarized-before-terminal ordering) both green |
-| 03 tool_service | Mars | Interface-Locked | — (LOCK on server/toolkit/base.py released) | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P0 L; Lane B; foundational; additive ToolDef + InvalidToolArgumentsError + decode_parameters + truncate_output + ToolDefResult/run_tool_def (resolve helper) in base.py; REMOVE router/resolver/taxonomy/middleware in Phase 3 (see report + feature Decision note) |
+| 03 tool_service | Mars | Interface-Locked | — (LOCK on server/toolkit/base.py released) | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P0 L; Lane B; foundational; additive ToolDef + InvalidToolArgumentsError + decode_parameters + truncate_output + ToolDefResult/run_tool_def (resolve helper) in base.py; **`router.py` (IntentRouter) already DELETED** (see git; no dangling refs, suite green); resolver/taxonomy/middleware removal still deferred to Phase 3 (see report + feature Decision note) |
 | 04 file_operations | Mars | Interface-Locked | — | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P0 M; additive FileMutationQueue (per-workspace serial) in tools/file_mutation_queue.py; fuzzy/read-cache/replay-block/heavy-output/multi_edit removals + queue wiring deferred to Phase 3/2 (see report) |
 | 05 command_runner | Mars | Interface-Locked | — | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P0 L; additive ShellStreamEvent + run_shell_command_streamed (live chunk streaming + wait-for-completion) in shell_runner.py; buffered _execute_sync/background/job_output/BASH_FALSE_SUCCESS_PATTERNS removal deferred to Phase 2/3 (see report) |
 | 06 context | Mars | Interface-Locked | — | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P1 L; additive ContextFragment/RenderedFragment/ContentKind/tagged_fragment in context.py (codex slots); 5-tier scoring/MODE_BUDGET_PROFILES/SESSION_STATE/running-summary removals deferred to Phase 3 (see report) |
@@ -241,7 +241,7 @@ finish only after upstream is `Done`.
 | 09 markdown_render | Mars | Interface-Locked | — | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P1 M; additive ContentPart/PartKind + part factories + render_parts_text + parts_message (data.parts on MESSAGE kind, data.text fallback) in responder.py; MAX_EVENT_OUTPUT preview + invented-kind removal deferred to Phase 3 (see report) |
 | 10 transport_event_contract | Jupiter | Review | — | G1 PASS (12 new tests in test_event_adapter.py); G3 clean; G5 PASS (additive, TUI kinds untouched); G6 PASS; **Phase-2 wiring PASS (J1 swap inner loop: 25 test_prompt_overrides + adapter tests green; ruff clean on prompt_executor + test)** | P0 M; needs 01,09 (both Interface-Locked). Phase-1 additive DONE: `server/api/event_adapter.py` — `adapt_part`/`adapt_parts`/`iter_client_events` map module-09 `ContentPart` (text/reasoning/tool_call/tool_result/error) onto TUI `EventKind`s (message/thinking/tool_call/tool_result/error), full truncated tool output (no 5K preview). LOCKED interface = `iter_client_events(AsyncIterator[Event]) -> AsyncIterator[Event]` (fan-out of `data.parts`). **Phase-2 DONE (Jupiter J1):** `iter_client_events` now consumed in `server/agents/prompt_executor.py` around the module-01 `SimpleLoop.process_prompt` stream (swap-inner-loop lane). Because SimpleLoop emits no `data.parts` yet, the adapter is a faithful pass-through today; it becomes the forward-compatible boundary for Phase-3 part re-expression. Invented-kind removal deferred to Phase 3 (see feature doc REMOVE note) |
 | 12 todo | Jupiter | Review | — | G1:G6:G8 PASS | Lane D; plain checklist tool (write/list/remove); simplified store; tests updated |
-| 13 provider_layer | **Mars** | Interface-Locked | — | G1:G3:G4:G5:G6:G7 PASS; G2 targeted-PASS (full suite slow) | Lane C; P0; additive: ModelCapabilities + model_capabilities_from_catalog + reasoning_effort knob + provider.capabilities; REMOVES deferred to Phase 3 (see feature Decision note + report) |
+| 13 provider_layer | **Mars** | Interface-Locked | — | G1:G3:G4:G5:G6:G7 PASS; G2 targeted-PASS (full suite slow) | Lane C; P0; additive: ModelCapabilities + model_capabilities_from_catalog + reasoning_effort knob + provider.capabilities; **`provider_adapters.py` (detect_model_tier/get_tier_prompt_enhancements) already DELETED** (see git; no dangling refs, suite green); remaining REMOVES (parser.py/sampling_kwargs/validation taxonomy/api-validation) deferred to Phase 3 (see feature Decision note + report) |
 | 14 config_management | Jupiter | **Interface-Locked** | — | G1 PASS (13 tests); G3 clean | Lane D; Phase 1 additive: layered precedence defaults→file→env→CLI documented in settings.py/loader.py + 5 precedence tests in test_config.py. **Removals (constants redistribution + 4-mode toolscape + CREWMATE mode) deferred to Phase 3** per §11 protocol — requires coordinated batch-edit of CCS file constants.py and changes to resolver.py (03), handlers.py (10), loop.py (01), prompt_executor.py (02) with all consumers locked. |
 | 15 prompts | Mars | Interface-Locked | — | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P0 M; additive editable templates (build.md/plan.md) + load_prompt_template + PromptSection/compose_system_context/default_template_sections in prompts.py; hardcoded constants + tier-injection removal deferred to Phase 3 (see report) |
 | 16 workspace_repo_map | Mars | Interface-Locked | — | G1:G3:G4:G5:G6:G7:G8 PASS; G2 targeted-PASS | P1 L; additive RipgrepBackend / SearchMatch / grep / glob in workspace/search.py (ripgrep-backed glob/grep + native ignore; tree-sitter repo-map/code-graph removal deferred to Phase 3/2 (see report)) |
