@@ -14,7 +14,7 @@ from server.config.constants import (
     LATENCY_CLASS_HIGH,
     PERMISSION_NETWORK,
     RISK_LOW,
-    TOOL_DOMAIN_WEB_MCP,
+    TOOL_DOMAIN_WEB,
     WEBSEARCH_TIMEOUT_ENV,
 )
 from server.config.env import optional_int
@@ -35,7 +35,7 @@ class WebsearchTool(BaseTool):
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
     permission_scope = PERMISSION_NETWORK
-    domains = (TOOL_DOMAIN_WEB_MCP,)
+    domains = (TOOL_DOMAIN_WEB,)
     search_terms = (
         "web",
         "search",

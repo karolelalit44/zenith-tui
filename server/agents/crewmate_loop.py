@@ -1,16 +1,12 @@
 from __future__ import annotations
-
 import logging
 from collections.abc import AsyncIterator
-
 from server.config.constants import BUILD_MODE
 from server.config.settings import AGENT_MODES, AppSettings
-from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.providers.base import BaseProvider
 from server.toolkit.registry import ToolRegistry
-
 from .context import ContextManager
 from .recovery import RecoverableAgentLoop
 
@@ -111,11 +107,10 @@ class CrewmateLoop:
                 mode=parent.mode,
                 parent_session_id=parent_id,
                 workspace_root=parent.workspace_root,
-                state=SessionState.CREATED,
                 provider=parent.provider,
                 model=parent.model,
             )
-            child.transition(SessionState.ACTIVE)
+            child.mark_busy()
             created = await self._session_repo.create(child)
             parent.add_child(created.id)
             await self._session_repo.update(parent)

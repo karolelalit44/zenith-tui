@@ -1,14 +1,13 @@
-"""Integration/regression tests: PromptExecutor delegation route.
+"""Integration/regression tests: PromptExecutor normal prompt path.
 
-Pins three behaviors:
-1. a capability-matching prompt routes through CaptainOrchestrator;
-2. a non-matching prompt falls through to the normal agent loop unchanged;
-3. the plan->build CrewmateLoop handoff is byte-for-byte unaffected — and
-   survives its early-return `finally` block (the UnboundLocalError fix).
+Pins the live contract after the delegation fork was removed:
+1. capability-like prompts stay on the normal prompt path;
+2. the governance knob no longer changes the prompt path;
+3. repeated prompts still execute normally without caching delegation state.
 """
 
-from datetime import datetime
 import json
+from datetime import datetime
 
 import pytest
 
@@ -17,7 +16,6 @@ from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.domain.session import Session
 from server.providers.base import BaseProvider
-from server.skills.loader import SkillLoader
 from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.toolkit import create_default_registry
 
@@ -126,7 +124,6 @@ def executor(test_config, storage_home):
         create_default_registry(),
         session_repo,
         message_repo,
-        SkillLoader(str(test_config.workspace_root)),
     )
     ex._session_repo = session_repo
     ex._message_repo = message_repo
@@ -141,29 +138,24 @@ def workspace(temp_dir):
 
 class TestDelegationRoute:
     @pytest.mark.asyncio
-    async def test_matching_prompt_routes_to_crewmate(self, executor, workspace):
+    async def test_matching_prompt_stays_on_normal_loop(self, executor, workspace):
         session = await executor._session_repo.create(Session(title="routed"))
         manager = _FakeManager()
         await executor._execute(session.id, DEMO_PROMPT, "build", None, manager)
         await executor._summary_scheduler.drain()
 
         kinds = [e.kind for e in manager.events]
-        assert EventKind.CAPTAIN_ORCHESTRATION in kinds
-        assert EventKind.CREWMATE_SPAWNED in kinds
-        # C-F02 ordering: the executor holds back nothing on this path — our
-        # success is followed by the end-of-run SESSION_SUMMARIZED snapshot.
+        assert EventKind.CAPTAIN_ORCHESTRATION not in kinds
+        assert EventKind.CREWMATE_SPAWNED not in kinds
         assert EventKind.SUCCESS in kinds
         assert EventKind.SESSION_SUMMARIZED in kinds
 
-        # result summary becomes the persisted assistant response text
         messages = await executor._message_repo.get_by_session(session.id)
-        assert any(m.role == "assistant" and "SessionRepository" in m.content for m in messages)
+        assert any(m.role == "assistant" for m in messages)
 
     @pytest.mark.asyncio
-    async def test_governance_off_disables_pre_loop_route(
-        self, test_config, storage_home, workspace
-    ):
-        """WP5 D3: explore_delegation='off' skips the Captain route entirely."""
+    async def test_governance_off_keeps_normal_path(self, test_config, storage_home, workspace):
+        """The delegation setting no longer changes the prompt path."""
         config = test_config.model_copy(update={"explore_delegation": "off"})
         session_repo = FileSessionRepository(storage_home)
         message_repo = FileMessageRepository(storage_home)
@@ -173,7 +165,6 @@ class TestDelegationRoute:
             create_default_registry(),
             session_repo,
             message_repo,
-            SkillLoader(str(config.workspace_root)),
         )
         ex._session_repo = session_repo
         ex._message_repo = message_repo
@@ -186,10 +177,10 @@ class TestDelegationRoute:
         kinds = [e.kind for e in manager.events]
         assert EventKind.CAPTAIN_ORCHESTRATION not in kinds
         assert EventKind.CREWMATE_SPAWNED not in kinds
-        assert EventKind.SUCCESS in kinds, "prompt falls through to the normal loop"
+        assert EventKind.SUCCESS in kinds, "prompt stays on the normal loop"
 
     @pytest.mark.asyncio
-    async def test_matching_prompt_is_cached_on_second_send(self, executor, workspace):
+    async def test_matching_prompt_runs_again_on_second_send(self, executor, workspace):
         session = await executor._session_repo.create(Session(title="cached"))
         first_manager = _FakeManager()
         await executor._execute(session.id, DEMO_PROMPT, "build", None, first_manager)
@@ -199,10 +190,11 @@ class TestDelegationRoute:
         second_manager = _FakeManager()
         await executor._execute(session.id, DEMO_PROMPT, "build", None, second_manager)
         await executor._summary_scheduler.drain()
-        assert executor._provider.call_count == calls_after_first
+        assert executor._provider.call_count > calls_after_first
         kinds = [e.kind for e in second_manager.events]
-        assert EventKind.CAPTAIN_ORCHESTRATION in kinds
+        assert EventKind.CAPTAIN_ORCHESTRATION not in kinds
         assert EventKind.CREWMATE_SPAWNED not in kinds
+        assert EventKind.SUCCESS in kinds
 
 
 class TestNormalLoopFallthrough:

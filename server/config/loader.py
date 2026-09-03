@@ -2,8 +2,7 @@
 
 Precedence (highest wins):
   1. CLI / constructor overrides  — passed directly to ``AppSettings(...)``.
-  2. environment variables        — ``ZENITH_*`` scalars plus ``ZENITH_MCP_SERVERS``
-                                   and ``ZENITH_HOOKS`` JSON.
+  2. environment variables        — ``ZENITH_*`` scalars plus ``ZENITH_HOOKS`` JSON.
   3. config file (storage)        — provider/model catalog + ``user_profile.json``
                                    (active provider, api keys, per-provider settings).
   4. code defaults                — ``AppSettings.field_defaults`` / ``constants.py``.
@@ -21,6 +20,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from .settings import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ _validated_once = False
 
 
 def _load_catalog():
-    from server.storage.catalog_compat import load_catalog
+    from server.storage import load_catalog
 
     return load_catalog()
 
@@ -62,9 +62,78 @@ def parse_hooks_env(raw: str) -> dict | None:
     return hooks or None
 
 
+def _environment_overrides() -> dict:
+    """Return validated runtime scalar overrides from the current environment."""
+    data: dict = {}
+    string_fields = {
+        "ZENITH_LOG_LEVEL": "log_level",
+        "ZENITH_EXPLORE_DELEGATION": "explore_delegation",
+    }
+    list_fields = {
+        "ZENITH_ALLOWED_WS_ORIGINS": "allowed_ws_origins",
+    }
+    integer_fields = {
+        "ZENITH_MAX_CONTEXT_TOKENS": "max_context_tokens",
+        "ZENITH_EXPLORE_TOKEN_BUDGET": "explore_token_budget",
+    }
+    float_fields = {
+        "ZENITH_SUMMARY_THRESHOLD": "summary_threshold",
+        "ZENITH_CONTEXT_COMPACTION_THRESHOLD": "context_compaction_threshold",
+    }
+    boolean_fields = {
+        "ZENITH_ALLOW_EMPTY_WS_ORIGIN": "allow_empty_ws_origin",
+        "ZENITH_ASYNC_SUMMARY_ENABLED": "async_summary_enabled",
+    }
+
+    for env_name, field_name in string_fields.items():
+        raw = os.environ.get(env_name, "").strip()
+        if raw:
+            data[field_name] = raw
+    for env_name, field_name in list_fields.items():
+        raw = os.environ.get(env_name, "").strip()
+        if raw:
+            values = [item.strip() for item in raw.split(",") if item.strip()]
+            if values:
+                data[field_name] = values
+    for env_name, field_name in integer_fields.items():
+        raw = os.environ.get(env_name, "").strip()
+        if not raw:
+            continue
+        try:
+            data[field_name] = int(raw)
+        except ValueError:
+            logger.warning("Invalid %s value %r - ignored", env_name, raw)
+    for env_name, field_name in float_fields.items():
+        raw = os.environ.get(env_name, "").strip()
+        if not raw:
+            continue
+        try:
+            data[field_name] = float(raw)
+        except ValueError:
+            logger.warning("Invalid %s value %r - ignored", env_name, raw)
+    for env_name, field_name in boolean_fields.items():
+        raw = os.environ.get(env_name, "").strip().lower()
+        if not raw:
+            continue
+        if raw in {"1", "true", "yes", "on"}:
+            data[field_name] = True
+        elif raw in {"0", "false", "no", "off"}:
+            data[field_name] = False
+        else:
+            logger.warning("Invalid %s value %r - ignored", env_name, raw)
+
+    bash_timeout = os.environ.get("ZENITH_BASH_TIMEOUT", "").strip()
+    if bash_timeout:
+        try:
+            data["tools"] = {"max_bash_timeout": int(bash_timeout)}
+        except ValueError:
+            logger.warning("Invalid ZENITH_BASH_TIMEOUT value %r - ignored", bash_timeout)
+    return data
+
+
 def load_config(workspace_root: str = ".") -> AppSettings:
     load_dotenv()
-    data: dict = {}
+    data: dict = {"workspace_root": workspace_root}
 
     from server.storage import StorageHome, ensure_materialized, resolve_home
     from server.storage.provider_config import read_active_provider, read_providers
@@ -93,8 +162,8 @@ def load_config(workspace_root: str = ".") -> AppSettings:
                 "api_key": "",
                 "model": "",
                 "base_url": p_info.get("base_url"),
-                "max_tokens": 4096,
-                "temperature": 0.7,
+                "max_tokens": DEFAULT_LLM_MAX_TOKENS,
+                "temperature": DEFAULT_LLM_TEMPERATURE,
                 "is_active": pid == data.get("active_provider"),
             }
             providers_dict[pid] = entry
@@ -104,46 +173,12 @@ def load_config(workspace_root: str = ".") -> AppSettings:
                 entry["base_url"] = p_info.get("base_url")
 
     data["providers"] = providers_dict
-    mcp_raw = os.environ.get("ZENITH_MCP_SERVERS", "").strip()
-    if mcp_raw:
-        try:
-            parsed = json.loads(mcp_raw)
-            mcp_servers: dict[str, dict] = {}
-            for name, cfg in parsed.items():
-                if isinstance(cfg, dict) and cfg.get("command"):
-                    mcp_servers[str(name)] = {
-                        "command": str(cfg["command"]),
-                        "args": list(cfg.get("args") or []),
-                        "env": dict(cfg.get("env") or {}),
-                    }
-                else:
-                    logger.warning(
-                        "MCP config: skipping invalid server '%s' (missing command)", name
-                    )
-            if mcp_servers:
-                data["mcp_servers"] = mcp_servers
-        except json.JSONDecodeError as e:
-            logger.warning("Invalid ZENITH_MCP_SERVERS JSON — MCP servers disabled: %s", e)
+    data.update(_environment_overrides())
     hooks_raw = os.environ.get("ZENITH_HOOKS", "").strip()
     if hooks_raw:
         hooks_cfg = parse_hooks_env(hooks_raw)
         if hooks_cfg:
             data["hooks"] = hooks_cfg
-    compaction_raw = os.environ.get("ZENITH_CONTEXT_COMPACTION_THRESHOLD", "").strip()
-    if compaction_raw:
-        try:
-            val = float(compaction_raw)
-            if 0.0 <= val <= 1.0:
-                data["context_compaction_threshold"] = val
-            else:
-                logger.warning(
-                    "ZENITH_CONTEXT_COMPACTION_THRESHOLD must be in [0,1], got %r — ignored",
-                    compaction_raw,
-                )
-        except ValueError:
-            logger.warning(
-                "Invalid ZENITH_CONTEXT_COMPACTION_THRESHOLD %r — ignored", compaction_raw
-            )
     settings = AppSettings(**data)
     _validate_config(settings)
     return settings

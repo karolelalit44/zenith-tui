@@ -7,8 +7,7 @@ from server.api.provider_validation import (
 from server.api.schemas import ProviderModelRequest
 from server.config.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from server.providers.validation import STEP_LABELS, validate_provider, validate_provider_collect
-from server.storage import StorageHome, ensure_materialized
-from server.storage.catalog_compat import load_catalog
+from server.storage import StorageHome, ensure_materialized, load_catalog
 from server.storage.profile_store import mask_api_key
 from server.storage.provider_config import read_provider_config_full, save_provider_config
 
@@ -55,8 +54,8 @@ def test_read_provider_config_full_masks_key(tmp_path):
 def test_first_class_roster(tmp_path):
     result = get_provider_list(_home(tmp_path))
     ids = [p.id for p in result.all]
-    # Decision D3: exactly four first-class providers.
-    assert sorted(ids) == ["gemini", "groq", "openai_compatible", "openrouter"]
+    # Decision D3: exactly five builtin first-class providers.
+    assert sorted(ids) == ["gemini", "groq", "local_llm", "openai_compatible", "openrouter"]
     assert result.connected == []
     groq = next(p for p in result.all if p.id == "groq")
     assert groq.validation_status == "unconfigured"
@@ -106,6 +105,19 @@ def test_get_provider_models_unknown_empty(tmp_path):
     res = get_provider_models("nonexistent", home=_home(tmp_path))
     assert res.total == 0
     assert res.models == []
+
+
+def test_gemini_38_flash_model_present(tmp_path):
+    home = _home(tmp_path)
+    res = get_provider_models("gemini", offset=0, limit=100, home=home)
+    m38 = next((m for m in res.models if m.id == "gemini-3.8-flash"), None)
+    assert m38 is not None
+    assert m38.name == "Gemini 3.8 Flash"
+    assert m38.context_window == 1048576
+    assert m38.max_output_tokens == 65536
+    assert m38.model_capabilities.get("thinking") is True
+    assert m38.model_capabilities.get("function_calling") is True
+    assert m38.model_capabilities.get("supports_temperature") is False
 
 
 def test_get_provider_list_after_auth_and_model(tmp_path):
@@ -180,7 +192,7 @@ async def test_validate_unknown_provider():
 async def test_validate_missing_base_url(tmp_path, monkeypatch):
     import copy
 
-    from server.storage.catalog_compat import invalidate_catalog_cache
+    from server.storage import invalidate_catalog_cache
 
     home = _home(tmp_path)
 

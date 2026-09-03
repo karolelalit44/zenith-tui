@@ -65,19 +65,15 @@ def test_reasoning_only_turn_does_not_leak_as_assistant_content():
     events = _collect_events(provider)
 
     # Reasoning is surfaced as private `thinking` events, never as `message`.
-    # Streaming contract: throttled partial events, then ONE final non-partial
-    # event carrying the complete text and the measured duration.
+    # The stream now emits only the final merged event.
     kinds = {ev.kind for ev in events}
     assert kinds == {EventKind.THINKING}, kinds
     thinking_events = [ev for ev in events if ev.kind is EventKind.THINKING]
-    partials = [ev for ev in thinking_events if ev.data.get("partial") is True]
     finals = [ev for ev in thinking_events if ev.data.get("partial") is not True]
     assert len(finals) == 1
     final_event = finals[0]
     assert final_event.data["text"] == "x" * 300
     assert isinstance(final_event.data.get("duration"), int)
-    for pev in partials:
-        assert final_event.data["text"].startswith(pev.data["text"])
 
     # No assistant content is fabricated from chain-of-thought.
     message_events = [ev for ev in events if ev.kind is EventKind.MESSAGE]

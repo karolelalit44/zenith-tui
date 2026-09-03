@@ -24,10 +24,8 @@ from .constants import (
     PLAN_MODE,
     READ_ONLY_MODE,
     READ_ONLY_TOOLS,
-    CREWMATE_GRAPH_TOOLS,
-    CREWMATE_MODE,
 )
-from .env import optional_env, optional_float, optional_int, optional_int_none
+from .env import optional_env, optional_float, optional_int
 from .providers import ProviderConfig
 
 
@@ -52,19 +50,16 @@ CORE_PLAN_TOOLS = [
 class AgentModeConfig:
     name: str
     allowed_tools: list[str] | None = None
-    allowed_mcp: dict[str, list[str]] | None = None
     description: str = ""
     model_override: str | None = None
-    crewmate: bool = False
     tool_choice: str = "auto"
+    crewmate: bool = False
 
 
 PLAN_MODE_CONFIG = AgentModeConfig(
     name=PLAN_MODE,
     allowed_tools=CORE_PLAN_TOOLS,
-    allowed_mcp={},
     description="Read-only analysis and planning with core tools and dynamic escalation.",
-    crewmate=False,
 )
 # Always-offered schemas. Web research tools stay registered and are promoted on
 # demand (get_tool_definition or a direct call auto-escalates), so a pure code
@@ -73,38 +68,20 @@ CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "gre
 BUILD_MODE_CONFIG = AgentModeConfig(
     name=BUILD_MODE,
     allowed_tools=CORE_BUILD_TOOLS,
-    allowed_mcp=None,
     description="Full execution with core tools and dynamic schema escalation.",
-    crewmate=True,
     tool_choice="auto",
+    crewmate=True,
 )
 READ_ONLY_MODE_CONFIG = AgentModeConfig(
     name=READ_ONLY_MODE,
     allowed_tools=READ_ONLY_TOOLS,
-    allowed_mcp={},
     description="Pure read-only investigation: no file-mutation tools attached.",
-    crewmate=False,
     tool_choice="none",
-)
-CREWMATE_MODE_CONFIG = AgentModeConfig(
-    name=CREWMATE_MODE,
-    # WP6: structural query family rides along with the read tools so crewmates
-    # answer relational questions in one call instead of grep-hop chains.
-    allowed_tools=[*READ_ONLY_TOOLS, *CREWMATE_GRAPH_TOOLS],
-    allowed_mcp={},
-    description=(
-        "Read-only codebase investigation for delegated specialist agents "
-        "(Apogee crewmate): evidence-gathering with structural symbol queries; "
-        "no mutation or delegation."
-    ),
-    crewmate=False,
-    tool_choice="auto",
 )
 AGENT_MODES: dict[str, AgentModeConfig] = {
     PLAN_MODE: PLAN_MODE_CONFIG,
     BUILD_MODE: BUILD_MODE_CONFIG,
     READ_ONLY_MODE: READ_ONLY_MODE_CONFIG,
-    CREWMATE_MODE: CREWMATE_MODE_CONFIG,
 }
 
 
@@ -114,12 +91,6 @@ class ToolConfig(BaseModel):
     file_edit_enabled: bool = True
     file_delete_enabled: bool = True
     max_bash_timeout: int = Field(default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300)
-
-
-class McpServerConfig(BaseModel):
-    command: str
-    args: list[str] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
 
 
 class HooksConfig(BaseModel):
@@ -193,21 +164,21 @@ class AppSettings(BaseModel):
         ge=1_000,
         description="Aggregate token ceiling across explore children per rolling window",
     )
-    repo_map_enabled: bool = True
-    repo_map_tokens: int | None = Field(
-        default=optional_int_none("ZENITH_REPO_MAP_TOKENS"),
-        ge=256,
-        le=32000,
-        description="Token budget for the repo map. None = auto (context/8, clamped to 1024-4096)",
+    allowed_ws_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost", "https://localhost", "http://127.0.0.1", "https://127.0.0.1"],
+        description="Allowed WebSocket Origin values. Scheme, host, and optional port are matched exactly.",
     )
-    async_summary_enabled: bool = True
-    mcp_servers: dict[str, McpServerConfig] = Field(
-        default_factory=dict,
-        description="MCP servers: {name: McpServerConfig}. Loaded from ZENITH_MCP_SERVERS (JSON).",
+    allow_empty_ws_origin: bool = Field(
+        default=True,
+        description="Allow WebSocket clients that do not send an Origin header, such as the local TUI.",
     )
     hooks: HooksConfig = Field(
         default_factory=HooksConfig,
         description="Lifecycle hooks (PreToolUse/PostToolUse/SessionStart). Loaded from ZENITH_HOOKS (JSON).",
+    )
+    async_summary_enabled: bool = Field(
+        default=True,
+        description="Schedule background running summaries for completed turns",
     )
 
     @field_validator("active_provider")

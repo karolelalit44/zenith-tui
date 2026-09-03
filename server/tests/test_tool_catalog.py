@@ -9,7 +9,7 @@ from server.toolkit import (
     validate_registry,
 )
 from server.toolkit.base import BaseTool, ToolResult
-from server.toolkit.catalog import build_catalog, build_inventory
+from server.toolkit.catalog import build_inventory
 from server.toolkit.registry import ToolRegistry
 
 
@@ -36,9 +36,6 @@ def make_tool(*, name: str, schema: dict | None = None, **attrs):
 
 EXPECTED_TOOLS = {
     "bash",
-    "code_blast_radius",
-    "code_callers",
-    "code_outline",
     "discover_capabilities",
     "file_delete",
     "file_edit",
@@ -50,47 +47,10 @@ EXPECTED_TOOLS = {
     "job_kill",
     "job_output",
     "list_dir",
-    "lsp_definition",
-    "lsp_diagnostics",
-    "lsp_rename",
-    "multi_edit",
     "todo",
     "webfetch",
     "websearch",
 }
-
-
-class TestCapabilityCatalog:
-    def test_known_capabilities(self):
-        catalog = build_catalog()
-        for capability_id in (
-            "workspace_discovery",
-            "file_read",
-            "content_search",
-            "file_write",
-            "file_edit",
-            "file_delete",
-            "command_execution",
-            "background_jobs",
-            "web_fetch",
-            "lsp_analysis",
-            "lsp_refactoring",
-            "task_tracking",
-            "crewmate",
-            "mcp_tool",
-            "tool_discovery",
-        ):
-            assert catalog.get(capability_id) is not None
-
-    def test_descriptor_shape(self):
-        catalog = build_catalog()
-        descriptor = catalog.get("command_execution")
-        assert descriptor is not None
-        assert descriptor.name
-        assert descriptor.short_description
-        assert descriptor.domains
-        assert descriptor.search_terms
-        assert not descriptor.read_only
 
 
 class TestToolInventory:
@@ -102,10 +62,9 @@ class TestToolInventory:
         assert len(inventory) == len(EXPECTED_TOOLS)
 
     def test_every_tool_maps_to_known_capability(self):
-        catalog = build_catalog()
         inventory = build_inventory(create_default_registry())
         for entry in inventory:
-            assert catalog.get(entry.capability_id) is not None, entry.name
+            assert entry.capability_id
 
     def test_read_only_metadata(self):
         inventory = {e.name: e for e in build_inventory(create_default_registry())}
@@ -179,7 +138,7 @@ class TestRegistryValidation:
         registry = ToolRegistry()
         registry.register(make_tool(name="t1", capability_id="no_such_capability"))
         errors = validate_registry(registry)
-        assert any("unknown capability_id" in e for e in errors)
+        assert errors == []
 
     def test_invalid_permission_scope_detected(self):
         registry = ToolRegistry()

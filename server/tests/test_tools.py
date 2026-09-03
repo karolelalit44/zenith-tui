@@ -156,8 +156,6 @@ BUILD_ONLY_TOOLS = [
     "bash",
     "job_kill",
     "file_delete",
-    "multi_edit",
-    "lsp_rename",
 ]
 
 # Task tracking is deliberately available in plan mode (QA-5.6) so the agent
@@ -197,10 +195,13 @@ class TestModeGating:
     @pytest.mark.asyncio
     async def test_plan_mode_execution_rejects_leaked_tools(self):
         reg = create_default_registry()
-        for name in ("bash", "job_kill", "file_delete", "multi_edit"):
+        for name in ("bash", "job_kill", "file_delete"):
             result = await reg.execute(name, {"command": "echo hi"}, ".", mode="plan")
             assert not result.success
             assert "not available" in result.error
+        result = await reg.execute("multi_edit", {"command": "echo hi"}, ".", mode="plan")
+        assert not result.success
+        assert "Unknown tool" in result.error
 
     @pytest.mark.asyncio
     async def test_plan_mode_execution_allows_tracking_tools(self):
@@ -218,8 +219,6 @@ class TestReadOnlyModeGating:
         "bash",
         "todo",
         "job_kill",
-        "multi_edit",
-        "lsp_rename",
     ]
 
     def test_read_only_mode_schemas_exclude_all_mutation_tools(self):
@@ -228,7 +227,6 @@ class TestReadOnlyModeGating:
 
         schemas = reg.get_schemas_for_mode(
             "read_only",
-            allowed_mcp={},
             allowed_tools=READ_ONLY_MODE_CONFIG.allowed_tools,
         )
         schema_names = {s["name"] for s in schemas}
@@ -241,7 +239,6 @@ class TestReadOnlyModeGating:
 
         schemas = reg.get_schemas_for_mode(
             "read_only",
-            allowed_mcp={},
             allowed_tools=READ_ONLY_MODE_CONFIG.allowed_tools,
         )
         schema_names = {s["name"] for s in schemas}
@@ -459,19 +456,15 @@ class TestBackgroundJobs:
         assert "bg-done" in output
 
     @pytest.mark.asyncio
-    async def test_auto_backgrounded_command_adopts_running_process(self, temp_dir):
-        tool = BashTool(auto_background_after=1)
+    async def test_foreground_command_runs_without_background_fallback(self, temp_dir):
+        tool = BashTool()
         start = time.monotonic()
         result = await tool.execute({"command": _slow_command(temp_dir, "auto-bg")}, str(temp_dir))
-        assert result.metadata.get("background") is True, "should auto-background"
         assert result.success
-        job_id = result.metadata.get("job_id")
-        assert job_id
+        assert result.metadata.get("background") is not True
+        assert "auto-bg" in result.output
         elapsed = time.monotonic() - start
-        assert elapsed < 5, f"auto-background returned too slowly: {elapsed:.1f}s"
-        output = await _wait_for_job(get_background_manager(), job_id, "auto-bg")
-        assert output is not None, "adopted background job never completed"
-        assert "auto-bg" in output
+        assert elapsed < 5, f"foreground command returned too slowly: {elapsed:.1f}s"
 
 
 class TestFileReadTool:
@@ -574,10 +567,7 @@ class TestFileEditTool:
         assert "not found" in result.error
 
     @pytest.mark.asyncio
-    async def test_edit_fuzzy_match_with_small_and_large_blocks(self, temp_dir):
-        # _fuzzy_find operates on line windows of old_content; the fuzzy
-        # fallback must trigger the same way for short and long blocks
-        # (regression for the collapsed duplicate branch).
+    async def test_edit_near_miss_requires_exact_match(self, temp_dir):
         (temp_dir / "fuzz.txt").write_text(
             "def original_function(arg):\n"
             "    return arg * 2\n\n"
@@ -585,8 +575,6 @@ class TestFileEditTool:
             "    print(original_function(21))\n"
         )
         tool = FileEditTool()
-        # A near-miss two-line block (whitespace/typo deviation) not present
-        # verbatim, so the exact-match fast path is skipped.
         result = await tool.execute(
             {
                 "path": "fuzz.txt",
@@ -595,8 +583,8 @@ class TestFileEditTool:
             },
             str(temp_dir),
         )
-        assert result.success
-        assert result.metadata["match"] == "fuzzy"
+        assert not result.success
+        assert "exact match only" in result.error
 
 
 class TestFileDeleteTool:
@@ -628,43 +616,6 @@ class TestFileDeleteTool:
         assert not sub.exists(), "directory tree must be removed"
         assert result.metadata.get("directory") is True
         assert result.metadata.get("entries", 0) == 3
-
-
-class TestBraceExpansion:
-    def test_no_braces_passthrough(self):
-        from server.toolkit.brace_expand import expand_braces
-
-        assert expand_braces("**/*.py") == ["**/*.py"]
-
-    def test_single_group(self):
-        from server.toolkit.brace_expand import expand_braces
-
-        assert expand_braces("*.{py,ts}") == ["*.py", "*.ts"]
-
-    def test_multiple_groups_cartesian(self):
-        from server.toolkit.brace_expand import expand_braces
-
-        assert expand_braces("src/{a,b}/**/*.{py,ts}") == [
-            "src/a/**/*.py",
-            "src/a/**/*.ts",
-            "src/b/**/*.py",
-            "src/b/**/*.ts",
-        ]
-
-    def test_nested_groups(self):
-        from server.toolkit.brace_expand import expand_braces
-
-        assert expand_braces("{a,{b,c}}.py") == ["a.py", "b.py", "c.py"]
-
-    def test_unbalanced_braces_passthrough(self):
-        from server.toolkit.brace_expand import expand_braces
-
-        assert expand_braces("{broken.py") == ["{broken.py"]
-
-    def test_dedupe_overlapping(self):
-        from server.toolkit.brace_expand import expand_braces
-
-        assert expand_braces("{a,a}.py") == ["a.py"]
 
 
 class TestGlobTool:
@@ -825,16 +776,13 @@ class TestDefaultRegistry:
         assert "job_output" in tools
         assert "job_kill" in tools
         assert "list_dir" in tools
-        assert "multi_edit" in tools
+        assert "multi_edit" not in tools
         assert "todo" in tools
-        assert "lsp_diagnostics" in tools
-        assert "lsp_definition" in tools
-        assert "lsp_rename" in tools
         # WP5 D7: legacy write-capable agent tool removed; explore is the
         # delegation surface and requires an injected config.
         assert "agent" not in tools
         assert "explore" not in tools
-        assert len(tools) == 22
+        assert len(tools) == 15
         assert "discover_capabilities" in tools
         assert "get_tool_definition" in tools
-        assert len(tools) == 22
+        assert len(tools) == 15

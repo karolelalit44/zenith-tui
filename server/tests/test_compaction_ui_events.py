@@ -133,8 +133,8 @@ class TestCompactionUIEvents:
         assert warning_events[0].data.get("code") == "SUMMARIZATION_DEGRADED"
 
     @pytest.mark.asyncio
-    async def test_compaction_events_carry_per_tier_tokens(self, temp_dir: Path):
-        # Per-tier payloads are only complete on a real compaction (the
+    async def test_compaction_events_carry_context_breakdown(self, temp_dir: Path):
+        # Context breakdown payloads are only complete on a real compaction (the
         # verifying phase carries tokensAfter); use a small window so the
         # attempt performs actual work instead of ending as a skip.
         cfg = AppSettings(workspace_root=str(temp_dir), max_context_tokens=4000)
@@ -156,10 +156,10 @@ class TestCompactionUIEvents:
         async for ev in loop._maybe_summarize(history=history, session_id="s1", messages=messages):
             events.append(ev)
 
-        tiers = {"system", "state", "summary", "handoff", "window", "user", "tools"}
+        categories = {"system", "summary", "instructions", "history", "user", "tools"}
 
         started = next(ev for ev in events if ev.kind == EventKind.CONTEXT_COMPACTION_STARTED)
-        assert set(started.data["tokens"].keys()) == tiers
+        assert set(started.data["tokens"].keys()) == categories
         assert started.data["tokens"]["tools"] > 0
 
         verifying = next(
@@ -167,12 +167,12 @@ class TestCompactionUIEvents:
             for ev in events
             if ev.kind == EventKind.CONTEXT_COMPACTION_PHASE and ev.data.get("phase") == "verifying"
         )
-        assert set(verifying.data["tokensBefore"].keys()) == tiers
-        assert set(verifying.data["tokensAfter"].keys()) == tiers
+        assert set(verifying.data["tokensBefore"].keys()) == categories
+        assert set(verifying.data["tokensAfter"].keys()) == categories
 
         ended = next(ev for ev in events if ev.kind == EventKind.CONTEXT_COMPACTION_ENDED)
-        assert set(ended.data["tokensBefore"].keys()) == tiers
-        assert set(ended.data["tokensAfter"].keys()) == tiers
+        assert set(ended.data["tokensBefore"].keys()) == categories
+        assert set(ended.data["tokensAfter"].keys()) == categories
         assert ended.data["tokensSaved"] > 0
         assert "failed" not in ended.data
 

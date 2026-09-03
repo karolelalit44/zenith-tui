@@ -10,7 +10,32 @@ from server.api.protocol import (
     serialize_event,
 )
 from server.api.websocket import ConnectionManager
+from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
+
+
+class TestWebSocketOriginPolicy:
+    def test_allows_exact_configured_origin(self):
+        from server.api.server import _is_allowed_ws_origin
+
+        config = AppSettings(
+            allowed_ws_origins=["https://app.example.com", "http://localhost:8765"],
+            allow_empty_ws_origin=False,
+        )
+        assert _is_allowed_ws_origin(config, "https://app.example.com") is True
+        assert _is_allowed_ws_origin(config, "http://localhost:8765") is True
+
+    def test_rejects_substring_origin_spoof(self):
+        from server.api.server import _is_allowed_ws_origin
+
+        config = AppSettings(allowed_ws_origins=["http://localhost"], allow_empty_ws_origin=False)
+        assert _is_allowed_ws_origin(config, "https://localhost.evil.example") is False
+
+    def test_empty_origin_is_explicit_policy(self):
+        from server.api.server import _is_allowed_ws_origin
+
+        assert _is_allowed_ws_origin(AppSettings(allow_empty_ws_origin=True), "") is True
+        assert _is_allowed_ws_origin(AppSettings(allow_empty_ws_origin=False), "") is False
 
 
 class TestJsonRpcRequest:

@@ -23,9 +23,9 @@ from server.config.constants import (
     REQUEST_THROTTLE_JITTER,
 )
 from server.config.env import optional_float, optional_int
-from server.domain.domain import FinishReason
+from server.domain.enums import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
-from server.storage.catalog_compat import load_catalog
+from server.storage import load_catalog
 
 from .base import BaseProvider, model_capabilities_from_catalog
 from .token_counter import TokenCounter
@@ -271,7 +271,7 @@ def _extract_retry_after(exc: Exception) -> float | None:
             if isinstance(raw, bytes):
                 try:
                     raw = raw.decode("utf-8", errors="replace")
-                except Exception:  # pragma: no cover - defensive
+                except Exception:  
                     continue
             body_parts.append(str(raw))
     for text in body_parts:
@@ -603,6 +603,10 @@ class LLMProvider(BaseProvider):
             kwargs["api_base"] = self.base_url
         if self.api_key:
             kwargs["api_key"] = self.api_key
+        elif self.base_url and self._base_url_style != "gemini":
+            # LiteLLM/OpenAI-compatible clients still require a non-empty key
+            # parameter even when the upstream local server does not.
+            kwargs["api_key"] = "sk-no-key-required"
         if tools and self._model_config.get("supports_tools", True):
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
@@ -663,6 +667,9 @@ class LLMProvider(BaseProvider):
         )
         await self._throttle.wait()
         t0 = time.monotonic()
+        # Each call is a fresh turn: never let a prior turn's tool calls leak
+        # forward and be replayed as if the model asked for them again.
+        self._last_native_tool_calls = []
         try:
             response = await litellm.acompletion(**kwargs)
             elapsed = (time.monotonic() - t0) * 1000
@@ -783,6 +790,9 @@ class LLMProvider(BaseProvider):
         )
         await self._throttle.wait()
         t0 = time.monotonic()
+        # Each call is a fresh turn: never let a prior turn's tool calls leak
+        # forward and be replayed as if the model asked for them again.
+        self._last_native_tool_calls = []
         stream = await litellm.acompletion(**kwargs)
         logger.info(
             "API STREAM OPENED model=%s latency=%.0fms",
@@ -854,14 +864,18 @@ class LLMProvider(BaseProvider):
         finish = None
         if accumulated_tool_calls:
             tool_calls = [accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls.keys())]
-            self._last_native_tool_calls.extend(tool_calls)
+            self._last_native_tool_calls = tool_calls
             finish = "tool_calls"
         # Propagate the streamed terminal condition (P3.1) so the loop sees
-        # length/content-filter stops instead of a defaulted "stop".
+        # length/content-filter stops instead of a defaulted "stop". Falls back
+        # to STOP (not a stale prior-turn value) when the provider reports
+        # neither a finish reason nor any tool calls.
         if streamed_finish:
             self._last_finish_reason = _map_finish_reason(streamed_finish)
         elif accumulated_tool_calls:
             self._last_finish_reason = FinishReason.TOOL_CALLS
+        else:
+            self._last_finish_reason = FinishReason.STOP
         if stream_usage:
             self._last_usage = dict(stream_usage)
             try:

@@ -53,7 +53,6 @@ READ_ONLY_COMMANDS: set[str] = {
     "tail",
     "less",
     "more",
-    "type",
     # Text processing (read-only)
     "grep",
     "egrep",
@@ -108,14 +107,12 @@ READ_ONLY_COMMANDS: set[str] = {
     "Get-ChildItem",
     "Get-Content",
     "Get-Item",
-    "Get-ChildItem",
     "Select-Object",
     "Where-Object",
     "ForEach-Object",
     "Sort-Object",
     "Measure-Object",
     "Out-String",
-    "Out-File",
     "Format-Table",
     "Format-List",
     "Format-Wide",
@@ -246,8 +243,6 @@ DESTRUCTIVE_COMMANDS: set[str] = {
 # Only truly dangerous patterns — not pipe/chaining detection.
 _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\b", "Recursive force delete"),
-    (r"\brm\s+-rf\b", "Recursive force delete"),
-    (r"\brm\s+-fr\b", "Recursive force delete"),
     (r"\bdel\s+/[sfq]\b", "Windows force delete"),
     (r"\bchmod\s+777\b", "World-writable permissions"),
     (r"\bchmod\s+-R\s+777\b", "Recursive world-writable permissions"),
@@ -325,19 +320,12 @@ def _extract_command_parts(command: str) -> list[str]:
 
 def _is_read_only_command(cmd: str) -> bool:
     """Check if the command is a known read-only command."""
-    if cmd in READ_ONLY_COMMANDS:
-        return True
-    # Handle git subcommands: `git status` → check 'status'
-    if cmd == "git":
-        return False  # Need subcommand context
-    return False
+    return cmd in READ_ONLY_COMMANDS
 
 
 def _is_network_command(cmd: str) -> bool:
     """Check if the command requires network access."""
-    if cmd in NETWORK_COMMANDS:
-        return True
-    return False
+    return cmd in NETWORK_COMMANDS
 
 
 def _is_destructive_command(cmd: str) -> bool:
@@ -362,12 +350,6 @@ def _assess_git_subcommand(command: str) -> str:
     return "network"
 
 
-def is_command_banned(command: str) -> str | None:
-    """Check if the command is banned (destructive). Returns the banned command name or None."""
-    cmd = _extract_first_command(command)
-    if _is_destructive_command(cmd):
-        return cmd
-    return None
 
 
 def assess_command(command: str) -> RiskAssessment:
@@ -423,7 +405,7 @@ def assess_command(command: str) -> RiskAssessment:
     #    entire pipeline is read-only (e.g. `Get-ChildItem | Select-Object`).
     pipe_cmds = _extract_command_parts(command)
     if len(pipe_cmds) > 1:
-        all_read_only = all(_is_read_only_command(c) or c in READ_ONLY_COMMANDS for c in pipe_cmds)
+        all_read_only = all(_is_read_only_command(c) for c in pipe_cmds)
         if all_read_only:
             return RiskAssessment(is_risky=False, reason="", risk_level="safe", tier="read_only")
 
@@ -464,50 +446,3 @@ def assess_command(command: str) -> RiskAssessment:
         risk_level="safe",
         tier="workspace_write",
     )
-
-
-# --- Phase 1 additive: genuine permission/approval model (module 23 / 04) ---
-# Reframes the tier check into a codex/opencode-style permission decision that
-# returns whether a command needs human approval, plus what tier it falls in.
-# Purely additive: assess_command_risk remains the source of truth for callers;
-# this adds a permission-decision wrapper with an explicit allow/ask/deny result.
-
-
-class PermissionDecision:
-    """Result of evaluating a command against the permission model.
-
-    ``permission`` is one of ``"allow"`` (auto-run now), ``"ask"`` (needs
-    operator approval before running) or ``"deny"`` (never run in this mode).
-    ``tier`` mirrors the RiskAssessment tier label for policy lookups.
-    """
-
-    __slots__ = ("permission", "reason", "tier")
-
-    def __init__(self, permission: str, tier: str, reason: str = "") -> None:
-        self.permission = permission  # "allow" | "ask" | "deny"
-        self.tier = tier
-        self.reason = reason
-
-    def __bool__(self) -> bool:
-        return self.permission == "allow"
-
-
-def evaluate_permission(assessment: RiskAssessment) -> PermissionDecision:
-    """Map a RiskAssessment onto the allow/ask/deny permission model.
-
-    Read-only and workspace-write auto-allow; network and anything flagged
-    ``requires_approval`` turn into ``ask``; high-risk destructive commands
-    turn into ``deny`` (matching the sandbox layer's hard block).
-    """
-    if assessment.tier == "read_only":
-        return PermissionDecision("allow", assessment.tier)
-    if assessment.tier == "workspace_write":
-        if assessment.requires_approval or assessment.risk_level in ("medium", "high"):
-            return PermissionDecision("ask", assessment.tier, assessment.reason)
-        return PermissionDecision("allow", assessment.tier)
-    if assessment.tier == "network":
-        return PermissionDecision("ask", assessment.tier, assessment.reason)
-    # destructive
-    if assessment.risk_level == "high":
-        return PermissionDecision("deny", assessment.tier, assessment.reason)
-    return PermissionDecision("ask", assessment.tier, assessment.reason)

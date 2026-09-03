@@ -10,7 +10,7 @@ from server.config.constants import (
     DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_TEMPERATURE,
 )
-from server.domain.domain import FinishReason
+from server.domain.enums import FinishReason
 from server.domain.message import ToolCall
 
 
@@ -124,7 +124,7 @@ def model_capabilities_from_catalog(
     """
     if catalog is None:
         try:
-            from server.storage.catalog_compat import load_catalog
+            from server.storage import load_catalog
 
             catalog = load_catalog()
         except Exception:
@@ -154,5 +154,7 @@ def model_capabilities_from_catalog(
             if alias in caps:
                 value = caps[alias]
                 break
-        out[field_name] = bool(value) if value is not None else getattr(ModelCapabilities(), field_name)
+        out[field_name] = (
+            bool(value) if value is not None else getattr(ModelCapabilities(), field_name)
+        )
     return ModelCapabilities(**out)

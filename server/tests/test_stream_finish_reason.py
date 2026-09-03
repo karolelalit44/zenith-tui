@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import litellm
 import pytest
 
-from server.domain.domain import FinishReason
+from server.domain.enums import FinishReason
 from server.providers.llm_provider import LLMProvider
 
 

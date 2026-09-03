@@ -33,21 +33,21 @@ export const FileList: React.FC<FileListProps> = React.memo(({ items, activeInde
               </Text>
             </Box>
 
-            <Box width={7} flexShrink={0}>
-              <Text color={item.isDir ? theme.colors.status.info : theme.colors.status.success} bold={item.isDir}>
-                {item.isDir ? '[DIR]' : '[FILE]'}
-              </Text>
-            </Box>
-
-            <Box width={24} flexShrink={0}>
+            <Box width={30} flexShrink={0}>
               <Text
                 color={
-                  isActive ? theme.colors.text.bright : item.isDir ? theme.colors.status.info : theme.colors.code.output
+                  isActive
+                    ? theme.colors.text.bright
+                    : item.name === '..'
+                      ? theme.colors.text.dim
+                      : item.isDir
+                        ? theme.colors.status.info
+                        : theme.colors.code.output
                 }
                 bold={isActive || item.isDir}
                 wrap="truncate-end"
               >
-                {item.name}
+                {item.name === '..' ? '..' : item.isDir ? `${item.name}/` : item.name}
               </Text>
             </Box>
 
@@ -60,7 +60,9 @@ export const FileList: React.FC<FileListProps> = React.memo(({ items, activeInde
             </Box>
 
             <Box flexShrink={1}>
-              <Text color={theme.colors.text.muted}>{item.fileType || (item.isDir ? 'Folder' : 'File')}</Text>
+              <Text color={theme.colors.text.muted}>
+                {item.name === '..' ? '' : item.fileType || (item.isDir ? 'Folder' : 'File')}
+              </Text>
             </Box>
           </Box>
         );

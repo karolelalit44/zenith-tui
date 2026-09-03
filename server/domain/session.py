@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .domain import ScenarioMode, SessionState
+from .enums import ScenarioMode
 
 
 class RunStatus(Enum):
@@ -31,7 +31,6 @@ class Session(BaseModel):
     workspace_root: str = "."
     is_active: bool = True
     metadata: dict = Field(default_factory=dict)
-    state: SessionState = SessionState.CREATED
     parent_session_id: str | None = None
     child_session_ids: list[str] = Field(default_factory=list)
     plan_output: str = ""
@@ -46,15 +45,9 @@ class Session(BaseModel):
     total_cost: float = 0.0
     error_count: int = 0
     last_error: str | None = None
-    agent_state: str = "idle"
     run_status: RunStatus = RunStatus.IDLE
     export_format: str | None = None
     exported_at: datetime | None = None
-
-    def transition(self, new_state: SessionState) -> None:
-        _validate_session_transition(self.state, new_state)
-        self.state = new_state
-        self.updated_at = datetime.now()
 
     def mark_busy(self) -> None:
         self.run_status = RunStatus.BUSY
@@ -70,8 +63,8 @@ class Session(BaseModel):
         return self.run_status.value
 
     def archive(self) -> None:
-        self.transition(SessionState.ARCHIVED)
         self.is_active = False
+        self.mark_idle()
 
     def add_child(self, child_session_id: str) -> None:
         if child_session_id not in self.child_session_ids:
@@ -91,7 +84,7 @@ class Session(BaseModel):
             "id": self.id,
             "title": self.title,
             "mode": self.mode.value,
-            "state": self.state.value,
+            "status": self.status,
             "provider": self.provider,
             "model": self.model,
             "message_count": self.message_count,
@@ -119,7 +112,7 @@ class Session(BaseModel):
             if isinstance(self.metadata, str)
             else str(__import__("json").dumps(self.metadata)),
             "parent_session_id": self.parent_session_id,
-            "state": self.state.value,
+            "run_status": self.run_status.value,
             "plan_output": self.plan_output,
             "plan_approved_at": self.plan_approved_at.isoformat()
             if self.plan_approved_at
@@ -131,63 +124,8 @@ class Session(BaseModel):
             "total_cost": self.total_cost,
             "error_count": self.error_count,
             "last_error": self.last_error,
-            "agent_state": self.agent_state,
             "message_count": self.message_count,
             "model": self.model,
             "provider": self.provider,
         }
 
-
-_VALID_TRANSITIONS: dict[SessionState, set[SessionState]] = {
-    SessionState.CREATED: {
-        SessionState.INITIALIZING,
-        SessionState.DRAFT,
-        SessionState.ACTIVE,
-        SessionState.ARCHIVED,
-        # A freshly created session whose client reconnects (page refresh /
-        # transient WS drop) before finishing any work must be resumable;
-        # rejecting created→resumed forced a spurious warning on every
-        # reconnect-to-new-session (F4).
-        SessionState.RESUMED,
-    },
-    SessionState.DRAFT: {SessionState.ACTIVE, SessionState.ARCHIVED},
-    SessionState.INITIALIZING: {SessionState.ACTIVE, SessionState.ERROR, SessionState.ARCHIVED},
-    SessionState.ACTIVE: {
-        SessionState.ACTIVE,
-        SessionState.COMPLETED,
-        SessionState.SUMMARIZED,
-        SessionState.PAUSED,
-        SessionState.ERROR,
-        SessionState.CHECKPOINTING,
-        SessionState.EXPORTED,
-        SessionState.ARCHIVED,
-        SessionState.DRAFT,
-    },
-    SessionState.COMPLETED: {
-        SessionState.ACTIVE,
-        SessionState.SUMMARIZED,
-        SessionState.EXPORTED,
-        SessionState.ARCHIVED,
-    },
-    SessionState.RESUMED: {
-        SessionState.ACTIVE,
-        SessionState.COMPLETED,
-        SessionState.SUMMARIZED,
-        SessionState.EXPORTED,
-        SessionState.ARCHIVED,
-    },
-    SessionState.SUMMARIZED: {SessionState.RESUMED, SessionState.ACTIVE, SessionState.ARCHIVED},
-    SessionState.PAUSED: {SessionState.ACTIVE, SessionState.ARCHIVED, SessionState.SUMMARIZED},
-    SessionState.ERROR: {SessionState.ACTIVE, SessionState.ARCHIVED, SessionState.EXPORTED},
-    SessionState.EXPORTED: {SessionState.ACTIVE, SessionState.ARCHIVED},
-    SessionState.CHECKPOINTING: {SessionState.ACTIVE, SessionState.ERROR},
-    SessionState.ARCHIVED: set(),
-}
-
-
-def _validate_session_transition(current: SessionState, target: SessionState) -> None:
-    allowed = _VALID_TRANSITIONS.get(current, set())
-    if target not in allowed:
-        raise ValueError(
-            f"Invalid session transition: {current.value} → {target.value}. Allowed: {', '.join(s.value for s in allowed) or '(none)'}"
-        )

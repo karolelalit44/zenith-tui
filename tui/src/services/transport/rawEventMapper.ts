@@ -1,12 +1,12 @@
 import type {
-  CrewmateCompleteEvent,
-  CrewmateFailedEvent,
-  CrewmateSpawnedEvent,
-  CrewmateStatusEvent,
   CompactionPhase,
   CompactionStatus,
   ContextPreservation,
   ContextUpdatedEvent,
+  CrewmateCompleteEvent,
+  CrewmateFailedEvent,
+  CrewmateSpawnedEvent,
+  CrewmateStatusEvent,
   RunStateSnapshot,
   ScenarioEvent,
   SessionInfoEvent,
@@ -15,7 +15,6 @@ import type {
   TodoBoardAction,
   TodoBoardChange,
   TodoItem,
-  TodoLifecyclePhase,
   TodoPriority,
   TodoStatus,
   TokenInfo,
@@ -521,29 +520,6 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
           : [],
         change: d.change && typeof d.change === 'object' ? (d.change as TodoBoardChange) : undefined,
         message: d.message ? String(d.message) : undefined,
-      };
-
-    case 'todo_test':
-      return {
-        kind: 'todo_test',
-        id,
-        phase: String(d.phase || 'create') as TodoLifecyclePhase,
-        scenario: String(d.scenario || 'Scenario'),
-        passed: d.passed === true,
-        assertions: Array.isArray(d.assertions)
-          ? d.assertions.map((a: Record<string, unknown>) => ({
-              label: String(a.label || ''),
-              passed: a.passed === true,
-              detail: a.detail ? String(a.detail) : undefined,
-            }))
-          : [],
-        rejectedOps: Array.isArray(d.rejectedOps)
-          ? d.rejectedOps.map((r: Record<string, unknown>) => ({
-              op: String(r.op || ''),
-              reason: String(r.reason || ''),
-            }))
-          : undefined,
-        elapsedMs: typeof d.elapsedMs === 'number' ? d.elapsedMs : undefined,
       };
 
     case 'context_updated': {

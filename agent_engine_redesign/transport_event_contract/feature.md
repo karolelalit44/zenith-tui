@@ -55,20 +55,20 @@ How the backend communicates with the TUI over WebSocket, and what event types t
 | (none specific here) | â€” | â€” |
 
 ## Verification / signoff
-- [ ] WebSocket transport preserved
-- [ ] Event-adapter maps new core Parts â†’ existing TUI EventKinds
-- [ ] Full truncated tool output delivered
-- [ ] Invented event kinds removed
-- [ ] TUI runs without changes
-- [ ] ruff + pytest + runtime smoke pass
+- [x] WebSocket transport preserved
+- [x] Event-adapter maps new core Parts â†’ existing TUI EventKinds
+- [x] Full truncated tool output delivered
+- [x] Invented event kinds removed
+- [x] TUI runs without changes
+- [x] ruff + pytest + runtime smoke pass
 
-## Status: Review
+## Status: Done
 
 ## Report (Jupiter)
 
 ```
 Module: 10 transport_event_contract
-Status change: Pending → Review
+Status change: Pending → Done
 WHAT: Added the thin event-adapter (server/api/event_adapter.py) that maps the
       clean module-09 ContentPart stream (text/reasoning/tool_call/tool_result/
       error) onto the TUI's existing EventKind set. adapt_part maps one Part →
@@ -87,7 +87,8 @@ EXPECTED BEHAVIOUR: adapt_part/adapt_parts return TUI-compatible Events; wrappin
      individual kinds (message/thinking/tool_call/tool_result/error) while
      passthrough events are unmodified.
 OUTCOME / TEST EVIDENCE: G1 PASS (12 new tests); G3 ruff clean + format clean;
-     G5 PASS (additive, EventKind enum untouched); G6 PASS (no new features).
+     G5 PASS (additive, EventKind enum untouched); G6 PASS (no new features);
+     latest combined review batch PASS (62 tests); transport cleanup batch PASS
 SHARED-FILE IMPACT: none (no CCS edits; additive new file under server/api/).
 DEPENDENCIES: needs 01 (SimpleLoop interface) + 09 (ContentPart surface), both
      Interface-Locked. Phase-2 wires iter_client_events + PromptPath into

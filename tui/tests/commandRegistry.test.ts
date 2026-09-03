@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dispatchCommand } from '../src/services/api/CommandRegistry';
+import { commandRegistry, dispatchCommand } from '../src/services/api/CommandRegistry';
 
 function makeContext() {
   return {
@@ -46,6 +46,20 @@ describe('dispatchCommand registry dispatch', () => {
     const ctx = makeContext();
     expect(dispatchCommand('  /HELP ', ctx)).toBe(true);
     expect(ctx.openOverlay).toHaveBeenCalledWith('help');
+  });
+
+  it('dispatches /sessions alias to the session overlay', () => {
+    const ctx = makeContext();
+    expect(dispatchCommand('/sessions', ctx)).toBe(true);
+    expect(ctx.openOverlay).toHaveBeenCalledWith('session');
+  });
+
+  it('has no duplicate command IDs or slash commands', () => {
+    const ids = commandRegistry.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const slashes = commandRegistry.filter((c) => c.slash).map((c) => c.slash);
+    expect(new Set(slashes).size).toBe(slashes.length);
   });
 
   it('returns false for unknown commands', () => {

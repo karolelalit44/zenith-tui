@@ -200,7 +200,6 @@ export const App: React.FC = () => {
   // Throttle live token estimate: recalculate at most every 2 s while running
   // so that each streamed event does not trigger a full CommandInput re-render.
   const lastTokenUpdateRef = useRef(0);
-  const [liveTotalTokens, setLiveTotalTokens] = useState(totalTokens);
   const [liveRunTokens, setLiveRunTokens] = useState(runTokens);
 
   // Derive the single consolidated compaction-flow state from the live event
@@ -238,17 +237,15 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!isRunning) {
-      setLiveTotalTokens(totalTokens);
       setLiveRunTokens(runTokens);
       return;
     }
     const now = Date.now();
     if (now - lastTokenUpdateRef.current > 2000) {
       lastTokenUpdateRef.current = now;
-      setLiveTotalTokens(totalTokens + estimateTokensForEvents(events));
       setLiveRunTokens(runTokens + estimateTokensForEvents(events));
     }
-  }, [totalTokens, runTokens, isRunning, events]);
+  }, [runTokens, isRunning, events]);
 
   useEffect(() => {
     // contentHeight tracks completed turns only; the live running block is
@@ -681,7 +678,6 @@ export const App: React.FC = () => {
               historyUp={historyUp}
               historyDown={historyDown}
               mode={selectedMode}
-              totalTokens={footerContext?.used ?? liveTotalTokens}
               maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
               runTokens={liveRunTokens}
               runEstimated={runEstimated}

@@ -19,25 +19,6 @@ def _init_dotenv() -> None:
 _init_dotenv()
 
 
-def require_env(key: str) -> str:
-    val = os.environ.get(key)
-    if val is None or val.strip() == "":
-        raise RuntimeError(
-            f"Required environment variable '{key}' is not set. Set it before starting the server."
-        )
-    return val.strip()
-
-
-def require_int(key: str) -> int:
-    val = require_env(key)
-    try:
-        return int(val)
-    except ValueError:
-        raise RuntimeError(
-            f"Environment variable '{key}' must be an integer, got: {val!r}"
-        ) from None
-
-
 def optional_int(key: str, default: int) -> int:
     val = os.environ.get(key, "").strip()
     if not val:
@@ -48,16 +29,6 @@ def optional_int(key: str, default: int) -> int:
         return default
 
 
-def optional_int_none(key: str) -> int | None:
-    val = os.environ.get(key, "").strip()
-    if not val:
-        return None
-    try:
-        return int(val)
-    except ValueError:
-        return None
-
-
 def optional_float(key: str, default: float) -> float:
     val = os.environ.get(key, "").strip()
     if not val:
@@ -66,6 +37,17 @@ def optional_float(key: str, default: float) -> float:
         return float(val)
     except ValueError:
         return default
+
+
+def optional_bool(key: str, default: bool = False) -> bool:
+    val = os.environ.get(key, "").strip().lower()
+    if not val:
+        return default
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    if val in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def optional_env(key: str, default: str = "") -> str:

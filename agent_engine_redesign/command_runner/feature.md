@@ -84,25 +84,36 @@ Build a command runner that matches opencode/codex:
 - [x] PowerShell-aware + unbounded-listing refusal kept (untouched)
 - [x] ruff + pytest pass (additive change)
 
-## Status: Interface-Locked (Phase 1 additive); poll-based background path & false-success heuristic removal pending Phase 2/3
+## Status: Interface-Locked (Phase 1 additive); poll-based background path pending Phase 3; false-success heuristic and auto-background fallback removed
 
 ### Decision (2026-08-31) — phased execution (Mars, module 05 owner)
 
 Per `progress.md` §11, Phase 1 is **additive interface-lock only; no removal yet**. Today `bash.py`
-still buffers all output and returns at completion via `_execute_sync`, with `background`/`job_output`/
-`job_kill` as the primary long-output path and `BASH_FALSE_SUCCESS_PATTERNS`/`detect_false_success`
-heuristic on output text. So module 05 has:
+streams foreground output to completion and uses `background`/`job_output`/`job_kill` only when the
+caller explicitly opts in. The `BASH_FALSE_SUCCESS_PATTERNS` heuristic and auto-background fallback
+have been removed. So module 05 has:
 - **ADDED (interface-lock) in `server/shell_runner.py`:**
   - `ShellStreamEvent` (stdout/stderr chunk, or terminal `exit` with exit_code) and
     `run_shell_command_streamed(command, cwd, timeout)` — an async generator that yields live decoded
     output chunks in arrival order (opencode bash.ts streams into part.metadata.output as they arrive;
     codex ExecCommandOutputDelta) and waits for completion, timeout (kills + raises asyncio.TimeoutError),
     or consumer cancellation (kills + propagates). No background job or separate poll involved.
-- **NOT removed yet (Phase 2/3, coordinated):** the buffering `_execute_sync`, `background`/`job_output`/
-  `job_kill` primary path, and `BASH_FALSE_SUCCESS_PATTERNS`/`detect_false_success`. These are removed /
-  re-wired only after the loop + transport (module 01/12) and TUI adopt the streaming contract. The
-  PowerShell-aware descriptions, `_assess_enumeration` unbounded-listing refusal, and exit-code semantics
-  are kept. Do NOT replace bash.py's execute path during Phase 1.
+- **NOT removed yet (Phase 2/3, coordinated):** the explicit `background`/`job_output`/
+      `job_kill` escape hatch. These are removed / re-wired only after the loop + transport (module 01/12)
+      and TUI adopt the streaming contract. The PowerShell-aware descriptions,
+      `_assess_enumeration` unbounded-listing refusal, and exit-code semantics are kept. Do NOT replace
+      bash.py's execute path during Phase 1.
+
+### Decision (2026-09-01) - Phase 2 foreground wiring (Mars)
+
+- **LIVE:** foreground `BashTool.execute()` consumes `run_shell_command_streamed()` through its
+      final exit event and returns the accumulated output and exit code in the unchanged `ToolResult`.
+      `run_in_background` remains the explicit opt-in escape.
+- **HANDOFF:** `ShellStreamEvent` already supplies live stdout/stderr chunks. Module 01/10 owns the
+      loop/event-adapter path that must publish those chunks to the TUI, so this module does not modify
+      transport files or invent a second event contract.
+- **Validation:** editor diagnostics pass for `bash.py`, `shell_runner.py`, and streaming tests.
+      Focused pytest on the touched helper/background slice passes locally.
 
 ---
 
@@ -118,18 +129,21 @@ WHY: opencode/codex stream command output live in-place (bash.ts metadata.output
       the module's core *missing* correct behavior, expressed as the primitive the tools/transport adopt in Phase 2.
 FILES: server/shell_runner.py, server/tests/test_shell_streamed.py (NEW),
       agent_engine_redesign/command_runner/feature.md
-KEPT/REMOVED: additive streaming runner added; buffering _execute_sync, background/job_output/job_kill,
-      BASH_FALSE_SUCCESS_PATTERNS kept for Phase 2/3; PowerShell-aware + enumeration-refusal kept.
-EXPECTED BEHAVIOUR: consumers can now stream command output live and await completion; existing buffered
-      bash.py path unchanged.
+KEPT/REMOVED: additive streaming runner added; background/job_output/job_kill explicit escape retained,
+      false-success heuristic and auto-background fallback removed; PowerShell-aware + enumeration-refusal
+      kept.
+EXPECTED BEHAVIOUR: consumers can stream command output live and await completion; foreground
+      `bash.py` now consumes the streaming primitive while explicit backgrounding remains the
+      long-running escape hatch.
 OUTCOME / TEST EVIDENCE: G1 PASS (5 new tests); G2 targeted-PASS (streaming tests green; a benign Windows
       asyncio subprocess-transport GC resource warning noted — non-fatal); G3 ruff clean; G4 interface
-      declared in feature doc; G5 no transport/event change; G6 additive only; G7 module-05 owned file only
-      (shell_runner.py; bash.py not edited); G8 self-contained.
+      declared in feature doc; G5 no transport/event change; G6 additive only; G7 module-05 owned files
+      updated consistently (shell_runner.py, bash.py, background.py); G8 self-contained.
 SHARED-FILE IMPACT: none.
 DEPENDENCIES: provides streaming-exec contract to module 01 loop, 12, and 10 transport for Phase 2 live
-      streaming; Phase 3 removes the poll-based primary path + false-success heuristic.
+      streaming; Phase 3 keeps the poll-based primary path pending while the false-success heuristic has
+      already been removed.
 ```
 
-Next: Phase 2 wires bash.py execute onto the streaming generator; Phase 3 removes the background+poll
-primary path and BASH_FALSE_SUCCESS_PATTERNS under coordination.
+Next: Phase 2 keeps the streamed foreground path and explicit background escape; Phase 3 removes the
+background+poll primary path under coordination.

@@ -99,7 +99,6 @@ def handler(test_config, storage_home, registry):
 
 
 def _make_executor(config, provider, home):
-    from server.skills.loader import SkillLoader
     from server.storage.session_store import FileMessageRepository, FileSessionRepository
     from server.toolkit import create_default_registry
 
@@ -109,7 +108,6 @@ def _make_executor(config, provider, home):
         create_default_registry(),
         FileSessionRepository(home),
         FileMessageRepository(home),
-        SkillLoader(str(config.workspace_root)),
     )
 
 
@@ -130,7 +128,6 @@ class TestProviderOverrides:
             max_tokens=123,
             attachments=[],
         )
-        await executor._summary_scheduler.drain()
         assert provider.calls, "provider.stream was never called"
         observed = provider.calls[0]
         assert observed["model"] == "override-model"
@@ -146,7 +143,6 @@ class TestProviderOverrides:
         executor = _make_executor(test_config, provider, storage_home)
         session = await executor._session_repo.create(Session(title="No Override"))
         await executor._execute(session.id, "hello", "build", None, None)
-        await executor._summary_scheduler.drain()
         assert provider.calls[0]["model"] == "base-model"
         assert provider.calls[0]["temperature"] == DEFAULT_LLM_TEMPERATURE
         assert provider.calls[0]["max_tokens"] == DEFAULT_LLM_MAX_TOKENS
@@ -504,7 +500,6 @@ class TestLoopWiring:
             None,
             type("M", (), {"send_event": _send})(),
         )
-        await executor._summary_scheduler.drain()
 
         # The new SimpleLoop must terminate with a SUCCESS event forwarded to
         # the manager (terminal events are held for after the run-state snapshot).
@@ -563,7 +558,6 @@ class TestRunStatusAdoption:
         # Release the turn and let it settle to idle.
         released.set()
         await run
-        await executor._summary_scheduler.drain()
 
         settled = await executor._session_repo.get(session.id)
         assert settled.run_status.value == "idle", "session should return to IDLE after the turn"

@@ -75,8 +75,7 @@ DEFINITION_QUERIES: dict[str, str | list[str]] = {
         "(struct_specifier name: (type_identifier) @name) @def",
     ],
 }
-_RENDERED_MAP_CACHE: dict[tuple, dict[str, Any]] = {}
-_MAX_TREE_LINES = 40
+
 
 
 class RepoMap:
@@ -399,8 +398,6 @@ class RepoMap:
                 break
         return sorted(found)
 
-    def get_file_count(self) -> int:
-        return len(self._iter_files())
 
     def _count_tokens(self, text: str) -> int:
         return self._token_counter.count(text, "cl100k_base")
@@ -440,45 +437,6 @@ class RepoMap:
                 hi = mid - 1
         return blocks[:best]
 
-    def get_repo_map(
-        self,
-        chat_files: list[str] | None = None,
-        max_tokens: int = 4096,
-        force_refresh: bool = False,
-    ) -> str:
-        if max_tokens <= 0:
-            return ""
-        cache_key = (str(self.root), tuple(sorted(chat_files or [])), max_tokens, self.refresh)
-        if not force_refresh and cache_key in _RENDERED_MAP_CACHE:
-            entry = _RENDERED_MAP_CACHE[cache_key]
-            if self.refresh == "manual" or entry.get("snapshot") == self._snapshot():
-                return entry["text"]
-        structure = self.get_structure(max_depth=3)
-        tree_str = self._format_tree(structure)
-        if tree_str.count("\n") + 1 > _MAX_TREE_LINES:
-            lines = tree_str.split("\n")
-            tree_str = "\n".join(lines[:_MAX_TREE_LINES]) + "\n... (tree truncated)"
-        parts: list[str] = []
-        if tree_str:
-            parts.append(f"Directory Structure:\n{tree_str}")
-        key_files = self.get_key_files()
-        if key_files:
-            parts.append("Key Files:\n" + "\n".join(f"  {f}" for f in key_files))
-        parts.append(self.get_summary())
-        base_text = "\n\n".join(parts)
-        all_source_files = [
-            f for f in self._iter_files() if f.suffix.lower() in TREE_SITTER_EXTENSIONS
-        ]
-        if all_source_files:
-            ranked = self._rank_files(all_source_files, chat_files)
-            blocks = self._build_symbol_blocks(ranked, max_files=len(ranked))
-            fitted = self._fit_blocks_to_budget(blocks, base_text, max_tokens)
-            if fitted:
-                symbols_text = "".join(b[1] for b in fitted)
-                parts.append("Key Definitions:" + symbols_text)
-        result = "\n\n".join(parts)
-        _RENDERED_MAP_CACHE[cache_key] = {"snapshot": self._snapshot(), "text": result}
-        return result
 
     def _format_tree(self, node: dict[str, Any], prefix: str = "", is_last: bool = True) -> str:
         lines: list[str] = []

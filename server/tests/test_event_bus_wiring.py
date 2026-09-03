@@ -119,10 +119,6 @@ async def test_session_summarized_precedes_terminal_and_is_persisted(test_config
     message_repo = FileMessageRepository(test_home)
     session = await session_repo.create(Session(title="Ordering"))
 
-    class _SkillLoader:
-        def get_skill_prompt(self):
-            return ""
-
     class _Registry:
         pass
 
@@ -132,7 +128,6 @@ async def test_session_summarized_precedes_terminal_and_is_persisted(test_config
         _Registry(),
         session_repo,
         message_repo,
-        _SkillLoader(),
     )
     manager = ConnectionManager()
 
@@ -179,12 +174,8 @@ async def test_session_summarized_error_terminal_ordering(test_config, test_home
             yield Event(kind=EventKind.MESSAGE, data={"text": "working", "partial": False})
             raise RuntimeError("provider exploded")
 
-    class _SkillLoader:
-        def get_skill_prompt(self):
-            return ""
-
     executor = pe_module.PromptExecutor(
-        test_config, StubProvider(), type("R", (), {})(), session_repo, message_repo, _SkillLoader()
+        test_config, StubProvider(), type("R", (), {})(), session_repo, message_repo
     )
     manager = ConnectionManager()
     original_cls = pe_module.SimpleLoop

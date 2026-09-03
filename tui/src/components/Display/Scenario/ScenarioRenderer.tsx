@@ -218,17 +218,14 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
             result.push(consolidatedBoard);
             boardInserted = true;
           }
-        } else if (e.kind === 'todo_test') {
-          // The assertion/edge-case report is an internal test layer — the
-          // rendered todo window shows the board only, so skip these events.
-      } else if (
-        e.kind === 'crewmate_spawned' ||
-        e.kind === 'crewmate_status' ||
-        e.kind === 'crewmate_complete' ||
-        e.kind === 'crewmate_failed'
-      ) {
-        // Raw crewmate lifecycle kinds are folded into the consolidated
-        // orchestration card's timeline above; never render standalone.
+        } else if (
+          e.kind === 'crewmate_spawned' ||
+          e.kind === 'crewmate_status' ||
+          e.kind === 'crewmate_complete' ||
+          e.kind === 'crewmate_failed'
+        ) {
+          // Raw crewmate lifecycle kinds are folded into the consolidated
+          // orchestration card's timeline above; never render standalone.
         } else if (
           e.kind === 'context_compaction_started' ||
           e.kind === 'context_compaction_phase' ||

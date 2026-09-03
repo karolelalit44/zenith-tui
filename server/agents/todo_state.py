@@ -176,8 +176,6 @@ class TodoState:
             idx = int(entry.id[1:]) if entry.id.startswith("t") else 0
             self._next_id = max(self._next_id, idx + 1)
 
-    def count_by_status(self, status: str) -> int:
-        return sum(1 for e in self._entries.values() if e.status == status)
 
 
 _STORE: dict[str, TodoState] = {}
@@ -196,15 +194,6 @@ def get_todo_state(session_id: str) -> TodoState:
         return state
 
 
-def remove_todo_state(session_id: str) -> None:
-    with _LOCK:
-        _STORE.pop(session_id, None)
-
-
-def reset_todo_states() -> None:
-    with _LOCK:
-        _STORE.clear()
-    _SESSIONLESS_TODO.hydrate([])
 
 
 _SESSIONLESS_TODO = TodoState("__sessionless__")

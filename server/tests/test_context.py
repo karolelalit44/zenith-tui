@@ -163,33 +163,37 @@ class _FakeUsageProvider:
     def __init__(self, total_tokens: int = 0):
         self._cumulative_usage = {"total_tokens": total_tokens}
 
+    def get_token_usage(self, model: str) -> int:
+        return self._cumulative_usage["total_tokens"]
+
 
 class TestUsageBasedTriggers:
-    def test_usage_tokens_ignores_provider_cumulative(self):
-        """Cumulative provider usage is run/API usage, never context occupancy."""
+    def test_usage_tokens_is_composed_and_deterministic(self):
+        """Context occupancy is the deterministic composed count, never provider cumulative usage."""
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
         provider = _FakeUsageProvider(total_tokens=9999)
-        tokens = ctx.usage_tokens([], "gpt-4", provider)
-        assert tokens == ctx.usage_tokens([], "gpt-4")
+        tokens = ctx.usage_tokens([], "gpt-4")
         assert tokens != 9999
+        assert tokens != provider.get_token_usage("gpt-4")
 
-    def test_usage_tokens_falls_back_to_estimation(self):
+    def test_usage_tokens_estimates_content(self):
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
-        tokens = ctx.usage_tokens([{"role": "user", "content": "x " * 100}], "gpt-4", None)
+        tokens = ctx.usage_tokens([{"role": "user", "content": "x " * 100}], "gpt-4")
         assert 0 < tokens < 9999
 
-    def test_usage_tokens_ignores_zero_report(self):
+    def test_usage_tokens_matches_empty_report(self):
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
         provider = _FakeUsageProvider(total_tokens=0)
-        tokens = ctx.usage_tokens([{"role": "user", "content": "y " * 100}], "gpt-4", provider)
+        tokens = ctx.usage_tokens([{"role": "user", "content": "y " * 100}], "gpt-4")
         assert tokens > 0
+        assert tokens != provider.get_token_usage("gpt-4")
 
-    def test_usage_tokens_composed_matches_provider_independent(self):
-        """Provider presence must not change the composed count."""
+    def test_usage_tokens_composed_is_stable(self):
+        """The composed count is stable regardless of any provider usage report."""
         ctx = ContextManager(AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW))
         messages = [{"role": "user", "content": "z " * 500}]
         provider = _FakeUsageProvider(total_tokens=129_956)
-        assert ctx.usage_tokens(messages, "gpt-4") == ctx.usage_tokens(messages, "gpt-4", provider)
+        assert ctx.usage_tokens(messages, "gpt-4") != provider.get_token_usage("gpt-4")
 
     def test_should_summarize_when_composed_context_large(self):
         config = AppSettings(
@@ -199,24 +203,24 @@ class TestUsageBasedTriggers:
         # Push the composed count over the 50% watermark cheaply via aux tokens.
         ctx.set_aux_tokens(70000)
         assert ctx.should_summarize([{"role": "user", "content": "hi"}], "gpt-4") is True
-        # Cumulative provider usage alone must NOT trigger summarization.
+        # A provider usage report alone must never trigger summarization.
         ctx2 = ContextManager(config)
         provider = _FakeUsageProvider(total_tokens=120000)
-        assert ctx2.should_summarize([], "gpt-4", provider) is False
+        assert ctx2.should_summarize([], "gpt-4") is False
+        assert ctx2.usage_tokens([], "gpt-4") != provider.get_token_usage("gpt-4")
 
     def test_should_summarize_false_when_low_usage(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
         ctx = ContextManager(config)
         provider = _FakeUsageProvider(total_tokens=1000)
-        assert ctx.should_summarize([], "gpt-4", provider) is False
+        assert ctx.should_summarize([], "gpt-4") is False
+        assert ctx.usage_tokens([], "gpt-4") != provider.get_token_usage("gpt-4")
 
     def test_get_token_info_uses_composed_context(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
         ctx = ContextManager(config)
-        provider = _FakeUsageProvider(total_tokens=64000)
-        info = ctx.get_token_info([], "no-such-model", provider)
+        info = ctx.get_token_info([], "no-such-model")
         assert info.used == ctx.usage_tokens([], "no-such-model")
-        assert info.used < 64000
         assert info.remaining == info.total - info.used
 
 
@@ -240,12 +244,8 @@ class TestCompactionWatermark:
     def test_is_context_exhausted_at_hard_stop_ratio(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW)
         ctx = ContextManager(config)
-        # Cumulative provider usage must NOT signal exhaustion on an empty context.
-        boundary = int(DEFAULT_CONTEXT_WINDOW * HARD_STOP_USAGE_RATIO)
-        assert (
-            ctx.is_context_exhausted([], "gpt-4", _FakeUsageProvider(total_tokens=boundary))
-            is False
-        )
+        # An empty composed context must NOT signal exhaustion.
+        assert ctx.is_context_exhausted([], "gpt-4") is False
         # A genuinely oversized composed context does.
         assert (
             ctx.is_context_exhausted(

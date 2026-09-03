@@ -85,15 +85,17 @@ export function useScenario(): UseScenarioReturn {
   );
 
   const flushBatch = useCallback(() => {
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
     if (batchQueueRef.current.length === 0) return;
     const queue = [...batchQueueRef.current];
     batchQueueRef.current = [];
 
-    setEvents((prev) => {
-      const next = applyQueueTo(prev, queue);
-      eventsRef.current = next;
-      return next;
-    });
+    const next = applyQueueTo(eventsRef.current, queue);
+    eventsRef.current = next;
+    setEvents(next);
   }, [applyQueueTo]);
 
   const commitPendingEvents = useCallback(() => {
@@ -236,7 +238,11 @@ export function useScenario(): UseScenarioReturn {
         lastWarningRef.current = null;
       }
 
-      if (event.kind === 'message' || event.kind === 'thinking') {
+      const isPartialStream =
+        (event.kind === 'message' && (event as import('../types/scenario').MessageEvent).partial === true) ||
+        (event.kind === 'thinking' && (event as import('../types/scenario').ThinkingEvent).partial === true);
+
+      if (isPartialStream) {
         batchQueueRef.current.push({ event, index });
         if (!batchTimerRef.current) {
           batchTimerRef.current = setTimeout(() => {

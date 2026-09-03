@@ -10,12 +10,23 @@ export interface FileNode {
   parentPath?: string;
 }
 
-/** Workspace root resolved once. Uses the same subpackage-unwrapping as the UI. */
-export const workspaceRoot: string = (() => {
-  const cwd = process.cwd();
-  const root = path.resolve(cwd);
-  return root;
-})();
+/** Resolves the true workspace root directory from which the application was launched. */
+export function resolveWorkspaceRoot(): string {
+  const cwd = path.resolve(process.cwd());
+  const base = path.basename(cwd).toLowerCase();
+  if (['tui', 'server', 'client', 'packages'].includes(base)) {
+    if (process.env.INIT_CWD && fs.existsSync(process.env.INIT_CWD)) {
+      return path.resolve(process.env.INIT_CWD);
+    }
+    const parent = path.dirname(cwd);
+    if (fs.existsSync(parent)) {
+      return parent;
+    }
+  }
+  return cwd;
+}
+
+export const workspaceRoot: string = resolveWorkspaceRoot();
 
 /** Maximum depth for recursive searches. */
 export const SEARCH_MAX_DEPTH = 6;
@@ -51,7 +62,6 @@ const DEFAULT_IGNORED: string[] = [
   '.agents',
   '.claude',
   '.freebuff',
-  'memory',
   'test_snapshots',
   'ref_repo',
   'data',
@@ -270,6 +280,19 @@ export function getDirectoryContents(parentPath: string): FileNode[] {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+    if (parentPath && parentPath.trim().length > 0) {
+      const parts = parentPath.split('/').filter(Boolean);
+      parts.pop();
+      const parentRel = parts.join('/');
+      nodes.unshift({
+        name: '..',
+        relativePath: parentRel,
+        isDir: true,
+        fileType: 'Folder',
+        sizeFormatted: '—',
+        modifiedDate: '—',
+      });
+    }
     return nodes;
   } catch {
     return [];

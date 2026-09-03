@@ -39,7 +39,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={10}
         effectiveMaxTokens={131072}
       />,
     );
@@ -60,7 +59,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={10}
         effectiveMaxTokens={131072}
       />,
     );
@@ -81,7 +79,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={78_800}
         effectiveMaxTokens={200_000}
         runTokens={12_400}
         contextPercent={39}
@@ -89,11 +86,12 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    // The footer count is cumulative run/API usage...
-    expect(frame).toContain('RUN 12.4K tok');
+    // The footer count is cumulative run/API usage and context percent...
+    expect(frame).toContain('12.4K (39%)');
     expect(frame).not.toContain('78.8K');
-    // ...while the gauge shows only composed-context occupancy.
-    expect(frame).toContain('[████░░░░░░] CTX 39%');
+    expect(frame).not.toContain('RUN');
+    expect(frame).not.toContain('CTX');
+    expect(frame).not.toContain('░');
     restore();
   });
 
@@ -107,7 +105,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={78_800}
         effectiveMaxTokens={200_000}
         runTokens={12_400}
         runEstimated={true}
@@ -117,8 +114,8 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('RUN ~12.4K tok');
-    expect(frame).toContain('[████░░░░░░] ~CTX 39%');
+    expect(frame).toContain('~12.4K (~39%)');
+    expect(frame).not.toContain('░');
     restore();
   });
 
@@ -132,7 +129,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={10}
         effectiveMaxTokens={131072}
       />,
     );
@@ -154,7 +150,6 @@ describe('ComposerFooter', () => {
         providerName: 'NVIDIA AI',
         dir: '.../code/zenith-frontend-tui',
         branch: 'fix/ser-tu-communication-n-separations',
-        totalTokens: 10,
         effectiveMaxTokens: 131072,
       });
 
@@ -182,7 +177,6 @@ describe('ComposerFooter', () => {
         providerName: 'NVIDIA AI',
         dir: '.../code/zenith-frontend-tui',
         branch: 'fix/ser-tu-communication-n-separations',
-        totalTokens: 12_400,
         effectiveMaxTokens: 128_000,
         runTokens: 12_400,
         runEstimated: true,

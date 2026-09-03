@@ -247,8 +247,6 @@ class FileTokenUsageRepository:
             "total_tokens_consumed": total_consumed,
             "total_cost_usd": total_cost,
             "final_context_used": final_context,
-            "waste_ratio": 0.0,
-            "summarization_count": 0,
             "average_context_utilization": round(final_context / total_consumed, 4)
             if total_consumed > 0
             else 0.0,

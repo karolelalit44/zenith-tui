@@ -46,17 +46,17 @@ The todo tool that lets the model maintain a task checklist during a turn.
 | (none specific here) | â€” | â€” |
 
 ## Verification / signoff
-- [ ] Simple todo tool (write/update checklist)
-- [ ] No lifecycle state machine
-- [ ] ruff + pytest + runtime smoke pass
+- [x] Simple todo tool (write/update checklist)
+- [x] No lifecycle state machine
+- [x] ruff + pytest + runtime smoke pass
 
-## Status: Review
+## Status: Done
 
 ## Report (Jupiter Worker)
 
 ```
 Module: 12 todo
-Status change: Pending → Review
+Status change: Pending → Done
 WHAT: Reduced the todo tool to a plain checklist (write/list/remove actions) with
       a session-scoped store that echoes the board into context. Removed the
       lifecycle-phase actions (add/update/complete/fail/reopen/reorder) in favor
@@ -70,7 +70,8 @@ EXPECTED BEHAVIOUR: model calls todo(actions=[write|list|remove]) to replace/rea
      the whole board; each write/list echoes the formatted checklist; todo_board
      event still emitted for the TUI board.
 OUTCOME / TEST EVIDENCE: G1 PASS (23 tests); G2 in progress; G3 ruff clean;
-     G6 PASS (no new features); G8 PASS (tests pass, run_state/explore unaffected).
+     G6 PASS (no new features); G8 PASS (tests pass, run_state/explore unaffected);
+     latest combined review batch PASS (62 tests)
 SHARED-FILE IMPACT: none (no CCS edits; constants references unchanged).
 DEPENDENCIES: unblocks nothing new (independent); downstream depends on module 03.
 ```

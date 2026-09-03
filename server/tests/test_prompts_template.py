@@ -67,7 +67,7 @@ class TestDefaultTemplateSections:
     def test_expected_tags(self, tmp_path):
         sections = default_template_sections(BUILD_MODE, workspace_root=str(tmp_path))
         tags = {s.tag for s in sections}
-        assert {"instructions", "env", "tool_reference", "skills"} <= tags
+        assert {"instructions", "env", "tool_reference"} <= tags
         instructions = next(s for s in sections if s.tag == "instructions")
         assert "BUILD mode" in instructions.render()
 
@@ -96,19 +96,8 @@ class TestBuildSystemPrompt:
         assert "PLANNING ONLY" in prompt
         assert "BUILD mode" not in prompt
 
-    def test_skills_section_included_when_provided(self, tmp_path):
-        prompt = build_system_prompt(str(tmp_path), skills_section="custom skill content")
-        assert "custom skill content" in prompt
-        assert "<skills>" in prompt
-
-    def test_no_skills_section_when_empty(self, tmp_path):
-        prompt = build_system_prompt(str(tmp_path), skills_section="")
-        assert "<skills>" not in prompt
-
-    def test_gemini_3_plus_appends_sampling_style(self, tmp_path):
-        prompt = build_system_prompt(str(tmp_path), model_name="gemini-3.0-flash")
-        assert "SAMPLING STYLE" in prompt
-
-    def test_non_gemini_no_sampling_style(self, tmp_path):
-        prompt = build_system_prompt(str(tmp_path), model_name="gpt-4o")
-        assert "SAMPLING STYLE" not in prompt
+    def test_model_name_does_not_change_prompt(self, tmp_path):
+        gemini_prompt = build_system_prompt(str(tmp_path), model_name="gemini-3.0-flash")
+        gpt_prompt = build_system_prompt(str(tmp_path), model_name="gpt-4o")
+        assert "SAMPLING STYLE" not in gemini_prompt
+        assert "SAMPLING STYLE" not in gpt_prompt

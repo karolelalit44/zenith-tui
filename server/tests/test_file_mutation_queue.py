@@ -6,11 +6,16 @@ the primitive itself.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 
+from server.toolkit.tools import file_delete, file_edit, file_write
 from server.toolkit.tools.file_mutation_queue import (
     FILE_MUTATION_QUEUE,
     FileMutationQueue,
 )
+from server.toolkit.tools.file_delete import FileDeleteTool
+from server.toolkit.tools.file_edit import FileEditTool
+from server.toolkit.tools.file_write import FileWriteTool
 
 
 class TestFileMutationQueue:
@@ -87,3 +92,33 @@ class TestFileMutationQueue:
 
         result = asyncio.run(FILE_MUTATION_QUEUE.run_exclusive("/w", noop))
         assert result == "ok"
+
+    def test_write_edit_and_delete_use_the_workspace_queue(self, tmp_path, monkeypatch):
+        class TrackingQueue:
+            def __init__(self):
+                self.workspaces = []
+
+            @asynccontextmanager
+            async def mutation(self, workspace_root):
+                self.workspaces.append(workspace_root)
+                yield
+
+        queue = TrackingQueue()
+        for module in (file_write, file_edit, file_delete):
+            monkeypatch.setattr(module, "FILE_MUTATION_QUEUE", queue)
+
+        async def mutate():
+            written = await FileWriteTool().execute(
+                {"path": "queued.txt", "content": "before"}, str(tmp_path)
+            )
+            edited = await FileEditTool().execute(
+                {"path": "queued.txt", "old_content": "before", "new_content": "after"},
+                str(tmp_path),
+            )
+            deleted = await FileDeleteTool().execute({"path": "queued.txt"}, str(tmp_path))
+            return written, edited, deleted
+
+        results = asyncio.run(mutate())
+
+        assert all(result.success for result in results)
+        assert queue.workspaces == [str(tmp_path), str(tmp_path), str(tmp_path)]

@@ -29,34 +29,3 @@ def validate_path(rel_path: str, workspace_root: str) -> Path | None:
         if _WIN_INVALID_CHARS.search(resolved.name):
             return None
     return resolved
-
-
-def is_destructive_write(target: Path, workspace_root: str) -> bool:
-    """Codex-style destructive write check: verify resolved target before write.
-
-    Checks if the write would overwrite an existing file, or target a system
-    location. Codex shell_spec.rs:339-344 - no cross-shell deletion composition,
-    verify resolved target before recursive delete.
-    """
-    try:
-        ws = Path(workspace_root).resolve()
-        target_resolved = target.resolve()
-        target_resolved.relative_to(ws)
-    except (OSError, ValueError):
-        return True  # outside workspace = destructive
-    if target_resolved.exists():
-        return True  # overwriting existing = destructive
-    return False
-
-
-def is_destructive_delete(target: Path, workspace_root: str) -> bool:
-    """Codex-style delete safety: verify target exists, is in workspace, not system."""
-    try:
-        ws = Path(workspace_root).resolve()
-        target_resolved = target.resolve()
-        target_resolved.relative_to(ws)
-    except (OSError, ValueError):
-        return True
-    if not target_resolved.exists():
-        return True  # deleting non-existent = suspicious
-    return False

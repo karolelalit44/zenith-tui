@@ -8,10 +8,6 @@ inferred or hardcoded per scenario.
 
 The store is keyed by ``session_id`` and lives in-process for the lifetime of
 the server process, which matches the lifespan of a websocket session.
-
-Persistence: unsaved changes are tracked via ``_dirty_sessions``. Call
-``flush_to_db`` after each prompt turn to batch-persist to the DB, and
-``load_from_db`` on session resume to hydrate from disk.
 """
 
 from __future__ import annotations
@@ -46,12 +42,7 @@ _STORE: dict[str, dict[str, SessionFileRecord]] = {}
 # Bounded per session (oldest entries evicted) so long-lived sessions cannot
 # grow it without limit.
 _READ_CACHE: dict[str, dict[str, dict]] = {}
-# Per-session full outputs of heavy tool calls (keyed by the relative path the
-# output was stored under). Survives only for the process lifetime; the file
-# itself is on disk under the workspace's hidden directory. Also bounded.
-_HEAVY_OUTPUTS: dict[str, dict[str, str]] = {}
 _MAX_READ_CACHE_ENTRIES = 200
-_MAX_HEAVY_OUTPUT_ENTRIES = 100
 _LOCK = threading.Lock()
 
 
@@ -97,7 +88,6 @@ def record_write(session_id: str, path: str, content: str) -> None:
             rec.last_edited_at = now
         _session_map(session_id)[path] = rec
         _READ_CACHE.get(session_id, {}).pop(path, None)
-        _mark_dirty_locked(session_id)
 
 
 def record_edit(session_id: str, path: str) -> None:
@@ -112,7 +102,6 @@ def record_edit(session_id: str, path: str) -> None:
             rec.last_edited_at = now
         _session_map(session_id)[path] = rec
         _READ_CACHE.get(session_id, {}).pop(path, None)
-        _mark_dirty_locked(session_id)
 
 
 def record_read(session_id: str, path: str) -> None:
@@ -125,7 +114,6 @@ def record_read(session_id: str, path: str) -> None:
         else:
             rec.last_read_at = now
         _session_map(session_id)[path] = rec
-        _dirty_sessions_add_locked(session_id)
 
 
 def is_stale(session_id: str, path: str) -> bool:
@@ -201,19 +189,6 @@ def invalidate_read_cache(session_id: str, path: str | None = None) -> None:
             _READ_CACHE.pop(session_id, None)
 
 
-def store_heavy_output(session_id: str, rel_path: str, output: str) -> None:
-    """Keep the full output of a heavy tool call for re-read within the session."""
-    with _LOCK:
-        _HEAVY_OUTPUTS.setdefault(session_id, {})[rel_path] = output
-        _bound_entries(_HEAVY_OUTPUTS, session_id, _MAX_HEAVY_OUTPUT_ENTRIES)
-
-
-def read_heavy_output(session_id: str, rel_path: str) -> str | None:
-    """Return the stored full output of a heavy tool call, or ``None``."""
-    with _LOCK:
-        return _HEAVY_OUTPUTS.get(session_id, {}).get(rel_path)
-
-
 def known_files(session_id: str) -> dict[str, SessionFileRecord]:
     with _LOCK:
         return dict(_session_map(session_id))
@@ -223,129 +198,4 @@ def reset_session(session_id: str) -> None:
     with _LOCK:
         _STORE.pop(session_id, None)
         _READ_CACHE.pop(session_id, None)
-        _HEAVY_OUTPUTS.pop(session_id, None)
-        _dirty_sessions.discard(session_id)
-        _dirty_epochs.pop(session_id, None)
 
-
-_dirty_sessions: set[str] = set()
-# Monotonic per-session counter bumped on every mutation. flush_to_db uses it
-# to detect writes that landed while an upsert was in flight: without this,
-# mark_clean after a slow await would silently discard those newer changes.
-_dirty_epochs: dict[str, int] = {}
-
-
-def _dirty_sessions_add_locked(session_id: str) -> None:
-    """Register a mutation (caller holds ``_LOCK``): dirty flag + epoch bump."""
-    _dirty_sessions.add(session_id)
-    _dirty_epochs[session_id] = _dirty_epochs.get(session_id, 0) + 1
-
-
-def _mark_dirty_locked(session_id: str) -> None:
-    _dirty_sessions_add_locked(session_id)
-
-
-def _mark_dirty(session_id: str) -> None:
-    with _LOCK:
-        _mark_dirty_locked(session_id)
-
-
-def get_dirty_sessions() -> set[str]:
-    """Return snapshot of session IDs with unsaved workspace changes."""
-    with _LOCK:
-        return set(_dirty_sessions)
-
-
-def mark_clean(session_id: str) -> None:
-    """Clear dirty flag for ``session_id`` (called after successful DB flush)."""
-    with _LOCK:
-        _dirty_sessions.discard(session_id)
-
-
-def _snapshot_epoch(session_id: str) -> int:
-    with _LOCK:
-        return _dirty_epochs.get(session_id, 0)
-
-
-def _mark_clean_if_unchanged(session_id: str, epoch: int) -> bool:
-    """Clear the dirty flag only if no mutation happened since ``epoch``.
-
-    Returns True when the flag was cleared; False means newer writes are
-    still pending and must be flushed by a later call.
-    """
-    with _LOCK:
-        if _dirty_epochs.get(session_id, 0) != epoch:
-            return False
-        _dirty_sessions.discard(session_id)
-        return True
-
-
-async def flush_to_db(session_id: str, repo) -> None:
-    """Persist all workspace records for ``session_id`` to the DB.
-
-    ``repo`` must be a ``SessionWorkspaceRepository`` instance.  This is a
-    no-op when there are no dirty records for the session.
-
-    Concurrency: the record snapshot is taken before the await; if another
-    turn mutates the workspace while ``upsert_batch`` is in flight, the
-    post-flush clean-up only clears the dirty flag when nothing changed in
-    the meantime (C-F07 lost-update guard).
-    """
-    start_epoch = _snapshot_epoch(session_id)
-    if session_id not in get_dirty_sessions():
-        return
-    records = known_files(session_id)
-    if not records:
-        try:
-            await repo.delete_session(session_id)
-        except Exception:
-            logger.warning("flush_to_db: failed to delete workspace for %s", session_id)
-        _mark_clean_if_unchanged(session_id, start_epoch)
-        return
-    batch = [
-        {
-            "path": rec.path,
-            "content_hash": rec.content_hash,
-            "size": rec.size,
-            "writes": rec.writes,
-            "edits": rec.edits,
-            "last_read_at": rec.last_read_at,
-            "last_edited_at": rec.last_edited_at,
-        }
-        for rec in records.values()
-    ]
-    try:
-        await repo.upsert_batch(session_id, batch)
-    except Exception as exc:
-        logger.warning("flush_to_db: failed to persist workspace for %s: %s", session_id, exc)
-        return
-    _mark_clean_if_unchanged(session_id, start_epoch)
-
-
-async def load_from_db(session_id: str, repo) -> None:
-    """Hydrate in-memory ``_STORE`` from the DB for ``session_id``.
-
-    Called on session resume so file tracking survives server restarts.  Existing
-    in-memory state for the session is replaced wholesale.
-    """
-    try:
-        rows = await repo.get_all(session_id)
-    except Exception:
-        logger.debug("load_from_db: failed to load workspace for %s", session_id)
-        return
-    if not rows:
-        return
-    with _LOCK:
-        session_map: dict[str, SessionFileRecord] = {}
-        for row in rows:
-            session_map[row["path"]] = SessionFileRecord(
-                path=row["path"],
-                content_hash=row.get("content_hash", ""),
-                size=row.get("size", 0),
-                writes=row.get("writes", 0),
-                edits=row.get("edits", 0),
-                last_read_at=row.get("last_read_at", 0.0),
-                last_edited_at=row.get("last_edited_at", 0.0),
-            )
-        _STORE[session_id] = session_map
-    logger.info("Loaded %d workspace records for session %s", len(rows), session_id)

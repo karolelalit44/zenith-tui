@@ -5,13 +5,26 @@ import uuid as _uuid
 from datetime import datetime
 from typing import Any
 
-from server.domain.domain import ScenarioMode, SessionState
+from server.domain.enums import ScenarioMode
 from server.domain.errors import SessionNotFound
 from server.domain.events import EventBus, EventKind, make_event
 from server.domain.message import Message
 from server.domain.session import Session
 
 logger = logging.getLogger(__name__)
+
+
+def _snippet(text: str, needle: str, radius: int = 60) -> str:
+    low = text.lower()
+    idx = low.find(needle.lower())
+    if idx < 0:
+        preview = text[: radius * 2]
+        return preview + ("..." if len(text) > len(preview) else "")
+    start = max(0, idx - radius)
+    end = min(len(text), idx + len(needle) + radius)
+    prefix = "[" if start == 0 else "..."
+    suffix = "]" if end == len(text) else "..."
+    return f"{prefix}{text[start:end]}{suffix}"
 
 
 class SessionService:
@@ -65,6 +78,20 @@ class SessionService:
         raise NotImplementedError
 
     async def get_history(self, session_id: str, limit: int | None = None) -> list[Message]:
+        raise NotImplementedError
+
+    async def search(
+        self,
+        query: str,
+        session_id: str | None = None,
+        limit: int = 20,
+    ) -> tuple[list[dict], dict]:
+        """Search session titles and message bodies for ``query``.
+
+        Returns ``(hits, index_parity)`` where each hit is a dict with keys
+        ``type`` (``session`` | ``message``), ``id``, ``session_id``, ``title``,
+        ``created_at`` and ``snippet``.
+        """
         raise NotImplementedError
 
     async def get_message_count(self, session_id: str) -> int:
@@ -157,27 +184,6 @@ class DefaultSessionService(SessionService):
         if self._event_bus:
             self._event_bus.publish(make_event(kind, data, session_id=session_id))
 
-    async def _transition(
-        self, session: Session, new_state: SessionState, reason: str = ""
-    ) -> Session:
-        from_state = session.state.value if hasattr(session.state, "value") else str(session.state)
-        to_state = new_state.value if hasattr(new_state, "value") else str(new_state)
-        session.transition(new_state)
-        session = await self._session_repo.update(session)
-        if self._status_history_repo:
-            await self._status_history_repo.record(session.id, from_state, to_state, reason)
-        self._publish(
-            EventKind.SESSION_STATE_CHANGED,
-            {
-                "session_id": session.id,
-                "from_state": from_state,
-                "to_state": to_state,
-                "reason": reason,
-            },
-            session_id=session.id,
-        )
-        return session
-
     async def create(
         self,
         title: str | None = None,
@@ -191,7 +197,6 @@ class DefaultSessionService(SessionService):
         session = Session(
             title=title or "New Session",
             mode=mode,
-            state=SessionState.CREATED,
             provider=provider,
             model=model,
             workspace_root=workspace_root or ".",
@@ -199,8 +204,6 @@ class DefaultSessionService(SessionService):
             parent_session_id=parent_session_id,
         )
         await self._session_repo.create(session)
-        if self._status_history_repo:
-            await self._status_history_repo.record(session.id, None, "created", "Session created")
         self._publish(
             EventKind.SESSION_CREATED,
             {
@@ -275,29 +278,25 @@ class DefaultSessionService(SessionService):
 
     async def initialize(self, session_id: str) -> Session:
         session = await self.require(session_id)
-        if session.state != SessionState.CREATED and session.state != SessionState.DRAFT:
-            raise ValueError(f"Cannot initialize session in state {session.state}")
-        return await self._transition(session, SessionState.INITIALIZING, "Session initializing")
+        session.mark_busy()
+        return await self._session_repo.update(session)
 
     async def complete(self, session_id: str) -> Session:
         session = await self.require(session_id)
-        return await self._transition(session, SessionState.COMPLETED, "Session completed")
+        session.mark_idle()
+        return await self._session_repo.update(session)
 
     async def pause(self, session_id: str) -> Session:
         session = await self.require(session_id)
-        result = await self._transition(session, SessionState.PAUSED, "Session paused")
+        session.mark_idle()
+        result = await self._session_repo.update(session)
         self._publish(EventKind.SESSION_PAUSED, {"session_id": session_id}, session_id=session_id)
         return result
 
     async def resume(self, session_id: str) -> Session:
         session = await self.require(session_id)
-        # Idempotent: a client reconnects, replays buffered events, then calls
-        # resume again. Re-resuming an already-resumed session is a no-op, not a
-        # transition error. This guards the double-resume race seen on reconnect.
-        if session.state == SessionState.RESUMED:
-            logger.info("Resume is idempotent for session %s (already resumed)", session_id)
-            return session
-        result = await self._transition(session, SessionState.RESUMED, "Session resumed")
+        session.mark_busy()
+        result = await self._session_repo.update(session)
         self._publish(EventKind.SESSION_RESUMED, {"session_id": session_id}, session_id=session_id)
         return result
 
@@ -306,19 +305,70 @@ class DefaultSessionService(SessionService):
         session = await self._session_repo.get(session_id)
         if session:
             session.message_count += 1
-            if session.state in (
-                SessionState.CREATED,
-                SessionState.INITIALIZING,
-                SessionState.RESUMED,
-            ):
-                await self._transition(session, SessionState.ACTIVE, "Message added")
-            else:
-                await self._session_repo.update(session)
+            session.mark_busy()
+            await self._session_repo.update(session)
 
     async def get_history(self, session_id: str, limit: int | None = None) -> list[Message]:
         if limit is not None:
             return await self._message_repo.get_by_session(session_id, limit=limit)
         return await self._message_repo.get_by_session(session_id)
+
+    async def search(
+        self,
+        query: str,
+        session_id: str | None = None,
+        limit: int = 20,
+    ) -> tuple[list[dict], dict]:
+        """Search session titles and message bodies for ``query``.
+
+        Returns ``(hits, index_parity)`` where each hit is a dict with keys
+        ``type`` (``session`` | ``message``), ``id``, ``session_id``, ``title``,
+        ``created_at`` and ``snippet`` (messages also include ``role``).
+        """
+        needle = query.lower()
+        hits: list[dict] = []
+        sessions = await self._session_repo.list_all(limit=10_000, include_archived=True)
+        if session_id:
+            sessions = [session for session in sessions if session.id == session_id]
+        total_messages = 0
+        for session in sessions:
+            title = session.title or ""
+            if needle in title.lower():
+                hits.append(
+                    {
+                        "type": "session",
+                        "id": session.id,
+                        "session_id": session.id,
+                        "title": title,
+                        "created_at": session.created_at.isoformat(),
+                        "snippet": _snippet(title, needle),
+                    }
+                )
+                if len(hits) >= limit:
+                    break
+            messages = await self._message_repo.get_by_session(session.id, limit=0)
+            total_messages += len(messages)
+            for message in messages:
+                content = message.content or ""
+                if needle not in content.lower():
+                    continue
+                hits.append(
+                    {
+                        "type": "message",
+                        "id": message.id,
+                        "session_id": session.id,
+                        "title": title,
+                        "role": message.role,
+                        "created_at": message.created_at.isoformat(),
+                        "snippet": _snippet(content, needle),
+                    }
+                )
+                if len(hits) >= limit:
+                    break
+            if len(hits) >= limit:
+                break
+        parity = {"mode": "session-scan", "messages": total_messages, "sessions": len(sessions)}
+        return hits, parity
 
     async def get_message_count(self, session_id: str) -> int:
         session = await self.require(session_id)
@@ -376,11 +426,8 @@ class DefaultSessionService(SessionService):
         session = await self.require(session_id)
         session.error_count += 1
         session.last_error = error
+        session.mark_idle()
         result = await self._session_repo.update(session)
-        if session.state == SessionState.ACTIVE:
-            await self._transition(session, SessionState.ERROR, error)
-        else:
-            await self._session_repo.update(session)
         self._publish(
             EventKind.SESSION_ERROR,
             {"session_id": session_id, "error": error, "error_count": session.error_count},
@@ -392,10 +439,6 @@ class DefaultSessionService(SessionService):
         session = await self.require(session_id)
         if self._checkpoint_repo is None:
             raise RuntimeError("Checkpoint repository not available")
-        if session.state == SessionState.ACTIVE:
-            await self._transition(
-                session, SessionState.CHECKPOINTING, f"Checkpoint: {checkpoint_type}"
-            )
         cid = await self._checkpoint_repo.create(
             session_id=session_id,
             checkpoint_type=checkpoint_type,
@@ -404,8 +447,6 @@ class DefaultSessionService(SessionService):
             token_count=session.total_tokens,
             message_count=session.message_count,
         )
-        if session.state == SessionState.CHECKPOINTING:
-            await self._transition(session, SessionState.ACTIVE, "Checkpoint complete")
         self._publish(
             EventKind.SESSION_CHECKPOINT_CREATED,
             {"session_id": session_id, "checkpoint_id": cid, "checkpoint_type": checkpoint_type},
@@ -421,7 +462,7 @@ class DefaultSessionService(SessionService):
             return None
         snapshot = checkpoint["snapshot_data"]
         session = Session(**snapshot)
-        session.state = SessionState.RESUMED
+        session.mark_idle()
         await self._session_repo.update(session)
         self._publish(
             EventKind.SESSION_RESTORED,
@@ -473,8 +514,7 @@ class DefaultSessionService(SessionService):
     async def restore_from_archive(self, session_id: str) -> Session:
         session = await self.require(session_id)
         session.is_active = True
-        session.state = SessionState.ACTIVE
-        session.updated_at = datetime.now()
+        session.mark_idle()
         result = await self._session_repo.update(session)
         self._publish(EventKind.SESSION_RESTORED, {"session_id": session_id}, session_id=session_id)
         return result
@@ -500,16 +540,12 @@ class DefaultSessionService(SessionService):
         if self._draft_repo is None:
             raise RuntimeError("Draft repository not available")
         did = await self._draft_repo.save(session_id, prompt=prompt, ttl_hours=ttl_hours)
-        session = await self.require(session_id)
-        if session.state == SessionState.CREATED:
-            await self._transition(session, SessionState.DRAFT, "Saved as draft")
         return did
 
     async def promote_draft(self, session_id: str) -> Session:
         session = await self.require(session_id)
-        if session.state != SessionState.DRAFT:
-            raise ValueError(f"Cannot promote non-draft session (state={session.state})")
-        return await self._transition(session, SessionState.ACTIVE, "Draft promoted")
+        session.mark_busy()
+        return await self._session_repo.update(session)
 
     async def get_status_history(self, session_id: str, limit: int = 50) -> list[dict]:
         if self._status_history_repo is None:

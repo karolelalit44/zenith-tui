@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -9,15 +8,12 @@ from collections import Counter
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
-
 from server.config.constants import (
     BASH_TOOL,
     BG_OUTPUT_TAIL,
     BUILD_MODE,
-    CHARS_PER_TOKEN,
     CONTEXT_EXHAUSTED_HINT,
     CONTEXT_EXHAUSTED_MESSAGE,
-    DEGENERATE_MESSAGE_PATTERN,
     DEFAULT_SALVAGE_TIMEOUT_SECONDS,
     DUP_RESULT_PREVIEW_CHARS,
     EPHEMERAL_TOOL_WINDOW_SIZE,
@@ -26,23 +22,15 @@ from server.config.constants import (
     FILE_EDIT_TOOL,
     FILE_MUTATING_TOOLS,
     FILE_OVERWRITE_PARAM,
-    FILE_READ_TOOL,
     FILE_WRITE_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     HARD_STOP_USAGE_RATIO,
-    HEAVY_OUTPUT_SUBDIR,
-    HEAVY_TOOL_ISOLATION_PREVIEW_CHARS,
-    HEAVY_TOOL_MARKER_TEMPLATE,
-    HEAVY_TOOL_THRESHOLD_TOKENS,
     MANIFEST_CHECKS_CAP,
-    MODE_BUDGET_PROFILES,
     APPOGEE_AGENT_NAME,
     APPOGEE_AGENT_ROLE,
     PLAN_MODE,
     POLL_TOOLS,
     PROGRESS_DETAIL_MAX_CHARS,
-    ITERATION_GUIDANCE_LEVELS,
-    PROGRESSIVE_GUIDANCE_LEVELS,
     SKIP_WARNING_CAP,
     SALVAGE_DIGEST_MAX_ITEMS,
     SALVAGE_INSTRUCTION,
@@ -50,13 +38,12 @@ from server.config.constants import (
     STALL_FINALIZE_AFTER_ITERATIONS,
     SUMMARY_MIN_CHARS,
     TERMINAL_TOOL,
-    TOOL_GUIDELINES_DIR,
     TURN_VERDICT_COMPLETED,
     TURN_VERDICT_STALLED,
 )
 from server.config.env import optional_float
 from server.config.settings import AGENT_MODES, AppSettings
-from server.domain.domain import FinishReason
+from server.domain.enums import FinishReason
 from server.domain.errors import ZenithError
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
@@ -80,7 +67,7 @@ from ..toolkit.executor import (
     validate_tool_calls,
     validate_tool_rejection,
 )
-from .compaction import compact_tool_output, head_tail_trim
+from .compaction import compact_tool_output
 from .compaction_service import (
     CompactionService,
     CompactionTrigger,
@@ -88,20 +75,8 @@ from .compaction_service import (
 )
 from .context import ContextManager, _adaptive_reserve, _get_model_context_window
 from .llm_stream import StreamState, stream_completion
-from .loop_detection import LoopDetector
 from .prompts import build_plan_system_prompt, build_system_prompt
 from .run_state import _activity_label
-from .session_state import render_session_state
-from .session_workspace import (
-    cached_read_for,
-    current_path_hash,
-    is_identical_replay,
-    record_edit,
-    record_read,
-    record_write,
-    store_cached_read_output,
-    store_heavy_output,
-)
 from .validation import reflection_error_limit, schemas_to_openai_tools
 
 _format_tool_result = format_tool_result
@@ -121,61 +96,41 @@ def _call_signature(
 def _params_label(params: dict) -> str:
     if not params:
         return ""
-    if "tool_name" in params:
-        return str(params["tool_name"])
-    for key in ("path", "pattern", "query", "url", "command", "task"):
-        if params.get(key):
-            value = params[key]
-            if isinstance(value, str) and len(value) > 48:
-                value = value[:48] + "…"
-            return f"{key}={value}"
+    for key in ("path", "filepath", "pattern", "command", "query"):
+        value = params.get(key)
+        if value:
+            limit = 48 if key == "command" else 120
+            return f"{key}={str(value)[:limit]}"
     if len(params) == 1:
-        key, value = next(iter(params.items()))
-        return f"{key}={value}"
-    return ""
-
-
-_PLAN_ARTIFACTS = ("plan.md", "todo.md")
-
-
-def _scan_plan_artifacts(workspace_root: str | None) -> dict:
-    """Stat the plan artifacts on disk — the evidence for the plan-mode contract.
-
-    A plan turn is only complete when ``plan.md`` (and ideally ``todo.md``) was
-    actually written to the workspace root. ``created_files`` is not sufficient
-    evidence: the model may claim completion without writing the artifact, so we
-    check the authoring tool's outcome and confirm the file exists on disk.
-    """
-    root = Path(workspace_root or ".")
-    exists = {name: (root / name).is_file() for name in _PLAN_ARTIFACTS}
-    return {
-        "plan_written": exists["plan.md"],
-        "todo_written": exists["todo.md"],
-        "missing": [name for name in _PLAN_ARTIFACTS if not exists[name]],
-    }
-
-
-_INCOMPLETE_TODO_STATUSES = ("pending", "in_progress", "blocked", "failed")
+        return str(next(iter(params.values())))[:120]
+    return ", ".join(f"{key}={value}" for key, value in sorted(params.items()))[:120]
 
 
 def _incomplete_todo_titles(todos: list[dict] | None) -> list[str]:
-    """Incomplete-todo titles for the manifest ``remaining`` (QA-8).
+    completed_statuses = {"completed", "complete", "cancelled", "canceled"}
+    return [
+        str(todo.get("title") or todo.get("content") or "Untitled task")
+        for todo in todos or []
+        if str(todo.get("status", "pending")).lower() not in completed_statuses
+    ]
 
-    Structured state is authoritative: ``remaining`` comes from session todos
-    that are not done/cancelled — never the model's last message or hard-coded
-    heuristics.
-    """
-    if not todos:
-        return []
-    out: list[str] = []
-    for t in todos:
-        status = str((t or {}).get("status") or "")
-        title = str((t or {}).get("title") or "").strip()
-        if not title or status in ("completed", "cancelled"):
-            continue
-        if status in _INCOMPLETE_TODO_STATUSES:
-            out.append(f"Todo: {title} ({status})" if status != "pending" else f"Todo: {title}")
-    return out
+
+def _scan_plan_artifacts(workspace_root: str | None) -> dict:
+    """Return the on-disk plan-artifact contract (plan.md is blocking, todo.md
+    recommended) as ``plan_written`` / ``todo_written`` / ``missing``."""
+    root = Path(workspace_root or ".")
+    missing: list[str] = []
+    plan_written = bool((root / "plan.md").is_file())
+    todo_written = bool((root / "todo.md").is_file())
+    if not plan_written:
+        missing.append("plan.md")
+    if not todo_written:
+        missing.append("todo.md")
+    return {
+        "plan_written": plan_written,
+        "todo_written": todo_written,
+        "missing": missing,
+    }
 
 
 def _build_manifest(
@@ -202,13 +157,9 @@ def _build_manifest(
     completed = bool(task_completed and not stall_finalized)
     changed = bool(created_files or files_edited)
     verified = True if not changed else _has_verification_evidence(verification or [])
-    # Honesty (AGENT_RELIABILITY_PLAN P1): ``remaining`` lists only real
-    # structured pending work. An empty list stays empty — a fabricated
-    # placeholder item must never be invented to look non-empty.
     remaining: list[str] = []
     if not completed:
-        # Structured state first: incomplete todos + verification gaps. The
-        # model's last text is never authoritative for "remaining".
+        
         remaining = _incomplete_todo_titles(todos)
         if created_files and not verified:
             remaining.append("Files were written but no verification evidence was produced.")
@@ -310,9 +261,6 @@ def _most_common_count(items: list[str]) -> int:
     return Counter(items).most_common(1)[0][1]
 
 
-_DEGENERATE_MESSAGE_RE = re.compile(DEGENERATE_MESSAGE_PATTERN, re.IGNORECASE)
-
-
 def _is_degenerate_message(text: str | None) -> bool:
     """True for meta-placeholder outputs (P3.3): ``[tool calls]``, ``thinking``.
 
@@ -325,7 +273,13 @@ def _is_degenerate_message(text: str | None) -> bool:
     stripped = text.strip()
     if not stripped:
         return True
-    return bool(_DEGENERATE_MESSAGE_RE.match(stripped))
+    normalized = stripped.lower()
+    if normalized.startswith("[") and normalized.endswith("]"):
+        normalized = normalized[1:-1].strip()
+    normalized = " ".join(normalized.split())
+    if normalized in {"thinking", "no output"}:
+        return True
+    return normalized.replace(" ", "") in {"toolcall", "toolcalls"}
 
 
 def _has_tool_calls(tool_calls: list[dict]) -> bool:
@@ -366,7 +320,6 @@ class AgentLoop:
         self.tool_registry = tool_registry
         self._compaction_service = compaction_service
         self._summary: str | None = None
-        self._loop_detector = LoopDetector()
         self._accept_sequence: int = 0
         self._cancel_sequence: int = -1
         self._last_emitted_message: str | None = None
@@ -375,8 +328,7 @@ class AgentLoop:
         self._last_compaction_outcome = None
         self._heavy_tools_summarized = 0
         self._heavy_seq = 0
-        # WP5 Phase 3: delegated children override this so their salvage pass
-        # produces the mission's structured report contract.
+        
         self._salvage_instruction: str = SALVAGE_INSTRUCTION
 
     def _get_compaction_service(self) -> CompactionService:
@@ -386,76 +338,10 @@ class AgentLoop:
             )
         return self._compaction_service
 
-    def _try_cached_read(self, session_id: str, tool_params: dict) -> str | None:
-        """Return the cached read output for a file_read call when unchanged.
-
-        A second read of the same file within the same session, when the file's
-        content hash matches the last read, returns the cached output instead of
-        re-reading and re-injecting the full content. Returns ``None`` when there
-        is no usable cache (first read, changed file, invalid path).
-        """
-        p = tool_params.get("filepath") or tool_params.get("path") or ""
-        if not p:
-            return None
-        try:
-            resolved = validate_path(p, self.config.workspace_root)
-            if resolved is None or not resolved.exists() or resolved.is_dir():
-                return None
-            current = resolved.read_text(encoding="utf-8", errors="replace")
-            return cached_read_for(session_id, p, current_path_hash(current))
-        except (OSError, ValueError):
-            return None
-
     async def _maybe_summarize_heavy_output(
         self, session_id: str, tool_name: str, result: ToolResult
     ) -> str | None:
-        """Isolate a heavy tool output from the main context window.
-
-        When a successful tool result exceeds ``HEAVY_TOOL_THRESHOLD_TOKENS`` the
-        full output is written under the workspace's hidden directory, tracked in
-        the session workspace (so the agent can re-read it with ``file_read``),
-        and ``result.output`` is replaced by a deterministic head/tail excerpt
-        plus the stored path. No LLM summarization happens here: model-written
-        summaries are lossy in ways that silently corrupt downstream decisions
-        (dropped paths caused phantom-file hallucinations); a mechanical excerpt
-        is transparent and the agent decides whether to re-read the full file.
-        Returns the relative path of the stored full output, or ``None`` when
-        the output is light (or cannot be isolated).
-        """
-        output = (result.output or "") if result.success else ""
-        if not output:
-            return None
-        if tool_name == FILE_READ_TOOL:
-            # file_read output is already on disk and re-readable; the cached-read
-            # + staleness system governs it. Isolating would corrupt the read
-            # cache, so heavy file reads stay as-is.
-            return None
-        if len(output) // CHARS_PER_TOKEN < HEAVY_TOOL_THRESHOLD_TOKENS:
-            return None
-        self._heavy_seq += 1
-        slug = f"{session_id[:8]}-{self._heavy_seq}-{tool_name}"
-        rel = f"{TOOL_GUIDELINES_DIR}/{HEAVY_OUTPUT_SUBDIR}/{slug}.txt"
-        abs_path = Path(self.config.workspace_root) / rel
-        try:
-            abs_path.parent.mkdir(parents=True, exist_ok=True)
-            abs_path.write_text(output, encoding="utf-8")
-            record_write(session_id, rel, output)
-            store_cached_read_output(session_id, rel, output)
-            store_heavy_output(session_id, rel, output)
-        except OSError:
-            logger.warning("Failed to store heavy output for session %s: %s", session_id, rel)
-            return None
-        excerpt, _omitted = head_tail_trim(output, HEAVY_TOOL_ISOLATION_PREVIEW_CHARS)
-        marker = HEAVY_TOOL_MARKER_TEMPLATE.format(total_chars=len(output), path=rel)
-        result.output = f"{marker}\n{excerpt}"
-        self._heavy_tools_summarized += 1
-        logger.info(
-            "Isolated heavy tool output: tool=%s chars=%d stored=%s",
-            tool_name,
-            len(output),
-            rel,
-        )
-        return rel
+        return None
 
     @staticmethod
     def _salvage_digest(messages: list[dict]) -> str:
@@ -487,19 +373,8 @@ class AgentLoop:
         reason: str,
         iteration: int,
     ) -> AsyncIterator[Event]:
-        """WP3: convert a harness-forced exit into a best-effort final answer.
 
-        Contract (industry-standard "forced final round", cf. LangGraph's
-        forced-answer node / assistant-API ``tool_choice=none``):
-        - Runs once, only when the model has NOT delivered substantive text
-          this turn and the exit was not user-initiated (cancellations and
-          context-exhaustion exits never reach this path).
-        - Tools are withheld from the request: the model cannot start new
-          work, it can only report on evidence already gathered.
-        - If the model replies with more tool calls, or the call fails or
-          times out, a deterministic digest of tool activity is emitted
-          instead — so the response is NEVER empty and never fabricates.
-        """
+        
         yield r.warning(
             f"Wrapping up without further tool use ({reason})...",
             session_id,
@@ -537,10 +412,6 @@ class AgentLoop:
     def accept(self) -> int:
         self._accept_sequence += 1
         return self._accept_sequence
-
-    # ------------------------------------------------------------------ #
-    # explore crewmate events (WP5)                                       #
-    # ------------------------------------------------------------------ #
 
     @staticmethod
     def _explore_crewmate_identity(tool_params: dict) -> tuple[str, str, str]:
@@ -613,11 +484,10 @@ class AgentLoop:
         return max(10, min(ctx // 2000, 150))
 
     def _mode_tools_budget(self, model: str, mode: str) -> int:
-        """Cap the on-band tool-schema token budget for ``mode`` (Gap #8)."""
+        """Cap on-band tool schemas to a fixed share of usable input context."""
         ctx = min(_get_model_context_window(model), self.config.max_context_tokens)
         reserve = _adaptive_reserve(model, ctx)
-        profile = MODE_BUDGET_PROFILES.get(mode, MODE_BUDGET_PROFILES[BUILD_MODE])
-        return int(max(0, ctx - reserve) * profile["tools_pct"])
+        return int(max(0, ctx - reserve) * 0.10)
 
     async def process_prompt(
         self,
@@ -625,7 +495,6 @@ class AgentLoop:
         session_id: str,
         history: list[Message],
         mode: str = BUILD_MODE,
-        skills_section: str = "",
         plan_context: str = "",
         model_override: str | None = None,
         repo_map: str | None = None,
@@ -648,7 +517,6 @@ class AgentLoop:
                 session_id,
                 history,
                 mode,
-                skills_section,
                 plan_context,
                 sequence,
                 repo_map,
@@ -664,7 +532,6 @@ class AgentLoop:
         session_id: str,
         history: list[Message],
         mode: str = BUILD_MODE,
-        skills_section: str = "",
         plan_context: str = "",
         sequence: int = 0,
         repo_map: str | None = None,
@@ -675,7 +542,6 @@ class AgentLoop:
         model = self.provider.model
         ws = self.config.workspace_root
         mode_config = AGENT_MODES.get(mode)
-        allowed_mcp = mode_config.allowed_mcp if mode_config else None
         allowed_tools = mode_config.allowed_tools if mode_config else None
         resolver = SchemaResolver(self.tool_registry, seed=build_mode_tool_seed(allowed_tools))
         if mode == PLAN_MODE:
@@ -687,14 +553,13 @@ class AgentLoop:
                 max_context_tokens=self.config.max_context_tokens,
             )
             registered_tools = set(resolver.active_names())
-            openai_tools = resolver.openai_tools(PLAN_MODE, allowed_mcp=allowed_mcp)
+            openai_tools = resolver.openai_tools(PLAN_MODE)
             logger.info("Plan mode tools: %s", sorted(registered_tools))
         else:
-            active_schemas = resolver.schemas(BUILD_MODE, allowed_mcp=allowed_mcp)
+            active_schemas = resolver.schemas(BUILD_MODE)
             system_prompt = build_system_prompt(
                 self.config.workspace_root,
                 mode,
-                skills_section=skills_section,
                 max_context_tokens=self.config.max_context_tokens,
                 provider_name=provider_name,
                 model_name=model,
@@ -717,12 +582,11 @@ class AgentLoop:
             session_id=session_id,
             mode=mode,
         )
-        self._inject_session_state(messages, session_id)
         base_len = len(messages)
         logger.info(
             "Context built: %d messages, system_prompt=%d chars", len(messages), len(system_prompt)
         )
-        if self.context_manager.should_summarize(messages, model, self.provider):
+        if self.context_manager.should_summarize(messages, model):
             _rebuild_holder: list[Any] = []
             async for _ev in self._summarize_and_rebuild(
                 history,
@@ -740,7 +604,7 @@ class AgentLoop:
             ):
                 yield _ev
             messages = _rebuild_holder[0]
-        if self.context_manager.is_context_exhausted(messages, model, self.provider):
+        if self.context_manager.is_context_exhausted(messages, model):
             yield r.turn_manifest(
                 _build_manifest(
                     set(),
@@ -808,21 +672,13 @@ class AgentLoop:
         salvage_reason: str | None = None
         salvaged = False
         progress_steps: list[dict] = []
-        written_paths: set[str] = set()
         warned_rejects: set[tuple[str, str]] = set()
         pending_skips: list[str] = []
         post_write_checks: list[dict] = []
         change_seq = 0
         last_evidence_seq = 0
-        prior_replay_blocks = 0
         _total_completion_chars = 0
         active_tool_result_indices: list[int] = []
-        # Progressive efficiency guidance: track cumulative run-level tokens
-        # and which guidance level has already been injected.
-        _guidance_level = -1
-        _run_cumulative_tokens = 0
-        _iteration_guidance_level = -1
-
         def _session_todos() -> list[dict]:
             """Session-scoped todo snapshot for manifest remaining (QA-8)."""
             try:
@@ -930,49 +786,6 @@ class AgentLoop:
                 if task_completed:
                     post_comp_iterations += 1
                 token_info = self.context_manager.get_token_info(messages, model)
-                # ---- Progressive efficiency guidance -------------------------
-                # Track cumulative run-level tokens and inject adaptive hints
-                # when thresholds are crossed. This is a signal, not a hard cap
-                # — the model decides whether to act on it.
-                try:
-                    cum_usage = getattr(self.provider, "_cumulative_usage", {}) or {}
-                    run_tokens = cum_usage.get("total_tokens", 0)
-                except Exception:
-                    run_tokens = 0
-                if run_tokens > _run_cumulative_tokens:
-                    _run_cumulative_tokens = run_tokens
-                for lvl_idx, (threshold, hint_msg) in enumerate(PROGRESSIVE_GUIDANCE_LEVELS):
-                    if lvl_idx > _guidance_level and _run_cumulative_tokens >= threshold:
-                        _guidance_level = lvl_idx
-                        messages.append({"role": "user", "content": hint_msg})
-                        yield r.warning(
-                            hint_msg,
-                            session_id,
-                            code="EFFICIENCY_GUIDANCE",
-                        )
-                        logger.info(
-                            "Progressive guidance level %d injected at %d tokens",
-                            lvl_idx,
-                            _run_cumulative_tokens,
-                        )
-                        break
-                # ---- Iteration-count guidance -----------------------------------
-                for itr_idx, (itr_thresh, itr_msg) in enumerate(ITERATION_GUIDANCE_LEVELS):
-                    if itr_idx > _iteration_guidance_level and iteration >= itr_thresh:
-                        _iteration_guidance_level = itr_idx
-                        messages.append({"role": "user", "content": itr_msg})
-                        yield r.warning(
-                            itr_msg,
-                            session_id,
-                            code="EFFICIENCY_GUIDANCE",
-                        )
-                        logger.info(
-                            "Iteration guidance level %d injected at iteration %d",
-                            itr_idx,
-                            iteration,
-                        )
-                        break
-                # ---- End progressive guidance --------------------------------
                 if token_info.percent >= self.config.context_compaction_threshold and (
                     not self._compacted_this_turn or len(messages) > self._compacted_message_count
                 ):
@@ -1213,7 +1026,7 @@ class AgentLoop:
                     if set(new_active) != registered_tools:
                         prev_names = set(registered_tools)
                         registered_tools = set(new_active)
-                        openai_tools = resolver.openai_tools(mode, allowed_mcp=allowed_mcp)
+                        openai_tools = resolver.openai_tools(mode)
                         self.context_manager.set_aux_tokens(
                             min(resolver.schema_tokens(model), self._mode_tools_budget(model, mode))
                         )
@@ -1309,7 +1122,6 @@ class AgentLoop:
                                 _p,
                                 ws,
                                 mode,
-                                allowed_mcp=(mode_config.allowed_mcp if mode_config else None),
                             )
                             for _i, _s, _p in _fanout
                         ),
@@ -1328,7 +1140,6 @@ class AgentLoop:
                     tool_name = tc["tool"]
                     tool_params = normalize_file_params(tc.get("params", {}), tc["tool"])
                     sig = _call_signature(tool_name, tool_params, self.config.workspace_root)
-                    blocked_write = False
                     if call_index in merged_fanout_dups:
                         # Identical to a sibling explore in this fan-out: the
                         # kept mission's report covers it.
@@ -1390,23 +1201,7 @@ class AgentLoop:
                         target = tool_params.get("filepath") or tool_params.get("path") or ""
                         if target:
                             resolved = validate_path(target, ws)
-                            if (
-                                resolved is not None
-                                and resolved.exists()
-                                and is_identical_replay(
-                                    session_id, target, tool_params.get("content", "")
-                                )
-                            ):
-                                blocked_write = True
-                                prior_replay_blocks += 1
-                                reject_msg = (
-                                    f"File re-write blocked: '{target}' was already written in "
-                                    "an earlier turn of this session with identical content. It "
-                                    "already exists with exactly this content, so no change is "
-                                    "needed. If you need to modify it, read it first, then use "
-                                    "file_edit."
-                                )
-                            elif resolved is not None and resolved.exists():
+                            if resolved is not None and resolved.exists():
                                 if not self.config.auto_overwrite:
                                     reject_msg = (
                                         f"File overwrite denied: '{target}' already exists. Pass "
@@ -1414,13 +1209,6 @@ class AgentLoop:
                                     )
                                 else:
                                     tool_params[FILE_OVERWRITE_PARAM] = True
-                            if target in written_paths:
-                                blocked_write = True
-                                reject_msg = (
-                                    f"File rewrite blocked: '{target}' was already written this "
-                                    f"turn. To modify it, read it first, then use file_edit; "
-                                    f"do not re-write the same path."
-                                )
                     if tool_name == FILE_DELETE_TOOL and (not reject_msg):
                         target = tool_params.get("path") or ""
                         if target:
@@ -1445,11 +1233,6 @@ class AgentLoop:
                         messages.append(
                             {"role": "user", "content": f"[Tool rejected] {reject_msg}"}
                         )
-                        if blocked_write:
-                            skipped_calls.append(
-                                f"{tool_name}({_params_label(tool_params)}) [blocked]"
-                            )
-                            continue
                         consecutive_failures += 1
                         if consecutive_failures >= _reflimit:
                             yield _with_manifest(
@@ -1462,46 +1245,6 @@ class AgentLoop:
                             )
                             return
                         continue
-                    if tool_name == FILE_READ_TOOL:
-                        cached_output = self._try_cached_read(session_id, tool_params)
-                        if cached_output is not None:
-                            yield r.tool_call(tool_name, tool_params, session_id)
-                            newly_executed = True
-                            result = ToolResult(
-                                success=True,
-                                output=cached_output,
-                                metadata={"cached": True},
-                            )
-                            yield r.tool_result(
-                                tool_name,
-                                True,
-                                session_id,
-                                output=cached_output,
-                                metadata=build_tool_metadata(
-                                    tool_name,
-                                    tool_params,
-                                    result,
-                                    0,
-                                    ws,
-                                ),
-                            )
-                            yield _emit_progress(tool_name, True, _param_detail(tool_params))
-                            _model_ctx = _get_model_context_window(model)
-                            _result_limit = _dynamic_max_output(_model_ctx)
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": format_tool_result(tool_name, result, _result_limit),
-                                    "cached_read": True,
-                                }
-                            )
-                            p = tool_params.get("filepath") or tool_params.get("path") or ""
-                            if p:
-                                record_read(session_id, p)
-                            executed_calls.add(
-                                _call_signature(tool_name, tool_params, self.config.workspace_root)
-                            )
-                            continue
                     yield r.tool_call(tool_name, tool_params, session_id)
                     newly_executed = True
                     executed_tool_names.add(tool_name)
@@ -1526,28 +1269,9 @@ class AgentLoop:
                             tool_params,
                             ws,
                             mode,
-                            allowed_mcp=mode_config.allowed_mcp if mode_config else None,
                         )
                     if explore_crewmate is not None:
                         yield self._explore_settle_event(session_id, explore_crewmate.data, result)
-                    # Explain a potentially long isolation phase instead of a
-                    # frozen spinner: heavy outputs get stored + excerpted.
-                    if (
-                        result.success
-                        and len(result.output or "") // CHARS_PER_TOKEN
-                        >= HEAVY_TOOL_THRESHOLD_TOKENS
-                    ):
-                        size_kb = max(1, len(result.output) // 1024)
-                        yield _emit_progress_running(
-                            tool_name,
-                            f"isolating {size_kb} KB of output",
-                        )
-                    await self._maybe_summarize_heavy_output(session_id, tool_name, result)
-                    # Compact for the MODEL here; any shrinkage becomes a small
-                    # footnote on the tool row (metadata["trim"]) — the old
-                    # full-screen compaction card for tiny trims was noise.
-                    # Genuinely large outputs never reach this point: heavy
-                    # isolation already replaced them with summary + file path.
                     _model_ctx = _get_model_context_window(model)
                     result_limit = _dynamic_max_output(_model_ctx)
                     _compacted, cstats = compact_tool_output(
@@ -1634,13 +1358,6 @@ class AgentLoop:
                         if p:
                             if tool_name == FILE_WRITE_TOOL:
                                 created_files.add(p)
-                                written_paths.add(p)
-                                record_write(session_id, p, tool_params.get("content", ""))
-                            elif tool_name == FILE_EDIT_TOOL:
-                                record_edit(session_id, p)
-                            elif tool_name == FILE_READ_TOOL:
-                                record_read(session_id, p)
-                                store_cached_read_output(session_id, p, result.output or "")
                             if tool_name in (FILE_EDIT_TOOL, FILE_WRITE_TOOL):
                                 files_edited.append(p)
                             change_seq += 1
@@ -1698,12 +1415,6 @@ class AgentLoop:
                         if p_written:
                             _strip_write_payload_from_assistant_messages(messages, p_written)
                     executed_results[sig] = messages[-1]["content"]
-                    self._loop_detector.record(
-                        tool_name,
-                        tool_params,
-                        messages[-1]["content"],
-                        self.config.workspace_root,
-                    )
                 if skipped_calls:
                     for s in skipped_calls:
                         if s not in pending_skips:
@@ -1773,19 +1484,6 @@ class AgentLoop:
                     logger.info("Stopping turn: tool requested stop_turn")
                     task_completed = True
                     break
-                if self._loop_detector.is_loop_detected():
-                    yield _with_manifest(
-                        r.error(
-                            "Loop detected: the same tool calls are repeating without progress.",
-                            session_id,
-                            code="LOOP_DETECTED",
-                            recoverable=True,
-                        )
-                    )
-                    # WP3: fall through to the salvage stage instead of
-                    # discarding the turn's gathered evidence.
-                    salvage_reason = "repetitive tool loop detected"
-                    break
                 if files_edited:
                     auto_commit(ws, files_edited)
                     files_edited.clear()
@@ -1833,7 +1531,7 @@ class AgentLoop:
                 session_id,
                 code="SKIPPED_CALLS",
             )
-        token_info = self.context_manager.get_token_info(messages, model, self.provider)
+        token_info = self.context_manager.get_token_info(messages, model)
         cum_usage: dict = getattr(self.provider, "_cumulative_usage", {})
         prompt_tokens = cum_usage.get("prompt_tokens") or token_info.used
         completion_tokens = cum_usage.get("completion_tokens") or max(
@@ -1921,8 +1619,7 @@ class AgentLoop:
                     ),
                     "mode": mode,
                     "ttft_ms": getattr(self.provider, "_last_ttft_ms", None),
-                    "tierBreakdown": tier_breakdown,
-                    "stale_reads_evicted": self.context_manager._last_stale_count,
+                    "contextBreakdown": tier_breakdown,
                     "heavy_tools_summarized": self._heavy_tools_summarized,
                     "cache_hit_rate": round(
                         cum_usage.get("cached_tokens", 0) / max(prompt_tokens, 1),
@@ -2034,11 +1731,9 @@ class AgentLoop:
             yield ev
         outcome = self._last_compaction_outcome
         if outcome is None or outcome.failed or outcome.skipped:
-            # Nothing changed: keep the authoritative context untouched.
+            
             result.append(list(messages))
             return
-        # Only the recent tail (the part not represented by the summary) is
-        # re-fed into the rebuilt context; the summarized prefix is dropped.
         cut = max(0, outcome.cut)
         tail_history = history[cut:] if cut > 0 else []
         self._compacted_this_turn = True
@@ -2075,36 +1770,17 @@ class AgentLoop:
         if catalog.get("adapter") == "gemini":
             return messages
         cached = [dict(msg) for msg in messages]
-        boundaries = self.context_manager.tier_boundaries()
-        breakpoint_indices = []
-        if boundaries["t0_end"] > 0:
-            breakpoint_indices.append(boundaries["t0_end"])
-        if boundaries["t1_end"] > boundaries["t0_end"]:
-            breakpoint_indices.append(boundaries["t1_end"])
-        if boundaries["t2_end"] > boundaries["t1_end"]:
-            breakpoint_indices.append(boundaries["t2_end"])
-        breakpoint_indices = breakpoint_indices[:4]
-        for idx in breakpoint_indices:
-            if 0 <= idx - 1 < len(cached):
-                cached[idx - 1]["cache_control"] = {"type": "ephemeral"}
+        prefix_length = self.context_manager.required_prefix_length()
+        if 0 < prefix_length <= len(cached):
+            cached[prefix_length - 1]["cache_control"] = {"type": "ephemeral"}
         return cached
 
     @staticmethod
     def _catalog_for_provider(provider_name: str) -> dict:
         try:
-            from server.storage.catalog_compat import load_catalog
+            from server.storage import load_catalog
 
             return load_catalog().get("providers", {}).get(provider_name) or {}
         except Exception:
             return {}
 
-    @staticmethod
-    def _inject_session_state(messages: list[dict], session_id: str) -> None:
-        content = render_session_state(session_id)
-        if content is None:
-            return
-        state_msg = {"role": "system", "content": content}
-        idx = 1
-        while idx < len(messages) and messages[idx].get("role") == "system":
-            idx += 1
-        messages.insert(idx, state_msg)

@@ -1,14 +1,6 @@
-"""Module 07 additive interface-lock: simple busy/idle session status.
-
-The over-engineered SessionState machine and session_workspace file-tracking
-are Phase-3 removals; this covers the additive RunStatus contract that the
-storage layer (module 21) and consumers will persist/resume from.
-"""
-
-import pytest
+"""Session busy/idle status contract persisted by the storage layer."""
 
 from server.domain.session import RunStatus, Session
-from server.domain.domain import SessionState
 
 
 class TestRunStatus:
@@ -55,28 +47,6 @@ class TestRunStatus:
         s.mark_busy()
         assert s.status == "busy"
 
-
-class TestSessionStateMachineEdges:
-    def test_archived_is_terminal(self):
-        s = Session()
-        s.transition(SessionState.ARCHIVED)
-        with pytest.raises(ValueError):
-            s.transition(SessionState.ACTIVE)
-
-    def test_active_self_transition(self):
-        s = Session()
-        s.transition(SessionState.ACTIVE)
-        s.transition(SessionState.ACTIVE)
-        assert s.state is SessionState.ACTIVE
-
-    def test_archive_sets_inactive(self):
-        s = Session()
-        s.transition(SessionState.ACTIVE)
-        s.archive()
-        assert s.state is SessionState.ARCHIVED
-        assert s.is_active is False
-
-
 class TestSessionHelpers:
     def test_update_context(self):
         s = Session()
@@ -107,5 +77,5 @@ class TestSessionHelpers:
         s = Session(title="T")
         d = s.to_summary_dict()
         assert d["title"] == "T"
-        assert d["state"] == SessionState.CREATED.value
+        assert d["status"] == "idle"
         assert "created_at" in d

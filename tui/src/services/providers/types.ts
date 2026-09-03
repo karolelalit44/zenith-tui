@@ -66,6 +66,7 @@ export interface ProviderModelInfo {
   description: string;
   is_default: boolean;
   status?: string;
+  max_output_tokens?: number;
 }
 
 export interface ProviderInfo {
@@ -102,6 +103,7 @@ export interface ProviderCatalogItem {
   id: string;
   name: string;
   type: 'default' | 'custom';
+  base_url?: string;
 }
 
 /** Paginated models returned by `GET /providers/{id}/models`. */

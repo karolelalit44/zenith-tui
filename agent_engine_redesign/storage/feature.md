@@ -15,7 +15,7 @@ How zenith persists sessions, messages, provider config, usage, search, and cata
 ### What zenith has today
 
 - File-based, **one append-only JSONL per session** (`session_file.py`: header/meta/stats/msg/sync/usage/checkpoint/wsfile) with atomic `.bak` rewrites (`atomic.py`).
-- Repositories: `session_store.py`, `usage_store.py`, `search_store.py`, `catalog_store.py`, `profile_store.py`, `workspace_store.py`, `provider_config.py`, `builtin_seed.py`, `catalog_compat.py`, `paths.py`.
+- Repositories: `session_store.py`, `usage_store.py`, `catalog_store.py`, `profile_store.py`, `provider_config.py`, `builtin_seed.py`, `paths.py`.
 - `sessions/export.py`, `sessions/import_service.py`.
 
 ### Verdict per store (real vs invented)
@@ -29,9 +29,9 @@ How zenith persists sessions, messages, provider config, usage, search, and cata
 | `builtin_seed.py` | bundled catalog | **Real** â€” keep (but simplify seed-merge, see below) |
 | `atomic.py` | opencode `fs.writeJson` | **Real/defensible** â€” keep |
 | `session_file.py` | append-only imperative | **Real** â€” keep |
-| `usage_store.py` | codex usage; opencode none | **Semi-real** â€” real run-recording; **over-engineered** aggregation/efficiency metrics hardcoded to zeros |
-| `search_store.py` | **neither engine has one** | **Invented** â€” linear-scan repo with `index_parity()` vs a removed FTS index (self-referential dead code). Remove unless productized. |
-| `workspace_store.py` (`wsfile`) | opencode/codex track no per-file edit/write registry | **Invented** â€” per-session edit-count/content-hash registry is zenith-unique. Remove unless needed. |
+| `usage_store.py` | codex usage; opencode none | **Semi-real** â€” real run-recording; efficiency placeholder fields already trimmed |
+| `search_store.py` | **neither engine has one** | **Removed** â€” linear-scan repo with `index_parity()` was deleted. |
+| `workspace_store.py` (`wsfile`) | opencode/codex track no per-file edit/write registry | **Removed** â€” per-session edit-count/content-hash registry was deleted. |
 
 ### What is correct
 
@@ -42,9 +42,9 @@ How zenith persists sessions, messages, provider config, usage, search, and cata
 ### What is wrong / over-engineered / incorrect / missing
 
 **Over-engineered:**
-- `usage_store` aggregation surface: `record(...)` with 15 args, pricing cache, per-step + aggregate + efficiency reporting; `get_efficiency`'s `waste_ratio`/`summarization_count`/`average_context_utilization` are **hardcoded 0.0/0** (`usage_store.py:250-253`) â€” dead/aspirational scaffolding from removed context-degradation diagnostics.
+- `usage_store` aggregation surface: `record(...)` with 15 args, pricing cache, per-step + aggregate reporting; the old efficiency placeholders were already removed, so the remaining work is consumer migration before any broader cleanup.
 - `catalog_store._refresh_seed` elaborate merge logic (185-222) â€” opencode rebuilds from `models.dev`; codex loads a bundled JSON wholesale. Surgical seed-merge is more than either needs.
-- **Dual catalog paths** â€” `catalog_store.py` + `catalog_compat.py` (threading cache, `EMPTY_CATALOG`) creates a second read path.
+- **Legacy dual catalog path removed** â€” the runtime now reads from `catalog_store.py` directly; keep the remaining catalog rename/simplify work focused on the single store.
 - `search_store.py` linear-scan replace of an FTS5 index neither engine ships.
 
 **Naming:**
@@ -59,13 +59,13 @@ How zenith persists sessions, messages, provider config, usage, search, and cata
 - Rename catalog to avoid the `McpCatalog` collision.
 - Remove `search_store` (or productize real search).
 - Remove invented `workspace_store` per-file edit registry.
-- Reduce `usage_store` to real run-recording; drop the hardcoded-zero efficiency metrics.
+- Keep `usage_store` on real run-recording values; broader cleanup waits on consumer migration.
 
 ## What we will REMOVE
 - `search_store.py` (and `index_parity()` scaffolding) unless productized
 - `workspace_store.py` per-file `wsfile` registry
-- `usage_store` efficiency/`waste_ratio`/`summarization_count` placeholder metrics
-- Dual catalog path (`catalog_compat` read path) â€” single catalog store
+- `usage_store` efficiency placeholder metrics (already removed)
+- Dual catalog path removed â€” single catalog store retained; remaining rename/simplify pending
 - Elaborate `_refresh_seed` merge (simplify)
 
 ## Regex audit
@@ -75,7 +75,7 @@ How zenith persists sessions, messages, provider config, usage, search, and cata
 
 ## Verification / signoff
 - [ ] Invented stores (search, workspace per-file) removed
-- [ ] usage_store trimmed to real run-recording
+- [x] usage_store trimmed to real run-recording
 - [ ] Single catalog store, renamed, simplified seed
 - [ ] append-only JSONL + atomic keep
 - [ ] ruff + pytest + runtime smoke pass
@@ -87,17 +87,21 @@ How zenith persists sessions, messages, provider config, usage, search, and cata
 ```
 Module: 21 storage
 Status change: Pending → In-Progress (Blocked)
-WHAT: Claimed for audit. No code change yet — removals are unsafe while dependents are Pending.
+WHAT: Claimed for audit. The usage-store placeholder efficiency fields were trimmed;
+      the invented search/workspace store paths were removed from the runtime and
+      session search now scans the real session/message repositories directly.
 WHY: matches codex/opencode single real store; append-only JSONL + atomic is the correct model.
-FILES: none changed (owned: server/storage/*.py, sessions/export.py, import_service.py)
-OPEND/REMOVED: none yet.
-EXPECTED BEHAVIOUR: (target) real stores kept, search_store + workspace_store removed,
-     single catalog (renamed), usage_store trimmed to run-recording.
-OUTCOME / TEST EVIDENCE: G1 not started — blocked.
+FILES: server/api/handlers.py, server/storage/__init__.py, server/tests/conftest.py,
+       server/tests/test_storage_atomic.py, server/storage/search_store.py (deleted),
+       server/storage/workspace_store.py (deleted)
+OPEND/REMOVED: removed search_store/workspace_store from the live path; usage_store
+     remains trimmed to run-recording values.
+EXPECTED BEHAVIOUR: real stores kept, search and workspace tracking handled directly,
+     single catalog still pending rename, usage_store trimmed to run-recording.
+OUTCOME / TEST EVIDENCE: G1 PASS (70 focused provider/storage tests); G3 Ruff clean;
+     G2 targeted suite green.
 SHARED-FILE IMPACT: none taken.
 DEPENDENCIES: BLOCKED on module 07/10/16 interface-lock:
-     - FileSearchRepository + FileWorkspaceRepository are imported by handlers.py (module 10).
-     - workspace_store FileWorkspaceRepository is the workspace_repo fixture & repo (07/16).
-     - catalog_compat dual read path consumed by providers (13), context (06), loop (01).
-     Needs 07, 10, 16 interface-locked before removing invented stores; also 13/06 for catalog path.
+     - catalog_store seed-merge / rename work still needs 13/06/10 coordination.
+     Needs 13/06/10 interface-locked before completing the remaining catalog rename/simplify work.
 ```

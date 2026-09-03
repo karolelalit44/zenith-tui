@@ -26,8 +26,7 @@ from server.config.constants import (
 )
 from server.config.env import optional_int
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
-from server.storage import StorageHome, resolve_home
-from server.storage.catalog_compat import load_catalog
+from server.storage import StorageHome, load_catalog, resolve_home
 from server.storage.provider_config import (
     read_providers as read_stored_providers,
 )

@@ -32,9 +32,9 @@ describe('convertHistoryToTurns (production conversion)', () => {
     expect(turns[0].prompt).toBe('My name is Alice');
     expect(turns[0].mode).toBe(mode);
     expect(turns[0].isComplete).toBe(true);
-    expect(turns[0].events).toHaveLength(2);
-    expect(turns[1].events).toHaveLength(2);
-    expect(turns[2].events).toHaveLength(2);
+    expect(turns[0].events).toHaveLength(1);
+    expect(turns[1].events).toHaveLength(1);
+    expect(turns[2].events).toHaveLength(1);
   });
 
   test('non-alternating user,assistant,user,user,assistant,assistant preserves every message', () => {
@@ -49,15 +49,10 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const turns = convertHistoryToTurns(messages, mode);
     expect(turns).toHaveLength(3);
     expect(turns.map((t) => t.prompt)).toEqual(['Hello', 'Bye', 'Wait']);
-    expect(turns[0].events.map((e) => e.id)).toEqual(['evt_hist_msg_a1', 'evt_hist_ok_a1']);
+    expect(turns[0].events.map((e) => e.id)).toEqual(['evt_hist_msg_a1']);
     expect(turns[1].events).toHaveLength(0);
     // Both assistant messages attach to the same unanswered user turn.
-    expect(turns[2].events.map((e) => e.id)).toEqual([
-      'evt_hist_msg_a2',
-      'evt_hist_ok_a2',
-      'evt_hist_msg_a3',
-      'evt_hist_ok_a3',
-    ]);
+    expect(turns[2].events.map((e) => e.id)).toEqual(['evt_hist_msg_a2', 'evt_hist_msg_a3']);
   });
 
   test('consecutive user messages keep both prompts, response goes to the latest', () => {
@@ -71,7 +66,7 @@ describe('convertHistoryToTurns (production conversion)', () => {
     expect(turns[0].prompt).toBe('First');
     expect(turns[1].prompt).toBe('Second');
     expect(turns[0].events).toHaveLength(0);
-    expect(turns[1].events).toHaveLength(2);
+    expect(turns[1].events).toHaveLength(1);
     expect(turns[1].events[0].kind).toBe('message');
     expect((turns[1].events[0] as ScenarioEvent & { text: string }).text).toBe('Answering second');
   });
@@ -85,7 +80,7 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const turns = convertHistoryToTurns(messages, mode);
     expect(turns).toHaveLength(1);
     const ids = turns[0].events.map((e) => e.id);
-    expect(ids).toEqual(['evt_hist_msg_a1', 'evt_hist_ok_a1', 'evt_hist_msg_a2', 'evt_hist_ok_a2']);
+    expect(ids).toEqual(['evt_hist_msg_a1', 'evt_hist_msg_a2']);
     const texts = turns[0].events
       .filter((e) => e.kind === 'message')
       .map((e) => (e as ScenarioEvent & { text: string }).text);
@@ -104,7 +99,7 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const evs = turns[0].events;
     // Unpaired persisted calls fold into interrupted tool_step rows (never
     // silent drops, never duplicate pending arrows).
-    expect(evs).toHaveLength(3);
+    expect(evs).toHaveLength(4);
     expect(evs[0]).toMatchObject({ kind: 'thinking', id: 'evt_t1' });
     expect(evs[1]).toMatchObject({
       kind: 'tool_step',
@@ -113,7 +108,8 @@ describe('convertHistoryToTurns (production conversion)', () => {
       success: false,
       metadata: { interrupted: true },
     });
-    expect(evs[2]).toMatchObject({ kind: 'success', id: 'evt_ok1' });
+    expect(evs[2]).toMatchObject({ kind: 'message', text: 'Done' });
+    expect(evs[3]).toMatchObject({ kind: 'success', id: 'evt_ok1' });
   });
 
   test('empty or assistant-only input yields no turns', () => {
@@ -149,7 +145,6 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const messages = [makeUserMsg('u1', 'Go'), makeAssistantMsg('a1', '', persisted)];
     const turns = convertHistoryToTurns(messages, mode);
     expect(turns).toHaveLength(1);
-    // Only the synthetic completion marker survives; the partial text is gone.
-    expect(turns[0].events.map((e) => e.kind)).toEqual(['success']);
+    expect(turns[0].events).toHaveLength(0);
   });
 });

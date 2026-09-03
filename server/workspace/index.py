@@ -93,6 +93,3 @@ def get_workspace_stats(root: str | Path, force_refresh: bool = False) -> Worksp
     return stats
 
 
-def invalidate_workspace_stats(root: str | Path) -> None:
-    with _LOCK:
-        _CACHE.pop(str(Path(root).resolve()), None)

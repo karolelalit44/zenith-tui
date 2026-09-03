@@ -20,7 +20,6 @@ class MissingItem(str, Enum):
     API_KEY = "apiKey"
     CONFIG_FILE = "configFile"
     WORKSPACE = "workspace"
-    DB_PATH = "dbPath"
 
 
 class StartupResult(BaseModel):
@@ -50,6 +49,7 @@ class ProviderModelInfo(BaseModel):
     speed_tier: Any = None
     best_for: list[str] = Field(default_factory=list)
     pricing: dict[str, Any] = Field(default_factory=dict)
+    max_output_tokens: int | None = None
 
 
 class ProviderInfo(BaseModel):
@@ -89,6 +89,7 @@ class ProviderCatalogItem(BaseModel):
     id: str
     name: str
     type: str = "default"
+    base_url: str = ""
 
 
 class ProviderModelListResponse(BaseModel):

@@ -13,7 +13,7 @@ from server.config.constants import (
     LATENCY_CLASS_HIGH,
     PERMISSION_NETWORK,
     RISK_LOW,
-    TOOL_DOMAIN_WEB_MCP,
+    TOOL_DOMAIN_WEB,
     URL_SCHEME_RE,
     WEBFETCH_MAX_BYTES_ENV,
     WEBFETCH_TIMEOUT_ENV,
@@ -97,7 +97,7 @@ class WebfetchTool(BaseTool):
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
     permission_scope = PERMISSION_NETWORK
-    domains = (TOOL_DOMAIN_WEB_MCP,)
+    domains = (TOOL_DOMAIN_WEB,)
     search_terms = (
         "web",
         "fetch",

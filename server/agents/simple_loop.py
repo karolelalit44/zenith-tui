@@ -1,48 +1,16 @@
-"""Additive opencode/codex-style turn loop (module 01).
-
-Phase 1 additive core for the turn/loop redesign. This module provides
-``SimpleLoop`` — a *simple* ``while pending: stream -> process -> continue if
-tool_calls else stop`` loop, deliberately free of the heuristics the redesign
-removes (progressive/iteration guidance, salvage pass, stall detection,
-loop-detection hashes, turn-manifest / false-claim rewriting).
-
-It is fully additive: the existing ``AgentLoop`` in ``loop.py`` is left intact
-so the harness and TUI keep working unchanged. ``SimpleLoop`` mirrors
-``AgentLoop``'s public ``process_prompt(...)`` contract (an ``AsyncIterator``
-of ``Event``) so downstream modules (02 prompt_sending, 10 transport_event)
-can code against a stable interface before Phase 3 swaps the old loop out.
-
-Design (per ``agent_engine_redesign/turn/feature.md``):
-1. Build context (system prompt + history).
-2. Stream one LLM turn.
-3. If the assistant emits no tool calls -> stop. Emergent termination.
-4. If tool calls present -> execute them with hooks -> loop again.
-5. If context overflow -> run compaction -> loop again.
-6. One advisory guard: configurable ``max_steps`` (append a wrap-up nudge).
-7. One safety guard: ``DOOM_LOOP_THRESHOLD`` consecutive identical (name +
-   input) tool calls -> emit a doom-loop ask and stop the turn.
-8. No guidance injection, no salvage, no stall detection, no loop-detection
-   hashes, no turn-manifest, no false-claim rewriting.
-"""
-
 from __future__ import annotations
 
 import json
 import logging
 from collections.abc import AsyncIterator
-from pathlib import Path
 
 from server.config.constants import (
     BUILD_MODE,
-    HEAVY_OUTPUT_SUBDIR,
-    HEAVY_TOOL_MARKER_TEMPLATE,
-    HEAVY_TOOL_THRESHOLD_TOKENS,
     MAX_STEPS_DEFAULT,
     MAX_STEPS_PROMPT,
-    TOOL_GUIDELINES_DIR,
 )
 from server.config.settings import AGENT_MODES, AppSettings
-from server.domain.domain import FinishReason
+from server.domain.enums import FinishReason
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.providers import responder as r
@@ -69,10 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class SimpleLoop:
-    """A minimal, emergent-termination turn loop (opencode/codex style).
-
-    Reuses the existing context builder, schema resolver, streaming, tool
-    execution, and compaction services so it stays correct and additive.
+    """A minimal, emergent-termination turn loop.
     """
 
     def __init__(
@@ -114,7 +79,6 @@ class SimpleLoop:
         session_id: str,
         history: list[Message],
         mode: str = BUILD_MODE,
-        skills_section: str = "",
         plan_context: str = "",
         model_override: str | None = None,
         repo_map: str | None = None,
@@ -130,7 +94,6 @@ class SimpleLoop:
                 session_id,
                 history,
                 mode,
-                skills_section,
                 plan_context,
                 sequence,
                 repo_map,
@@ -146,14 +109,12 @@ class SimpleLoop:
         session_id: str,
         history: list[Message],
         mode: str,
-        skills_section: str,
         plan_context: str,
         sequence: int,
         repo_map: str | None,
     ) -> AsyncIterator[Event]:
         model = self.provider.model
         mode_config = AGENT_MODES.get(mode)
-        allowed_mcp = mode_config.allowed_mcp if mode_config else None
         allowed_tools = mode_config.allowed_tools if mode_config else None
         tool_choice = mode_config.tool_choice if mode_config else "auto"
 
@@ -162,7 +123,6 @@ class SimpleLoop:
                 default_template_sections(
                     mode=mode,
                     workspace_root=self.config.workspace_root,
-                    skills_section=skills_section,
                     max_context_tokens=self.config.max_context_tokens,
                 )
             )
@@ -170,7 +130,7 @@ class SimpleLoop:
 
         resolver = SchemaResolver(self.tool_registry, seed=build_mode_tool_seed(allowed_tools))
         registered_tools = set(resolver.active_names())
-        openai_tools = resolver.openai_tools(mode, allowed_mcp=allowed_mcp)
+        openai_tools = resolver.openai_tools(mode)
 
         messages = self.context_manager.build_messages(
             history,
@@ -185,13 +145,13 @@ class SimpleLoop:
             mode=mode,
         )
 
-        if self.context_manager.should_summarize(messages, model, self.provider):
+        if self.context_manager.should_summarize(messages, model):
             async for ev in self._compact(session_id, history, messages):
                 yield ev
             messages = self._rebuild(
                 history, system_prompt, prompt, model, plan_context, session_id, mode, repo_map
             )
-        if self.context_manager.is_context_exhausted(messages, model, self.provider):
+        if self.context_manager.is_context_exhausted(messages, model):
             yield r.error(
                 "Context window exhausted",
                 session_id,
@@ -205,6 +165,7 @@ class SimpleLoop:
         created_files: set[str] = set()
         files_edited: list[str] = []
         executed_calls: set[tuple[str, str]] = set()
+        any_tool_succeeded = False
         doom_run = 0
         last_doom_sig: tuple[str, str] | None = None
         max_steps = int(getattr(self.config, "agent_max_steps", 0) or MAX_STEPS_DEFAULT)
@@ -224,7 +185,7 @@ class SimpleLoop:
                 messages = self._rebuild(
                     history, system_prompt, prompt, model, plan_context, session_id, mode, repo_map
                 )
-                if self.context_manager.is_context_exhausted(messages, model, self.provider):
+                if self.context_manager.is_context_exhausted(messages, model):
                     yield r.error(
                         "Context exhausted even after summarization",
                         session_id,
@@ -375,10 +336,7 @@ class SimpleLoop:
                     tool_params,
                     self.config.workspace_root,
                     mode,
-                    allowed_mcp=mode_config.allowed_mcp if mode_config else None,
                 )
-                self._maybe_isolate_heavy(session_id, tool_name, result)
-
                 metadata = build_tool_metadata(
                     tool_name, tool_params, result, duration_ms, self.config.workspace_root
                 )
@@ -392,6 +350,7 @@ class SimpleLoop:
                 )
                 executed_calls.add(sig)
                 if result.success:
+                    any_tool_succeeded = True
                     p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
                         created_files.add(p)
@@ -421,14 +380,18 @@ class SimpleLoop:
             if doomed:
                 break
 
-        token_info = self.context_manager.get_token_info(messages, model, self.provider)
-        completed = bool(created_files or files_edited)
+        token_info = self.context_manager.get_token_info(messages, model)
+        # A successful tool call (e.g. bash creating files) is real work even
+        # when it isn't a tracked file_write/file_edit — never report "Turn
+        # finished" (implying nothing happened) when a tool actually succeeded.
+        completed = bool(created_files or files_edited or any_tool_succeeded)
         message = "Request processed successfully" if completed else "Turn finished"
         yield r.turn_manifest(
             {
                 "completed": completed,
-                "files_created": sorted(created_files),
-                "files_edited": files_edited,
+                "created": sorted(created_files),
+                "modified": files_edited,
+                "any_tool_succeeded": any_tool_succeeded,
                 "summary": self._last_emitted_message or "",
             },
             session_id,
@@ -451,7 +414,7 @@ class SimpleLoop:
             from server.config.constants import DOOM_LOOP_THRESHOLD
 
             return DOOM_LOOP_THRESHOLD
-        except Exception:  # pragma: no cover - defensive
+        except Exception:
             return 3
 
     def _replay_write(self, session_id: str, params: dict) -> bool:
@@ -461,25 +424,8 @@ class SimpleLoop:
         try:
             content = params.get("content", "")
             return bool(is_identical_replay(session_id, target, content))
-        except Exception:  # pragma: no cover - defensive
+        except Exception:
             return False
-
-    def _maybe_isolate_heavy(self, session_id: str, tool_name: str, result) -> None:
-        output = (result.output or "") if result.success else ""
-        if not output or tool_name == "file_read":
-            return
-        estimated_tokens = len(output) // 4
-        if estimated_tokens < HEAVY_TOOL_THRESHOLD_TOKENS:
-            return
-        rel = f"{TOOL_GUIDELINES_DIR}/{HEAVY_OUTPUT_SUBDIR}/{session_id[:8]}-{tool_name}.txt"
-        try:
-            abs_path = Path(self.config.workspace_root) / rel
-            abs_path.parent.mkdir(parents=True, exist_ok=True)
-            abs_path.write_text(output, encoding="utf-8")
-            marker = HEAVY_TOOL_MARKER_TEMPLATE.format(total_chars=len(output), path=rel)
-            result.output = f"{marker}\n{output[:2000]}"
-        except OSError:
-            logger.warning("Failed to isolate heavy output for session %s", session_id)
 
     async def _compact(self, session_id, history, messages) -> AsyncIterator[Event]:
         try:
@@ -504,7 +450,7 @@ class SimpleLoop:
                 self._summary = outcome.summary or self._summary
             for ev in emitted:
                 yield ev
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             logger.warning("Compaction failed: %s", exc)
 
     def _rebuild(

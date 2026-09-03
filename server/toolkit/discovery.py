@@ -14,7 +14,6 @@ from server.config.constants import (
 )
 
 from .base import BaseTool, ToolResult
-from .catalog import build_catalog
 
 if TYPE_CHECKING:
     from .registry import ToolRegistry
@@ -56,23 +55,22 @@ class DiscoverCapabilitiesTool(BaseTool):
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         if self._registry is None:
             return ToolResult(success=False, error="Tool discovery unavailable: no registry")
-        catalog = build_catalog()
+        grouped: dict[str, list[BaseTool]] = {}
+        for name in sorted(self._registry.list_tools()):
+            tool = self._registry.get(name)
+            if tool is None:
+                continue
+            grouped.setdefault(tool.capability_id or "uncategorized", []).append(tool)
         lines = []
         capability_ids = []
-        for capability in catalog.descriptors():
-            tool_names = sorted(
-                name
-                for name in self._registry.list_tools()
-                if (tool := self._registry.get(name)) and tool.capability_id == capability.id
-            )
+        for capability_id in sorted(grouped):
+            tools = grouped[capability_id]
+            tool_names = sorted(tool.name for tool in tools)
             if not tool_names:
                 continue
-            capability_ids.append(capability.id)
-            flags = "read-only" if capability.read_only else "mutating"
-            lines.append(
-                f"- {capability.id} [{flags}]: {capability.short_description} — "
-                f"tools: {', '.join(tool_names)}"
-            )
+            capability_ids.append(capability_id)
+            flags = "read-only" if all(tool.read_only for tool in tools) else "mutating"
+            lines.append(f"- {capability_id} [{flags}]: tools: {', '.join(tool_names)}")
         lines.append(
             "Call get_tool_definition('<tool_name>') to load the full schema for any tool "
             "you need before using it."

@@ -3,7 +3,6 @@ import subprocess
 import pytest
 
 from server.workspace.git import GitOps
-from server.workspace.repo_map import RepoMap
 
 
 def _has_git() -> bool:
@@ -43,20 +42,6 @@ class TestGitOps:
         git = GitOps(str(temp_dir))
         log = git.log()
         assert log == []
-
-    def test_undo_not_repo(self, temp_dir):
-        git = GitOps(str(temp_dir))
-        result = git.undo()
-        assert result["success"] is False
-
-    def test_get_repo_info_not_repo(self, temp_dir):
-        git = GitOps(str(temp_dir))
-        info = git.get_repo_info()
-        assert info["is_git_repo"] is False
-
-    def test_is_gitignored_not_repo(self, temp_dir):
-        git = GitOps(str(temp_dir))
-        assert git.is_gitignored("any_file.txt") is False
 
     @pytest.mark.skipif(not HAS_GIT, reason="git not available")
     def test_git_repo_detection(self, temp_dir):
@@ -129,66 +114,3 @@ class TestGitOps:
         assert len(log) >= 1
         assert log[0]["message"] == "First commit"
 
-
-class TestRepoMap:
-    def test_get_structure(self, temp_dir):
-        (temp_dir / "src").mkdir()
-        (temp_dir / "src" / "main.py").write_text("print('hello')")
-        (temp_dir / "README.md").write_text("# Test")
-        repo = RepoMap(str(temp_dir))
-        structure = repo.get_structure()
-        assert structure["name"] == temp_dir.name
-        assert structure["type"] == "directory"
-        assert len(structure["children"]) > 0
-
-    def test_get_summary(self, temp_dir):
-        (temp_dir / "app.py").write_text("")
-        (temp_dir / "utils.py").write_text("")
-        (temp_dir / "index.ts").write_text("")
-        repo = RepoMap(str(temp_dir))
-        summary = repo.get_summary()
-        assert "Python" in summary
-        assert "TypeScript" in summary
-        assert "3" in summary
-
-    def test_empty_repo_summary(self, temp_dir):
-        repo = RepoMap(str(temp_dir))
-        summary = repo.get_summary()
-        assert "Empty" in summary
-
-    def test_get_key_files(self, temp_dir):
-        (temp_dir / "README.md").write_text("# Test")
-        (temp_dir / "package.json").write_text("{}")
-        repo = RepoMap(str(temp_dir))
-        key_files = repo.get_key_files()
-        assert "README.md" in key_files
-        assert "package.json" in key_files
-
-    def test_skip_dirs(self, temp_dir):
-        (temp_dir / "src").mkdir()
-        (temp_dir / "src" / "main.py").write_text("")
-        (temp_dir / "node_modules").mkdir()
-        (temp_dir / "node_modules" / "pkg").mkdir()
-        (temp_dir / "__pycache__").mkdir()
-        repo = RepoMap(str(temp_dir))
-        structure = repo.get_structure()
-        child_names = [c["name"] for c in structure["children"]]
-        assert "node_modules" not in child_names
-        assert "__pycache__" not in child_names
-        assert "src" in child_names
-
-    def test_max_depth(self, temp_dir):
-        (temp_dir / "a").mkdir()
-        (temp_dir / "a" / "b").mkdir()
-        (temp_dir / "a" / "b" / "c").mkdir()
-        (temp_dir / "a" / "b" / "c" / "deep.py").write_text("")
-        repo = RepoMap(str(temp_dir))
-        structure = repo.get_structure(max_depth=2)
-        assert any(c["name"] == "a" for c in structure["children"])
-
-    def test_get_file_count(self, temp_dir):
-        (temp_dir / "a.py").write_text("")
-        (temp_dir / "b.py").write_text("")
-        (temp_dir / "c.txt").write_text("")
-        repo = RepoMap(str(temp_dir))
-        assert repo.get_file_count() == 3

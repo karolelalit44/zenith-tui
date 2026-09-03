@@ -103,6 +103,18 @@ heavy-output isolation, and `multi_edit.py` are all still live and consumed. So 
   file_edit/file_delete (Phase 2: route mutations through the queue, a behavior change needing
   coordination with 01 loop concurrency). Do NOT flip to exact-match-only or wire the queue during Phase 1.
 
+### Decision (2026-09-01) - Phase 2 production wiring (Mars)
+
+- **LIVE:** `file_write`, `file_edit`, and `file_delete` hold
+      `FILE_MUTATION_QUEUE.mutation(workspace_root)` across their filesystem mutation.
+      They remain ordinary `BaseTool` registrations and therefore run through Module 03's
+      `ToolDef` decode/gate/execute/truncate path without registry changes.
+- **Validation:** a focused integration test replaces the queue instance in all three
+      tool modules and verifies that write, exact edit, and delete each enter the same
+      per-workspace queue. Editor diagnostics pass for the test and all three tools.
+- **Deferred:** the fuzzy fallback, session read-cache/replay blocking, heavy-output
+      isolation, and `multi_edit` removal stay Phase 3 as required.
+
 ---
 
 ## Module report (§9 template)

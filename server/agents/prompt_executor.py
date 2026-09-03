@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import asyncio
 import logging
 import re
@@ -7,7 +6,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-
 import server.providers.responder as r
 from server.agents.context import ContextManager
 from server.agents.delegation import (
@@ -39,7 +37,6 @@ from server.config.constants import (
     TERMINAL_STATUS_ERROR,
 )
 from server.config.settings import AGENT_MODES
-from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.storage.usage_store import FileTokenUsageRepository
@@ -49,13 +46,12 @@ if TYPE_CHECKING:
     from server.api.handlers import MethodHandlers
     from server.config.settings import AppSettings
     from server.providers.base import BaseProvider
-    from server.skills.loader import SkillLoader
     from server.storage.session_store import FileMessageRepository, FileSessionRepository
     from server.toolkit.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 # When a worker turn produced files and its raw last-emitted text is this long, fold it into
-# a weak-model summary so the persisted assistant hand-off stays compact (§3.3 of the design).
+# a weak-model summary so the persisted assistant hand-off stays compact.
 _HANDOFF_SUMMARY_CHARS = 800
 # Hard ceiling on the persisted assistant message. Guards against repeated
 # tool/reasoning noise ever becoming the canonical message (evidence-aware
@@ -213,11 +209,15 @@ def _turn_manifest_from_events(collected_events: list[Event]) -> dict | None:
 
 
 def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | None:
-    """Build a deterministic, terse assistant hand-off from the turn manifest.
+    """Build the persisted assistant hand-off from the model's own text plus manifest evidence.
 
-    Shape: `Created: <files> | Modified: <files> | Verified: <bool>` then the model's own
-    last emitted text as the body. Rich enough for the next prompt, never empty.
-    Returns ``None`` when nothing of substance happened and there is no body text.
+    Shape: the model's own last emitted text first (never buried), then a terse
+    `Created: <files> | Modified: <files> | Verified: <bool>` footer when the
+    manifest has anything to add. The model's own words are always the primary,
+    immediately visible content — the manifest footer is corroborating evidence,
+    not a replacement (the same data is also rendered by the dedicated turn-
+    manifest UI card, so this footer is a plain-text fallback for that, not the
+    only place it is shown). Returns ``None`` when there is nothing at all.
     """
     parts: list[str] = []
     if manifest:
@@ -239,14 +239,9 @@ def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | N
             snippet = (str(remaining[0]) or "").strip()
             if snippet:
                 parts.append("Remaining: " + snippet[:160])
-    header = " | ".join(parts)
+    footer = " | ".join(parts)
     body = (response_text or "").strip()
-    # The manifest is authoritative: a body that asserts work the manifest
-    # proves never happened is corrected before it can be persisted/rendered.
-    # Correction requires an actual manifest that shows no work — with no
-    # manifest there is no evidence to contradict, so prose is left untouched.
-    # A plan.md miss (QA-6.5) is a blocking correction even when other work
-    # (e.g. todo.md) happened.
+
     missing_plan = (manifest or {}).get("plan_artifacts") or {}
     blocking = (
         "plan.md" in (missing_plan.get("missing") or [])
@@ -255,29 +250,24 @@ def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | N
     )
     if manifest is not None and (not _did_work(manifest) or blocking):
         body = _rewrite_false_completion_claim(body, manifest)
-    if header and body:
-        return f"{header}\n\n{body}"
+    if footer and body:
+        return f"{body}\n\n{footer}"
     if body:
         return body
-    return header or None
+    return footer or None
 
 
 def _did_work(manifest: dict | None) -> bool:
     if not manifest:
         return False
-    return bool((manifest.get("created") or []) or (manifest.get("modified") or []))
+    return bool(
+        (manifest.get("created") or [])
+        or (manifest.get("modified") or [])
+        or manifest.get("any_tool_succeeded")
+    )
 
 
-# ---------------------------------------------------------------------------
-# Evidence-aware finalization: the execution manifest is authoritative. A claim
-# in the model's prose (``Created X``, ``Fixed the bug``, ``Done``) that the
-# manifest does not back up is rewritten to a factual correction so the
-# persisted assistant message never asserts work that did not happen.
-# ---------------------------------------------------------------------------
 
-# Confident work-claims / completion signals that would be false when the
-# manifest records no created/modified files. Anchored to word boundaries and
-# matched case-insensitively.
 _COMPLETION_CLAIM_PATTERNS = (
     r"\b(?:created|wrote|written|wrote out)\s+(?:the\s+)?(?:file|files)",
     r"\b(?:created|wrote)\s+[`']?[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|toml|yaml|yml|md|txt|css|html)\b",
@@ -285,7 +275,7 @@ _COMPLETION_CLAIM_PATTERNS = (
     r"\bcreated\b.{0,80}\b(?:file|file[s]?)\b",
     r"\bnew\s+file\b",
 )
-# A negative claim (``no file was created``) must not be corrected.
+
 _NEGATIVE_CLAIM_PATTERNS = (
     r"\b(?:not|no)\s+(?:able\s+to\s+)?(?:create|write|implement|fix|resolve|complete|done)\b",
     r"\bcouldn'?t\b",
@@ -331,10 +321,7 @@ def _rewrite_false_completion_claim(response_text: str, manifest: dict | None) -
     text = (response_text or "").strip()
     if not text or text.startswith("[Not implemented]"):
         return text
-    # Plan-mode artifact contract (QA-6.5): a missing plan.md is evidence that
-    # positive plan-completion prose is a false claim — even when other work
-    # happened (e.g. only todo.md was written), a claimed plan.md still must be
-    # corrected.
+
     missing_plan = (manifest or {}).get("plan_artifacts") or {}
     missing = (missing_plan.get("missing") or []) if isinstance(missing_plan, dict) else []
     if missing and not plan_claim_is_negative(text):
@@ -380,16 +367,12 @@ class PromptExecutor:
         tool_registry: ToolRegistry,
         session_repo: FileSessionRepository,
         message_repo: FileMessageRepository,
-        skill_loader: SkillLoader,
-        workspace_repo=None,
     ) -> None:
         self._config = config
         self._provider = provider
         self._tool_registry = tool_registry
         self._session_repo = session_repo
         self._message_repo = message_repo
-        self._skill_loader = skill_loader
-        self._workspace_repo = workspace_repo
         self._active_task: asyncio.Task | None = None
         self._context_manager = ContextManager(self._config)
         self._summary_scheduler = RunningSummaryScheduler(
@@ -465,7 +448,6 @@ class PromptExecutor:
                 continue
             kind = att.get("kind", "file") if isinstance(att, dict) else "file"
             inline = att.get("content") if isinstance(att, dict) else None
-            # A user-supplied inline content overrides anything else.
             if isinstance(inline, str) and inline.strip():
                 text, error = (inline, None)
             elif kind == "folder":
@@ -612,7 +594,6 @@ class PromptExecutor:
                     session.plan_approved_at = datetime.now()
                 else:
                     session.plan_approved_at = None
-                session.state = SessionState.SUMMARIZED
                 await self._session_repo.update(session)
                 logger.info(
                     "Plan output saved to session %s: %d chars (auto_approve=%s)",
@@ -649,8 +630,6 @@ class PromptExecutor:
             state.mode = mode
             for ev in collected_events or []:
                 update_from_event(state, ev.kind, ev.data or {}, ev.timestamp)
-            # Session-scoped todos are authoritative; export them into run_state
-            # so plan artifacts (todo.md) render FROM this structured state.
             try:
                 from server.agents.todo_state import get_todo_state
 
@@ -665,11 +644,8 @@ class PromptExecutor:
                 workspace_root = session_row.workspace_root if session_row else None
             self._render_todo_artifact(workspace_root, session_id, state.todo)
             snapshot = state.to_dict()
-            # Metadata-only targeted write: never a whole-record update, so a
-            # concurrent token-count/model writer cannot be clobbered here.
             await self._session_repo.merge_metadata(session_id, {"run_state": snapshot})
-            # Unique executed calls (P6.5): tool_history holds one entry per
-            # call AND result event, so its raw length double-counts.
+
             executed_calls = sum(
                 1 for step in state.tool_history if step.get("kind") == "tool_call"
             )
@@ -685,11 +661,6 @@ class PromptExecutor:
             return None
 
     def _render_todo_artifact(self, workspace_root: str | None, session_id: str, todos) -> None:
-        """Write ``todo.md`` from the structured todo snapshot (QA-5.8).
-
-        The artifact is only rendered when structured todos exist so a
-        model-authored ``todo.md`` is never clobbered by an empty board.
-        """
         if not todos:
             return
         try:
@@ -722,8 +693,6 @@ class PromptExecutor:
             worked = _did_work(manifest)
             body = response_text
             if not worked:
-                # The manifest is authoritative: never persist prose that asserts
-                # files were created/modified when the execution record proves none were.
                 body = _rewrite_false_completion_claim(response_text, manifest)
             handoff = _build_crafted_handoff(manifest, body)
             if worked and body.strip() and len(body) > _HANDOFF_SUMMARY_CHARS:
@@ -731,10 +700,6 @@ class PromptExecutor:
                 if summarized:
                     handoff = _build_crafted_handoff(manifest, summarized)
             if not handoff:
-                # Never persist a placeholder when real work happened. The
-                # placeholder reflects the actual terminal condition
-                # (AGENT_RELIABILITY_PLAN P1.4): "[Cancelled by user]" is only
-                # ever produced by a real cancellation, never assumed.
                 if terminal_status == TERMINAL_STATUS_CANCELLED:
                     handoff = HANDOFF_PLACEHOLDER_CANCELLED
                 elif terminal_status == TERMINAL_STATUS_ERROR:
@@ -801,25 +766,13 @@ class PromptExecutor:
         event_count = 0
         token_usage_recorded = False
         _step_count = 0
-        # C-F02: terminal events (SUCCESS/ERROR) are held back until the
-        # end-of-run SESSION_SUMMARIZED snapshot has been persisted and sent.
-        # The TUI client finalizes and unsubscribes on the first terminal
-        # event, so forwarding SUCCESS/ERROR before the summary means the
-        # summary is silently dropped (and never replayed, since it was not
-        # part of the persisted message either).
         _pending_terminal: list[Event] = []
         _original_model: str | None = None
         _original_temperature: float | None = None
         _original_max_tokens: int | None = None
-        # Bound before any early return (plan-ready / CrewmateLoop handoff):
-        # the finally block reads these, and an UnboundLocalError there would
-        # skip assistant-message persistence and terminal-event delivery.
         agent: SimpleLoop | None = None
         db_session = None
         summary_at_start: str | None = None
-        # What actually ended the turn (AGENT_RELIABILITY_PLAN P1.4): the
-        # persistence placeholder must reflect the real terminal condition,
-        # never assume a user cancellation.
         _terminal_status = TERMINAL_STATUS_COMPLETED
         try:
             history = await self._message_repo.get_by_session(session_id)
@@ -860,19 +813,9 @@ class PromptExecutor:
                 mode == BUILD_MODE
                 and plan_context
                 and plan_approved
-                and mode_config
-                and mode_config.crewmate
+                and bool(getattr(mode_config, "crewmate", False))
             )
 
-            # Captain delegation route: capability-driven dispatch to a
-            # specialist agent. Never hijacks plan mode, never competes with
-            # the plan->build CrewmateLoop handoff (trigger conditions are
-            # disjoint); non-matching prompts fall through to the normal loop.
-            # Governance (WP5 D3, revised after live incident): 'tool' (the
-            # default) means ONLY the mid-turn explore tool delegates — the
-            # pre-loop route requires explicit 'proactive'. Evidence: the
-            # router captured research prompts and ran them on the legacy path
-            # (fixed 120s timeout, no budgets), starving the better tool path.
             if (
                 mode != PLAN_MODE
                 and not crewmate_handoff
@@ -949,28 +892,18 @@ class PromptExecutor:
                     len(db_session.metadata["summary"]),
                     session_id,
                 )
-            skills_section = self._skill_loader.get_skill_prompt()
-            logger.info("Agent initialized, skills loaded=%d chars", len(skills_section))
-            # Run-status (module 07 / opencode `status.ts`): flip the session to
-            # busy while this turn is in flight and persist, so the storage layer
-            # and any observer see a running session. Best-effort — a status
-            # write must never abort the turn itself.
             if db_session is not None:
                 db_session.mark_busy()
                 try:
                     await self._session_repo.update(db_session)
-                except Exception as exc:  # pragma: no cover - defensive
+                except Exception as exc:  
                     logger.warning("Failed to persist busy status for %s: %s", session_id, exc)
-            # Phase-2 wiring (module 10): the new SimpleLoop is the turn engine,
-            # and its event stream is routed through the transport event-adapter
-            # so a future part-based message re-expresses into the TUI kinds.
             async for event in iter_client_events(
                 agent.process_prompt(
                     content,
                     session_id,
                     history,
                     mode,
-                    skills_section=skills_section,
                     plan_context=plan_context,
                     model_override=None,
                     repo_map="" if mode == PLAN_MODE else None,
@@ -1021,10 +954,6 @@ class PromptExecutor:
                             token_repo = FileTokenUsageRepository(self._session_repo.home)
                             provider_name = getattr(self._provider, "name", "unknown")
                             model_name = getattr(self._provider, "model", "unknown")
-                            # QA-10: `used` is composed-context OCCUPANCY (gauge
-                            # input); runTotal/runPrompt/runCompletion are the
-                            # provider-billed run usage (spend). They are
-                            # persisted separately and never mixed.
                             used = ti.get("used", 0)
                             run_total = ti.get("runTotal", 0) or used
                             prompt_t = ti.get("prompt_tokens", ti.get("runPrompt", run_total))
@@ -1049,8 +978,6 @@ class PromptExecutor:
                                         cache_creation_tokens=cache_creation_t // _step_count,
                                         step_index=s,
                                         estimated=estimated,
-                                        # Occupancy is a composed snapshot: only
-                                        # the final step of the turn carries it.
                                         context_occupancy=used if s == _step_count else 0,
                                     )
                             elif not token_usage_recorded:
@@ -1137,11 +1064,7 @@ class PromptExecutor:
                 and (db_session is None or summary_at_start != agent.summary)
             ):
                 try:
-                    # Only apply the in-memory summary if no newer writer (manual
-                    # compaction or a background running summary) replaced it
-                    # while this turn was in flight: a stale result must never
-                    # overwrite newer session state. Metadata-only targeted
-                    # write — never a stale whole-record update.
+                    
                     current = await self._session_repo.get_metadata(session_id)
                     if current is None:
                         logger.info(
@@ -1164,10 +1087,8 @@ class PromptExecutor:
                         )
                 except Exception as e:
                     logger.warning("Failed to persist session summary: %s", e)
-            # C-F02 ordering: compute the end-of-run snapshot BEFORE persisting
-            # the assistant message so SESSION_SUMMARIZED is part of the
-            # persisted event trail (replayable on resume), then deliver it to
-            # the live client BEFORE any terminal event.
+
+           
             persisted_state = None
             try:
                 persisted_state = await self._persist_run_state(
@@ -1177,8 +1098,7 @@ class PromptExecutor:
                 logger.debug("Failed to persist run state for %s", session_id)
             summarized_event: Event | None = None
             if persisted_state and persisted_state.get("final"):
-                # The authoritative end-of-run summary; FinalSummaryCard renders
-                # FROM this snapshot, never from prose.
+                
                 summary = (getattr(agent, "summary", None) or "").strip() or response_text.strip()
                 summarized_event = Event(
                     kind=EventKind.SESSION_SUMMARIZED,
@@ -1199,21 +1119,11 @@ class PromptExecutor:
                 for terminal in _pending_terminal:
                     await manager.send_event(session_id, terminal)
                 _pending_terminal.clear()
-            if self._workspace_repo:
-                try:
-                    from server.agents.session_workspace import flush_to_db
-
-                    await flush_to_db(session_id, self._workspace_repo)
-                except Exception:
-                    logger.debug("Failed to flush workspace to DB for %s", session_id)
-            # Release the session status last, after all persistence (run-state,
-            # assistant message, workspace flush) has settled — mirrors opencode
-            # where a session returns to idle only once the turn fully resolves.
             if db_session is not None:
                 db_session.mark_idle()
                 try:
                     await self._session_repo.update(db_session)
-                except Exception as exc:  # pragma: no cover - defensive
+                except Exception as exc:  
                     logger.warning("Failed to persist idle status for %s: %s", session_id, exc)
             if completed_ok:
                 self._summary_scheduler.schedule(session_id)

@@ -9,7 +9,7 @@ from server.config.constants import (
 )
 from server.config.providers import ProviderConfig
 from server.domain.errors import ConfigError
-from server.storage.catalog_compat import load_catalog
+from server.storage import load_catalog
 
 from .base import BaseProvider
 from .llm_provider import LLMProvider

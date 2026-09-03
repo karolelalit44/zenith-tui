@@ -21,7 +21,6 @@ from server.storage import (
     FileSessionRepository,
     FileSyncEventRepository,
     FileTokenUsageRepository,
-    FileWorkspaceRepository,
     StorageHome,
     ensure_materialized,
 )
@@ -69,11 +68,6 @@ def checkpoint_repo(home):
 @pytest.fixture
 def usage_repo(home):
     return FileTokenUsageRepository(home)
-
-
-@pytest.fixture
-def workspace_repo(home):
-    return FileWorkspaceRepository(home)
 
 
 @pytest.fixture

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -125,14 +124,6 @@ class ToolDef:
         self.parameters = parameters or {"type": "object", "properties": {}, "required": []}
         self.execute = execute
 
-    def to_schema(self) -> dict[str, Any]:
-        """Emit the OpenAI-style tool schema for this definition."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": self.parameters,
-        }
-
 
 def decode_parameters(parameters: dict[str, Any] | None, params: dict[str, Any]) -> dict[str, Any]:
     """Decode/validate raw tool args against a JSON-schema-style parameter dict.
@@ -172,52 +163,3 @@ def truncate_output(
     marker = "\n... [output truncated; full content available via file_read] ...\n"
     keep = max(0, max_chars - len(marker))
     return text[:keep] + marker, True
-
-
-@dataclass
-class ToolDefResult:
-    """Outcome of running a :class:`ToolDef` through :func:`run_tool_def`.
-
-    When ``ok`` is False the ``error`` carries a model-facing rewrite request
-    (the ``InvalidToolArgumentsError`` message), so a bad call is fed back as
-    "please rewrite input to satisfy the schema" rather than an opaque failure.
-    """
-
-    ok: bool
-    output: str = ""
-    truncated: bool = False
-    error: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-async def run_tool_def(
-    tool: ToolDef,
-    args: dict[str, Any],
-    workspace_root: str,
-    max_output_chars: int | None = MAX_TOOL_OUTPUT_BASELINE,
-) -> ToolDefResult:
-    """Resolve and run a :class:`ToolDef` (opencode ``SessionTools.resolve`` intent).
-
-    Decodes/validates ``args`` against the tool's parameter schema; on failure
-    returns a model-facing rewrite request (the ``InvalidToolArgumentsError``
-    message). Otherwise executes ``tool.execute`` and truncates oversized text
-    output through :func:`truncate_output`. Handles both a ``ToolResult`` return
-    and a plain-string return.
-    """
-    try:
-        validated = decode_parameters(tool.parameters, args)
-    except InvalidToolArgumentsError as exc:
-        return ToolDefResult(ok=False, error=str(exc))
-    raw = await tool.execute(validated, workspace_root)
-    if isinstance(raw, ToolResult):
-        kept, truncated = truncate_output(raw.output or "", max_output_chars)
-        return ToolDefResult(
-            ok=raw.success,
-            output=kept,
-            truncated=truncated,
-            error=raw.error or "",
-            metadata=dict(raw.metadata),
-        )
-    text = str(raw) if raw is not None else ""
-    kept, truncated = truncate_output(text, max_output_chars)
-    return ToolDefResult(ok=True, output=kept, truncated=truncated)

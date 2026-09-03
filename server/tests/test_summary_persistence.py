@@ -5,7 +5,7 @@ import pytest
 from server.agents.loop import AgentLoop
 from server.agents.prompt_executor import PromptExecutor
 from server.config.settings import AppSettings
-from server.domain.domain import ScenarioMode
+from server.domain.enums import ScenarioMode
 from server.domain.session import Session
 from server.providers.base import BaseProvider, ProviderResponse
 from server.storage.session_store import FileMessageRepository, FileSessionRepository
@@ -50,7 +50,6 @@ async def test_summary_rehydration_and_persistence(home, tmp_path):
     config = AppSettings(workspace_root=str(tmp_path))
     provider = MockSummaryProvider()
 
-    from server.skills.loader import SkillLoader
     from server.toolkit import create_default_registry
 
     executor = PromptExecutor(
@@ -59,7 +58,6 @@ async def test_summary_rehydration_and_persistence(home, tmp_path):
         create_default_registry(),
         session_repo,
         message_repo,
-        SkillLoader(str(config.workspace_root)),
     )
 
     # 2. Execute prompt; the completed turn schedules a background running summary.

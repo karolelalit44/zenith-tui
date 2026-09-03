@@ -78,7 +78,6 @@ class AgentDefinition(BaseModel):
     best_for: list[str] = Field(default_factory=list)
     avoid_for: list[str] = Field(default_factory=list)
     allowed_tools: list[str] = Field(default_factory=list)
-    allowed_mcp: dict = Field(default_factory=dict)
     output_schema: dict = Field(default_factory=lambda: CREWMATE_RESULT_SCHEMA)
     can_delegate: bool = False
     max_crewmates: int = 0
@@ -120,7 +119,6 @@ ApogeeCrewmate = AgentDefinition(
         "add a test",
     ],
     allowed_tools=READ_ONLY_TOOLS,
-    allowed_mcp={},
     can_delegate=False,
     max_crewmates=0,
     allowed_crewmates=[],

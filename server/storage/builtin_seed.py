@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from server.config.constants import DEFAULT_CONTEXT_WINDOW, MAX_OUTPUT_TOKENS_CLAMP
 
-SEED_VERSION = 1
+SEED_VERSION = 3
 
 DEFAULTS: dict = {
-    "contextWindow": 128000,
-    "maxOutputTokens": 32768,
+    "contextWindow": DEFAULT_CONTEXT_WINDOW,
+    "maxOutputTokens": MAX_OUTPUT_TOKENS_CLAMP,
 }
 
 PROVIDERS: list[dict] = [
@@ -94,6 +94,41 @@ PROVIDERS: list[dict] = [
                 },
                 "speedTier": "fast",
                 "bestFor": ["general coding", "reasoning", "fast responses"],
+                "pricing": {"input": 0.15, "output": 0.6, "cache_read": 0.03},
+                "isDefault": False,
+                "tokenizer": "o200k_base",
+                "promptTier": "compact",
+                "source": "builtin",
+            },
+            {
+                "key": "gemini/gemini-3.8-flash",
+                "providerId": "gemini",
+                "id": "gemini-3.8-flash",
+                "name": "Gemini 3.8 Flash",
+                "description": (
+                    "Google's most intelligent Flash model. Engineered for long-horizon "
+                    "software engineering, autonomous agents, and complex enterprise workflows."
+                ),
+                "contextWindow": 1048576,
+                "maxOutputTokens": 65536,
+                "parameters": None,
+                "architecture": "Dense Transformer",
+                "inputModalities": ["text", "image", "video", "audio", "pdf"],
+                "outputModalities": ["text"],
+                "tags": ["fast", "thinking", "agentic", "latest-gen"],
+                "capabilities": {
+                    "function_calling": True,
+                    "structured_output": True,
+                    "reasoning": True,
+                    "thinking": True,
+                    "supports_temperature": False,
+                },
+                "speedTier": "fast",
+                "bestFor": [
+                    "software engineering",
+                    "autonomous agents",
+                    "complex enterprise workflows",
+                ],
                 "pricing": {"input": 0.15, "output": 0.6, "cache_read": 0.03},
                 "isDefault": False,
                 "tokenizer": "o200k_base",
@@ -651,10 +686,31 @@ PROVIDERS: list[dict] = [
         "source": "builtin",
         "models": [],
     },
+    {
+        "id": "local_llm",
+        "name": "Local LLM",
+        "description": (
+            "A model server running on your own machine (llama.cpp llama-server, "
+            "LM Studio, Ollama, vLLM, etc.) exposed on an OpenAI-compatible endpoint. "
+            "Only the model ID is required — the endpoint defaults to "
+            "http://localhost:8080/v1."
+        ),
+        "adapter": "openai_compatible",
+        "litellmPrefix": "openai/",
+        "baseUrl": "http://localhost:8080/v1",
+        "requiresApiKey": False,
+        "firstClass": True,
+        "customFlow": True,
+        "defaultModelId": "",
+        "apiKeyEnv": [],
+        "apiKeyPrefixHint": "",
+        "baseStyle": "",
+        "supportsPromptCaching": False,
+        "supportsThinkingHeaders": False,
+        "swatch": ["#7C5CFC", "#5E3FD1", "#3F2A94"],
+        "capabilities": {"streaming": True, "thinking": True, "function_calling": True},
+        "sortOrder": 4,
+        "source": "builtin",
+        "models": [],
+    },
 ]
-
-
-def iter_builtin_models() -> Iterator[dict]:
-    """Yield every builtin model across all providers."""
-    for provider in PROVIDERS:
-        yield from provider.get("models", [])

@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import logging
-from enum import StrEnum
 
-from pydantic import BaseModel, Field
-
-from server.config.constants import MAX_EVENT_OUTPUT
 from server.domain.events import Event, EventKind
 from server.toolkit.base import truncate_output
 
@@ -52,15 +48,15 @@ def tool_result(
     error: str = "",
     metadata: dict | None = None,
 ) -> Event:
-    max_event_output = MAX_EVENT_OUTPUT
+    kept, truncated = truncate_output(output)
     return event(
         EventKind.TOOL_RESULT,
         {
             "tool": tool_name,
             "success": success,
-            "output": output[:max_event_output] if output else "",
+            "output": kept,
             "error": error,
-            "truncated": len(output) > max_event_output if output else False,
+            "truncated": truncated,
             "metadata": metadata or {},
         },
         session_id,
@@ -247,121 +243,5 @@ def context_compaction_phase(
     return event(
         EventKind.CONTEXT_COMPACTION_PHASE,
         data,
-        session_id,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Phase 1 additive — clean Part content delivery (module 09 markdown_render).
-# Mirrors opencode AnyPart (TextPart / ReasoningPart / ToolCallPart /
-# ToolResultPart) and codex EventMsg content deltas. Purely additive and
-# transport-safe (G5): parts ride inside the existing MESSAGE event under
-# ``data.parts`` while ``data.text`` stays the rendered markdown, so the legacy
-# TUI keeps working. Full (truncated) tool output is delivered via
-# ``truncate_output`` instead of the MAX_EVENT_OUTPUT preview hack (Phase 3).
-# NOTE: this module-09 transport-facing reasoning part is distinct from module
-# 08's ReasoningPart (llm_stream.py) to avoid a circular import (llm_stream
-# imports responder).
-# ---------------------------------------------------------------------------
-
-
-class PartKind(StrEnum):
-    TEXT = "text"
-    REASONING = "reasoning"
-    TOOL_CALL = "tool-call"
-    TOOL_RESULT = "tool-result"
-    ERROR = "error"
-
-
-class ContentPart(BaseModel):
-    """A single, clean, renderable content part (opencode AnyPart).
-
-    Each part carries a ``type`` discriminator plus the relevant fields. Tool
-    output is delivered truncated-but-complete, never a tiny preview.
-    """
-
-    type: PartKind
-    text: str = ""
-    partial: bool = False
-    duration_ms: int | None = None
-    tool: str = ""
-    input: dict = Field(default_factory=dict)
-    success: bool = True
-    output: str = ""
-    error: str = ""
-
-
-def text_part(text: str, partial: bool = False) -> ContentPart:
-    return ContentPart(type=PartKind.TEXT, text=text, partial=partial)
-
-
-def reasoning_part(text: str, partial: bool = False, duration_ms: int | None = None) -> ContentPart:
-    return ContentPart(
-        type=PartKind.REASONING,
-        text=text,
-        partial=partial,
-        duration_ms=duration_ms,
-    )
-
-
-def tool_call_part(tool: str, input_params: dict) -> ContentPart:
-    return ContentPart(type=PartKind.TOOL_CALL, tool=tool, input=dict(input_params))
-
-
-def tool_result_part(
-    tool: str, output: str = "", success: bool = True, error: str = ""
-) -> ContentPart:
-    kept, _truncated = truncate_output(output or "")
-    return ContentPart(
-        type=PartKind.TOOL_RESULT, tool=tool, output=kept, success=success, error=error
-    )
-
-
-def error_part(message: str) -> ContentPart:
-    return ContentPart(type=PartKind.ERROR, text=message)
-
-
-def render_parts_text(parts: list[ContentPart]) -> str:
-    """Render parts to a markdown/plain fallback string for the TUI.
-
-    Text and reasoning render inline; tool calls render as a block header;
-    tool results render their (truncated) output; errors render their message.
-    """
-    out: list[str] = []
-    for p in parts:
-        if p.type is PartKind.TEXT or p.type is PartKind.REASONING:
-            if p.text:
-                out.append(p.text)
-        elif p.type is PartKind.TOOL_CALL:
-            out.append(f"Executing {p.tool}...")
-        elif p.type is PartKind.TOOL_RESULT:
-            if p.output:
-                out.append(p.output)
-            if p.error:
-                out.append(p.error)
-        elif p.type is PartKind.ERROR:
-            out.append(p.text)
-    return "\n\n".join(out)
-
-
-def parts_message(
-    parts: list[ContentPart],
-    session_id: str,
-    partial: bool = False,
-    iteration: int = 0,
-) -> Event:
-    """Emit a clean, part-based assistant message on the existing MESSAGE kind.
-
-    ``data.parts`` carries the serialized Part list; ``data.text`` is the rendered
-    markdown fallback so existing consumers/TUI are unaffected (G5).
-    """
-    return event(
-        EventKind.MESSAGE,
-        {
-            "parts": [p.model_dump(exclude_none=True, exclude_defaults=False) for p in parts],
-            "text": render_parts_text(parts),
-            "partial": partial,
-            "iteration": iteration,
-        },
         session_id,
     )

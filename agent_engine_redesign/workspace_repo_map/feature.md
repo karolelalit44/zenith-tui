@@ -104,3 +104,13 @@ be removed only after those consumers adopt the new shape. No EventKind/transpor
 change was made (G5 preserved).
 
 ## Status: Interface-Locked
+
+### Decision (2026-09-01) - Phase 2 live tool migration (Mars)
+
+`GlobTool` and `GrepTool` now delegate file discovery and content matching to
+`RipgrepBackend`. The tools retain their existing validation, bounded model-facing
+formatting, and `ZenithIgnoreMatcher` filtering so `.zenithignore` behavior stays
+compatible while ripgrep supplies native ignore and regex semantics. Docker validation:
+`test_workspace_search.py`, search guardrails, search scope, and Zenith-ignore tests
+all pass (45 passed). Tree-sitter/code-graph paths remain until their live consumers
+migrate in Phase 3.

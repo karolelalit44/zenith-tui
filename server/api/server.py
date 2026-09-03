@@ -6,11 +6,12 @@ import secrets
 from contextlib import asynccontextmanager
 from importlib.metadata import version as _get_version
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import StreamingResponse
 
-from server.config.constants import HEALTH_PATH, TEST_WS_PATH, WS_PATH
+from server.config.constants import HEALTH_PATH, WS_PATH
 from server.config.loader import load_config
 from server.providers.registry import ProviderRegistry
 from server.storage import (
@@ -20,10 +21,11 @@ from server.storage import (
     resolve_home,
     update_preferences,
 )
+from server.storage.usage_store import FileTokenUsageRepository
 from server.toolkit import create_default_registry
 
 if TYPE_CHECKING:
-    from server.mcp.manager import McpManager
+    from server.config.settings import AppSettings
 from .middleware import wrap_handler
 from .provider_validation import (
     get_provider_catalog,
@@ -36,26 +38,52 @@ from .schemas import (
     ProviderModelRequest,
     ProviderValidationRequest,
 )
+from .services.usage_service import UsageService
 from .shutdown import GracefulShutdown
 from .startup import validate_startup
-from .test_websocket import TestSimulationHandler
 from .websocket import ZenithHandler
 
 try:
     __version__ = _get_version("zenith")
 except Exception:
     __version__ = "0.1.0"
+    
 logger = logging.getLogger(__name__)
 _WS_TOKEN = os.environ.get("ZENITH_WS_TOKEN", "")
 _handler: ZenithHandler | None = None
 _shutdown: GracefulShutdown | None = None
-_mcp_manager: McpManager | None = None
 _home: StorageHome | None = None
-_test_handler: TestSimulationHandler | None = None
+_usage_service: UsageService | None = None
+
+
+def _normalize_origin(origin: str) -> str | None:
+    raw = origin.strip()
+    if not raw:
+        return None
+    parsed = urlsplit(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return None
+    host = parsed.hostname.lower()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return f"{parsed.scheme}://{host}{port}"
+
+
+def _is_allowed_ws_origin(config: AppSettings, origin: str) -> bool:
+    normalized = _normalize_origin(origin)
+    if normalized is None:
+        return config.allow_empty_ws_origin and not origin.strip()
+    allowed = {
+        value
+        for candidate in config.allowed_ws_origins
+        if (value := _normalize_origin(candidate)) is not None
+    }
+    return normalized in allowed
 
 
 async def _do_startup() -> None:
-    global _handler, _shutdown, _home, _test_handler
+    global _handler, _shutdown, _home, _usage_service
     logger.info("Starting Zenith backend...")
     _shutdown = GracefulShutdown()
     try:
@@ -63,6 +91,7 @@ async def _do_startup() -> None:
         _home = home
         ensure_materialized(home)
         logger.info("Storage ready at %s", home.root)
+        _usage_service = UsageService(FileTokenUsageRepository(home))
         config = load_config()
         logger.info(
             "Config loaded: provider=%s, home=%s",
@@ -89,26 +118,6 @@ async def _do_startup() -> None:
         _handler = ZenithHandler(
             config=config, home=home, registry=registry, tool_registry=tool_registry
         )
-        _test_handler = TestSimulationHandler(workspace_root=config.workspace_root)
-        logger.info("Test simulation handler initialized (%s)", TEST_WS_PATH)
-        global _mcp_manager
-        _mcp_manager = None
-        if config.mcp_servers:
-            from server.mcp.manager import McpManager
-
-            _mcp_manager = McpManager(config.mcp_servers)
-            await _mcp_manager.start()
-            for wrapper in _mcp_manager.build_wrappers():
-                tool_registry.register(wrapper)
-            logger.info(
-                "MCP servers ready: %s",
-                [
-                    {"name": s["name"], "status": s["status"], "tools": s["tools"]}
-                    for s in _mcp_manager.list_servers()
-                ],
-            )
-            if _mcp_manager.errors:
-                logger.warning("MCP servers with errors: %s", _mcp_manager.errors)
         from server.toolkit.registry_validation import validate_registry
 
         validation_errors = validate_registry(tool_registry)
@@ -116,14 +125,6 @@ async def _do_startup() -> None:
             logger.error("Tool registry validation failed at startup:")
             for error in validation_errors:
                 logger.error("  %s", error)
-        try:
-            from server.lsp.manager import LspManager, set_lsp_manager
-
-            lsp_manager = LspManager(workspace_root=config.workspace_root)
-            set_lsp_manager(lsp_manager)
-            logger.info("LSP manager initialized")
-        except Exception as e:
-            logger.debug("LSP manager init skipped: %s", e)
         # Intentional method wrap (pre-existing pattern); mypy dislikes it.
         _handler.handlers.dispatch = wrap_handler(_handler.handlers.dispatch)  # type: ignore[method-assign]
         logger.info("Handler initialized — server ready")
@@ -133,21 +134,17 @@ async def _do_startup() -> None:
 
 
 async def _do_shutdown() -> None:
-    global _handler, _shutdown, _mcp_manager, _test_handler
+    global _handler, _shutdown, _test_handler, _usage_service
     logger.info("Shutting down Zenith backend...")
+    _test_handler = None
+    _usage_service = None
     try:
-        if _mcp_manager is not None:
-            await _mcp_manager.stop()
+        if _shutdown:
+            await _shutdown.shutdown()
     finally:
-        _mcp_manager = None
-        _test_handler = None
-        try:
-            if _shutdown:
-                await _shutdown.shutdown()
-        finally:
-            _handler = None
-            _shutdown = None
-            logger.info("Zenith backend stopped")
+        _handler = None
+        _shutdown = None
+        logger.info("Zenith backend stopped")
 
 
 @asynccontextmanager
@@ -188,12 +185,6 @@ async def status():
         "storage": {
             "status": "ok" if (_home and _home.root.exists()) else "error",
             "home": str(_home.root) if _home else None,
-        },
-        "mcp": {
-            "servers": _mcp_manager.list_servers() if _mcp_manager else [],
-            "tools": [
-                name for name in _handler.tool_registry.list_tools() if name.startswith("mcp_")
-            ],
         },
     }
 
@@ -309,55 +300,30 @@ def put_profile_preferences(request: dict):
 
 @app.get("/usage/token-stats")
 async def token_usage_stats(since: str | None = None, until: str | None = None):
-    if _handler is None:
+    if _usage_service is None:
         return {"models": [], "totals": {}}
-    try:
-        repo = _handler.handlers.usage_repo
-        models = await repo.get_stats_by_model(since=since, until=until)
-        totals = await repo.get_total_stats(since=since, until=until)
-        return {"models": models, "totals": totals}
-    except Exception as e:
-        logger.warning("Failed to fetch token stats: %s", e)
-        return {"models": [], "totals": {}}
+    return await _usage_service.get_token_stats(since=since, until=until)
 
 
 @app.get("/usage/cost-summary")
 async def token_cost_summary(period: str = "all"):
-    if _handler is None:
+    if _usage_service is None:
         return {"data": []}
-    try:
-        repo = _handler.handlers.usage_repo
-        data = await repo.get_cost_summary(period=period)
-        return {"data": data}
-    except Exception as e:
-        logger.warning("Failed to fetch cost summary: %s", e)
-        return {"data": []}
+    return await _usage_service.get_cost_summary(period=period)
 
 
 @app.get("/usage/steps/{session_id}")
 async def token_usage_steps(session_id: str):
-    if _handler is None:
+    if _usage_service is None:
         return {"steps": []}
-    try:
-        repo = _handler.handlers.usage_repo
-        steps = await repo.get_per_step_stats(session_id)
-        return {"steps": steps}
-    except Exception as e:
-        logger.warning("Failed to fetch step stats: %s", e)
-        return {"steps": []}
+    return await _usage_service.get_steps(session_id)
 
 
 @app.get("/usage/efficiency/{session_id}")
 async def token_usage_efficiency(session_id: str):
-    if _handler is None:
+    if _usage_service is None:
         return {}
-    try:
-        repo = _handler.handlers.usage_repo
-        eff = await repo.get_efficiency(session_id)
-        return eff
-    except Exception as e:
-        logger.warning("Failed to fetch efficiency: %s", e)
-        return {}
+    return await _usage_service.get_efficiency(session_id)
 
 
 @app.websocket(WS_PATH)
@@ -367,7 +333,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1011, reason="Server not ready")
         return
     origin = websocket.headers.get("origin", "")
-    if origin and "localhost" not in origin and "127.0.0.1" not in origin:
+    if not _is_allowed_ws_origin(_handler.config, origin):
         logger.warning("WebSocket rejected: unexpected origin %s", origin)
         await websocket.close(code=4003, reason="Unexpected origin")
         return
@@ -383,32 +349,6 @@ async def websocket_endpoint(websocket: WebSocket):
         await _handler.handle(websocket)
     except Exception:
         logger.exception("WebSocket handler error")
-        raise
-
-
-@app.websocket(TEST_WS_PATH)
-async def test_websocket_endpoint(websocket: WebSocket):
-    if _test_handler is None:
-        logger.warning("Test WebSocket rejected: handler not initialized")
-        await websocket.close(code=1011, reason="Server not ready")
-        return
-    origin = websocket.headers.get("origin", "")
-    if origin and "localhost" not in origin and "127.0.0.1" not in origin:
-        logger.warning("Test WebSocket rejected: unexpected origin %s", origin)
-        await websocket.close(code=4003, reason="Unexpected origin")
-        return
-    if _WS_TOKEN:
-        query_token = websocket.query_params.get("token", "")
-        if not secrets.compare_digest(query_token, _WS_TOKEN):
-            logger.warning("Test WebSocket rejected: invalid token from %s", websocket.client)
-            await websocket.close(code=4001, reason="Invalid auth token")
-            return
-    logger.info("Test WebSocket connecting from %s", websocket.client)
-    await websocket.accept()
-    try:
-        await _test_handler.handle(websocket)
-    except Exception:
-        logger.exception("Test WebSocket handler error")
         raise
 
 

@@ -81,12 +81,9 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
   // timed-out crewmate is a FAILED run — never render a green checkmark over
   // a failed mission (2026-08-26 incident: "✓ Complete" above "✗ Failed").
   const crewmates = event.crewmates ?? [];
-  const hasFailedCrew = crewmates.some(
-    (cm) => cm.status === 'failed' || cm.status === 'needs_review',
-  );
+  const hasFailedCrew = crewmates.some((cm) => cm.status === 'failed' || cm.status === 'needs_review');
   const allRetiredOrDone =
-    crewmates.length > 0 &&
-    crewmates.every((cm) => cm.status === 'completed' || cm.status === 'retired');
+    crewmates.length > 0 && crewmates.every((cm) => cm.status === 'completed' || cm.status === 'retired');
 
   // Format stage label
   let stageLabel = 'Command Center Active';
@@ -152,11 +149,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
               ⚡ CAPTAIN ZENITH COMMAND CENTER
             </Text>
             <Text color={theme.colors.text.dim}> · </Text>
-            <Text
-              color={stageColor}
-              bold
-              wrap="truncate-end"
-            >
+            <Text color={stageColor} bold wrap="truncate-end">
               {isRunning
                 ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} ${stageLabel}`
                 : hasFailedCrew && event.stage === 'complete'
@@ -305,7 +298,9 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
                   <Box key={idx} flexDirection="row" paddingLeft={1}>
                     <Text color={theme.colors.text.dim}>{tl.timestamp} </Text>
                     <Text color={theme.colors.text.dim}>│ </Text>
-                    <Text color={color} wrap="truncate-end">{tl.message}</Text>
+                    <Text color={color} wrap="truncate-end">
+                      {tl.message}
+                    </Text>
                   </Box>
                 );
               });

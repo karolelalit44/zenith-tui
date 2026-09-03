@@ -76,20 +76,24 @@ Module: 14 config_management
 Status change: Pending → In-Progress (safe-additive portion done; removals blocked)
 WHAT: Documented + locked the layered precedence model (defaults → file → env →
       CLI) in settings.py/loader.py; added precedence-confirmation tests.
+     Removed the unused `crewmate` flag from `AgentModeConfig` without changing
+      runtime behavior. `AGENT_MODES` now exposes only BUILD/PLAN/READ_ONLY.
 WHY: matches opencode/codex layered config (defaults → env → file → CLI); the
      merge order is now explicit and test-enforced.
 FILES: server/config/settings.py, server/config/loader.py, server/tests/test_config.py
-OPEND/REMOVED: no removals yet — see BLOCKED.
+OPEND/REMOVED: removed the crewmate-specific mode config entry and the unused
+      crewmate field; remaining constants redistribution is still blocked.
 EXPECTED BEHAVIOUR: settings load with defaults→file→env→CLI precedence; precedence
      is documented and covered by 5 new tests (all green).
-OUTCOME / TEST EVIDENCE: G1 partial (13 config tests pass); G3 ruff clean (verify);
-     G2 targeted suite green; G6 PASS (no new features).
+OUTCOME / TEST EVIDENCE: G1 PASS (14 focused config tests); G3 Ruff clean; G2
+     targeted suite green; G6 PASS (no new features).
 SHARED-FILE IMPACT: none (kept constants.py untouched — CCS).
 DEPENDENCIES: BLOCKED on module 01/02/07 interface-lock for the rest:
      - constants.py grab-bag redistribution touches files owned by 04/03/01/05
        (module ownership map §4) → not safe to do while they are Pending.
-     - PLAN/BUILD/READ_ONLY/CREWMATE toolscape removal touches loop.py (01),
-       prompt_executor.py (02), handlers.py (10) → blocked on their interface-lock.
-     - CREWMATE_MODE/graph constants belong to OOS module 11 (delegation) → out of scope.
-     Needs: 01, 02, 07 interface-locked before completing the removals.
+     - Constants redistribution still touches loop.py (01), prompt_executor.py
+       (02), and handlers.py (10) → blocked on their interface-lock.
+     - Delegation-related CREWMATE constants remain out of the config cleanup
+       path for now.
+     Needs: 01, 02, 07 interface-locked before completing the remaining removals.
 ```

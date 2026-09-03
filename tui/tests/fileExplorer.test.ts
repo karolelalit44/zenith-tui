@@ -45,11 +45,17 @@ describe('getDirectoryContents', () => {
     expect(names.indexOf('DIR:src')).toBeLessThan(names.indexOf('FILE:README.md'));
   });
 
-  it('lists children of a nested directory', () => {
+  it('lists children of a nested directory with .. parent directory at the top', () => {
     const items = mod.getDirectoryContents('src/auth');
+    expect(items[0]).toMatchObject({ name: '..', isDir: true, relativePath: 'src' });
     const names = items.map((i) => i.name);
     expect(names).toContain('login.ts');
     expect(names).toContain('session.ts');
+  });
+
+  it('does not include .. parent directory at workspace root', () => {
+    const items = mod.getDirectoryContents('');
+    expect(items.some((i) => i.name === '..')).toBe(false);
   });
 });
 

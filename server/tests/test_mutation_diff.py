@@ -75,26 +75,6 @@ class TestBuildToolMetadataDiff:
         )
         assert meta.get("diff") == patch
 
-    def test_multi_edit_emits_diff(self, tmp_path):
-        ws = tmp_path / "ws"
-        ws.mkdir()
-        (ws / "b.txt").write_text("alpha\n", encoding="utf-8")
-        patch = "@@ -1 +1 @@\n-alpha\n+beta\n"
-        result = ToolResult(
-            success=True,
-            output="Applied 1 edit(s) to b.txt",
-            metadata={"diff": patch, "edits_applied": 1},
-        )
-        meta = build_tool_metadata(
-            "multi_edit",
-            {"filepath": "b.txt"},
-            result,
-            9,
-            str(ws),
-        )
-        assert "beta" in meta.get("diff", "")
-
-
 class TestGitOpsDiffPath:
     def test_untracked_file_returns_unified_diff_via_intent_to_add(self, tmp_path):
         ws = tmp_path / "ws"

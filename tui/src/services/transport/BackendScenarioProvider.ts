@@ -223,12 +223,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
       const mapped = mapRawEvent(kind, data, rpcId);
 
       if (kind === 'thinking' && lastEventKind === 'thinking' && eventIndex > 0) {
-        const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
+        const thinkingEv = mapped as import('../../types/scenario').ThinkingEvent;
+        const newThoughts = thinkingEv.thoughts;
         mergedThinkingThoughts = newThoughts
           .map((t) => (typeof t === 'string' ? t : t.text))
           .filter(Boolean) as string[];
 
-        const mergedId = mergedThinkingId ?? (mapped as import('../../types/scenario').ThinkingEvent).id;
+        const mergedId = mergedThinkingId ?? thinkingEv.id;
         mergedThinkingId = mergedId;
 
         onEvent(
@@ -236,7 +237,8 @@ export class BackendScenarioProvider implements ScenarioProvider {
             kind: 'thinking',
             id: mergedId,
             thoughts: [...mergedThinkingThoughts],
-            duration: 500,
+            duration: thinkingEv.duration || 0,
+            partial: thinkingEv.partial,
           },
           eventIndex - 1,
         );
@@ -245,11 +247,12 @@ export class BackendScenarioProvider implements ScenarioProvider {
           mergedThinkingThoughts = [];
           mergedThinkingId = null;
         } else {
-          const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
+          const thinkingEv = mapped as import('../../types/scenario').ThinkingEvent;
+          const newThoughts = thinkingEv.thoughts;
           mergedThinkingThoughts = newThoughts
             .map((t) => (typeof t === 'string' ? t : t.text))
             .filter(Boolean) as string[];
-          mergedThinkingId = (mapped as import('../../types/scenario').ThinkingEvent).id;
+          mergedThinkingId = thinkingEv.id;
         }
         onEvent(mapped, eventIndex);
         eventIndex++;

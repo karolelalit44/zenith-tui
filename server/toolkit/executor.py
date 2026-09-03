@@ -22,7 +22,12 @@ from server.config.constants import (
 )
 from server.domain.events import Event
 from server.providers import responder as r
-from server.toolkit.base import ToolResult
+from server.toolkit.base import (
+    InvalidToolArgumentsError,
+    ToolResult,
+    decode_parameters,
+    truncate_output,
+)
 from server.toolkit.registry import ToolRegistry
 from server.workspace.git import GitOps
 
@@ -100,7 +105,7 @@ def format_tool_result(
     return "\n".join(lines)
 
 
-MUTATION_DIFF_TOOLS = (FILE_WRITE_TOOL, FILE_EDIT_TOOL, FILE_DELETE_TOOL, "multi_edit")
+MUTATION_DIFF_TOOLS = (FILE_WRITE_TOOL, FILE_EDIT_TOOL, FILE_DELETE_TOOL)
 MAX_DIFF_CAPTURE_CHARS = 50_000
 
 
@@ -124,7 +129,7 @@ def capture_mutation_diff(workspace_root: str, tool_params: dict, result: ToolRe
     try:
         git = GitOps(workspace_root)
         diff = git.diff_path(target)
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:  
         logger.debug("git diff capture failed for %s: %s", target, e)
     if not diff:
         diff = str((result.metadata or {}).get("diff") or "")
@@ -272,7 +277,6 @@ async def execute_tool(
     tool_params: dict,
     workspace_root: str,
     mode: str,
-    allowed_mcp: dict[str, list[str]] | None = None,
 ) -> tuple[ToolResult, int]:
     logger.info(
         "TOOL EXECUTE: name=%s mode=%s params=%s",
@@ -282,30 +286,21 @@ async def execute_tool(
     )
     start = _time.monotonic()
 
-    # Strict-params contract (UI/UX sprint F): silently ignoring unknown keys
-    # made the model believe a command had run when it hadn't (e.g. it stuffed
-    # a bash command into file_read). Surface ignored keys so the model
-    # self-corrects on the next turn.
-    tool = tool_registry.get(tool_name)
-    ignored_params: list[str] = []
-    if tool is not None:
-        try:
-            schema_props = set((tool.get_schema().get("properties") or {}).keys())
-            ignored_params = [k for k in tool_params if k not in schema_props]
-            if ignored_params:
-                logger.warning(
-                    "TOOL PARAMS ignored for %s (unknown keys): %s", tool_name, ignored_params
-                )
-                tool_params = {k: v for k, v in tool_params.items() if k in schema_props}
-        except Exception:  # schema introspection must never break execution
-            logger.exception("Param validation failed for %s", tool_name)
+    definition = tool_registry.get_definition(tool_name)
+    if definition is None:
+        return ToolResult(success=False, error=f"Unknown tool: {tool_name}"), 0
+    try:
+        tool_params = decode_parameters(definition.parameters, tool_params)
+    except InvalidToolArgumentsError as exc:
+        return ToolResult(success=False, error=str(exc)), 0
 
     result = await tool_registry.execute(
-        tool_name, tool_params, workspace_root, mode, allowed_mcp=allowed_mcp
+        tool_name, tool_params, workspace_root, mode
     )
-    if ignored_params:
-        notice = f"[ignored unexpected params: {', '.join(sorted(ignored_params))}]"
-        result.output = f"{notice}\n{result.output}" if result.output else notice
+    result.output, was_truncated = truncate_output(result.output or "", MAX_TOOL_OUTPUT_BASELINE)
+    if was_truncated:
+        result.metadata = dict(result.metadata)
+        result.metadata["truncated"] = True
     duration_ms = int((_time.monotonic() - start) * 1000)
     logger.info(
         "TOOL RESULT: name=%s success=%s duration=%dms output_len=%d error=%s",
@@ -344,18 +339,7 @@ async def post_execution_hooks(
     edited_path = tool_params.get("filepath") or tool_params.get("path") or ""
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:
-            from server.toolkit.auto_lint import (
-                detect_security_pitfall,
-                format_lint_result,
-                run_lint,
-            )
-
-            written_content = str(tool_params.get("content", ""))
-            if tool_name == "file_edit":
-                written_content = str(tool_params.get("new_content", ""))
-            pitfall = detect_security_pitfall(edited_path, written_content)
-            if pitfall:
-                events.append(r.warning(pitfall, session_id, code="SECURITY"))
+            from server.toolkit.auto_lint import format_lint_result, run_lint
 
             lint_result = await run_lint(edited_path, workspace_root, fix=AUTO_LINT_FIX_ENABLED)
             if lint_result and (not lint_result.success):

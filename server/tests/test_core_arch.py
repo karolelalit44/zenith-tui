@@ -1,15 +1,16 @@
+import asyncio
+
 import pytest
 
-from server.domain.domain import AgentRole, DeliveryMode, RiskLevel, ScenarioMode, SessionState
+from server.domain.enums import AgentRole, DeliveryMode, RiskLevel, ScenarioMode
 from server.domain.errors import (
     ConfigError,
     ProviderError,
     RateLimitError,
     SessionNotFound,
-    SessionTransitionError,
     ZenithError,
 )
-from server.domain.events import AsyncEventBus, Event, EventKind
+from server.domain.events import AsyncEventBus, Event, EventBus, EventKind
 from server.domain.message import Message, ToolCall
 from server.domain.session import Session
 
@@ -26,16 +27,16 @@ class TestDomainEnums:
     def test_agent_role_values(self):
         assert AgentRole.CODER.value == "coder"
 
-    def test_session_state_values(self):
-        assert SessionState.CREATED.value == "created"
-        assert SessionState.ACTIVE.value == "active"
-
     def test_delivery_mode_values(self):
         assert DeliveryMode.LOSSY.value == "lossy"
         assert DeliveryMode.BLOCKING.value == "blocking"
 
 
 class TestAsyncEventBus:
+    def test_event_bus_cannot_instantiate(self):
+        with pytest.raises(TypeError):
+            EventBus()
+
     @pytest.mark.asyncio
     async def test_publish_subscribe(self):
         bus = AsyncEventBus()
@@ -67,6 +68,14 @@ class TestAsyncEventBus:
         received = await sub.next(timeout=0.05)
         assert received is None
 
+    def test_lossy_drops_full_queue_but_blocking_raises(self):
+        bus = AsyncEventBus(buffer_size=1)
+        bus.subscribe()
+        bus.publish(Event(kind=EventKind.MESSAGE, data={"seq": 1}))
+        bus.publish(Event(kind=EventKind.MESSAGE, data={"seq": 2}), mode=DeliveryMode.LOSSY)
+        with pytest.raises(asyncio.QueueFull):
+            bus.publish(Event(kind=EventKind.MESSAGE, data={"seq": 3}), mode=DeliveryMode.BLOCKING)
+
 
 class TestMessage:
     def test_create_message(self):
@@ -90,24 +99,7 @@ class TestSession:
     def test_create_session(self):
         session = Session(title="Test")
         assert session.title == "Test"
-        assert session.state == SessionState.CREATED
-
-    def test_session_transition(self):
-        session = Session(title="Test")
-        session.transition(SessionState.ACTIVE)
-        assert session.state == SessionState.ACTIVE
-
-    def test_session_invalid_transition(self):
-        session = Session(title="Test")
-        session.transition(SessionState.ACTIVE)
-        with pytest.raises((SessionTransitionError, ValueError)):
-            session.transition(SessionState.CREATED)
-
-    def test_created_session_can_resume(self):
-        """F4: reconnecting to a brand-new session must be a legal resume."""
-        session = Session(title="Test")
-        session.transition(SessionState.RESUMED)
-        assert session.state == SessionState.RESUMED
+        assert session.status == "idle"
 
 
 class TestErrors:

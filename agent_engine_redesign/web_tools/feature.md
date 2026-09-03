@@ -72,8 +72,8 @@ Additive changes, no removal (per progress.md §11):
     fetch + convert-to-Markdown surface matching opencode's `tool/webfetch.ts` (plain GET +
     HTML→Markdown, capped at `max_chars`, never raw HTML, no LLM extraction). Raises on
     transport/HTTP errors; unwraps redirects; honours `DEFAULT_USER_AGENT`.
-  - `WebfetchTool.execute` refactored to call `fetch_page` for the fetch+convert portion,
-    preserving the legacy LLM `extract` branch byte-for-byte in behavior (kept for Phase 3).
+  - `WebfetchTool.execute` calls `fetch_page` and maps its `FetchResult` directly to the
+    existing ToolResult; no legacy LLM `extract` branch remains in production.
 - **Constants deduplication (single sources of truth):**
   - `DEFAULT_WEBSEARCH_MAX_RESULTS = 8` added to `server/config/constants.py`; `websearch.py`
     now aliases `_DEFAULT_MAX_RESULTS = DEFAULT_WEBSEARCH_MAX_RESULTS` (no hardcoded literal).
@@ -84,11 +84,11 @@ Additive changes, no removal (per progress.md §11):
 Tests: `server/tests/test_web_tools.py` (**16 pass**: 13 existing + 3 new `TestFetchPage`
 covering converted markdown, non-HTML truncation, and HTTP-error propagation). Ruff clean.
 
-**Decision:** websearch **provider abstraction** (`exa`/`parallel`, `livecrawl`/`type`,
+**Decision:** Docker validation on 2026-09-01 confirms `test_web_tools.py` passes (21 passed)
+with pure `WebfetchTool.execute` -> `fetch_page` -> `FetchResult` behavior. Websearch **provider abstraction** (`exa`/`parallel`, `livecrawl`/`type`,
 `contextMaxCharacters`, session-seeded selection) and optional **MCP-fronted search** are
 Phase 2/3 additions (deferred) — they are not additive and would otherwise duplicate the
 existing ZENITH_SEARCH_API backend; the dual constant source is already resolved. The legacy
-`extract` LLM round-trip stays until its consumers adopt the pure `fetch_page` surface
-(Phase 3 coordinated removal). No EventKind/transport change (G5 preserved).
+is not present in the live webfetch path. No EventKind/transport change (G5 preserved).
 
 ## Status: Interface-Locked

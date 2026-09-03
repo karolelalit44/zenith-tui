@@ -312,8 +312,12 @@ def test_resolve_min_request_interval_env_fallback(monkeypatch):
 
 
 def test_catalog_exposes_gemini_rate_limit(tmp_path):
-    from server.storage import StorageHome, ensure_materialized
-    from server.storage.catalog_compat import invalidate_catalog_cache, load_catalog
+    from server.storage import (
+        StorageHome,
+        ensure_materialized,
+        invalidate_catalog_cache,
+        load_catalog,
+    )
 
     home = StorageHome(tmp_path)
     ensure_materialized(home)

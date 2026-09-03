@@ -26,7 +26,6 @@ interface CommandInputProps {
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
   mode?: ScenarioMode;
-  totalTokens?: number;
   maxTokens?: number;
   /** Cumulative run/API token usage (telemetry). */
   runTokens?: number;
@@ -59,7 +58,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     historyUp,
     historyDown,
     mode = 'build',
-    totalTokens = 0,
     maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
     runTokens,
     runEstimated,
@@ -184,7 +182,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             providerName={providerName}
             dir={workspaceName}
             branch={activeBranch}
-            totalTokens={totalTokens}
             effectiveMaxTokens={effectiveMaxTokens}
             runTokens={runTokens}
             runEstimated={runEstimated}

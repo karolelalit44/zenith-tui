@@ -8,16 +8,78 @@ from typing import Any
 
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
-    GREP_MAX_FILES,
     GREP_MAX_OUTPUT_CHARS,
     GREP_MAX_RESULTS,
     PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
-from server.workspace.ignore import ZenithIgnoreMatcher, get_matcher
+from server.workspace.ignore import ZenithIgnoreMatcher
+from server.workspace.search import RipgrepBackend, SearchMatch, _find_rg
 
 from ..base import BaseTool, ToolResult
-from ..brace_expand import expand_braces
+
+
+def _split_top_level(body: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(body):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(body[start:i])
+            start = i + 1
+    parts.append(body[start:])
+    return parts
+
+
+def _split_brace_group(pattern: str) -> tuple[str, list[str], str] | None:
+    open_idx = pattern.find("{")
+    if open_idx == -1:
+        return None
+    depth = 0
+    for i in range(open_idx, len(pattern)):
+        ch = pattern[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                body = pattern[open_idx + 1 : i]
+                if not body:
+                    return None
+                options = _split_top_level(body)
+                if len(options) <= 1:
+                    return None
+                return pattern[:open_idx], options, pattern[i + 1 :]
+    return None
+
+
+def _expand_braces(pattern: str) -> list[str]:
+    patterns = [pattern]
+    seen: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        expanded: list[str] = []
+        for p in patterns:
+            group = _split_brace_group(p)
+            if group is None:
+                expanded.append(p)
+                continue
+            changed = True
+            prefix, options, suffix = group
+            expanded.extend(prefix + opt + suffix for opt in options)
+        patterns = expanded
+
+    result: list[str] = []
+    for p in patterns:
+        if p not in seen:
+            seen.add(p)
+            result.append(p)
+    return result
 
 
 def _safe_rel(path: Path, base: Path) -> Path | None:
@@ -58,6 +120,11 @@ def _build_dir_hints(matches: list[str], top_n: int = 8) -> str:
 def _iter_source_files(root: Path, base: Path, matcher: ZenithIgnoreMatcher):
     """Yield non-ignored files under root, pruning ignored directories before
     descending so large vendored trees are never walked at all."""
+    if root.is_file():
+        rel = _safe_rel(root, base)
+        if rel is not None and not matcher.is_ignored(rel):
+            yield root
+        return
     stack: list[Path] = [root]
     while stack:
         current = stack.pop()
@@ -80,6 +147,16 @@ def _iter_source_files(root: Path, base: Path, matcher: ZenithIgnoreMatcher):
                 continue
             yield Path(entry.path)
         stack.extend(reversed(dirs))
+
+
+def _matches_glob(path: Path, pattern: str) -> bool:
+    """Return True when *path* matches a shell glob pattern."""
+    for candidate in _expand_braces(pattern):
+        if path.match(candidate):
+            return True
+        if len(path.parts) == 1 and candidate.startswith("**/") and path.match(candidate[3:]):
+            return True
+    return False
 
 
 class GrepTool(BaseTool):
@@ -143,73 +220,56 @@ class GrepTool(BaseTool):
         except re.error as e:
             return ToolResult(success=False, error=f"Invalid regex: {e}")
 
-        matcher = get_matcher(workspace_root)
-        matcher.refresh()
-        ignored_file = search_path.is_file() and matcher.is_ignored(
-            _safe_rel(search_path, base) or search_path
-        )
-
         try:
-            matches: list[str] = []
-            files_to_search: list[Path] = []
-
-            if search_path.is_file():
-                if not ignored_file:
-                    files_to_search = [search_path]
+            backend = RipgrepBackend(
+                ignore_files=[str(base / ".zenithignore")], max_results=GREP_MAX_RESULTS * 2
+            )
+            if _find_rg() is not None:
+                backend_matches = await backend.grep(pattern, str(search_path), include=include)
             else:
-                raw_patterns = expand_braces(include) if include else ["**/*"]
-                patterns = []
-                for p in raw_patterns:
-                    if "**/" not in p and not p.startswith("**"):
-                        patterns.append("**/" + p)
-                    else:
-                        patterns.append(p)
-                for glob_pattern in patterns:
-                    if glob_pattern in ("**", "**/*"):
-                        for f in _iter_source_files(search_path, base, matcher):
-                            files_to_search.append(f)
-                            if len(files_to_search) >= GREP_MAX_FILES:
-                                break
-                    else:
-                        for f in search_path.glob(glob_pattern):
-                            if not f.is_file():
-                                continue
-                            rel = _safe_rel(f, base)
-                            if rel is None or matcher.is_ignored(rel):
-                                continue
-                            files_to_search.append(f)
-                            if len(files_to_search) >= GREP_MAX_FILES:
-                                break
-                    if len(files_to_search) >= GREP_MAX_FILES:
-                        break
-
-            files_searched = 0
-            hit_limit = False
-
-            for file_path in files_to_search:
-                files_searched += 1
-                try:
-                    content = file_path.read_text(encoding="utf-8", errors="replace")
+                matcher = ZenithIgnoreMatcher(workspace_root)
+                matcher.refresh()
+                backend_matches = []
+                include_patterns = _expand_braces(include) if include else []
+                max_matches = backend.max_results
+                for file_path in sorted(
+                    _iter_source_files(search_path, base, matcher),
+                    key=lambda candidate: str(candidate),
+                ):
+                    rel_path = _safe_rel(file_path, base)
+                    if rel_path is None:
+                        continue
+                    if include_patterns and not any(
+                        _matches_glob(rel_path, candidate) for candidate in include_patterns
+                    ):
+                        continue
                     try:
-                        rel_str = str(file_path.relative_to(base))
-                    except ValueError:
-                        rel_str = str(file_path)
-
-                    for i, line in enumerate(content.split("\n"), 1):
+                        content = file_path.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        continue
+                    for line_number, line in enumerate(content.splitlines(), start=1):
                         if regex.search(line):
-                            line_preview = line.strip()
-                            if len(line_preview) > 300:
-                                line_preview = line_preview[:300] + "..."
-                            matches.append(f"{rel_str}:{i}: {line_preview}")
-                            if len(matches) >= GREP_MAX_RESULTS * 2:
-                                hit_limit = True
+                            backend_matches.append(
+                                SearchMatch(path=str(file_path), line_number=line_number, text=line)
+                            )
+                            if len(backend_matches) >= max_matches:
                                 break
-                except Exception:
-                    continue
-                if hit_limit:
-                    break
+                    if len(backend_matches) >= max_matches:
+                        break
+            matches = []
+            for match in backend_matches:
+                file_path = Path(match.path)
+                try:
+                    rel_path = file_path.resolve().relative_to(base)
+                except ValueError:
+                    rel_path = file_path
+                line_preview = match.text.strip()
+                if len(line_preview) > 300:
+                    line_preview = line_preview[:300] + "..."
+                matches.append(f"{rel_path}:{match.line_number}: {line_preview}")
 
             total_matches = len(matches)
+            files_searched = len({match.path for match in backend_matches})
             if total_matches == 0:
                 return ToolResult(
                     success=True,
@@ -223,18 +283,18 @@ class GrepTool(BaseTool):
                 )
 
             shown_matches = matches[:GREP_MAX_RESULTS]
-            truncated = total_matches > GREP_MAX_RESULTS or files_searched >= GREP_MAX_FILES
+            truncated = total_matches > GREP_MAX_RESULTS
 
             output_lines: list[str] = []
             if truncated and files_searched > 20:
                 output_lines.append(_build_dir_hints(matches))
                 # Add actionable narrowing instruction
                 top_dirs = sorted(
-                    set(
+                    {
                         m.split(":", 1)[0].split("/")[0] + "/"
                         for m in matches
                         if "/" in m.split(":", 1)[0]
-                    ),
+                    },
                     key=lambda d: sum(1 for m in matches if m.startswith(d)),
                     reverse=True,
                 )

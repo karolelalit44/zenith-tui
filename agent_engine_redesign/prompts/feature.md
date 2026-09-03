@@ -66,6 +66,13 @@ How the system prompt / base instructions are authored, selected, and combined i
 
 ## Status: Interface-Locked (Phase 1 additive); hardcoded-constant & tier-injection removal pending Phase 3
 
+### Decision (2026-09-01) - Phase 2 validation (Mars)
+
+`SimpleLoop` already uses `default_template_sections()` and `compose_system_context()` for
+the live system prompt. The referenced `plan.md` template was missing from the workspace;
+it is now restored with the existing `PLAN_MODE_INSTRUCTIONS` content. Docker validation of
+template and prompt-loop wiring passes: 44 tests.
+
 ### Decision (2026-08-31) — phased execution (Mars, module 15 owner)
 
 Per `progress.md` §11, Phase 1 is **additive interface-lock only; no removal yet**. Today

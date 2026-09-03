@@ -18,14 +18,13 @@ See above â€” codex (`exec.rs`, `shell_spec.rs`) uses OS sandboxing + appro
 
 ### What zenith has today
 
-Standalone helper modules in `server/toolkit/` (non-tool files) and `server/shell_runner.py`: `shell_runner.py`, `brace_expand.py`, `auto_lint.py`, `command_safety.py`, `catalog.py`, `digest.py`, `param_normalizer.py`, `path_validator.py`, `command_result.py`.
+Standalone helper modules in `server/toolkit/` (non-tool files) and `server/shell_runner.py`: `shell_runner.py`, `auto_lint.py`, `command_safety.py`, `catalog.py`, `digest.py`, `param_normalizer.py`, `path_validator.py`, `command_result.py`.
 
 ### Zenith modules and verdict
 
 | zenith module | opencode/codex counterpart? | Verdict |
 |---|---|---|
 | `shell_runner.py` (63) â€” `run_shell_command`, `resolve_shell`, PowerShell on Windows | opencode shell.ts / codex exec.rs | **Real, but thin** â€” add codex Windows safety rules + `max_output_tokens` truncation accounting; consider permission/session support. Fold into `command_runner`. |
-| `brace_expand.py` (82) â€” `expand_braces`, custom splitter, `_MAX_BRACE_EXPANSIONS=64` | None (ripgrep natively) | **Remove** â€” a bespoke splitter duplicates ripgrep and risks diverging from real glob semantics. |
 | `auto_lint.py` (157) â€” `detect_security_pitfall` | None | **Remove** â€” no reference auto-lints; invented regex heuristic. |
 | `command_safety.py` (466) â€” `READ_ONLY_COMMANDS` tier classifier | codex uses sandbox + approval, not name-classifier | **Reframe** into genuine permission/approval model (see `permissions/feature.md`). |
 | `catalog.py` (303) â€” `CapabilityDescriptor`, `CAPABILITIES` domain/risk/cost/latency | None | **Remove/trim** â€” speculative capability registry; no reference counterpart. |
@@ -41,7 +40,7 @@ Standalone helper modules in `server/toolkit/` (non-tool files) and `server/shel
 
 ### What is wrong / over-engineered / incorrect / missing
 
-- `brace_expand.py`, `auto_lint.py`, `catalog.py` are **unsupported by the references** and should be removed (or heavily trimmed).
+- `auto_lint.py`, `catalog.py` are **unsupported by the references** and should be removed (or heavily trimmed).
 - `command_safety.py` mis-claims Codex parity; the static tier classifier should be reframed as a real permission/approval model.
 - `shell_runner.py` lacks codex's Windows destructive-command safety rules, output/truncation budget, and (optionally) permission tiers / session persistence.
 
@@ -61,11 +60,10 @@ Standalone helper modules in `server/toolkit/` (non-tool files) and `server/shel
 ## Regex audit
 | Regex | opencode/codex uses it? | Action |
 |---|---|---|
-| `_MAX_BRACE_EXPANSIONS` expander | No (ripgrep) | Remove |
 | `_SECURITY_NAME_HINT`/`_FAST_HASH_HINTS` | No | Remove |
 
 ## Verification / signoff
-- [ ] brace_expand / auto_lint / capability catalog removed
+- [x] brace_expand removed; auto_lint / capability catalog pending
 - [ ] command_safety reframed as permission model
 - [ ] shell_runner folds into command_runner with Windows safety + truncation
 - [ ] param decode via schema, minimal path_validator
@@ -78,19 +76,28 @@ Standalone helper modules in `server/toolkit/` (non-tool files) and `server/shel
 ```
 Module: 23 toolkit_helpers
 Status change: Pending → In-Progress (Blocked)
-WHAT: Claimed for audit. No code change yet — helper removals are unsafe while dependents are Pending.
+WHAT: Claimed for audit. `brace_expand.py` has already been removed; the remaining helper removals stay blocked on live consumers.
+     The unsupported auto-lint security heuristic has been removed, while lint
+     execution remains intact. The
+      speculative capability catalog is gone; discovery now groups tools from the
+      live registry directly.
 WHY: matches opencode/codex (ripgrep handles brace globs; no auto-lint; sandbox+approval, no name classifier).
-FILES: none changed (owned: auto_lint.py, brace_expand.py, catalog.py, command_result.py,
-       command_safety.py, digest.py, param_normalizer.py, path_validator.py)
-OPEND/REMOVED: none yet.
-EXPECTED BEHAVIOUR: (target) brace_expand/auto_lint/catalog removed; shell_runner folded into
-     command_runner with codex Windows-safety + truncation; command_safety reframed to permissions.
-OUTCOME / TEST EVIDENCE: G1 not started — blocked.
+FILES: `server/toolkit/brace_expand.py` deleted; owned helpers now include `auto_lint.py`,
+       `catalog.py` (inventory only), `command_result.py`, `command_safety.py`,
+       `digest.py`, `param_normalizer.py`, `path_validator.py`.
+OPEND/REMOVED: `brace_expand.py` removed from the live tool path; `auto_lint`
+     security heuristic removed; capability catalog removed in favor of direct
+     registry grouping.
+EXPECTED BEHAVIOUR: glob/grep rely on ripgrep-native brace handling; discovery
+     uses the live registry directly; shell_runner remains folded into command_runner
+     for a later phase.
+OUTCOME / TEST EVIDENCE: brace-expansion regression slice passed (12 focused
+     glob/grep tests; Ruff clean); auto-lint helper trim validated (4 focused
+     TestAutoLint tests; Ruff clean); catalog/discovery slice passed (39 focused
+     tests; Ruff clean).
 SHARED-FILE IMPACT: none taken.
 DEPENDENCIES: BLOCKED on module 03/04/05 interface-lock:
-     - brace_expand.expand_braces imported by glob.py + grep.py (module 04).
-     - catalog.is_known_capability imported by registry_validation.py (module 03).
      - shell_runner owned by module 05 (command_runner) — fold there, not here.
      - command_safety used by loop.py (module 01) + permissions (OOS module 22).
-     Needs 03 and 04 interface-locked to remove brace_expand/catalog; 05 to fold shell_runner.
+     Needs 05 to fold shell_runner.
 ```

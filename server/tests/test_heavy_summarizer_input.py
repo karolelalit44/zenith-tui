@@ -1,23 +1,8 @@
-"""Heavy-output isolation bounds (F1, revised).
-
-Original incident (AGENT_RELIABILITY_PLAN §10 F1): a 1.4 M-char bash listing
-was sent to a summarizer LLM untrimmed → ~208 K prompt tokens, 72 s, and the
-bulk of the run's token spend.
-
-Current contract (no LLM in the path at all):
-- Heavy tool outputs are isolated deterministically: full output persisted to
-  disk, ``result.output`` replaced by marker + head/tail excerpt.
-- The isolation path makes ZERO provider calls — no spend, no latency spike,
-  no lossy model-written summaries (which dropped paths and caused phantom-
-  file hallucinations downstream).
-"""
-
-from pathlib import Path
+"""Heavy-output helper is now a no-op compatibility stub."""
 
 import pytest
 
 from server.agents.loop import AgentLoop
-from server.config.constants import HEAVY_TOOL_ISOLATION_PREVIEW_CHARS
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.providers.base import BaseProvider
@@ -71,7 +56,7 @@ def asyncio_run(coro):
 
 
 @pytest.mark.asyncio
-async def test_heavy_isolation_makes_zero_llm_calls_and_stores_full_output(config, temp_dir):
+async def test_heavy_output_no_longer_isolates(config, temp_dir):
     big = _big_output()
     provider = _PromptCapturingProvider()
     agent = AgentLoop(config, provider)
@@ -79,14 +64,8 @@ async def test_heavy_isolation_makes_zero_llm_calls_and_stores_full_output(confi
 
     rel = await agent._maybe_summarize_heavy_output("sess-f1", "bash", result)
 
-    assert rel, "heavy path should trigger for multi-MB output"
-    stored = Path(config.workspace_root) / rel
-    assert stored.exists()
-    assert stored.read_text(encoding="utf-8") == big, "full output must be preserved on disk"
-    assert result.output.startswith("Output truncated ("), result.output[:80]
-    assert "file_read" in result.output
-    # Deterministic excerpt budget with slack for the marker line.
-    assert len(result.output) <= HEAVY_TOOL_ISOLATION_PREVIEW_CHARS + 4000
+    assert rel is None
+    assert result.output == big
     # Zero LLM calls: isolation is purely mechanical now.
     assert provider.prompts == []
 

@@ -10,7 +10,6 @@ import {
   getToolStepPrimaryParam,
   getToolStepStatusText,
   getToolVerbLabel,
-  LSP_TOOL_SET,
   SEARCH_TOOL_SET,
   SHELL_TOOL_SET,
   TOOL_META_INTERRUPTED,
@@ -516,7 +515,6 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   }
 
   const isFileDelete = FILE_DELETE_TOOL_SET.has(toolKey);
-  const isLsp = LSP_TOOL_SET.has(toolKey);
 
   const outputText =
     event.output ||
@@ -566,10 +564,6 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                     primary?.value ?? (event.metadata?.pattern as string) ?? ''
                   }"`}
               {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
-            </Text>
-          ) : isLsp ? (
-            <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright} wrap="truncate-end">
-              {verb} {primary?.value || ''}
             </Text>
           ) : (
             <Text

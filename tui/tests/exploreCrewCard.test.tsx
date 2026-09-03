@@ -41,9 +41,7 @@ function renderStep(event: ToolStepEvent) {
 
 describe('ExploreCrewCard (WP5)', () => {
   it('renders the crewmate identity and mission while flying', () => {
-    const { lastFrame } = renderStep(
-      makeExplore({ pending: true, success: true, output: '' }),
-    );
+    const { lastFrame } = renderStep(makeExplore({ pending: true, success: true, output: '' }));
     const frame = lastFrame() || '';
     expect(frame).toContain('Apogee');
     expect(frame).toContain('Codebase Explorer');

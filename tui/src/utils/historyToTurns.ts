@@ -89,20 +89,23 @@ function buildEventsFromAssistantMessage(msg: Record<string, unknown>): Scenario
   // pending-style arrow row plus a separate result row.
   const paired = pairToolEvents(events);
 
-  if (paired.length === 0) {
-    if (msg.content) {
-      paired.push({
-        kind: 'message',
-        id: `evt_hist_msg_${msg.id}`,
-        text: String(msg.content),
-        partial: false,
-      } as ScenarioEvent);
+  const hasMessage = paired.some(
+    (e) => e.kind === 'message' && Boolean((e as import('../types/scenario').MessageEvent).text?.trim()),
+  );
+  if (!hasMessage && msg.content && String(msg.content).trim()) {
+    const msgEvent: ScenarioEvent = {
+      kind: 'message',
+      id: `evt_hist_msg_${msg.id}`,
+      text: String(msg.content),
+      partial: false,
+    };
+    const terminalIdx = paired.findIndex((e) => e.kind === 'turn_manifest' || e.kind === 'success');
+    if (terminalIdx >= 0) {
+      paired.splice(terminalIdx, 0, msgEvent);
+    } else {
+      paired.push(msgEvent);
     }
-    paired.push({
-      kind: 'success',
-      id: `evt_hist_ok_${msg.id}`,
-      message: 'done',
-    } as ScenarioEvent);
   }
+
   return paired;
 }

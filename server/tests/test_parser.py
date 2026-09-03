@@ -78,34 +78,3 @@ def test_parse_multiple_same_tool_objects_in_single_fence():
     assert calls[0]["params"]["path"] == "a.txt"
     assert calls[1]["params"]["path"] == "b.txt"
 
-
-def test_parse_multi_edit_keeps_filepath():
-    text = (
-        '```tool\n{"tool": "multi_edit", "params": {"filepath": "source.txt", "edits": '
-        '[{"old_content": "alpha", "new_content": "alpha-one"}]}}\n```'
-    )
-    calls = parse_tool_calls(text)
-    assert len(calls) == 1
-    assert calls[0]["tool"] == "multi_edit"
-    assert calls[0]["params"]["filepath"] == "source.txt", calls[0]["params"]
-    assert "path" not in calls[0]["params"]
-
-
-def test_parse_multi_edit_path_alias_becomes_filepath():
-    text = (
-        '```tool\n{"tool": "multi_edit", "params": {"path": "source.txt", "edits": '
-        '[{"old_content": "a", "new_content": "b"}]}}\n```'
-    )
-    calls = parse_tool_calls(text)
-    assert calls[0]["params"]["filepath"] == "source.txt"
-    assert "path" not in calls[0]["params"]
-
-
-def test_parse_lsp_keeps_filepath():
-    text = (
-        '```tool\n{"tool": "lsp_definition", "params": {"filepath": "sample.py", '
-        '"line": 1, "character": 0}}\n```'
-    )
-    calls = parse_tool_calls(text)
-    assert calls[0]["params"]["filepath"] == "sample.py"
-    assert "path" not in calls[0]["params"]

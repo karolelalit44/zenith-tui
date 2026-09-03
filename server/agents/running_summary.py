@@ -59,7 +59,7 @@ class RunningSummaryScheduler:
         loop (the turn's completion path), so the task is created immediately
         and the turn never awaits the LLM call.
         """
-        if not self._config.async_summary_enabled:
+        if not getattr(self._config, "async_summary_enabled", True):
             return
         generation = self._generations.get(session_id, 0) + 1
         self._generations[session_id] = generation

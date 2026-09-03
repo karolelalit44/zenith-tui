@@ -4,13 +4,14 @@ import asyncio
 import logging
 import time
 import uuid
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .domain import DeliveryMode
+from .enums import DeliveryMode
 
 log = logging.getLogger(__name__)
 
@@ -45,43 +46,25 @@ class EventKind(StrEnum):
     CREWMATE_FAILED = "crewmate_failed"
     CAPTAIN_ORCHESTRATION = "captain_orchestration"
     SESSION_CREATED = "session_created"
-    SESSION_INITIALIZED = "session_initialized"
     SESSION_RESUMED = "session_resumed"
-    SESSION_COMPLETED = "session_completed"
     SESSION_SUMMARIZED = "session_summarized"
     SESSION_PAUSED = "session_paused"
-    SESSION_ARCHIVED = "session_archived"
-    SESSION_EXPORTED = "session_exported"
-    SESSION_DELETED = "session_deleted"
     SESSION_RENAMED = "session_renamed"
-    SESSION_DUPLICATED = "session_duplicated"
     SESSION_RESTORED = "session_restored"
+    SESSION_DUPLICATED = "session_duplicated"
+    SESSION_EXPORTED = "session_exported"
     SESSION_ERROR = "session_error"
     SESSION_STATE_CHANGED = "session_state_changed"
-    SESSION_CHECKPOINT_CREATED = "session_checkpoint_created"
     CONTEXT_UPDATED = "context_updated"
     CONTEXT_COMPACTED = "context_compacted"
-    CONTEXT_RESET = "context_reset"
     CONTEXT_COMPACTION_STARTED = "context_compaction_started"
     CONTEXT_COMPACTION_PHASE = "context_compaction_phase"
     CONTEXT_COMPACTION_ENDED = "context_compaction_ended"
     TOKEN_USAGE_RECORDED = "token_usage_recorded"
-    TOKEN_BUDGET_EXCEEDED = "token_budget_exceeded"
-    TOKEN_STATS_UPDATED = "token_stats_updated"
-    SYNC_STATUS = "sync_status"
-    SYNC_EVENT = "sync_event"
     CREWMATE_STATUS = "crewmate_status"
     PLAN_READY = "plan_ready"
-    PLAN_APPROVED = "plan_approved"
-    PLAN_REJECTED = "plan_rejected"
     TURN_MANIFEST = "turn_manifest"
     TODO_BOARD = "todo_board"
-    TODO_TEST = "todo_test"
-    MODE_SWITCH = "mode_switch"
-    PROVIDER_SWITCHED = "provider_switched"
-    PROVIDER_ERROR = "provider_error"
-    SYSTEM_READY = "system_ready"
-    SYSTEM_SHUTDOWN = "system_shutdown"
 
 
 class Event(BaseModel):
@@ -124,14 +107,17 @@ class Subscription:
             yield event
 
 
-class EventBus:
+class EventBus(ABC):
+    @abstractmethod
     def publish(self, event: Event, mode: DeliveryMode = DeliveryMode.LOSSY) -> None: ...
 
+    @abstractmethod
     def subscribe(
         self, event_type: EventKind | None = None, session_id: str | None = None
     ) -> Subscription:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def unsubscribe(self, subscription_id: str) -> None: ...
 
 
@@ -146,7 +132,7 @@ class AsyncEventBus(EventBus):
         for entry in list(self._subscriptions.values()):
             if not self._matches(entry, event):
                 continue
-            if mode == DeliveryMode.BLOCKING:
+            if mode in (DeliveryMode.BLOCKING, DeliveryMode.PERSISTENT):
                 entry.queue.put_nowait(event)
             else:
                 if entry.queue.full():

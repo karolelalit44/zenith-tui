@@ -29,8 +29,8 @@ The path from a user typing a prompt to the LLM receiving a request. Includes re
 ### What zenith has today
 
 - `server/agents/prompt_executor.py` â€” the `PromptExecutor.run` / `_execute` method.
-- The `_execute` method forks into one of three paths (captain delegation, crewmate loop, or default `AgentLoop`).
-- The user prompt is a plain text message. There is no file/agent/MCP-resource attachment resolution at prompt-build time.
+- The `_execute` method now routes every turn through `PromptPath` and the module-01 `SimpleLoop` seam; the legacy captain/crewmate/default fork has been removed.
+- The user prompt is resolved into attachment parts at prompt-build time by `PromptPath.resolve_user_parts`, covering file/folder/inline/agent/MCP resources.
 - Streaming goes through `server/agents/llm_stream.py` (`stream_completion`), which builds a `StreamState` and emits THINKING/MESSAGE/TOOL_CALL/TOOL_RESULT events.
 
 ### What is correct
@@ -40,7 +40,6 @@ The path from a user typing a prompt to the LLM receiving a request. Includes re
 ### What is wrong / over-engineered / incorrect / missing
 
 **Over-engineered:**
-- The 3-way delegation branch in `_execute` (captain/crewmate/default). opencode/codex have a single prompt path.
 - Separate event stream (`llm_stream`) parallel to the message model. opencode/codex stream into the single message/part model.
 
 **Missing:**
@@ -68,8 +67,8 @@ Build a single clean prompt path:
 | (none specific here) | â€” | â€” |
 
 ## Verification / signoff
-- [ ] Single prompt path, no delegation branching
-- [ ] File/agent/MCP-resource parts resolved at prompt time
-- [ ] ruff + pytest + runtime smoke pass
+- [x] Single prompt path, no delegation branching
+- [x] File/agent/MCP-resource parts resolved at prompt time
+- [x] ruff + pytest + runtime smoke pass
 
-## Status: Pending
+## Status: Done

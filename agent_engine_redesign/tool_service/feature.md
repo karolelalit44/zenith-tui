@@ -96,6 +96,22 @@ turn/loop) and Jupiter's 23 (blocked on 03) may adopt the new shape. Phase 1 has
 - **LOCK:** CCS file `server/toolkit/base.py` held by Mars (module 03) during the
   additive edit; released on completion. No `constants.py` change made.
 
+### Decision (2026-09-01) - Phase 2 production wiring (Mars)
+
+- **LIVE:** `ToolRegistry.get_definition(name)` adapts an existing `BaseTool`
+  registration to `ToolDef` without changing tool-owned modules.
+- **LIVE:** `executor.execute_tool()` resolves the definition, decodes arguments
+  with `decode_parameters()`, delegates mode/MCP permission checks plus existing
+  before/after hooks to the registry, executes the tool, and applies exactly one
+  `truncate_output()` before returning the existing `ToolResult` form.
+- **Compatibility:** all callers retain the `execute_tool(...) -> (ToolResult,
+  duration_ms)` signature; direct legacy `ToolRegistry.execute()` callers remain
+  available while consumers migrate.
+- **Validation:** editor diagnostics are clean for `registry.py`, `executor.py`,
+  and focused Module 03 tests. A focused pytest run is blocked because this
+  repository has no Dockerfile or Compose entrypoint and local execution is not
+  permitted by the workspace runtime policy.
+
 
 ## What we will REMOVE
 - `router.py` (IntentRouter)
@@ -119,8 +135,10 @@ turn/loop) and Jupiter's 23 (blocked on 03) may adopt the new shape. Phase 1 has
 - [~] before/after hooks + permission.ask — Phase 3 collapse of middleware chain
 - [~] MCP bridged into same registry — retained in legacy registry today
 - [x] ruff + pytest (module tests, 13 base + 5 resolve = 18 new; core toolkit 115 regression green) for additive Phase-1 changes
+- [x] Production executor uses ToolDef lookup -> decode -> existing gate/hooks -> execute -> truncate
+- [~] Phase-2 focused pytest blocked by the Docker-only runtime policy; focused editor diagnostics pass
 
-## Status: Interface-Locked (Phase 1 additive); router/resolver/taxonomy/middleware removal pending Phase 3
+## Status: Interface-Locked (Phase 1 additive; Phase 2 executor wiring live); router/resolver/taxonomy/middleware removal pending Phase 3
 
 ---
 
@@ -128,33 +146,41 @@ turn/loop) and Jupiter's 23 (blocked on 03) may adopt the new shape. Phase 1 has
 
 ```
 Module: 03 tool_service
-Status change: Pending → Interface-Locked (Phase 1 additive)
+Status change: Pending → Interface-Locked (Phase 1 additive; Phase 2 live wiring)
 WHAT: Added the opencode Tool.Def-aligned contract to server/toolkit/base.py:
       ToolDef (name/description/parameters/execute), InvalidToolArgumentsError +
       decode_parameters (schema decode -> "please rewrite" feedback), and
       truncate_output (unified single-limit Truncate service), plus ToolDefResult +
       run_tool_def (the SessionTools.resolve-style decode->execute->truncate helper
-      that feeds invalid args back to the model). All additive.
+      that feeds invalid args back to the model). `ToolRegistry.get_definition`
+      now adapts every BaseTool registration to that contract, and `execute_tool`
+      uses it in the production path before existing registry gates and one
+      output truncation.
 WHY: Mirrors opencode tool/tool.ts Tool.Def, session/tools.ts
       Schema.decodeUnknownEffect -> InvalidArgumentsError, and tool/truncate.ts.
-      See ref_repo/opencode packages/opencode/src/tool/todo.ts (+ SessionTools)
-      for the plain-def + schema-decode + truncate shape.
-FILES: server/toolkit/base.py, server/tests/test_tool_service.py (new),
+      Codex equivalent: ref_code/codex/codex-rs/tools/src/tool_spec.rs
+      (`ToolSpec`) and tool_executor.rs (`ToolExecutor::spec` + `handle`),
+      which keep model schema and executable runtime coupled.
+    FILES: server/toolkit/base.py, server/toolkit/registry.py,
+      server/toolkit/executor.py, server/tests/test_tool_service.py,
       agent_engine_redesign/tool_service/feature.md
 KEPT/REMOVED: additive interface added; NO removals this phase (router.py, resolver.py,
       taxonomy, middleware chain, ephemeral-window/digest constants all stay for Phase 3
       after consumers adopt the new shape).
-EXPECTED BEHAVIOUR: new ToolDef/decode_parameters/truncate_output usable immediately and
-      independently; legacy path untouched (no runtime change until Phase 2 wiring).
-OUTCOME / TEST EVIDENCE: G1 PASS (18 new tests: 13 base + 5 resolve); G2 targeted-PASS (core toolkit
-      regression 115 green; full suite not run to completion — very slow); G3 ruff clean; G5 no transport/
-      event change (TUI unaffected); G6 additive only; G7 CCS lock on base.py taken+released (kept released),
-      no constants.py change; G8 self-contained.
+EXPECTED BEHAVIOUR: model-triggered executions now perform ToolDef lookup, schema validation,
+  existing mode/MCP + hook gates, BaseTool execution, and one output truncation before
+  returning the unchanged ToolResult/event payload. Unknown tools, invalid arguments,
+  returned failures, and unexpected exceptions remain model-facing ToolResult failures.
+OUTCOME / TEST EVIDENCE: Added focused coverage for valid execution, unknown tool,
+  schema-invalid arguments, ToolResult failures, unexpected exceptions, and truncation.
+  Editor diagnostics PASS for all touched production/test files. Focused executable pytest is
+  BLOCKED: no Dockerfile/Compose entrypoint exists and local execution is disallowed.
 SHARED-FILE IMPACT: server/toolkit/base.py is CCS (owner 03). LOCK held by Mars during the
       additive edit then released; added MAX_TOOL_OUTPUT_BASELINE import only; no constant
       added/renamed. No other shared files touched.
-DEPENDENCIES: unblocks 04/05/16/20 (Mars Lane B) and Jupiter's 23 toolkit_helpers; Phase 2
-      wires ToolDef + run_tool_def into executor/loop; Phase 3 removes legacy router/resolver/taxonomy.
+DEPENDENCIES: locked handoff to Jupiter 12 and Mars 04/05/16/20/23: keep BaseTool registration,
+  and use execute_tool for model-triggered calls. Phase 3 removes legacy router/resolver/taxonomy
+  only after consumer searches prove the new path is exclusive.
 ```
 
 Next: Phase 2 wires ToolDef/decode/truncate/run_tool_def into consumers; Phase 3 performs the REMOVE list

@@ -5,7 +5,6 @@ Layout:
     <home>/user_profile.json     identity, API keys (sole secret store), preferences
     <home>/zenith_catalog.json   single provider catalog (providers + nested
                                  models) — no secrets
-    <home>/memory/               project memory index (+ markdown facts)
     <home>/projects/<slug>/      one folder per workspace (Claude Code style);
                                  each session is ONE append-only JSONL:
                                  <session-id>.jsonl  (header + meta/stats/
@@ -22,12 +21,12 @@ from .atomic import (
     rewrite_jsonl_atomic,
     write_json_atomic,
 )
-from .builtin_seed import PROVIDERS, SEED_VERSION, iter_builtin_models
+from .builtin_seed import PROVIDERS, SEED_VERSION
 from .catalog_store import (
     CatalogValidationError,
-    delete_provider,
     ensure_materialized,
-    models_for_provider,
+    invalidate_catalog_cache,
+    load_catalog,
     read_model_entries,
     read_providers,
     upsert_model,
@@ -50,29 +49,26 @@ from .session_store import (
     FileSyncEventRepository,
 )
 from .usage_store import FileTokenUsageRepository
-from .workspace_store import FileWorkspaceRepository
 
 __all__ = [
     "HOME_ENV_VAR",
     "PROVIDERS",
     "SEED_VERSION",
-    "iter_builtin_models",
     "CatalogValidationError",
     "FileCheckpointRepository",
     "FileMessageRepository",
     "FileSessionRepository",
     "FileSyncEventRepository",
     "FileTokenUsageRepository",
-    "FileWorkspaceRepository",
     "StorageHome",
     "append_jsonl_sync",
     "default_home",
-    "delete_provider",
     "ensure_materialized",
     "get_api_key",
+    "invalidate_catalog_cache",
+    "load_catalog",
     "load_profile",
     "mask_api_key",
-    "models_for_provider",
     "public_profile",
     "read_json",
     "read_jsonl",
