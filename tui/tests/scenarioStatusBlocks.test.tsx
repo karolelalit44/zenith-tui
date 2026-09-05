@@ -291,4 +291,54 @@ describe('thinking positional fidelity', () => {
     expect(idxTool).toBeLessThan(idxT2);
     expect(idxT2).toBeLessThan(idxMsg);
   });
+
+  it('suppresses empty turn_manifest noise and renders success card with tokens and duration', () => {
+    const events: ScenarioEvent[] = [
+      {
+        kind: 'thinking',
+        id: 't1',
+        thoughts: ['The user wants me to analyze the sms-plan.md file'],
+        duration: 5000,
+        partial: false,
+      },
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'Analysis of sms-plan.md',
+        partial: false,
+      },
+      {
+        kind: 'turn_manifest',
+        id: 'tm1',
+        completed: true,
+        created: [],
+        modified: [],
+        remaining: [],
+        files: [],
+      },
+      {
+        kind: 'success',
+        id: 'succ1',
+        message: 'Turn finished',
+        iterations: 1,
+        elapsedMs: 5200,
+        tokenInfo: { used: 2765, remaining: 125235, total: 128000, percent: 0.022 },
+      },
+    ];
+
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={events} isRunning={false} isHistorical={true} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('Analysis of sms-plan.md');
+    // Turn manifest noise should be suppressed when there are no file changes
+    expect(frame).not.toContain('Turn paused');
+    expect(frame).not.toContain('no changes');
+    // Success card metrics should render with iteration, duration and token count
+    expect(frame).toContain('1 iter');
+    expect(frame).toContain('5 s');
+    expect(frame).toContain('2.8k tokens');
+  });
 });

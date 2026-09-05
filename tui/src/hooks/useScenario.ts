@@ -254,6 +254,7 @@ export function useScenario(): UseScenarioReturn {
         }
       } else {
         flushBatch();
+        eventsRef.current = upsertEvent(eventsRef.current, event, index);
         setEvents((prev) => {
           const next = upsertEvent(prev, event, index);
           eventsRef.current = next;

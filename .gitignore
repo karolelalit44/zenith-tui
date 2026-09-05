@@ -10,7 +10,6 @@ __pycache__
 .keys
 
 # Runtime-generated state
-memory/
 .zenith/
 scripts/e2e_logs/
 repro_*.txt
@@ -35,10 +34,6 @@ data
 *_repo/
 *cache
 
-# Local planning scratch docs — matched by name so real source/test files
-# containing these substrings (e.g. test_persistence_storage_plan.py) stay tracked.
-todo.md
-plan.md
 
 package-lock.json
 zenith*

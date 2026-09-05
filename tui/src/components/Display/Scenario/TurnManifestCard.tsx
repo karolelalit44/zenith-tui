@@ -111,18 +111,21 @@ function renderChildren(
 export const TurnManifestCard: React.FC<TurnManifestCardProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
 
-  // A completed run with zero file activity has nothing to show — the
+  // A run with zero file activity has nothing to show — the
   // SuccessCard status row already says done. Rendering the empty card
-  // produced the meaningless "Turn complete no changes" noise.
-  if (event.completed && event.created.length === 0 && event.modified.length === 0) {
+  // produced the meaningless "Turn paused/complete no changes" noise.
+  const hasFiles = (event.created && event.created.length > 0) || (event.modified && event.modified.length > 0);
+  const hasRemaining = event.remaining && event.remaining.length > 0;
+  if (!hasFiles && !hasRemaining) {
     return null;
   }
 
+  const files = event.files || [];
   const fileEntries: TreeFile[] = [
-    ...event.files
-      .filter((f) => event.created.includes(f.path))
+    ...files
+      .filter((f) => event.created?.includes(f.path))
       .map((f) => ({ path: f.path, size: f.size, kind: 'created' as const })),
-    ...event.modified.map((path) => ({ path, kind: 'modified' as const })),
+    ...(event.modified || []).map((path) => ({ path, kind: 'modified' as const })),
   ];
   const shown = fileEntries.slice(0, MAX_FILES);
   const hidden = fileEntries.length - shown.length;

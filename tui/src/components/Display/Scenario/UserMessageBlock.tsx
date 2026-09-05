@@ -4,12 +4,6 @@ import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { FileAttachment } from '../../../types/scenario';
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
-}
-
 interface UserMessageBlockProps {
   prompt: string;
   model?: string;
@@ -38,7 +32,7 @@ interface UserMessageBlockProps {
  *   full screen width cleanly without collapse.
  */
 export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
-  ({ prompt, model, timestamp, timestampLong, attachments }) => {
+  ({ prompt, model, timestamp, timestampLong }) => {
     const { theme } = useTheme();
     const { columns } = useTerminalDimensions();
 
@@ -90,24 +84,6 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
             </Text>
           ) : null}
         </Box>
-
-        {/* ── Attachments chip row (rendered under the prompt bar) ── */}
-        {attachments && attachments.length > 0 ? (
-          <Box flexDirection="row" flexWrap="wrap" paddingLeft={2} paddingRight={2} marginTop={1}>
-            {attachments.map((att, idx) => (
-              <Box key={`${att.path}-${idx}`} flexDirection="row" marginRight={1} marginBottom={1}>
-                <Box flexDirection="row" borderStyle="round" borderColor={theme.colors.border.muted} paddingX={1}>
-                  <Text color={theme.colors.status.info}>@</Text>
-                  <Text color={theme.colors.text.ethereal}> {att.kind === 'folder' ? `${att.name}/` : att.name}</Text>
-                  <Text color={theme.colors.text.muted}>
-                    {' '}
-                    · {att.kind === 'folder' ? 'folder' : formatBytes(att.size)}
-                  </Text>
-                </Box>
-              </Box>
-            ))}
-          </Box>
-        ) : null}
       </Box>
     );
   },

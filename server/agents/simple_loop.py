@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 
 from server.config.constants import (
@@ -161,6 +162,7 @@ class SimpleLoop:
             )
             return
 
+        start_time = time.time()
         iteration = 0
         created_files: set[str] = set()
         files_edited: list[str] = []
@@ -384,8 +386,10 @@ class SimpleLoop:
         # A successful tool call (e.g. bash creating files) is real work even
         # when it isn't a tracked file_write/file_edit — never report "Turn
         # finished" (implying nothing happened) when a tool actually succeeded.
-        completed = bool(created_files or files_edited or any_tool_succeeded)
-        message = "Request processed successfully" if completed else "Turn finished"
+        has_file_work = bool(created_files or files_edited or any_tool_succeeded)
+        completed = bool(has_file_work or iteration > 0 or self._last_emitted_message)
+        message = "Request processed successfully" if has_file_work else "Turn finished"
+        elapsed_ms = max(1000, int((time.time() - start_time) * 1000))
         yield r.turn_manifest(
             {
                 "completed": completed,
@@ -406,7 +410,7 @@ class SimpleLoop:
                 "total": token_info.total,
                 "percent": round(token_info.percent, 3),
             },
-            elapsed_ms=None,
+            elapsed_ms=elapsed_ms,
         )
 
     def _doom_threshold(self) -> int:

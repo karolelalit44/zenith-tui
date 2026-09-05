@@ -447,7 +447,8 @@ export const App: React.FC = () => {
           });
         }
       }
-      completeActiveTurn(eventsRef.current);
+      const finalTurnEvents = eventsRef.current.length >= events.length ? eventsRef.current : events;
+      completeActiveTurn(finalTurnEvents);
       refreshStats();
     }
   }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats, lastManifest]);
@@ -579,7 +580,7 @@ export const App: React.FC = () => {
                   {item.turnIndex > 0 ? (
                     <Box marginTop={1} marginBottom={0} width="100%">
                       <Text color={theme.colors.border.muted} wrap="truncate-end">
-                        {'─'.repeat(Math.max(10, termDims.columns))}
+                        {'─'.repeat(Math.max(10, (termDims.columns || 80) - 2))}
                       </Text>
                     </Box>
                   ) : null}
