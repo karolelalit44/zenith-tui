@@ -19,12 +19,10 @@ from server.config.constants import (
     DEFAULT_CONTEXT_WINDOW,
     DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_TEMPERATURE,
-    DEFAULT_VALIDATION_TIMEOUT,
-    VALIDATION_TIMEOUT_ENV,
     default_max_tokens_for_context,
     is_http_url,
 )
-from server.config.env import optional_int
+from server.config.environment import ZENITH_VALIDATION_TIMEOUT
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
 from server.storage import StorageHome, load_catalog, resolve_home
 from server.storage.provider_config import (
@@ -292,7 +290,7 @@ async def validate_provider(
     _update("api_key", ValidationStepStatus.SUCCESS, key_note)
     yield _step_event("api_key", ValidationStepStatus.SUCCESS, key_note)
     models: list[ProviderModelInfo] = []
-    timeout = optional_int(VALIDATION_TIMEOUT_ENV, DEFAULT_VALIDATION_TIMEOUT)
+    timeout = ZENITH_VALIDATION_TIMEOUT
     endpoint = _base_url_endpoint(base_url)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key.strip() else {}
     try:

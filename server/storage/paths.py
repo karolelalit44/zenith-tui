@@ -2,7 +2,7 @@
 
 All server-side persistent state lives under a single directory (the
 "storage home"), defaulting to ``~/.zenith`` and overridden by the
-``ZENITH_HOME`` environment variable (.env driven).
+``ZENITH_HOME`` environment variable.
 
 Sessions follow the industry pattern (Claude Code / Codex): ONE
 append-only JSONL file per session, grouped in a folder per project
@@ -28,14 +28,16 @@ __all__ = ["HOME_ENV_VAR", "StorageHome", "default_home", "project_slug", "resol
 
 
 def default_home() -> Path:
-    return Path.home() / ".zenith"
+    from server.config.environment import ZENITH_HOME
+
+    return Path(ZENITH_HOME).expanduser().resolve()
 
 
 def resolve_home() -> Path:
-    raw = os.environ.get(HOME_ENV_VAR, "").strip()
-    if raw:
-        return Path(raw).expanduser().resolve()
-    return default_home().resolve()
+    from server.config.environment import ZENITH_HOME
+
+    raw = os.environ.get("ZENITH_HOME") or ZENITH_HOME
+    return Path(raw).expanduser().resolve()
 
 
 def project_slug(workspace_root: str) -> str:

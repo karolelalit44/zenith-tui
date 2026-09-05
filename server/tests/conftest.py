@@ -2,10 +2,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-# .env is the single source of truth for config; explicitly set env vars win.
-load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+import server.config.environment  # noqa: F401
 
 # Storage stays isolated to a fresh temp home per test run, never ~/.zenith.
 _test_tmpdir = tempfile.mkdtemp()

@@ -8,24 +8,20 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     COST_CLASS_MEDIUM,
     DEFAULT_USER_AGENT,
-    DEFAULT_WEB_TIMEOUT,
-    DEFAULT_WEBFETCH_MAX_BYTES,
     LATENCY_CLASS_HIGH,
     PERMISSION_NETWORK,
     RISK_LOW,
     TOOL_DOMAIN_WEB,
-    WEBFETCH_MAX_BYTES_ENV,
-    WEBFETCH_TIMEOUT_ENV,
     is_http_url,
 )
-from server.config.env import optional_int
+from server.config.environment import ZENITH_WEBFETCH_MAX_BYTES, ZENITH_WEBFETCH_TIMEOUT
 
 from ..base import BaseTool, ToolResult
 from ._html_text import html_to_markdown
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_CHARS = optional_int(WEBFETCH_MAX_BYTES_ENV, DEFAULT_WEBFETCH_MAX_BYTES)
+_DEFAULT_MAX_CHARS = ZENITH_WEBFETCH_MAX_BYTES
 
 
 @dataclass
@@ -59,7 +55,7 @@ async def fetch_page(
     import httpx
 
     if timeout is None:
-        timeout = optional_int(WEBFETCH_TIMEOUT_ENV, DEFAULT_WEB_TIMEOUT)
+        timeout = ZENITH_WEBFETCH_TIMEOUT
     async with httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=True,

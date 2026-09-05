@@ -9,17 +9,15 @@ from typing import Any
 
 from server.config.constants import (
     BUILD_MODE,
-    DEFAULT_SALVAGE_TIMEOUT_SECONDS,
     MAX_STEPS_DEFAULT,
     MAX_STEPS_PROMPT,
     MAX_TOOL_OUTPUT_BASELINE,
     PLAN_MODE,
     SALVAGE_DIGEST_MAX_ITEMS,
     SALVAGE_INSTRUCTION,
-    SALVAGE_TIMEOUT_ENV,
     SUMMARY_MIN_CHARS,
 )
-from server.config.env import optional_float
+from server.config.environment import ZENITH_SALVAGE_TIMEOUT
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.enums import FinishReason
 from server.domain.events import Event, EventKind
@@ -125,10 +123,9 @@ class SimpleLoop:
         payload = list(messages) + [{"role": "user", "content": instruction}]
         text = ""
         try:
-            timeout = optional_float(SALVAGE_TIMEOUT_ENV, DEFAULT_SALVAGE_TIMEOUT_SECONDS)
             result = await asyncio.wait_for(
                 self.provider.complete(payload),
-                timeout=timeout,
+                timeout=ZENITH_SALVAGE_TIMEOUT,
             )
         except asyncio.CancelledError:
             raise

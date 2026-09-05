@@ -1,21 +1,16 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from pathlib import Path
 
-from server.config.env import optional_int
+from server.config.environment import ZENITH_GIT_TIMEOUT
 
 logger = logging.getLogger(__name__)
-_GIT_TIMEOUT_DEFAULT = 30
 
 
 def _git_timeout() -> int:
-    raw = os.environ.get("ZENITH_GIT_TIMEOUT", "").strip()
-    if not raw:
-        return _GIT_TIMEOUT_DEFAULT
-    return optional_int("ZENITH_GIT_TIMEOUT", _GIT_TIMEOUT_DEFAULT)
+    return ZENITH_GIT_TIMEOUT
 
 
 class GitOps:

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import click
 
-from server.config.constants import DEFAULT_HOST, DEFAULT_PORT, HOST_ENV_VAR, PORT_ENV_VAR
-
 
 @click.group()
 @click.version_option(package_name="zenith")
@@ -15,17 +13,16 @@ def cli():
 @click.option("--host", default=None, help="Host to bind to")
 @click.option("--port", default=None, type=int, help="Port to listen on")
 def serve(host: str | None, port: int | None):
-    import os
-
     import uvicorn
 
     from server.api.server import create_app
+    from server.config.environment import ZENITH_HOST, ZENITH_PORT
 
     app = create_app()
     uvicorn.run(
         app,
-        host=host or os.environ.get(HOST_ENV_VAR, DEFAULT_HOST),
-        port=port or int(os.environ.get(PORT_ENV_VAR, str(DEFAULT_PORT))),
+        host=host or ZENITH_HOST,
+        port=port or ZENITH_PORT,
         ws_ping_interval=None,
         ws_ping_timeout=None,
     )

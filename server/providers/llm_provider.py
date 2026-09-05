@@ -13,16 +13,14 @@ from collections.abc import AsyncIterator
 from server.config.constants import (
     ANSI_RE,
     DEFAULT_CONTEXT_WINDOW,
-    DEFAULT_LLM_MAX_TOKENS,
-    DEFAULT_LLM_TEMPERATURE,
-    DEFAULT_MIN_REQUEST_INTERVAL,
-    LLM_MAX_TOKENS_ENV,
-    LLM_TEMPERATURE_ENV,
     MAX_OUTPUT_TOKENS_CLAMP,
-    MIN_REQUEST_INTERVAL_ENV,
     REQUEST_THROTTLE_JITTER,
 )
-from server.config.env import optional_float, optional_int
+from server.config.environment import (
+    ZENITH_MAX_TOKENS,
+    ZENITH_MIN_REQUEST_INTERVAL,
+    ZENITH_TEMPERATURE,
+)
 from server.domain.enums import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
 from server.logging_config import log_model_payload
@@ -53,9 +51,7 @@ _RETRY_IN_RE = re.compile(
     r"\b(?:retry(?:\s+(?:in|after))?|try again in|wait(?:\s+for)?|in)\s+(\d+(?:\.\d+)?)\s*(s|seconds?|secs?|milliseconds?|ms|minutes?|mins?|hours?|h)\b",
     re.IGNORECASE,
 )
-_MIN_REQUEST_INTERVAL_DEFAULT = optional_float(
-    MIN_REQUEST_INTERVAL_ENV, DEFAULT_MIN_REQUEST_INTERVAL
-)
+_MIN_REQUEST_INTERVAL_DEFAULT = ZENITH_MIN_REQUEST_INTERVAL
 
 
 def _strip_ansi(text: str) -> str:
@@ -441,7 +437,7 @@ def _get_model_config(name: str, model_id: str) -> dict:
                     ),
                     "default_temperature": m.get(
                         "default_temperature",
-                        0.0 if caps.get("reasoning") else DEFAULT_LLM_TEMPERATURE,
+                        0.0 if caps.get("reasoning") else ZENITH_TEMPERATURE,
                     ),
                     # Capability overrides the default; otherwise Gemini 3+ drops
                     # sampling controls (deprecated by the provider).
@@ -463,8 +459,8 @@ def _get_model_config(name: str, model_id: str) -> dict:
         pass
     return {
         "context_window": DEFAULT_CONTEXT_WINDOW,
-        "max_output_tokens": optional_int(LLM_MAX_TOKENS_ENV, DEFAULT_LLM_MAX_TOKENS),
-        "default_temperature": optional_float(LLM_TEMPERATURE_ENV, DEFAULT_LLM_TEMPERATURE),
+        "max_output_tokens": ZENITH_MAX_TOKENS,
+        "default_temperature": ZENITH_TEMPERATURE,
         "supports_temperature": True,
         "enable_thinking": False,
         "supports_tools": True,

@@ -10,22 +10,29 @@ Precedence model (highest wins):
 overrides.  See ``loader.py`` for the merge implementation.
 """
 
+import os
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator
 
 from .constants import (
     BUILD_MODE,
-    DEFAULT_CONTEXT_WINDOW,
     DEFAULT_EXPLORE_DELEGATION,
-    DEFAULT_EXPLORE_TOKEN_BUDGET,
     EXPLORE_DELEGATION_MODES,
-    EXPLORE_TOKEN_BUDGET_ENV,
     PLAN_MODE,
     READ_ONLY_MODE,
     READ_ONLY_TOOLS,
 )
-from .env import optional_bool, optional_env, optional_float, optional_int
+from .environment import (
+    ZENITH_ASYNC_SUMMARY_ENABLED,
+    ZENITH_BASH_TIMEOUT,
+    ZENITH_CONTEXT_COMPACTION_THRESHOLD,
+    ZENITH_EXPLORE_TOKEN_BUDGET,
+    ZENITH_HOME,
+    ZENITH_LOG_LEVEL,
+    ZENITH_MAX_CONTEXT_TOKENS,
+    ZENITH_SUMMARY_THRESHOLD,
+)
 from .providers import ProviderConfig
 
 
@@ -90,7 +97,7 @@ class ToolConfig(BaseModel):
     file_write_enabled: bool = True
     file_edit_enabled: bool = True
     file_delete_enabled: bool = True
-    max_bash_timeout: int = Field(default=optional_int("ZENITH_BASH_TIMEOUT", 30), ge=1, le=300)
+    max_bash_timeout: int = Field(default=ZENITH_BASH_TIMEOUT, ge=1, le=300)
 
 
 class HooksConfig(BaseModel):
@@ -102,23 +109,28 @@ class HooksConfig(BaseModel):
 
 class BootstrapDefaults(BaseModel):
     active_provider: str = ""
-    home_dir: str = Field(default_factory=lambda: optional_env("ZENITH_HOME", str(default_home())))
-    log_level: str = optional_env("ZENITH_LOG_LEVEL", "INFO")
+    home_dir: str = Field(default_factory=lambda: os.environ.get("ZENITH_HOME", ZENITH_HOME))
+    log_level: str = ZENITH_LOG_LEVEL
     max_context_tokens: int = Field(
-        default=optional_int("ZENITH_MAX_CONTEXT_TOKENS", DEFAULT_CONTEXT_WINDOW), ge=1000
+        default_factory=lambda: int(os.environ.get("ZENITH_MAX_CONTEXT_TOKENS", ZENITH_MAX_CONTEXT_TOKENS)),
+        ge=1000,
     )
     summary_threshold: float = Field(
-        default=optional_float("ZENITH_SUMMARY_THRESHOLD", 0.8), ge=0.1, le=1.0
+        default_factory=lambda: float(os.environ.get("ZENITH_SUMMARY_THRESHOLD", ZENITH_SUMMARY_THRESHOLD)),
+        ge=0.1,
+        le=1.0,
     )
     # Context compaction watermark: when the composed context uses >= this ratio of the
     # window, fold the rolling window into a running summary (design §3.7 / §6.2). Wired the
     # same way as summary_threshold; load_config() also honors it at load time.
     context_compaction_threshold: float = Field(
-        default=optional_float("ZENITH_CONTEXT_COMPACTION_THRESHOLD", 0.7), ge=0.0, le=1.0
+        default_factory=lambda: float(
+            os.environ.get("ZENITH_CONTEXT_COMPACTION_THRESHOLD", ZENITH_CONTEXT_COMPACTION_THRESHOLD)
+        ),
+        ge=0.0,
+        le=1.0,
     )
-    async_summary_enabled: bool = Field(
-        default_factory=lambda: optional_bool("ZENITH_ASYNC_SUMMARY_ENABLED", False)
-    )
+    async_summary_enabled: bool = ZENITH_ASYNC_SUMMARY_ENABLED
     tools: ToolConfig = Field(default_factory=ToolConfig)
 
 
@@ -172,7 +184,7 @@ class AppSettings(BaseModel):
         ),
     )
     explore_token_budget: int = Field(
-        default=optional_int(EXPLORE_TOKEN_BUDGET_ENV, DEFAULT_EXPLORE_TOKEN_BUDGET),
+        default=ZENITH_EXPLORE_TOKEN_BUDGET,
         ge=1_000,
         description="Aggregate token ceiling across explore children per rolling window",
     )

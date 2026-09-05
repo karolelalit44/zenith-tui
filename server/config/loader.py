@@ -18,8 +18,7 @@ import logging
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
-
+from . import environment  # noqa: F401
 from .constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from .settings import AppSettings
 
@@ -132,7 +131,6 @@ def _environment_overrides() -> dict:
 
 
 def load_config(workspace_root: str = ".") -> AppSettings:
-    load_dotenv()
     data: dict = {"workspace_root": workspace_root}
 
     from server.storage import StorageHome, ensure_materialized, resolve_home

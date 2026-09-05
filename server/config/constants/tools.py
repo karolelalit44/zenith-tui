@@ -7,7 +7,7 @@ Depends on ``context.py`` for the context-window sizes used by the output-tier
 table, and on ``env.py``.
 """
 
-from ..env import optional_int
+from ..environment import ZENITH_MAX_TOOL_OUTPUT
 from .context import DEFAULT_CONTEXT_WINDOW, LARGE_CONTEXT_WINDOW
 
 MAX_TOOL_NAME_LENGTH = 64
@@ -88,7 +88,7 @@ FILE_ALREADY_EXISTS_ERROR = (
     "File already exists: {path}. Use {overwrite_param}: true to replace it."
 )
 
-MAX_TOOL_OUTPUT_BASELINE = optional_int("ZENITH_MAX_TOOL_OUTPUT", 10_000)
+MAX_TOOL_OUTPUT_BASELINE = ZENITH_MAX_TOOL_OUTPUT
 MAX_TOOL_METADATA_PREVIEW_CHARS = 200
 MAX_TOOL_OUTPUT_TIERS = (
     (1_000_000, 50_000),

@@ -6,8 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from server.config.constants import DEFAULT_SUMMARIZER_TIMEOUT, SUMMARIZER_TIMEOUT_ENV
-from server.config.env import optional_float
+from server.config.environment import ZENITH_SUMMARIZER_TIMEOUT
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.providers.base import BaseProvider
@@ -50,7 +49,7 @@ class ConversationSummarizer:
             request = list(prefix or []) + [{"role": "user", "content": prompt}]
             result = await asyncio.wait_for(
                 provider.complete(request, **kwargs),
-                timeout=optional_float(SUMMARIZER_TIMEOUT_ENV, DEFAULT_SUMMARIZER_TIMEOUT),
+                timeout=ZENITH_SUMMARIZER_TIMEOUT,
             )
         except TimeoutError:
             logger.warning("Summarization timed out, using fallback")

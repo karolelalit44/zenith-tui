@@ -1,5 +1,5 @@
 import type { CompactionPhase } from '../types/scenario';
-import { envFloat } from './env';
+import { ZENITH_CONTEXT_ATTENTION, ZENITH_CONTEXT_PREPARING, ZENITH_CONTEXT_REQUIRED } from './environment';
 
 export type ContextLevel = 'neutral' | 'attention' | 'preparing' | 'required';
 
@@ -16,11 +16,11 @@ function clamp01(fraction: number): number {
   return Math.max(0, Math.min(1, fraction));
 }
 
-/** Configurable context-pressure thresholds (from tui/.env, model-agnostic). */
+/** Configurable context-pressure thresholds (from environment configuration, model-agnostic). */
 export const contextThresholds: ContextThresholds = Object.freeze({
-  attention: clamp01(envFloat('ZENITH_CONTEXT_ATTENTION')),
-  preparing: clamp01(envFloat('ZENITH_CONTEXT_PREPARING')),
-  required: clamp01(envFloat('ZENITH_CONTEXT_REQUIRED')),
+  attention: clamp01(ZENITH_CONTEXT_ATTENTION),
+  preparing: clamp01(ZENITH_CONTEXT_PREPARING),
+  required: clamp01(ZENITH_CONTEXT_REQUIRED),
 });
 
 /** Ordered compaction phases for the continuous status component. */
