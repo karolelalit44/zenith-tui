@@ -58,7 +58,7 @@ export function useScenario(): UseScenarioReturn {
   const batchQueueRef = useRef<{ event: ScenarioEvent; index: number }[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingToolSteps = useRef<
-    Map<string, { index: number; tool: string; params: Record<string, unknown>; text?: string }>
+    Map<string, { callId?: string; index: number; tool: string; params: Record<string, unknown>; text?: string }>
   >(new Map());
   const lastWarningRef = useRef<string | null>(null);
 
@@ -157,15 +157,10 @@ export function useScenario(): UseScenarioReturn {
             return prev;
           }
 
-          let next: ScenarioEvent[];
-          if (typeof index === 'number' && index < prev.length) {
-            next = [...prev];
-            next[index] = toolStep;
-          } else {
-            next = [...prev, toolStep];
-          }
+          const next = [...prev, toolStep];
           pendingToolSteps.current.set(event.id, {
-            index: typeof index === 'number' && index < next.length ? index : next.length - 1,
+            callId: event.id,
+            index: next.length - 1,
             tool: event.tool,
             params: event.params,
             text: event.text,
@@ -181,10 +176,10 @@ export function useScenario(): UseScenarioReturn {
         const matched = resolvePendingToolStep(pendingToolSteps.current, event.id, event.tool);
 
         if (matched) {
-          const { step: pending } = matched;
+          const { key: callId, step: pending } = matched;
           const toolStep: ToolStepEvent = {
             kind: 'tool_step',
-            id: event.id,
+            id: callId,
             tool: event.tool,
             params: pending.params,
             success: event.success,
@@ -197,7 +192,14 @@ export function useScenario(): UseScenarioReturn {
           };
 
           setEvents((prev) => {
-            const next = upsertEvent(prev, toolStep, pending.index);
+            const existingIdx = prev.findIndex((e) => e.id === callId);
+            let next: ScenarioEvent[];
+            if (existingIdx >= 0) {
+              next = [...prev];
+              next[existingIdx] = toolStep;
+            } else {
+              next = upsertEvent(prev, toolStep, pending.index);
+            }
             eventsRef.current = next;
             return next;
           });
@@ -218,7 +220,7 @@ export function useScenario(): UseScenarioReturn {
         };
 
         setEvents((prev) => {
-          const next = upsertEvent(prev, orphan, index);
+          const next = [...prev, orphan];
           eventsRef.current = next;
           return next;
         });

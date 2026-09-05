@@ -1,22 +1,11 @@
 import { render } from 'ink-testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MessageBlock } from '../src/components/Display/Scenario/MessageBlock';
 import { ProgressBar } from '../src/components/Display/Scenario/ProgressBar';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
-import { SuccessCard } from '../src/components/Display/Scenario/SuccessCard';
 import { ThinkingBlock } from '../src/components/Display/Scenario/ThinkingBlock';
 import { ToolStepCard } from '../src/components/Display/Scenario/ToolStepCard';
-import { UserMessageBlock } from '../src/components/Display/Scenario/UserMessageBlock';
 import { ThemeProvider } from '../src/theme/ThemeContext';
-import type {
-  MessageEvent,
-  ProgressEvent,
-  ScenarioEvent,
-  SuccessEvent,
-  ThinkingEvent,
-  ToolStepEvent,
-  TurnManifestEvent,
-} from '../src/types/scenario';
+import type { ProgressEvent, ScenarioEvent, ThinkingEvent, ToolStepEvent } from '../src/types/scenario';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -232,5 +221,74 @@ describe('thinking positional fidelity', () => {
     expect(frame).toContain('second reasoning segment');
     expect(frame.indexOf('first reasoning segment')).toBeLessThan(frame.indexOf('npm test'));
     expect(frame.indexOf('npm test')).toBeLessThan(frame.indexOf('second reasoning segment'));
+  });
+
+  it('preserves multi-iteration thinking -> tool_step -> thinking -> message sequence', () => {
+    const events: ScenarioEvent[] = [
+      {
+        kind: 'thinking',
+        id: 't1',
+        thoughts: ['* Goal: Create a new file sms-plan.md'],
+        duration: 12000,
+        partial: false,
+      },
+      {
+        kind: 'tool_step',
+        id: 's1',
+        tool: 'file_write',
+        params: { path: 'sms-plan.md', content: '# Plan' },
+        success: true,
+        output: 'Created sms-plan.md',
+        error: '',
+        metadata: {},
+        pending: false,
+      },
+      {
+        kind: 'thinking',
+        id: 't2',
+        thoughts: ['The user has provided a success message from file_write'],
+        duration: 3100,
+        partial: false,
+      },
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'The file sms-plan.md has been created with Django and HTMX.',
+        partial: false,
+      },
+      {
+        kind: 'turn_manifest',
+        id: 'manifest1',
+        completed: true,
+        created: ['sms-plan.md'],
+        modified: [],
+      },
+      {
+        kind: 'success',
+        id: 'succ1',
+        message: 'done',
+        elapsedMs: 15100,
+      },
+    ];
+
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={events} isRunning={false} isHistorical={true} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('Create a new file sms-plan.md');
+    expect(frame).toContain('sms-plan.md');
+    expect(frame).toContain('The user has provided a success message');
+    expect(frame).toContain('The file sms-plan.md has been created');
+
+    const idxT1 = frame.indexOf('Create a new file sms-plan.md');
+    const idxTool = frame.indexOf('sms-plan.md');
+    const idxT2 = frame.indexOf('The user has provided a success message');
+    const idxMsg = frame.indexOf('The file sms-plan.md has been created');
+
+    expect(idxT1).toBeLessThan(idxTool);
+    expect(idxTool).toBeLessThan(idxT2);
+    expect(idxT2).toBeLessThan(idxMsg);
   });
 });

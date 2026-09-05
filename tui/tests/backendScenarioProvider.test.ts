@@ -2,13 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backendScenarioProvider } from '../src/services/transport/BackendScenarioProvider';
 import { type JsonRpcEvent, type WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
 
+let rpcIdCounter = 0;
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
   return {
     jsonrpc: '2.0',
     method: 'event',
     params: {
       kind,
-      id: `test_${Date.now()}`,
+      id: `test_${Date.now()}_${++rpcIdCounter}`,
       data,
     },
   };
@@ -384,6 +385,69 @@ describe('executeCompaction (manual /compact pipeline)', () => {
 
     expect(completed).toBe(true);
     expect(kinds).toEqual(['context_compaction_started', 'context_compaction_ended']);
+    runner.abort();
+  });
+});
+
+describe('Multi-Iteration Thinking and Tool Call Chronological Sequence', () => {
+  it('preserves distinct thinking blocks across multiple iterations in exact emitted sequence', () => {
+    const received: Array<{ event: import('../src/types/scenario').ScenarioEvent; index: number }> = [];
+    let completed = false;
+
+    const scenario = backendScenarioProvider.resolve('create file sms-plan.md', 'build');
+    const runner = backendScenarioProvider.execute(
+      scenario,
+      (evt, idx) => {
+        received.push({ event: evt, index: idx });
+      },
+      () => {
+        completed = true;
+      },
+    );
+
+    const emit = (kind: string, data: Record<string, unknown> = {}) =>
+      (wsClient as unknown as { emitter: { emit: (name: string, data: unknown) => void } }).emitter.emit(
+        'event',
+        makeRpcEvent(kind, data),
+      );
+
+    // Iteration 1: Reasoning -> Tool Call -> Tool Result
+    emit('thinking', { text: 'Thinking iter 1 part 1', partial: true });
+    emit('thinking', { text: 'Thinking iter 1 full reasoning', partial: true });
+    emit('thinking', { text: 'Thinking iter 1 full reasoning', duration: 1500, partial: false });
+    emit('tool_call', { tool: 'file_write', params: { path: 'sms-plan.md' } });
+    emit('tool_result', { tool: 'file_write', success: true, output: 'Created sms-plan.md' });
+
+    // Iteration 2: Reasoning -> Assistant Message -> Turn Manifest -> Success
+    emit('thinking', { text: 'Thinking iter 2 part 1', partial: true });
+    emit('thinking', { text: 'Thinking iter 2 full reasoning', duration: 2500, partial: false });
+    emit('message', { text: 'The file sms-plan.md has been created.', partial: true });
+    emit('message', { text: 'The file sms-plan.md has been created.', partial: false, iteration: 2 });
+    emit('turn_manifest', { completed: true, created: ['sms-plan.md'], modified: [] });
+    emit('success', { message: 'done', iterations: 2 });
+
+    expect(completed).toBe(true);
+
+    const thinkingEvents = received
+      .map((r) => r.event)
+      .filter((e): e is import('../src/types/scenario').ThinkingEvent => e.kind === 'thinking');
+
+    // Exactly two distinct thinking IDs (iter 1 and iter 2)
+    const thinkingIds = Array.from(new Set(thinkingEvents.map((e) => e.id)));
+    expect(thinkingIds.length).toBe(2);
+
+    // Final thinking for iter 1
+    const iter1Final = thinkingEvents.find((e) => e.id === thinkingIds[0] && !e.partial);
+    expect(iter1Final).toBeDefined();
+    expect(iter1Final?.thoughts).toContain('Thinking iter 1 full reasoning');
+    expect(iter1Final?.duration).toBe(1500);
+
+    // Final thinking for iter 2
+    const iter2Final = thinkingEvents.find((e) => e.id === thinkingIds[1] && !e.partial);
+    expect(iter2Final).toBeDefined();
+    expect(iter2Final?.thoughts).toContain('Thinking iter 2 full reasoning');
+    expect(iter2Final?.duration).toBe(2500);
+
     runner.abort();
   });
 });

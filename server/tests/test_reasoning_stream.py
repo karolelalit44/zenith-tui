@@ -96,6 +96,11 @@ def test_tiny_content_plus_long_reasoning_stays_content_only():
     assert len(finals) == 1
     assert finals[0].data["text"] == "x" * 300
 
+    # Chronological fidelity: reasoning finishes before content begins
+    thinking_final_idx = events.index(finals[0])
+    message_idx = events.index(messages[0])
+    assert thinking_final_idx < message_idx
+
 
 # ---------------------------------------------------------------------------
 # Module 08 additive — reasoning as a Part (delta-merged), opencode-style.

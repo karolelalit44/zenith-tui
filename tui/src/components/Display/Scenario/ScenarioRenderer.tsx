@@ -5,6 +5,7 @@ import type {
   CaptainOrchestrationEvent,
   CrewmateAgent,
   ScenarioEvent,
+  ThinkingEvent,
   TimelineEntry,
   TurnManifestEvent,
 } from '../../../types/scenario';
@@ -119,6 +120,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       for (const ev of source) {
         const prev = grouped[grouped.length - 1];
         if (ev.kind === 'thinking' && prev && prev.kind === 'thinking') {
+          if ((prev as ThinkingEvent).partial && !(ev as ThinkingEvent).partial) {
+            grouped[grouped.length - 1] = ev;
+          }
           continue; // collapse back-to-back duplicates from split streams
         }
         grouped.push(ev);
@@ -205,7 +209,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const consolidatedCompaction = consolidateCompactionEvents(events);
       const consolidatedBoard = consolidateTodoBoardEvents(events);
 
-      for (const e of source) {
+      for (const e of source2) {
         if (e.kind === 'captain_orchestration') {
           if (!orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);

@@ -12,7 +12,8 @@ export function upsertEvent(events: ScenarioEvent[], event: ScenarioEvent, index
     next[existingIndex] = event;
     return next;
   }
-  if (typeof index === 'number' && index >= 0 && index < events.length) {
+  // Only replace by index if target slot is a transient placeholder (progress indicator)
+  if (typeof index === 'number' && index >= 0 && index < events.length && events[index].kind === 'progress') {
     const next = [...events];
     next[index] = event;
     return next;
@@ -21,7 +22,8 @@ export function upsertEvent(events: ScenarioEvent[], event: ScenarioEvent, index
 }
 
 export interface PendingToolStep {
-  index: number;
+  callId?: string;
+  index?: number;
   tool: string;
   params: Record<string, unknown>;
   text?: string;

@@ -34,7 +34,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     return null;
   }
 
-  const isStreaming = event.partial === true;
+  const isStreaming = event.partial === true && context?.isRunning !== false;
   const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
   const firstRealThought = event.thoughts
     .map((thought) => getThoughtText(thought).trim())

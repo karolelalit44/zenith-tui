@@ -197,6 +197,7 @@ async def stream_completion(
         started_at = _time.monotonic()
         reasoning_part = ReasoningPart()
         pending_reasoning_chars = 0
+        reasoning_closed = False
         async for content, reasoning in provider.stream(
             messages, tools=tools, tool_choice=tool_choice, response_format=response_format
         ):
@@ -213,6 +214,23 @@ async def stream_completion(
                     pending_reasoning_chars = 0
                     yield r.thinking(reasoning_part.text, session_id, partial=True)
             if content:
+                # Close the thinking block IMMEDIATELY when reasoning completes
+                # and content begins, so the user timeline preserves chronological
+                # fidelity (thinking -> message) rather than emitting thinking
+                # after the message.
+                if not reasoning_closed and state.reasoning_text.strip():
+                    duration_ms = int((_time.monotonic() - started_at) * 1000)
+                    deduplicated = _deduplicate_reasoning(state.reasoning_text)
+                    if len(deduplicated) < len(state.reasoning_text):
+                        logger.info(
+                            "Thinking deduplication: %d -> %d chars (%.0f%% reduction)",
+                            len(state.reasoning_text),
+                            len(deduplicated),
+                            (1 - len(deduplicated) / max(len(state.reasoning_text), 1)) * 100,
+                        )
+                        state.reasoning_text = deduplicated
+                    yield r.thinking(state.reasoning_text.strip(), session_id, duration_ms=duration_ms)
+                    reasoning_closed = True
                 state.response_text += content
                 yield r.message_event(content, session_id, partial=True)
         # Reasoning is model-internal chain-of-thought. It is never folded into
@@ -221,7 +239,7 @@ async def stream_completion(
         # chain-of-thought into the user-visible transcript. A reasoning-only
         # turn is surfaced as a separate `thinking` event (kept collapsed in the
         # UI) and, with no real content, the loop reports an empty response.
-        if state.reasoning_text.strip():
+        if not reasoning_closed and state.reasoning_text.strip():
             duration_ms = int((_time.monotonic() - started_at) * 1000)
             deduplicated = _deduplicate_reasoning(state.reasoning_text)
             if len(deduplicated) < len(state.reasoning_text):
@@ -235,6 +253,7 @@ async def stream_completion(
             # Final, non-partial emission closes the live thinking block with
             # the deduplicated text and the total thinking duration.
             yield r.thinking(state.reasoning_text.strip(), session_id, duration_ms=duration_ms)
+            reasoning_closed = True
         if state.response_text:
             state.full_response += state.response_text
             logger.info(

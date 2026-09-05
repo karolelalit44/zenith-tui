@@ -78,9 +78,16 @@ function buildEventsFromAssistantMessage(msg: Record<string, unknown>): Scenario
   // Streaming partials are transient render state, never durable content: the
   // final non-partial MESSAGE event carries the full text. Replaying the
   // persisted partial chunks would duplicate every assistant message block.
+  const hasCompletedThinking = rawEvents.some(
+    (ev) => ev && typeof ev === 'object' && ev.kind === 'thinking' && !(ev.data as Record<string, unknown>)?.partial,
+  );
   const events = rawEvents
     .filter((ev): ev is Record<string, unknown> => Boolean(ev && typeof ev === 'object' && ev.kind))
     .filter((ev) => !(ev.kind === 'message' && (ev.data as Record<string, unknown>)?.partial === true))
+    .filter(
+      (ev) =>
+        !(hasCompletedThinking && ev.kind === 'thinking' && (ev.data as Record<string, unknown>)?.partial === true),
+    )
     .map((ev) => mapRawEvent(String(ev.kind), (ev.data as Record<string, unknown>) || {}, String(ev.id)));
 
   // Persisted tool_call/tool_result pairs are folded into single tool_step
