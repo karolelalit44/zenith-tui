@@ -13,7 +13,7 @@ from server.toolkit.registry import ToolRegistry
 
 from .compaction_service import CompactionService
 from .context import ContextManager
-from .loop import AgentLoop
+from .simple_loop import SimpleLoop
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,16 @@ class RecoverableAgentLoop:
         context_manager: ContextManager | None = None,
         tool_registry: ToolRegistry | None = None,
         compaction_service: CompactionService | None = None,
+        **kwargs,
     ) -> None:
-        self.agent = AgentLoop(config, provider, context_manager, tool_registry, compaction_service)
+        self.agent = SimpleLoop(
+            config,
+            provider,
+            context_manager,
+            tool_registry,
+            compaction_service=compaction_service,
+            **kwargs,
+        )
         self.config = config
         self.provider = provider
         self._last_error: str | None = None
@@ -52,6 +60,8 @@ class RecoverableAgentLoop:
         plan_context: str = "",
         model_override: str | None = None,
         repo_map: str | None = None,
+        skills_section: str | None = None,
+        **kwargs,
     ) -> AsyncIterator[Event]:
         self._last_error = None
         try:
@@ -59,10 +69,12 @@ class RecoverableAgentLoop:
                 prompt,
                 session_id,
                 history,
-                mode,
+                mode=mode,
                 plan_context=plan_context,
                 model_override=model_override,
                 repo_map=repo_map,
+                skills_section=skills_section,
+                **kwargs,
             ):
                 if event.kind == EventKind.ERROR:
                     self._last_error = event.data.get("message", "Unknown error")

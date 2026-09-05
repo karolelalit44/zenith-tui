@@ -1,8 +1,8 @@
 from pathlib import Path
 
+from server import workspace
 from server.agents.prompts import build_plan_system_prompt, build_system_prompt
-import server.config.constants as constants
-import server.workspace as workspace
+from server.config import constants
 
 
 def _write(root: Path, name: str, content: str) -> None:

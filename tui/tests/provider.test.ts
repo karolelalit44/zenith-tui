@@ -113,4 +113,21 @@ describe('Provider Management Module', () => {
       'custom',
     ]);
   });
+
+  it('coalesces concurrent fetchProviderList calls into a single network request', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(LIST), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const repo = new ProviderRepository();
+    const [res1, res2, res3] = await Promise.all([
+      repo.fetchProviderList(),
+      repo.fetchProviderList(),
+      repo.refreshFromBackend(),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res1?.active).toBe('nvidia');
+    expect(res2?.active).toBe('nvidia');
+    expect(res3?.active).toBe('nvidia');
+  });
 });

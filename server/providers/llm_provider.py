@@ -33,33 +33,6 @@ from .token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 _catalog: dict | None = None
-_litellm_active_provider: LLMProvider | None = None
-_RETRY_DELAY_RE = re.compile(
-    r'retryDelay\s*"?\s*[:=]\s*"?(\d+(?:\.\d+)?)\s*(ms|s|m|h)?"?', re.IGNORECASE
-)
-_RETRY_IN_RE = re.compile(r"\bretry\s+in\s+(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\b", re.IGNORECASE)
-_MIN_REQUEST_INTERVAL_DEFAULT = optional_float(
-    MIN_REQUEST_INTERVAL_ENV, DEFAULT_MIN_REQUEST_INTERVAL
-)
-
-
-def _litellm_success_handler(model, messages, response, **kwargs):
-    if _litellm_active_provider:
-        logger.info(
-            "LITELLM SUCCESS model=%s provider=%s",
-            _litellm_active_provider._litellm_model,
-            _litellm_active_provider._name,
-        )
-
-
-def _litellm_failure_handler(model, messages, original_exception, **kwargs):
-    if _litellm_active_provider:
-        logger.error(
-            "LITELLM FAILURE model=%s provider=%s error=%s",
-            _litellm_active_provider._litellm_model,
-            _litellm_active_provider._name,
-            str(original_exception)[:500],
-        )
 
 
 _QUOTA_EXHAUSTED_KEYWORDS = (
@@ -70,6 +43,18 @@ _QUOTA_EXHAUSTED_KEYWORDS = (
     "add 10 credits",
     "daily quota",
     "daily_limit",
+)
+
+_RETRY_DELAY_RE = re.compile(
+    r'retrydelay["\']?\s*:\s*["\']?(\d+(?:\.\d+)?)\s*(ms|s|m|h|mins?|seconds?)?["\']?',
+    re.IGNORECASE,
+)
+_RETRY_IN_RE = re.compile(
+    r"\b(?:retry(?:\s+(?:in|after))?|try again in|wait(?:\s+for)?|in)\s+(\d+(?:\.\d+)?)\s*(s|seconds?|secs?|milliseconds?|ms|minutes?|mins?|hours?|h)\b",
+    re.IGNORECASE,
+)
+_MIN_REQUEST_INTERVAL_DEFAULT = optional_float(
+    MIN_REQUEST_INTERVAL_ENV, DEFAULT_MIN_REQUEST_INTERVAL
 )
 
 
@@ -168,6 +153,21 @@ def _set_api_key(provider_name: str, api_key: str | None) -> None:
         os.environ[env_var] = api_key
 
 
+def prewarm_litellm() -> None:
+    """Pre-load the LiteLLM runtime at application startup.
+
+    ``import litellm`` pulls in a heavy first-party chain (OpenAI/Anthropic/
+    Google GenAI/Boto3/Azure SDKs). Doing it lazily inside
+    ``LLMProvider.__init__`` blocks the first provider instantiation with ~11s
+    of dead air and no feedback. Call once during lifespan startup so the
+    subsequent imports resolve from ``sys.modules``."""
+    start = time.monotonic()
+    import litellm  # noqa: F401
+
+    elapsed_ms = (time.monotonic() - start) * 1000
+    logger.info("AI provider runtime pre-warmed in %.0fms", elapsed_ms)
+
+
 def _unwrap_bytes_literal(text: str) -> str:
     stripped = text.strip()
     for marker in ("b'", 'b"'):
@@ -244,11 +244,11 @@ def _parse_retry_delay(text: str) -> float | None:
     except (TypeError, ValueError):
         return None
     unit = (match.group(2) or "").lower()
-    if unit == "ms":
+    if unit in ("ms", "millisecond", "milliseconds"):
         return value / 1000.0
-    if unit == "m":
+    if unit in ("m", "min", "mins", "minute", "minutes"):
         return value * 60.0
-    if unit == "h":
+    if unit in ("h", "hr", "hrs", "hour", "hours"):
         return value * 3600.0
     return value
 
@@ -283,6 +283,17 @@ def _extract_retry_after(exc: Exception) -> float | None:
 
 
 def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderError:
+    status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            status_code = getattr(resp, "status_code", None)
+    try:
+        if status_code is not None:
+            status_code = int(status_code)
+    except (TypeError, ValueError):
+        status_code = None
+
     msg = _strip_ansi(str(exc)).lower()
     clean = _extract_clean_message(exc)
     retry_after = _extract_retry_after(exc)
@@ -323,6 +334,30 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
             return ProviderError(clean, provider=provider_name, code="API_ERROR", recoverable=True)
     except (ImportError, AttributeError):
         pass
+
+    if status_code in (401, 403):
+        return AuthenticationError(
+            f"Authentication failed for provider '{provider_name}': {clean}\nTip: Check your API key is set correctly in settings.",
+            provider=provider_name,
+        )
+    if status_code == 429:
+        return RateLimitError(
+            f"Rate limited by provider '{provider_name}': {clean}",
+            provider=provider_name,
+            retry_after=retry_after,
+            recoverable=not is_quota_exhausted,
+        )
+    if status_code in (408, 504):
+        return TimeoutError(
+            f"Timeout from provider '{provider_name}': {clean}", provider=provider_name
+        )
+    if status_code == 400 and ("context" in msg or "token" in msg or "length" in msg):
+        return ProviderError(
+            f"Context window exceeded for provider '{provider_name}': {clean}",
+            provider=provider_name,
+            code="CONTEXT_EXCEEDED",
+            recoverable=True,
+        )
     if (
         "401" in msg
         or "unauthorized" in msg
@@ -538,14 +573,6 @@ class LLMProvider(BaseProvider):
         self._token_counter = TokenCounter()
         self._throttle = _RequestThrottle(_resolve_min_request_interval(name))
         _set_api_key(name, self.api_key)
-        import litellm
-
-        global _litellm_active_provider
-        _litellm_active_provider = self
-        if not litellm.success_callback:
-            litellm.success_callback = [_litellm_success_handler]
-        if not litellm.failure_callback:
-            litellm.failure_callback = [_litellm_failure_handler]
         litellm_prefix = provider_entry.get("litellm_prefix", "")
         if not litellm_prefix and self.base_url:
             litellm_prefix = "openai/"
@@ -628,7 +655,13 @@ class LLMProvider(BaseProvider):
         # even if a catalog or extra_params still advertises them, to avoid the
         # provider-side DeprecationWarning and future removal breakage.
         if is_gemini_3_plus(self.model):
-            for _deprecated in ("temperature", "top_p", "top_k"):
+            for _deprecated in (
+                "temperature",
+                "top_p",
+                "top_k",
+                "frequency_penalty",
+                "presence_penalty",
+            ):
                 kwargs.pop(_deprecated, None)
         return kwargs
 

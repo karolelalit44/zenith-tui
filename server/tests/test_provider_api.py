@@ -334,6 +334,54 @@ async def test_validate_auth_probe_accepts_key_on_model_error(tmp_path, monkeypa
     assert auth.status.value == "success"
 
 
+async def test_validate_provider_single_complete_call_and_clamped_tokens(tmp_path, monkeypatch):
+    home = _home(tmp_path)
+    complete_calls = []
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"id": "openrouter/free"}]}
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return _FakeResponse()
+
+    class _FakeProvider:
+        def __init__(self, *args, **kwargs):
+            self.max_tokens = kwargs.get("max_tokens")
+            self.model = kwargs.get("model")
+
+        async def complete(self, messages, *args, **kwargs):
+            complete_calls.append({"messages": messages, "max_tokens": self.max_tokens})
+            return "OK"
+
+    monkeypatch.setattr("server.providers.validation.httpx.AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr("server.providers.validation.LLMProvider", _FakeProvider)
+
+    result = await validate_provider_collect(
+        "openrouter",
+        api_key="sk-or-v1-ok",
+        base_url="https://openrouter.ai/api/v1",
+        model="openrouter/free",
+        home=home,
+    )
+    assert result.valid is True
+    assert len(complete_calls) == 1
+    assert complete_calls[0]["max_tokens"] <= 16
+    assert complete_calls[0]["messages"] == [{"role": "user", "content": "Say OK"}]
+
+
 async def test_validate_stream_emits_step_events(tmp_path):
     _home(tmp_path)
     events = []

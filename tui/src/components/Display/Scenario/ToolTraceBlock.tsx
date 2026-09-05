@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { getToolStepPrimaryParam, getToolVerbLabel } from '../../../constants/toolDisplay';
+import { SHELL_TOOL_SET, getToolStepPrimaryParam, getToolVerbLabel } from '../../../constants/toolDisplay';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolCallEvent, ToolResultEvent } from '../../../types/scenario';
 import { truncateEnd } from '../../../utils/text';
@@ -39,12 +39,18 @@ export const ToolTraceBlock: React.FC<ToolTraceBlockProps> = React.memo(({ event
     );
   }
 
-  const statusColor = event.success ? theme.colors.status.success : theme.colors.status.error;
-  const detail = event.error || (event.success ? renderValue(event.output) : '');
+  const isShell = SHELL_TOOL_SET.has(event.tool.toLowerCase());
+  const statusColor = isShell
+    ? theme.colors.text.bright
+    : event.success
+      ? theme.colors.status.success
+      : theme.colors.status.error;
+  const statusGlyph = isShell ? '→' : event.success ? '' : '✗';
+  const detail = event.error || (event.output ? renderValue(event.output) : '');
   return (
     <Box flexDirection="row" alignItems="center" width="100%" marginBottom={1} paddingX={1}>
       <Text color={statusColor} bold>
-        {event.success ? '' : '✗'} {getToolVerbLabel(event.tool)}
+        {statusGlyph} {getToolVerbLabel(event.tool)}
       </Text>
       {detail && (
         <>

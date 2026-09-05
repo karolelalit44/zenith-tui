@@ -85,6 +85,10 @@ def _is_allowed_ws_origin(config: AppSettings, origin: str) -> bool:
 async def _do_startup() -> None:
     global _handler, _shutdown, _home, _usage_service
     logger.info("Starting Zenith backend...")
+    logger.info("Initializing AI provider runtime...")
+    from server.providers.llm_provider import prewarm_litellm
+
+    prewarm_litellm()
     _shutdown = GracefulShutdown()
     try:
         home = StorageHome(resolve_home())
@@ -198,7 +202,7 @@ def startup_validate():
 @app.get("/startup/providers")
 def startup_providers_list():
     data = get_provider_list()
-    logger.info(
+    logger.debug(
         "providers fetched: count=%d active=%s connected=%s",
         len(data.all),
         data.active or "(none)",
@@ -246,10 +250,10 @@ def _reload_config_after_validate(provider_id: str) -> None:
     if _handler is None:
         return
     try:
-        _handler._reload_config()
-        logger.info("Handler config reloaded after validating provider '%s'", provider_id)
+        _handler._reload_provider(provider_id)
+        logger.info("Provider '%s' reloaded after validation", provider_id)
     except Exception as e:
-        logger.warning("Failed to reload config after validating '%s': %s", provider_id, e)
+        logger.warning("Failed to reload provider '%s' after validation: %s", provider_id, e)
 
 
 @app.post("/startup/providers/{provider_id}/model")
@@ -263,9 +267,9 @@ async def startup_providers_model(provider_id: str, request: ProviderModelReques
         logger.warning("Failed to save model for '%s': %s", provider_id, e)
         raise HTTPException(status_code=500, detail=f"Failed to save model: {e}")
     if _handler is not None:
-        _handler._reload_config()
+        _handler._reload_provider(provider_id)
         logger.info(
-            "Handler config reloaded after model change: provider=%s, model=%s",
+            "Provider '%s' reloaded after model change: model=%s",
             provider_id,
             request.model,
         )

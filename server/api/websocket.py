@@ -257,8 +257,8 @@ class ZenithHandler:
 
         self._bus_task = asyncio.ensure_future(_bridge())
 
-    def _reload_config(self) -> None:
-        self.handlers.reload_config()
+    def _reload_provider(self, provider_id: str) -> None:
+        self.handlers.reload_provider(provider_id)
 
     @property
     def session_repo(self):

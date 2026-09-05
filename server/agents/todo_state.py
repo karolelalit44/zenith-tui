@@ -28,7 +28,7 @@ _TODO_STATUS_MARKERS = {
 }
 
 
-def render_todo_markdown(entries: list[dict] | list["TodoEntry"]) -> str:
+def render_todo_markdown(entries: list[dict] | list[TodoEntry]) -> str:
     """Render structured todos into the canonical ``todo.md`` artifact."""
     lines = ["# Todos", ""]
     for entry in entries:
@@ -69,7 +69,7 @@ class TodoEntry:
         }
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> "TodoEntry":
+    def from_dict(data: dict[str, Any]) -> TodoEntry:
         return TodoEntry(
             id=str(data.get("id") or ""),
             title=str(data.get("title") or ""),

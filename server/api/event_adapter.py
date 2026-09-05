@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import logging
 from collections.abc import AsyncIterator
+
 from server.domain.events import Event
 
 logger = logging.getLogger(__name__)

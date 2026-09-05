@@ -1,14 +1,17 @@
 from __future__ import annotations
+
 import logging
 from collections.abc import AsyncIterator
+
 from server.config.constants import BUILD_MODE
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.providers.base import BaseProvider
 from server.toolkit.registry import ToolRegistry
+
 from .context import ContextManager
-from .recovery import RecoverableAgentLoop
+from .simple_loop import SimpleLoop
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +39,12 @@ class CrewmateLoop:
     ) -> AsyncIterator[Event]:
         child_session_id = await self._create_child_session(session_id, session_repo)
         context_manager = ContextManager(self.config)
-        agent = RecoverableAgentLoop(
+        agent = SimpleLoop(
             self.config,
             self.provider,
             context_manager,
             self.tool_registry,
-            self._compaction_service,
+            compaction_service=self._compaction_service,
         )
         if user_prompt and user_prompt.strip():
             sub_prompt = f"Implement this plan:\n\n{plan_output}\n\nUser request: {user_prompt}"

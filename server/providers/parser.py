@@ -26,6 +26,28 @@ PLACEHOLDER_TOOL_NAMES = frozenset(
     {"tool_name", "tool", "function", "name", "call", "action", "command", "method"}
 )
 
+_XML_CALL_CLEAN_RE = re.compile(r"<tool_call>[\s\S]*?</tool_call>", re.IGNORECASE)
+_TOOL_FENCE_CLEAN_RE = re.compile(
+    r'```(?:tool|json)?\s*\n?\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\}\s*\n?```',
+    re.IGNORECASE,
+)
+_TOOL_OBJECT_CLEAN_RE = re.compile(
+    r'\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\"params\"\s*:\s*\{[\s\S]*?\}\s*\}'
+)
+_SIMULATED_CMD_RE = re.compile(
+    r"^Command:\s+.*$\n^Output:.*$", flags=re.MULTILINE | re.IGNORECASE
+)
+_SIMULATED_SUCCESS_RE = re.compile(
+    r"^Successfully (?:created|wrote|deleted|edited) (?:new )?file:\s*[^\n]+$",
+    flags=re.MULTILINE | re.IGNORECASE,
+)
+_PLACEHOLDER_MARKER_RE = re.compile(
+    r"\[(?:PASTE|INSERT|TODO|HTML|UPDATED|ACTUAL|CURRENT|DESIRED)[^\]]{0,50}\]",
+    flags=re.IGNORECASE,
+)
+_YOUR_PLACEHOLDER_RE = re.compile(r"\bYOUR_[\w_]+_HERE\b")
+_EXTRA_NEWLINES_RE = re.compile(r"\n{3,}")
+
 
 def _normalize_triple_quoted_strings(candidate: str) -> str:
     if '"""' not in candidate:
@@ -173,35 +195,14 @@ def parse_tool_calls(text: str) -> list[dict]:
 
 
 def clean_tool_text(text: str) -> str:
-    cleaned = re.sub("<tool_call>[\\s\\S]*?</tool_call>", "", text, flags=re.IGNORECASE)
-    cleaned = re.sub(
-        '```(?:tool|json)?\\s*\\n?\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\}\\s*\\n?```',
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        '\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\"params\\"\\s*:\\s*\\{[\\s\\S]*?\\}\\s*\\}',
-        "",
-        cleaned,
-    )
-    cleaned = re.sub(
-        "^Command:\\s+.*$\\n^Output:.*$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE
-    )
-    cleaned = re.sub(
-        "^Successfully (?:created|wrote|deleted|edited) (?:new )?file:\\s*[^\\n]+$",
-        "",
-        cleaned,
-        flags=re.MULTILINE | re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        "\\[(?:PASTE|INSERT|TODO|HTML|UPDATED|ACTUAL|CURRENT|DESIRED)[^\\]]{0,50}\\]",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub("\\bYOUR_[\\w_]+_HERE\\b", "", cleaned)
-    cleaned = re.sub("\\n{3,}", "\n\n", cleaned)
+    cleaned = _XML_CALL_CLEAN_RE.sub("", text)
+    cleaned = _TOOL_FENCE_CLEAN_RE.sub("", cleaned)
+    cleaned = _TOOL_OBJECT_CLEAN_RE.sub("", cleaned)
+    cleaned = _SIMULATED_CMD_RE.sub("", cleaned)
+    cleaned = _SIMULATED_SUCCESS_RE.sub("", cleaned)
+    cleaned = _PLACEHOLDER_MARKER_RE.sub("", cleaned)
+    cleaned = _YOUR_PLACEHOLDER_RE.sub("", cleaned)
+    cleaned = _EXTRA_NEWLINES_RE.sub("\n\n", cleaned)
     return cleaned.strip()
 
 

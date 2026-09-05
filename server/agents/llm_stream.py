@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import asyncio
 import logging
 import time as _time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import Enum
+
 from server.domain.errors import ProviderError, RateLimitError
 from server.domain.events import Event
 from server.providers import responder as r

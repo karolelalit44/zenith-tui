@@ -107,7 +107,7 @@ async def test_schedules_background_task_and_persists_fresh_summary():
 
 
 async def test_previous_summary_is_anchored_and_model_passed():
-    scheduler, provider, message_repo, session_repo = _build()
+    scheduler, provider, _message_repo, _session_repo = _build()
     provider.results = [(0.0, "OBJECTIVE: merged")]
 
     scheduler.schedule("s1")
@@ -117,7 +117,7 @@ async def test_previous_summary_is_anchored_and_model_passed():
 
 
 async def test_stale_summary_from_older_turn_is_dropped():
-    scheduler, provider, message_repo, session_repo = _build()
+    scheduler, provider, _message_repo, session_repo = _build()
     provider.results = [(0.0, "GEN1"), (0.0, "GEN2")]
     provider.block_first = asyncio.Event()
 
@@ -136,7 +136,7 @@ async def test_stale_summary_from_older_turn_is_dropped():
 
 
 async def test_superseded_before_start_never_calls_provider():
-    scheduler, provider, message_repo, session_repo = _build()
+    scheduler, provider, _message_repo, session_repo = _build()
     provider.results = [(0.0, "GEN2")]
 
     scheduler.schedule("s1")  # gen 1
@@ -151,7 +151,7 @@ async def test_superseded_before_start_never_calls_provider():
 
 
 async def test_disabled_scheduler_does_nothing():
-    scheduler, provider, message_repo, session_repo = _build(async_summary_enabled=False)
+    scheduler, provider, _message_repo, session_repo = _build(async_summary_enabled=False)
 
     scheduler.schedule("s1")
     await asyncio.sleep(0)
@@ -175,7 +175,7 @@ async def test_no_messages_skips_write():
 
 
 async def test_empty_summary_skips_write():
-    scheduler, provider, message_repo, session_repo = _build()
+    scheduler, provider, _message_repo, session_repo = _build()
     provider.results = [(0.0, "")]
 
     scheduler.schedule("s1")

@@ -59,13 +59,13 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
 
   const runCount = typeof input.runTokens === 'number' ? input.runTokens : 0;
   const hasRunUsage = runCount > 0 || typeof input.runTokens === 'number';
-  const tokenStr = hasRunUsage ? formatRunTokens(runCount) : '';
+  const tokenStr = hasRunUsage ? `${formatRunTokens(runCount)} tok` : '';
   const ctxStr =
     gaugePercent !== null && (runCount > 0 || typeof input.runTokens !== 'number')
-      ? `(${gaugePercent.toFixed(1)}%)`
+      ? `${gaugePercent.toFixed(1)}% ctx`
       : '';
 
-  const tokenUsage = [tokenStr, ctxStr].filter(Boolean).join(' ');
+  const tokenUsage = [tokenStr, ctxStr].filter(Boolean).join(' · ');
   const tokenCount = tokenUsage;
   const maxTokens =
     typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0 ? `${input.effectiveMaxTokens}` : '0';

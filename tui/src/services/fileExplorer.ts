@@ -5,6 +5,7 @@ export interface FileNode {
   relativePath: string;
   isDir: boolean;
   sizeFormatted?: string;
+  sizeBytes?: number;
   modifiedDate?: string;
   fileType?: string;
   parentPath?: string;
@@ -225,11 +226,15 @@ function isBinary(relativePath: string): boolean {
 /** Build a FileNode from a directory entry. */
 function nodeFromEntry(fullPath: string, relativePath: string, isDir: boolean): FileNode {
   let sizeFormatted: string | undefined;
+  let sizeBytes: number | undefined;
   let modifiedDate: string | undefined;
   try {
     const stat = fs.statSync(fullPath);
     modifiedDate = formatModified(stat.mtimeMs);
-    if (!isDir) sizeFormatted = formatBytes(stat.size);
+    if (!isDir) {
+      sizeBytes = stat.size;
+      sizeFormatted = formatBytes(stat.size);
+    }
   } catch {
     /* leave blank */
   }
@@ -241,6 +246,7 @@ function nodeFromEntry(fullPath: string, relativePath: string, isDir: boolean): 
     relativePath,
     isDir,
     sizeFormatted: isDir ? undefined : sizeFormatted,
+    sizeBytes: isDir ? undefined : sizeBytes,
     modifiedDate,
     fileType: labelForPath(relativePath, isDir),
     parentPath: parentPath || undefined,

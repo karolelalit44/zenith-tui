@@ -7,7 +7,6 @@ Leaf module: depends only on ``re``.
 
 import re
 
-
 DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; Zenith-Agent/1.0; +https://example.invalid/zenith)"
 
 WEBFETCH_TIMEOUT_ENV = "ZENITH_WEBFETCH_TIMEOUT"
@@ -32,5 +31,10 @@ DEFAULT_TOKENIZER_MODEL = "cl100k_base"
 MIN_REQUEST_INTERVAL_ENV = "ZENITH_MIN_REQUEST_INTERVAL"
 DEFAULT_MIN_REQUEST_INTERVAL = 0.0
 REQUEST_THROTTLE_JITTER = 0.5
+
+def is_http_url(url: str) -> bool:
+    """True when url begins with http:// or https:// (case-insensitive)."""
+    return bool(url and url.strip().lower().startswith(("http://", "https://")))
+
 
 URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)

@@ -12,7 +12,6 @@ import server.providers.responder as r
 from server.agents.context import ContextManager
 from server.agents.crewmate_loop import CrewmateLoop
 from server.agents.delegation import (
-    CaptainOrchestrator,
     RepositoryIntelligenceCache,
     SpecialistRegistry,
 )
@@ -29,7 +28,6 @@ from server.config.constants import (
     ATTACHMENT_MAX_TOTAL,
     BUILD_MODE,
     DEFAULT_CONTEXT_WINDOW,
-    EXPLORE_DELEGATION_PROACTIVE,
     HANDOFF_PLACEHOLDER_CANCELLED,
     HANDOFF_PLACEHOLDER_ERROR,
     HANDOFF_PLACEHOLDER_NO_SUMMARY,
@@ -271,11 +269,12 @@ def _did_work(manifest: dict | None) -> bool:
 
 
 _COMPLETION_CLAIM_PATTERNS = (
-    r"\b(?:created|wrote|written|wrote out)\s+(?:the\s+)?(?:file|files)",
+    r"\b(?:created|wrote|written|wrote out)\s+(?:the\s+)?(?:file|files)\b",
     r"\b(?:created|wrote)\s+[`']?[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|toml|yaml|yml|md|txt|css|html)\b",
-    r"\b(?:fixed|resolved|solved|implemented|completed|finished|done)\b",
-    r"\bcreated\b.{0,80}\b(?:file|file[s]?)\b",
-    r"\bnew\s+file\b",
+    r"\b(?:fixed|resolved|solved|implemented)\s+(?:the\s+)?(?:failing\s+)?(?:test|tests|issue|bug|problem|error|feature)\b",
+    r"\b(?:implementation\s+complete|all\s+tasks?\s+done|all\s+done|done\s*[—–-]\s*implementation\s+complete)\b",
+    r"\bcreated\b.{0,80}\b(?:file|files)\b",
+    r"\bnew\s+file\s+[`']?[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|toml|yaml|yml|md|txt)\b",
 )
 
 _NEGATIVE_CLAIM_PATTERNS = (
@@ -817,43 +816,6 @@ class PromptExecutor:
                 and plan_approved
                 and bool(getattr(mode_config, "crewmate", False))
             )
-
-            if (
-                mode != PLAN_MODE
-                and not crewmate_handoff
-                and self._config.explore_delegation == EXPLORE_DELEGATION_PROACTIVE
-            ):
-                routed_definition = self._specialist_registry.route(content)
-                if routed_definition is not None:
-                    logger.info(
-                        "Captain delegating session=%s capability-route -> %s",
-                        session_id,
-                        routed_definition.id,
-                    )
-                    orchestrator = CaptainOrchestrator(
-                        self._config,
-                        self._provider,
-                        self._tool_registry,
-                        session_repo=self._session_repo,
-                        message_repo=self._message_repo,
-                        compaction_service=self._compaction_service,
-                        cache=self._repo_intelligence_cache,
-                    )
-                    async for event in orchestrator.investigate(
-                        content, routed_definition, session_id, history=history
-                    ):
-                        event_count += 1
-                        collected_events.append(event)
-                        if manager:
-                            await manager.send_event(session_id, event)
-                    if orchestrator.last_result is not None:
-                        response_text = orchestrator.last_result.summary
-                    logger.info(
-                        "Delegation complete session=%s result=%s",
-                        session_id,
-                        orchestrator.last_result.status if orchestrator.last_result else "none",
-                    )
-                    return
 
             if crewmate_handoff:
                 logger.info("Spawning CrewmateLoop for session %s (plan→build handoff)", session_id)

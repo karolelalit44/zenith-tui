@@ -81,7 +81,8 @@ def _adaptive_reserve(model: str, context_window: int) -> int:
         reserve = max(4096, context_window // 5)
     if context_window >= DEFAULT_CONTEXT_WINDOW:
         return max(MIN_OUTPUT_RESERVE_TOKENS, reserve)
-    return reserve
+    return min(reserve, max(0, context_window - 500))
+
 
 @dataclass
 class TokenBreakdown:
@@ -129,6 +130,7 @@ class ContextManager:
         self._aux_tokens = 0
         self._last_t0_len = 0
         self._window_estimated = False
+        self._repo_map_cache: str | None = None
 
     def set_aux_tokens(self, tokens: int) -> None:
         self._aux_tokens = max(0, int(tokens))
@@ -145,6 +147,25 @@ class ContextManager:
             return min(DEFAULT_CONTEXT_WINDOW, self.config.max_context_tokens)
         self._window_estimated = False
         return min(from_catalog, self.config.max_context_tokens)
+
+    def _resolve_repo_map_tokens(self, model: str) -> int:
+        explicit = getattr(self.config, "repo_map_tokens", None)
+        if explicit is not None:
+            return int(explicit)
+        context_window = self._resolve_context_window(model)
+        return min(1024, max(100, int(context_window * 0.05)))
+
+    def get_repo_map(self, model: str = "", force_refresh: bool = False) -> str:
+        if not getattr(self.config, "repo_map_enabled", True):
+            return ""
+        if self._repo_map_cache is not None and not force_refresh:
+            return self._repo_map_cache
+        from server.workspace.repo_map import RepoMap
+
+        tokens = self._resolve_repo_map_tokens(model)
+        repo = RepoMap(self.config.workspace_root)
+        self._repo_map_cache = repo.get_repo_map(max_tokens=tokens, force_refresh=force_refresh)
+        return self._repo_map_cache
 
     def build_messages(
         self,
@@ -165,10 +186,21 @@ class ContextManager:
         self._last_t0_len = 1 if use_system_prompt else 0
         messages: list[dict] = []
         pbuf = _prompt_buffer(system_prompt)
+        if repo_map is None:
+            if getattr(self.config, "repo_map_enabled", True) and bool(history):
+                repo_map = self.get_repo_map(model)
+            else:
+                repo_map = ""
+
         if use_system_prompt:
             system_tokens = self.token_counter.count(system_prompt, model)
             messages.append({"role": "system", "content": system_prompt})
             used = system_tokens
+            if repo_map and bool(history):
+                map_content = f"<repo_map>\n{repo_map}\n</repo_map>"
+                map_tokens = self.token_counter.count(map_content, model)
+                messages.append({"role": "system", "content": map_content})
+                used += map_tokens
         else:
             used = 0
         if plan_block:
@@ -242,6 +274,8 @@ class ContextManager:
         messages.extend(entry for entry, _tokens, _owns_tool_calls in retained)
         if not use_system_prompt:
             parts = [system_prompt]
+            if repo_map and bool(history):
+                parts.append(f"<repo_map>\n{repo_map}\n</repo_map>")
             parts.append(new_prompt)
             new_entry = {"role": "user", "content": "\n\n".join(parts)}
         else:

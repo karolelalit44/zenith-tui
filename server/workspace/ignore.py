@@ -13,10 +13,13 @@ edits take effect on the next tool call (mtime/size fingerprint reload).
 """
 
 from __future__ import annotations
+
 import logging
 import threading
 from pathlib import Path
+
 from pathspec import GitIgnoreSpec
+
 from server.config.constants import (
     DEFAULT_ZENITH_IGNORE_CONTENT,
     ZENITH_IGNORE_FILE_NAME,

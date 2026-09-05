@@ -12,10 +12,10 @@ this additive primitive is what the grep/glob tools will adopt in Phase 2.
 import asyncio
 import functools
 import shutil
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable, List, Optional
 
-CmdRunner = Callable[[List[str]], Awaitable[tuple[int, str, str]]]
+CmdRunner = Callable[[list[str]], Awaitable[tuple[int, str, str]]]
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ def _find_rg() -> str | None:
     return shutil.which("rg")
 
 
-async def _run(argv: List[str], cmd_runner: Optional[CmdRunner] = None) -> tuple[int, str, str]:
+async def _run(argv: list[str], cmd_runner: CmdRunner | None = None) -> tuple[int, str, str]:
     """Execute an ``rg`` command and return ``(returncode, stdout, stderr)``.
 
     If *cmd_runner* is supplied (used in tests), it is called instead of the real
@@ -58,7 +58,7 @@ async def _run(argv: List[str], cmd_runner: Optional[CmdRunner] = None) -> tuple
     )
 
 
-def _parse_grep_output(text: str) -> List[SearchMatch]:
+def _parse_grep_output(text: str) -> list[SearchMatch]:
     """Parse ``rg --line-number --no-heading --with-filename`` output into ``SearchMatch``.
 
     The emitted format is ``path:line:content``.  The path may itself contain colons
@@ -66,7 +66,7 @@ def _parse_grep_output(text: str) -> List[SearchMatch]:
     *last* token that parses as an integer line number; everything before it is the path
     and everything after it is the content (both rejoined so embedded colons survive).
     """
-    matches: List[SearchMatch] = []
+    matches: list[SearchMatch] = []
     for line in text.splitlines():
         if not line.strip():
             continue
@@ -98,22 +98,22 @@ class RipgrepBackend:
     def __init__(
         self,
         *,
-        ignore_files: Optional[List[str]] = None,
+        ignore_files: list[str] | None = None,
         max_results: int = 500,
-        cmd_runner: Optional[CmdRunner] = None,
+        cmd_runner: CmdRunner | None = None,
     ) -> None:
-        self.ignore_files: List[str] = list(ignore_files or [])
+        self.ignore_files: list[str] = list(ignore_files or [])
         self.max_results: int = max_results
         self._cmd_runner = cmd_runner
 
     async def _build_argv(
         self,
         *,
-        pattern: Optional[str] = None,
-        include: Optional[str] = None,
+        pattern: str | None = None,
+        include: str | None = None,
         files_only: bool = False,
-        path: Optional[str] = None,
-    ) -> List[str]:
+        path: str | None = None,
+    ) -> list[str]:
         """Assemble a ripgrep argv for either a content search or a file listing.
 
         Content search uses ``-e <pattern>`` and, when *include* is given, adds a
@@ -122,7 +122,7 @@ class RipgrepBackend:
         ``--glob <pattern>``.  ``.gitignore`` is honoured automatically; each extra
         ``--ignore-file`` is appended explicitly.
         """
-        argv: List[str] = []
+        argv: list[str] = []
         if files_only:
             argv.append("--files")
             if pattern:
@@ -153,8 +153,8 @@ class RipgrepBackend:
         return argv
 
     async def grep(
-        self, pattern: str, path: str, include: Optional[str] = None
-    ) -> List[SearchMatch]:
+        self, pattern: str, path: str, include: str | None = None
+    ) -> list[SearchMatch]:
         """Search *pattern* under *path* and return line-level matches.
 
         *include* is a ripgrep glob (e.g. ``"*.py"``) that *filters which files are
@@ -168,7 +168,7 @@ class RipgrepBackend:
             return []
         return _parse_grep_output(out)[: self.max_results]
 
-    async def glob(self, pattern: str, path: str) -> List[str]:
+    async def glob(self, pattern: str, path: str) -> list[str]:
         """Return file paths under *path* matching *pattern* (ripgrep ``--files`` mode)."""
         argv = await self._build_argv(pattern=pattern, files_only=True, path=path)
         code, out, _ = await _run(argv, self._cmd_runner)
@@ -182,4 +182,4 @@ class RipgrepBackend:
 DEFAULT_BACKEND: RipgrepBackend = RipgrepBackend()
 
 
-__all__ = ["SearchMatch", "RipgrepBackend", "DEFAULT_BACKEND"]
+__all__ = ["DEFAULT_BACKEND", "RipgrepBackend", "SearchMatch"]

@@ -4,12 +4,22 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
 
 from server.config.constants import (
     BUILD_MODE,
+    DEFAULT_SALVAGE_TIMEOUT_SECONDS,
     MAX_STEPS_DEFAULT,
     MAX_STEPS_PROMPT,
+    MAX_TOOL_OUTPUT_BASELINE,
+    PLAN_MODE,
+    SALVAGE_DIGEST_MAX_ITEMS,
+    SALVAGE_INSTRUCTION,
+    SALVAGE_TIMEOUT_ENV,
+    SUMMARY_MIN_CHARS,
 )
+from server.config.env import optional_float
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.enums import FinishReason
 from server.domain.events import Event, EventKind
@@ -29,12 +39,26 @@ from ..toolkit.executor import (
     validate_tool_calls,
     validate_tool_rejection,
 )
+from .compaction import compact_tool_output
 from .context import ContextManager
 from .llm_stream import StreamState, stream_completion
 from .prompts import compose_system_context, default_template_sections
+from .run_state import _activity_label
 from .session_workspace import is_identical_replay, record_read
 
 logger = logging.getLogger(__name__)
+
+_DEGENERATE_TOKENS = {
+    "[tool calls]",
+    "[thinking]",
+    "[no output]",
+}
+
+
+def _is_degenerate_message(text: str | None) -> bool:
+    if not text or not str(text).strip():
+        return True
+    return str(text).strip().lower() in _DEGENERATE_TOKENS
 
 
 class SimpleLoop:
@@ -47,15 +71,91 @@ class SimpleLoop:
         provider: BaseProvider,
         context_manager: ContextManager | None = None,
         tool_registry: ToolRegistry | None = None,
+        compaction_service: Any = None,
+        **kwargs: Any,
     ) -> None:
         self.config = config
         self.provider = provider
         self.context_manager = context_manager or ContextManager(config)
         self.tool_registry = tool_registry
+        self.compaction_service = compaction_service
         self._summary: str | None = None
         self._last_emitted_message: str | None = None
         self._accept_sequence: int = 0
         self._cancel_sequence: int = -1
+        self._salvage_instruction: str = getattr(config, "salvage_instruction", SALVAGE_INSTRUCTION) or SALVAGE_INSTRUCTION
+        self._heavy_tools_summarized: int = 0
+
+
+    @property
+    def last_error(self) -> str | None:
+        return None
+
+    @staticmethod
+    def _salvage_digest(messages: list[dict]) -> str:
+        digs = [str(m.get("digest")) for m in messages if isinstance(m, dict) and m.get("digest")]
+        if not digs:
+            return ""
+        shown = digs[-SALVAGE_DIGEST_MAX_ITEMS:]
+        omitted = len(digs) - len(shown)
+        lines = [
+            "The turn ended before a final answer could be produced. Tool activity this turn:",
+        ]
+        lines.extend(f"- {d}" for d in shown)
+        if omitted > 0:
+            lines.append(f"(+{omitted} earlier steps omitted)")
+        return "\n".join(lines)
+
+    async def _salvage_final_answer(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict],
+        reason: str,
+        iteration: int,
+    ) -> AsyncIterator[Event]:
+        import asyncio
+
+        yield r.warning(
+            f"Wrapping up without further tool use ({reason})...",
+            session_id,
+            code="SALVAGE",
+        )
+        instruction = self._salvage_instruction or SALVAGE_INSTRUCTION
+        payload = list(messages) + [{"role": "user", "content": instruction}]
+        text = ""
+        try:
+            timeout = optional_float(SALVAGE_TIMEOUT_ENV, DEFAULT_SALVAGE_TIMEOUT_SECONDS)
+            result = await asyncio.wait_for(
+                self.provider.complete(payload),
+                timeout=timeout,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("Salvage completion failed (%s); using deterministic digest", e)
+        else:
+            raw = (result or "").strip()
+            clean, attempted_calls = UnifiedResponseFormatter.process_response(raw)
+            if attempted_calls:
+                logger.info(
+                    "Salvage reply contained %d tool call(s); discarding.", len(attempted_calls)
+                )
+            text = "" if _is_degenerate_message(clean) else clean.strip()
+        if not text:
+            text = self._salvage_digest(messages)
+        if not text:
+            return
+        logger.info(
+            "SALVAGE: reason=%s iteration=%d produced %d chars", reason, iteration, len(text)
+        )
+        yield r.message_event(text, session_id, partial=False, iteration=max(1, iteration))
+        self._last_emitted_message = text
+
+    async def _maybe_summarize_heavy_output(
+        self, session_id: str, tool_name: str, result: Any
+    ) -> str | None:
+        return None
 
     def accept(self) -> int:
         self._accept_sequence += 1
@@ -83,9 +183,13 @@ class SimpleLoop:
         plan_context: str = "",
         model_override: str | None = None,
         repo_map: str | None = None,
+        skills_section: str | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[Event]:
         sequence = self.accept()
         self._last_emitted_message = None
+        if hasattr(self.provider, "_reset_cumulative_usage"):
+            self.provider._reset_cumulative_usage()
         _original_model = self.provider.model
         if model_override and model_override != self.provider.model:
             self.provider.model = model_override
@@ -98,6 +202,7 @@ class SimpleLoop:
                 plan_context,
                 sequence,
                 repo_map,
+                skills_section=skills_section,
             ):
                 yield ev
         finally:
@@ -113,21 +218,21 @@ class SimpleLoop:
         plan_context: str,
         sequence: int,
         repo_map: str | None,
+        skills_section: str | None = None,
     ) -> AsyncIterator[Event]:
         model = self.provider.model
         mode_config = AGENT_MODES.get(mode)
         allowed_tools = mode_config.allowed_tools if mode_config else None
         tool_choice = mode_config.tool_choice if mode_config else "auto"
 
-        system_prompt = "\n\n".join(
-            compose_system_context(
-                default_template_sections(
-                    mode=mode,
-                    workspace_root=self.config.workspace_root,
-                    max_context_tokens=self.config.max_context_tokens,
-                )
-            )
+        sections = default_template_sections(
+            mode=mode,
+            workspace_root=self.config.workspace_root,
+            max_context_tokens=self.config.max_context_tokens,
         )
+        if skills_section:
+            sections.append(skills_section)
+        system_prompt = "\n\n".join(compose_system_context(sections))
 
         resolver = SchemaResolver(self.tool_registry, seed=build_mode_tool_seed(allowed_tools))
         registered_tools = set(resolver.active_names())
@@ -153,6 +258,19 @@ class SimpleLoop:
                 history, system_prompt, prompt, model, plan_context, session_id, mode, repo_map
             )
         if self.context_manager.is_context_exhausted(messages, model):
+            yield r.turn_manifest(
+                {
+                    "completed": False,
+                    "stalled": False,
+                    "remaining": [],
+                    "answered": False,
+                    "created": [],
+                    "modified": [],
+                    "any_tool_succeeded": False,
+                    "summary": "[Context exhausted]",
+                },
+                session_id,
+            )
             yield r.error(
                 "Context window exhausted",
                 session_id,
@@ -167,16 +285,79 @@ class SimpleLoop:
         created_files: set[str] = set()
         files_edited: list[str] = []
         executed_calls: set[tuple[str, str]] = set()
+        executed_call_status: dict[tuple[str, str], bool] = {}
+        read_files: set[str] = set()
         any_tool_succeeded = False
+        stall_count = 0
+        stalled = False
+        doomed = False
         doom_run = 0
         last_doom_sig: tuple[str, str] | None = None
+        consecutive_failures = 0
+        reflimit = int(getattr(self.config, "agent_reflection_limit", 0) or 4)
+        progress_steps: list[dict] = []
         max_steps = int(getattr(self.config, "agent_max_steps", 0) or MAX_STEPS_DEFAULT)
+
+        def _param_detail(params: dict) -> str:
+            if not isinstance(params, dict):
+                return ""
+            for key in ("command", "path", "filepath", "pattern", "query", "name", "url"):
+                val = params.get(key)
+                if isinstance(val, str) and val.strip():
+                    flat = " ".join(val.strip().split())
+                    return flat[:48] + ("\u2026" if len(flat) > 48 else "")
+            return ""
+
+        def _emit_progress(tool_name: str, success: bool, detail: str = "") -> Event:
+            label = _activity_label(tool_name, len(progress_steps) + 1, detail)
+            if progress_steps and progress_steps[-1].get("status") == "active":
+                progress_steps[-1] = {
+                    "label": label,
+                    "status": "done" if success else "error",
+                    "tool": tool_name,
+                }
+            else:
+                progress_steps.append(
+                    {
+                        "label": label,
+                        "status": "done" if success else "error",
+                        "tool": tool_name,
+                    }
+                )
+            done = sum(1 for s in progress_steps if s["status"] == "done")
+            percent = round(done * 100 / max(1, len(progress_steps)))
+            return r.progress(
+                percent, label, session_id, iteration=iteration, steps=list(progress_steps)
+            )
+
+        def _emit_progress_running(tool_name: str, detail: str = "") -> Event:
+            label = _activity_label(tool_name, len(progress_steps) + 1, detail)
+            progress_steps.append({"label": label, "status": "active", "tool": tool_name})
+            done = sum(1 for s in progress_steps if s["status"] == "done")
+            percent = round(done * 100 / max(1, len(progress_steps)))
+            return r.progress(
+                percent, label, session_id, iteration=iteration, steps=list(progress_steps)
+            )
 
         while iteration < max_steps:
             if self.is_cancelled(sequence):
+                yield r.turn_manifest(
+                    {
+                        "completed": False,
+                        "stalled": False,
+                        "remaining": [],
+                        "answered": False,
+                        "created": sorted(created_files),
+                        "modified": files_edited,
+                        "any_tool_succeeded": any_tool_succeeded,
+                        "summary": "[Cancelled by user]",
+                    },
+                    session_id,
+                )
                 yield r.warning("Request cancelled", session_id, code="CANCELLED")
                 return
-            if iteration > 0 and iteration % max(1, max_steps // 20) == 0:
+            nudge_step = max_steps - 5 if max_steps > 5 else max_steps - 1
+            if iteration > 0 and iteration == nudge_step:
                 messages.append({"role": "user", "content": MAX_STEPS_PROMPT})
                 yield r.warning(MAX_STEPS_PROMPT, session_id, code="MAX_STEPS")
 
@@ -216,6 +397,19 @@ class SimpleLoop:
                     turn_errored = True
                 yield event
             if turn_errored:
+                yield r.turn_manifest(
+                    {
+                        "completed": False,
+                        "stalled": False,
+                        "remaining": [],
+                        "answered": False,
+                        "created": sorted(created_files),
+                        "modified": files_edited,
+                        "any_tool_succeeded": any_tool_succeeded,
+                        "summary": "[Turn ended with an error]",
+                    },
+                    session_id,
+                )
                 return
             if context_exceeded:
                 yield r.warning(
@@ -237,7 +431,11 @@ class SimpleLoop:
                 response_text, native_tool_calls or None
             )
 
-            if clean_response:
+            if (
+                clean_response
+                and not _is_degenerate_message(clean_response)
+                and clean_response != self._last_emitted_message
+            ):
                 yield r.message_event(
                     clean_response, session_id, partial=False, iteration=iteration
                 )
@@ -247,6 +445,13 @@ class SimpleLoop:
                 continue
             if not tool_calls:
                 break  # emergent stop
+
+            if self.tool_registry:
+                for tc in tool_calls:
+                    t_name = tc.get("tool")
+                    if t_name and self.tool_registry.get(t_name):
+                        resolver.request_tool(t_name)
+            registered_tools = set(resolver.active_names())
 
             valid_calls, invalid_calls = validate_tool_calls(tool_calls, registered_tools)
             if invalid_calls:
@@ -267,17 +472,29 @@ class SimpleLoop:
                         ),
                     }
                 )
+                stall_count += 1
+                if stall_count >= 2:
+                    stalled = True
+                    break
                 continue
 
             messages.append({"role": "assistant", "content": response_text or ""})
 
-            doomed = False
+            executed_any_call_this_turn = False
             for tc in valid_calls:
                 tool_name = tc.get("tool")
                 if not tool_name:
                     continue
                 tool_params = normalize_file_params(tc.get("params", {}), tool_name)
                 sig = (tool_name, _json_sig(tool_params))
+
+                is_dup = sig in executed_calls
+                has_substantive_answer = bool(
+                    self._last_emitted_message
+                    and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
+                )
+                if is_dup and has_substantive_answer:
+                    continue
 
                 if sig == last_doom_sig:
                     doom_run += 1
@@ -286,15 +503,23 @@ class SimpleLoop:
                     last_doom_sig = sig
                 if doom_run >= self._doom_threshold():
                     yield r.warning(
-                        f"The same tool call (same name and input) has repeated {doom_run} "
-                        "times in a row. The turn is stopping so a human can approve or end it.",
+                        f"No new tool work for several consecutive iterations: the same tool call "
+                        f"(same name and input) has repeated {doom_run} times in a row. "
+                        "The turn is stopping so a human can approve or end it.",
                         session_id,
                         code="DOOM_LOOP",
                     )
                     doomed = True
                     break
 
-                if sig in executed_calls:
+                if is_dup:
+                    from .loop import _params_label
+
+                    prev_success = executed_call_status.get(sig, True)
+                    label = _params_label(tool_params, tool_name)
+                    tag = f"{tool_name}({label}) [failed]" if not prev_success else (f"{tool_name}({label})" if label else tool_name)
+                    warn_msg = f"Tool '{tag}' already completed with identical params this turn; skipping."
+                    yield r.warning(warn_msg, session_id, code="DUPLICATE_CALL")
                     messages.append(
                         {
                             "role": "user",
@@ -310,6 +535,15 @@ class SimpleLoop:
                     tool_name, tool_params, created_files, self.config.workspace_root
                 )
                 if reject_msg:
+                    consecutive_failures += 1
+                    if consecutive_failures >= reflimit:
+                        yield r.error(
+                            f"Too many errors ({consecutive_failures}).",
+                            session_id,
+                            code="REFLECTION_LIMIT",
+                            recoverable=True,
+                        )
+                        return
                     yield r.warning(
                         f"Tool '{tool_name}' rejected: {reject_msg}",
                         session_id,
@@ -318,19 +552,32 @@ class SimpleLoop:
                     messages.append({"role": "user", "content": f"[Tool rejected] {reject_msg}"})
                     continue
 
-                if tool_name == "file_write" and self._replay_write(session_id, tool_params):
-                    target = tool_params.get("filepath") or tool_params.get("path") or ""
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                f"File rewrite blocked: '{target}' was already written this "
-                                "session with identical content. Read it first, then use file_edit."
-                            ),
-                        }
-                    )
+                target = tool_params.get("filepath") or tool_params.get("path") or ""
+
+                if tool_name == "file_write" and target and (target in created_files or self._replay_write(session_id, tool_params)):
+                    warn_msg = f"File rewrite blocked: '{target}' was already written this turn. Read it first, then use file_edit."
+                    yield r.warning(warn_msg, session_id, code="REWRITE_BLOCKED")
+                    messages.append({"role": "user", "content": warn_msg})
                     continue
 
+                if not getattr(self.config, "auto_overwrite", True) and tool_name == "file_write" and target:
+                    resolved_p = (Path(self.config.workspace_root) / target).resolve()
+                    if resolved_p.is_file() and not tool_params.get("overwrite"):
+                        warn_msg = f"Tool 'file_write' overwrite denied: '{target}' already exists and auto_overwrite is disabled. To overwrite, specify overwrite=true."
+                        yield r.warning(warn_msg, session_id, code="OVERWRITE_DENIED")
+                        messages.append({"role": "user", "content": f"[Tool rejected] {warn_msg}"})
+                        continue
+                elif getattr(self.config, "auto_overwrite", True) and tool_name == "file_write":
+                    tool_params.setdefault("overwrite", True)
+
+                if not getattr(self.config, "auto_risky", True) and tool_name == "file_delete" and target:
+                    warn_msg = f"Tool 'file_delete' delete denied: '{target}' was not deleted because auto_risky is disabled."
+                    yield r.warning(warn_msg, session_id, code="DELETE_DENIED")
+                    messages.append({"role": "user", "content": f"[Tool rejected] {warn_msg}"})
+                    continue
+
+                detail = _param_detail(tool_params)
+                yield _emit_progress_running(tool_name, detail)
                 yield r.tool_call(tool_name, tool_params, session_id)
                 result, duration_ms = await execute_tool(
                     self.tool_registry,
@@ -339,6 +586,17 @@ class SimpleLoop:
                     self.config.workspace_root,
                     mode,
                 )
+                if result.output and len(result.output) > MAX_TOOL_OUTPUT_BASELINE:
+                    compacted_out, stats = compact_tool_output(result.output)
+                    result.output = compacted_out
+                    if stats.trimmed:
+                        if not result.metadata:
+                            result.metadata = {}
+                        result.metadata["trim"] = {
+                            "charsRemoved": stats.chars_removed,
+                            "tokensSaved": stats.tokens_saved,
+                            "reason": stats.reason,
+                        }
                 metadata = build_tool_metadata(
                     tool_name, tool_params, result, duration_ms, self.config.workspace_root
                 )
@@ -350,8 +608,13 @@ class SimpleLoop:
                     error=result.error or "",
                     metadata=metadata,
                 )
+                yield _emit_progress(tool_name, result.success, detail)
                 executed_calls.add(sig)
+                executed_call_status[sig] = result.success
+                executed_any_call_this_turn = True
+                stall_count = 0
                 if result.success:
+                    consecutive_failures = 0
                     any_tool_succeeded = True
                     p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
@@ -359,7 +622,18 @@ class SimpleLoop:
                     if tool_name in ("file_write", "file_edit") and p:
                         files_edited.append(p)
                     if tool_name == "file_read" and p:
+                        read_files.add(p)
                         record_read(session_id, p)
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= reflimit:
+                        yield r.error(
+                            f"Too many errors ({consecutive_failures}).",
+                            session_id,
+                            code="REFLECTION_LIMIT",
+                            recoverable=True,
+                        )
+                        return
 
                 for ev in await post_execution_hooks(
                     tool_name, tool_params, result, self.config.workspace_root, session_id
@@ -381,14 +655,72 @@ class SimpleLoop:
                 )
             if doomed:
                 break
+            if not executed_any_call_this_turn:
+                has_substantive_answer = bool(
+                    self._last_emitted_message
+                    and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
+                )
+                if has_substantive_answer:
+                    break
+                stall_count += 1
+                if stall_count >= 2:
+                    yield r.warning(
+                        "No new tool work for several consecutive iterations; finalizing turn.",
+                        session_id,
+                        code="STALL",
+                    )
+                    stalled = True
+                    break
+
+        salvaged = False
+        if (stalled or doomed or iteration >= max_steps) and len(
+            (self._last_emitted_message or "").strip()
+        ) < SUMMARY_MIN_CHARS:
+            async for ev in self._salvage_final_answer(
+                session_id=session_id,
+                messages=messages,
+                reason="no recent progress" if stalled else "repetition limit",
+                iteration=iteration,
+            ):
+                yield ev
+            salvaged = True
 
         token_info = self.context_manager.get_token_info(messages, model)
         # A successful tool call (e.g. bash creating files) is real work even
         # when it isn't a tracked file_write/file_edit — never report "Turn
         # finished" (implying nothing happened) when a tool actually succeeded.
         has_file_work = bool(created_files or files_edited or any_tool_succeeded)
-        completed = bool(has_file_work or iteration > 0 or self._last_emitted_message)
-        message = "Request processed successfully" if has_file_work else "Turn finished"
+        substantive_answer = bool(
+            self._last_emitted_message
+            and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
+        )
+        is_stalled = bool(stalled or doomed)
+        completed = False if is_stalled else bool(salvaged or has_file_work or iteration > 0 or substantive_answer)
+        message = "Request processed with best-effort summary" if salvaged else ("Request processed successfully" if has_file_work else "Turn finished")
+
+        _scan = None
+        if mode == PLAN_MODE:
+            root = Path(self.config.workspace_root or ".")
+            plan_exists = (root / "plan.md").is_file()
+            todo_exists = (root / "todo.md").is_file()
+            missing = []
+            if not plan_exists:
+                missing.append("plan.md")
+            if not todo_exists:
+                missing.append("todo.md")
+            _scan = {
+                "present": [p for p in ("plan.md", "todo.md") if (root / p).is_file()],
+                "missing": missing,
+                "plan_md": plan_exists,
+                "todo_md": todo_exists,
+            }
+            if "plan.md" in missing and not (stalled or doomed):
+                message += (
+                    "\n[Not implemented] Plan artifact not written: plan.md. "
+                    "The plan output above is a proposal only; run in plan mode "
+                    "again to write plan.md."
+                )
+
         elapsed_ms = max(1000, int((time.time() - start_time) * 1000))
         cum_usage: dict = getattr(self.provider, "_cumulative_usage", {})
         prompt_tokens = cum_usage.get("prompt_tokens") or token_info.used
@@ -398,17 +730,32 @@ class SimpleLoop:
         is_estimated = cum_usage.get("total_tokens", 0) == 0
         run_total = cum_usage.get("total_tokens", 0) or token_info.used
 
+        written = set(created_files) | set(files_edited)
+        verified = bool(written and any(f in read_files for f in written))
+
+        manifest_data = {
+            "completed": completed,
+            "stalled": is_stalled,
+            "remaining": (
+                ["Plan artifacts not written: " + ", ".join(_scan["missing"]) + "."]
+                if _scan and "plan.md" in _scan.get("missing", [])
+                else []
+            ),
+            "answered": substantive_answer or salvaged,
+            "created": sorted(created_files),
+            "modified": files_edited,
+            "verified": verified,
+            "any_tool_succeeded": any_tool_succeeded,
+            "summary": self._last_emitted_message or "",
+        }
+        if _scan:
+            manifest_data["plan_artifacts"] = _scan
+
         yield r.turn_manifest(
-            {
-                "completed": completed,
-                "created": sorted(created_files),
-                "modified": files_edited,
-                "any_tool_succeeded": any_tool_succeeded,
-                "summary": self._last_emitted_message or "",
-            },
+            manifest_data,
             session_id,
         )
-        yield r.success(
+        success_event = r.success(
             message,
             session_id,
             iteration,
@@ -431,6 +778,8 @@ class SimpleLoop:
             },
             elapsed_ms=elapsed_ms,
         )
+        success_event.data["manifest"] = manifest_data
+        yield success_event
 
     def _doom_threshold(self) -> int:
         try:
@@ -450,11 +799,58 @@ class SimpleLoop:
         except Exception:
             return False
 
+    async def _maybe_summarize(
+        self,
+        history: list[Message],
+        session_id: str,
+        messages: list[dict],
+        **kwargs: Any,
+    ) -> AsyncIterator[Event]:
+        async for ev in self._compact(session_id, history, messages):
+            yield ev
+
+    def _rebuild_messages(
+        self,
+        messages: list[dict],
+        base_len: int,
+        history: list[Message],
+        system_prompt: str,
+        prompt: str,
+        model: str,
+        plan_context: str = "",
+        use_system_prompt: bool = True,
+        repo_map: str | None = None,
+        session_id: str = "",
+        mode: str = BUILD_MODE,
+        **kwargs: Any,
+    ) -> list[dict]:
+        from .compaction_service import compact_live_tail
+
+        tail = [dict(m) for m in messages[base_len:]] if base_len < len(messages) else []
+        compact_live_tail(tail)
+        base = self.context_manager.build_messages(
+            history,
+            system_prompt,
+            prompt,
+            model,
+            summary=self._summary,
+            plan_block=plan_context,
+            use_system_prompt=use_system_prompt,
+            repo_map=repo_map,
+            session_id=session_id,
+            mode=mode,
+        )
+        return list(base) + tail
+
     async def _compact(self, session_id, history, messages) -> AsyncIterator[Event]:
         try:
             from .compaction_service import CompactionService, CompactionTrigger
 
-            service = CompactionService(self.config, self.provider, self.context_manager)
+            service = (
+                self.compaction_service
+                if self.compaction_service is not None
+                else CompactionService(self.config, self.provider, self.context_manager)
+            )
             emitted: list[Event] = []
 
             async def _emit(ev: Event) -> None:

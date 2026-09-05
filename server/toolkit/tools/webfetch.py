@@ -14,9 +14,9 @@ from server.config.constants import (
     PERMISSION_NETWORK,
     RISK_LOW,
     TOOL_DOMAIN_WEB,
-    URL_SCHEME_RE,
     WEBFETCH_MAX_BYTES_ENV,
     WEBFETCH_TIMEOUT_ENV,
+    is_http_url,
 )
 from server.config.env import optional_int
 
@@ -139,7 +139,7 @@ class WebfetchTool(BaseTool):
         url = params.get("url", "").strip()
         if not url:
             return ToolResult(success=False, error="No URL provided")
-        if not URL_SCHEME_RE.match(url):
+        if not is_http_url(url):
             return ToolResult(success=False, error=f"Only http/https URLs are supported: {url}")
         try:
             max_chars = int(params.get("max_chars", _DEFAULT_MAX_CHARS))

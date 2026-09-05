@@ -234,8 +234,9 @@ class TestFetchPage:
         body = "<html><body><main><h1>Title</h1><p>Some body text.</p></main></body></html>"
 
         class _Resp:
-            headers = {"content-type": "text/html"}
-            text = body
+            def __init__(self):
+                self.headers = {"content-type": "text/html"}
+                self.text = body
 
             def raise_for_status(self):
                 return None
@@ -269,8 +270,9 @@ class TestFetchPage:
         raw = "a" * 500
 
         class _Resp:
-            headers = {"content-type": "text/plain"}
-            text = raw
+            def __init__(self):
+                self.headers = {"content-type": "text/plain"}
+                self.text = raw
 
             def raise_for_status(self):
                 return None
@@ -299,8 +301,9 @@ class TestFetchPage:
         import httpx
 
         class _Resp:
-            headers = {"content-type": "text/html"}
-            text = ""
+            def __init__(self):
+                self.headers = {"content-type": "text/html"}
+                self.text = ""
 
             def raise_for_status(self):
                 raise httpx.HTTPStatusError("404", request=None, response=None)

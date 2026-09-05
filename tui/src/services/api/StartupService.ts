@@ -52,6 +52,7 @@ export class StartupService extends BaseApiService {
   }
 
   private isBackendNotReady(err: unknown): boolean {
+    if (err instanceof ApiError && err.status === 426) return true;
     return err instanceof Error && err.message.startsWith('Backend error 426');
   }
 

@@ -38,6 +38,4 @@ Do not assume workspace file structure. Discover files and hierarchy on demand:
 - `list_dir(path)`: Explore directory hierarchy and folders.
 - `file_read(path, offset, limit, outline)`: Inspect targeted line slices or symbol outlines without loading whole files.
 - `websearch(query)` / `webfetch(url)`: Research external documentation or APIs when needed.
-
-# TOOL GUIDELINES (ON-DEMAND)
-A lean set of tools is active. When you need the full parameter schema, usage constraints, or guidelines for any tool, call `get_tool_definition(tool_name)` on demand. Use `discover_capabilities()` to see all available tools."""
+"""

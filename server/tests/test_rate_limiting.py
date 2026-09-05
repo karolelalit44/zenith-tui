@@ -327,3 +327,15 @@ def test_catalog_exposes_gemini_rate_limit(tmp_path):
         assert catalog["providers"]["gemini"]["rate_limit"] == {"requests_per_minute": 15}
     finally:
         invalidate_catalog_cache()
+
+
+def test_parse_retry_delay_units():
+    from server.providers.llm_provider import _parse_retry_delay
+
+    assert _parse_retry_delay("retry in 10s") == 10.0
+    assert _parse_retry_delay("Please wait 500ms") == 0.5
+    assert _parse_retry_delay("retry in 2 minutes") == 120.0
+    assert _parse_retry_delay("retry in 1.5 hours") == 5400.0
+    assert _parse_retry_delay("retryDelay: 3000ms") == 3.0
+    assert _parse_retry_delay("No retry duration here") is None
+

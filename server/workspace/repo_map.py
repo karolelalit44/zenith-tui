@@ -451,3 +451,39 @@ class RepoMap:
             child_prefix = prefix + ("" if prefix == "" else "    " if is_last else "│   ")
             lines.append(self._format_tree(child, child_prefix, i == len(children) - 1))
         return "\n".join(lines)
+
+    def get_file_count(self) -> int:
+        return len(self._iter_files())
+
+    def get_repo_map(
+        self,
+        max_tokens: int = 1024,
+        chat_files: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> str:
+        if force_refresh:
+            self._file_cache = None
+            self._symbol_cache.clear()
+
+        all_files = self._iter_files()
+        if not all_files:
+            return ""
+
+        structure = self.get_structure()
+        tree_text = self._format_tree(structure)
+        base_text = f"Directory Structure:\n{tree_text}"
+
+        if self._count_tokens(base_text) > max_tokens:
+            lines = base_text.splitlines()
+            while lines and self._count_tokens("\n".join(lines)) > max_tokens:
+                lines.pop()
+            return "\n".join(lines)
+
+        ranked_files = self._rank_files(all_files, chat_files)
+        blocks = self._build_symbol_blocks(ranked_files, max_files=len(ranked_files))
+        fitted = self._fit_blocks_to_budget(blocks, base_text, max_tokens)
+        if fitted:
+            symbols_text = "".join(b[1] for b in fitted)
+            return f"{base_text}\n\nKey Definitions:{symbols_text}"
+        return base_text
+

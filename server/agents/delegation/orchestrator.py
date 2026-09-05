@@ -426,8 +426,10 @@ class CaptainOrchestrator:
                 if salvaged:
                     result.summary = salvaged
                     result.unverified = [
-                        "Mission hit the time budget mid-investigation; "
-                        "summary above is best-effort from gathered evidence."
+                        (
+                            "Mission hit the time budget mid-investigation; "
+                            "summary above is best-effort from gathered evidence."
+                        )
                     ] + list(result.unverified)
             elif run.last_error:
                 result = assemble_result(

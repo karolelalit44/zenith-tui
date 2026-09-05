@@ -212,14 +212,14 @@ class TestModeGating:
 
 
 class TestReadOnlyModeGating:
-    READ_ONLY_MUTATION_TOOLS = [
+    READ_ONLY_MUTATION_TOOLS = (
         "file_write",
         "file_edit",
         "file_delete",
         "bash",
         "todo",
         "job_kill",
-    ]
+    )
 
     def test_read_only_mode_schemas_exclude_all_mutation_tools(self):
         reg = create_default_registry()

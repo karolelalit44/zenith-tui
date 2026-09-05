@@ -147,6 +147,14 @@ class AppSettings(BaseModel):
         default=True,
         description="Automatically allow risky operations (file deletion, risky commands) without confirmation",
     )
+    repo_map_enabled: bool = Field(
+        default=True,
+        description="Whether repository map generation is enabled for context",
+    )
+    repo_map_tokens: int | None = Field(
+        default=None,
+        description="Explicit token budget for repo map; if None, scales automatically with context window",
+    )
     plan_model: str | None = Field(
         default=None, description="Optional separate model for plan mode (e.g. 'gpt-4o-mini')"
     )

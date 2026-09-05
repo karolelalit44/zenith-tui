@@ -28,18 +28,27 @@ function modelFromInfo(info: ProviderModelInfo): ModelInfo {
 export class ProviderRepository extends BaseApiService {
   private _listCache: ProviderListResponse | null = null;
   private _localActiveProviderId: ProviderId | null = null;
+  private _inFlightFetch: Promise<ProviderListResponse | null> | null = null;
 
-  public async fetchProviderList(): Promise<ProviderListResponse | null> {
-    try {
-      const data = await this.get<ProviderListResponse>('/startup/providers', {
-        timeout: appConfig.timeout.fetchMs,
-      });
-      if (data && Array.isArray(data.all)) {
-        this._listCache = data;
-        return data;
-      }
-    } catch {}
-    return null;
+  public async fetchProviderList(force = false): Promise<ProviderListResponse | null> {
+    if (!force && this._inFlightFetch) {
+      return this._inFlightFetch;
+    }
+    this._inFlightFetch = (async () => {
+      try {
+        const data = await this.get<ProviderListResponse>('/startup/providers', {
+          timeout: appConfig.timeout.fetchMs,
+        });
+        if (data && Array.isArray(data.all)) {
+          this._listCache = data;
+          return data;
+        }
+      } catch {}
+      return null;
+    })().finally(() => {
+      this._inFlightFetch = null;
+    });
+    return this._inFlightFetch;
   }
 
   public getProviderInfoList(): ProviderInfo[] {
@@ -58,8 +67,8 @@ export class ProviderRepository extends BaseApiService {
     return this.getProviderInfoList().find((item) => item.id === id);
   }
 
-  public async refreshFromBackend(): Promise<ProviderListResponse | null> {
-    return this.fetchProviderList();
+  public async refreshFromBackend(force = false): Promise<ProviderListResponse | null> {
+    return this.fetchProviderList(force);
   }
 
   /** Fetch the lightweight provider catalog (id/name/type only — no models). */

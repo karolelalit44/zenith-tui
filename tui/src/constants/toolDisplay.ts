@@ -69,9 +69,6 @@ export const TOOL_META_REPEAT_COUNT = 'repeatCount';
 /** ToolStep metadata flag marking an execution that never completed. */
 export const TOOL_META_INTERRUPTED = 'interrupted';
 
-/** Matches cancellation/interruption phrasing in tool errors. */
-export const CANCELLED_ERROR_PATTERN = /\b(cancel|interrupt|abort)/i;
-
 export const TOOL_VERB_LABELS: Record<string, string> = {
   [FILE_WRITE_TOOL]: 'Create',
   create_file: 'Create',
@@ -208,7 +205,7 @@ function formatBashStatus(source: StatusSource): string {
   const durSec =
     typeof source.metadata.duration_ms === 'number' ? Math.max(1, Math.floor(source.metadata.duration_ms / 1000)) : 0;
   const duration = durSec > 0 ? ` (${formatDuration(durSec * 1000)})` : '';
-  return ` Ran command${duration}`;
+  return `Ran command${duration}`;
 }
 
 function formatBackgroundStatus(source: StatusSource): string {
@@ -242,7 +239,8 @@ export function getToolStepStatusText(event: {
   metadata: Record<string, unknown>;
   params?: Record<string, unknown>;
 }): string {
-  if (!event.success) {
+  const isShell = SHELL_TOOL_SET.has(event.tool.toLowerCase());
+  if (!isShell && !event.success) {
     return `✗ Failed`;
   }
 

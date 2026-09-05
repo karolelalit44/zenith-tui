@@ -53,7 +53,7 @@ DOOM_LOOP_THRESHOLD = (
     3  # consecutive identical (name + input) tool calls → ask permission before continuing
 )
 MAX_STEPS_DEFAULT = (
-    1_000_000  # advisory step cap (opencode/agent.steps default Infinity); never hit in practice
+    25  # safety net iteration cap for a single turn; triggers salvage if budget exhausted
 )
 MAX_STEPS_PROMPT = (
     "You have been working on this task for a very long time. Wrap up: finish the current "

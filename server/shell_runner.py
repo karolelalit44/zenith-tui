@@ -132,13 +132,13 @@ async def run_shell_command_streamed(
                 remaining = deadline - _time.monotonic()
                 if remaining <= 0:
                     process.kill()
-                    raise asyncio.TimeoutError(f"command timed out after {timeout}s")
+                    raise TimeoutError(f"command timed out after {timeout}s")
                 pending = asyncio.ensure_future(out_q.get())
                 done, _ = await asyncio.wait({pending}, timeout=remaining)
                 if pending not in done:
                     pending.cancel()
                     process.kill()
-                    raise asyncio.TimeoutError(f"command timed out after {timeout}s")
+                    raise TimeoutError(f"command timed out after {timeout}s")
                 ev = pending.result()
             else:
                 ev = await out_q.get()

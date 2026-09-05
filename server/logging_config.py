@@ -50,24 +50,45 @@ ROLE_COLORS: dict[str, str] = {
     "tool": BRIGHT_BLUE,
 }
 
+
+def _clamp_single_line(text: str, max_chars: int = 120) -> str:
+    """Collapse to one line and hard-clamp its width.
+
+    Prevents wide tool descriptions from exceeding terminal line width, which
+    on Windows (CRLF) makes subsequent lines visually overwrite earlier ones.
+    """
+    if not text:
+        return text
+    flat = " ".join(text.split())
+    if len(flat) <= max_chars:
+        return flat
+    return flat[: max_chars - 1].rstrip() + "…"
+
 # Operational patterns to highlight in INFO logs so critical milestones stand out
-HIGHLIGHT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\bPROMPT\.RECEIVED\b"), f"{BOLD}{BRIGHT_CYAN}PROMPT.RECEIVED{RESET}"),
-    (re.compile(r"\bPROMPT\.RESOLVED\b"), f"{BOLD}{CYAN}PROMPT.RESOLVED{RESET}"),
-    (re.compile(r"\b_execute START\b"), f"{BOLD}{BRIGHT_MAGENTA}_execute START{RESET}"),
-    (re.compile(r"\bAPI CALL\b"), f"{BOLD}{BRIGHT_CYAN}API CALL{RESET}"),
-    (re.compile(r"\bAPI RESPONSE\b"), f"{BOLD}{BRIGHT_GREEN}API RESPONSE{RESET}"),
-    (re.compile(r"\bAPI STREAM OPENED\b"), f"{BOLD}{BRIGHT_BLUE}API STREAM OPENED{RESET}"),
-    (re.compile(r"\bAPI FIRST CHUNK\b"), f"{DIM}{BRIGHT_CYAN}API FIRST CHUNK{RESET}"),
-    (re.compile(r"\[TOOL CALL\]"), f"{BOLD}{BRIGHT_YELLOW}[TOOL CALL]{RESET}"),
-    (re.compile(r"\[TOOL RESULT\]"), f"{BOLD}{BRIGHT_BLUE}[TOOL RESULT]{RESET}"),
-    (re.compile(r"\[ASSISTANT MESSAGE\]"), f"{BOLD}{BRIGHT_WHITE}[ASSISTANT MESSAGE]{RESET}"),
-    (re.compile(r"\[THINKING\]"), f"{DIM}{BRIGHT_MAGENTA}[THINKING]{RESET}"),
-    (
-        re.compile(r"\bInjected (\d+) attachment block\(s\)"),
-        f"{BOLD}{BRIGHT_YELLOW}Injected \\1 attachment block(s){RESET}",
-    ),
-]
+EXACT_HIGHLIGHTS: dict[str, str] = {
+    "PROMPT.RECEIVED": f"{BOLD}{BRIGHT_CYAN}PROMPT.RECEIVED{RESET}",
+    "PROMPT.RESOLVED": f"{BOLD}{CYAN}PROMPT.RESOLVED{RESET}",
+    "_execute START": f"{BOLD}{BRIGHT_MAGENTA}_execute START{RESET}",
+    "API CALL": f"{BOLD}{BRIGHT_CYAN}API CALL{RESET}",
+    "API RESPONSE": f"{BOLD}{BRIGHT_GREEN}API RESPONSE{RESET}",
+    "API STREAM OPENED": f"{BOLD}{BRIGHT_BLUE}API STREAM OPENED{RESET}",
+    "API FIRST CHUNK": f"{DIM}{BRIGHT_CYAN}API FIRST CHUNK{RESET}",
+    "[TOOL CALL]": f"{BOLD}{BRIGHT_YELLOW}[TOOL CALL]{RESET}",
+    "[TOOL RESULT]": f"{BOLD}{BRIGHT_BLUE}[TOOL RESULT]{RESET}",
+    "[ASSISTANT MESSAGE]": f"{BOLD}{BRIGHT_WHITE}[ASSISTANT MESSAGE]{RESET}",
+    "[THINKING]": f"{DIM}{BRIGHT_MAGENTA}[THINKING]{RESET}",
+}
+_INJECTED_ATTACHMENT_RE = re.compile(r"\bInjected (\d+) attachment block\(s\)")
+_INJECTED_ATTACHMENT_REPL = f"{BOLD}{BRIGHT_YELLOW}Injected \\1 attachment block(s){RESET}"
+
+
+def highlight_info_message(msg: str) -> str:
+    for target, replacement in EXACT_HIGHLIGHTS.items():
+        if target in msg:
+            msg = msg.replace(target, replacement)
+    if "Injected " in msg and "attachment block" in msg:
+        msg = _INJECTED_ATTACHMENT_RE.sub(_INJECTED_ATTACHMENT_REPL, msg)
+    return msg
 
 
 class ColoredFormatter(logging.Formatter):
@@ -114,10 +135,7 @@ class ColoredFormatter(logging.Formatter):
             record.levelname = f"{BRIGHT_GREEN}{record.levelname:<7}{RESET}"
             record.name = f"{BRIGHT_CYAN}{record.name}{RESET}"
             if isinstance(record.msg, str) and "\033[" not in record.msg:
-                msg_str = record.msg
-                for pat, repl in HIGHLIGHT_PATTERNS:
-                    msg_str = pat.sub(repl, msg_str)
-                record.msg = msg_str
+                record.msg = highlight_info_message(record.msg)
 
             return super().format(record)
         finally:
@@ -155,6 +173,14 @@ class SafeStreamHandler(logging.StreamHandler):
             except Exception:
                 self.handleError(record)
 
+    def handleError(self, record: logging.LogRecord) -> None:
+        exc_type, exc_val, _ = sys.exc_info()
+        if exc_type is not None and issubclass(exc_type, (ValueError, OSError)):
+            msg = str(exc_val or "").lower()
+            if "closed" in msg or "i/o operation on closed file" in msg:
+                return
+        super().handleError(record)
+
 
 def format_model_payload(
     kwargs: dict[str, Any],
@@ -188,11 +214,13 @@ def format_model_payload(
         "",
         div_double,
         f"{BOLD}{BRIGHT_CYAN}>>> LLM OUTBOUND PAYLOAD [{call_type}]{RESET} {BOLD}model={model}{RESET}",
-        f"    {BRIGHT_BLACK}Messages:{RESET} {BOLD}{len(messages)}{RESET} | "
-        f"{BRIGHT_BLACK}Tools:{RESET} {BOLD}{len(tools)}{RESET} | "
-        f"{BRIGHT_BLACK}Temp:{RESET} {temp} | "
-        f"{BRIGHT_BLACK}MaxTokens:{RESET} {max_tok} | "
-        f"{BRIGHT_BLACK}ToolChoice:{RESET} {tool_choice}",
+        (
+            f"    {BRIGHT_BLACK}Messages:{RESET} {BOLD}{len(messages)}{RESET} | "
+            f"{BRIGHT_BLACK}Tools:{RESET} {BOLD}{len(tools)}{RESET} | "
+            f"{BRIGHT_BLACK}Temp:{RESET} {temp} | "
+            f"{BRIGHT_BLACK}MaxTokens:{RESET} {max_tok} | "
+            f"{BRIGHT_BLACK}ToolChoice:{RESET} {tool_choice}"
+        ),
         div_single,
     ]
 
@@ -296,7 +324,7 @@ def format_model_payload(
             if isinstance(tool, dict):
                 func = tool.get("function") or tool
                 t_name = func.get("name", "unknown")
-                t_desc = (func.get("description") or "").strip().split("\n")[0]
+                t_desc = _clamp_single_line((func.get("description") or "").strip().split("\n")[0])
                 params = func.get("parameters") or {}
                 props = list((params.get("properties") or {}).keys())
                 reqs = set(params.get("required") or [])
@@ -318,10 +346,18 @@ def log_model_payload(
     kwargs: dict[str, Any],
     call_type: str = "stream",
 ) -> None:
-    """Safe wrapper to log outbound model payload."""
+    """Safe wrapper to log outbound model payload.
+
+    Logs at DEBUG level by default. Set ZENITH_LOG_PAYLOADS=1 to force INFO.
+    """
+    if not logger.isEnabledFor(logging.DEBUG) and os.getenv("ZENITH_LOG_PAYLOADS", "").lower() not in ("1", "true", "yes"):
+        return
     try:
         payload_text = format_model_payload(kwargs, call_type=call_type)
-        logger.info(payload_text)
+        if os.getenv("ZENITH_LOG_PAYLOADS", "").lower() in ("1", "true", "yes"):
+            logger.info(payload_text)
+        else:
+            logger.debug(payload_text)
     except Exception as exc:
         model_name = kwargs.get("model") if isinstance(kwargs, dict) else "unknown"
         msgs_cnt = len(kwargs.get("messages") or []) if isinstance(kwargs, dict) else 0

@@ -66,6 +66,35 @@ class ProviderRegistry:
     def list_providers(self) -> list[str]:
         return list(self._providers.keys())
 
+    def update_provider(self, name: str, config: ProviderConfig) -> BaseProvider | None:
+        """Re-instantiate a single provider in-place without touching others."""
+        if not config.model or not config.model.strip():
+            self._providers.pop(name, None)
+            return None
+        try:
+            catalog_thinking = _model_supports_thinking(name, config.model)
+            model_defaults = _resolve_model_defaults(name, config.model)
+            provider = LLMProvider(
+                name=name,
+                api_key=config.api_key,
+                base_url=config.base_url,
+                model=config.model,
+                max_tokens=int(model_defaults["max_tokens"]),
+                temperature=model_defaults["temperature"],
+                enable_thinking=getattr(config, "enable_thinking", False) or catalog_thinking,
+                reasoning_budget=getattr(config, "reasoning_budget", None),
+                reasoning_effort=getattr(config, "reasoning_effort", None),
+            )
+            self._providers[name] = provider
+            return provider
+        except Exception as e:
+            logger.warning("Failed to update provider '%s': %s", name, e)
+            return self._providers.get(name)
+
+    def remove_provider(self, name: str) -> None:
+        """Remove a provider from the registry."""
+        self._providers.pop(name, None)
+
     @classmethod
     def from_config(
         cls, providers_config: dict[str, ProviderConfig], active_provider: str

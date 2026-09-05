@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 import logging
 import os
 import subprocess
 from pathlib import Path
-from server.config.env import optional_int
 
+from server.config.env import optional_int
 
 logger = logging.getLogger(__name__)
 _GIT_TIMEOUT_DEFAULT = 30

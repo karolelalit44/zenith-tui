@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 
 def build_tool_reference_hint(workspace_root: str = "") -> str:
     return (
-        "A lean set of tool schemas is active. "
-        "Call get_tool_definition('<tool_name>') on demand for detailed schemas and usage guidelines. "
-        "Call discover_capabilities() to list all available tools."
+        "A lean set of tool schemas is active this turn for direct use; the full capability "
+        "catalog is available on demand. "
+        "Call get_tool_definition('<tool_name>') for a tool's full parameter schema and usage "
+        "guidelines, and discover_capabilities() to list all available tools."
     )
 
 

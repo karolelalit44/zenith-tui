@@ -190,6 +190,7 @@ from .web import (
     WEBFETCH_MAX_BYTES_ENV,
     WEBFETCH_TIMEOUT_ENV,
     WEBSEARCH_TIMEOUT_ENV,
+    is_http_url,
 )
 
 __all__ = [
@@ -364,4 +365,5 @@ __all__ = [
     "WS_PATH",
     "ZENITH_IGNORE_FILE_NAME",
     "default_max_tokens_for_context",
+    "is_http_url",
 ]

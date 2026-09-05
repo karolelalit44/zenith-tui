@@ -62,16 +62,11 @@ export const ContextModal: React.FC<ContextModalProps> = ({
 
   const sampleFiles = WORKSPACE_FILES.filter((f) => !f.isDir).slice(0, 7);
 
-  const estimateFileTokens = (sizeFormatted: string | undefined): number => {
-    const sizeStr = sizeFormatted || '1.2 KB';
-    const match = sizeStr.match(/([\d.]+)\s*(KB|MB|GB)/i);
-    if (!match) return 300;
-    const value = Number.parseFloat(match[1]);
-    const unit = match[2].toUpperCase();
-    let bytes = value * 1024;
-    if (unit === 'MB') bytes = value * 1024 * 1024;
-    if (unit === 'GB') bytes = value * 1024 * 1024 * 1024;
-    return Math.round(bytes / 4);
+  const estimateFileTokens = (file: { sizeBytes?: number }): number => {
+    if (typeof file.sizeBytes === 'number' && file.sizeBytes > 0) {
+      return Math.round(file.sizeBytes / 4);
+    }
+    return 300;
   };
 
   return (
@@ -149,7 +144,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
           </Box>
         ) : (
           sampleFiles.map((f, idx) => {
-            const fileTokens = estimateFileTokens(f.sizeFormatted);
+            const fileTokens = estimateFileTokens(f);
             return (
               <Box key={idx} flexDirection="row" alignItems="center" width="100%">
                 <Box width={32}>

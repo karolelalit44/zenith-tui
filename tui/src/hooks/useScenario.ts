@@ -229,9 +229,6 @@ export function useScenario(): UseScenarioReturn {
 
       if (event.kind === 'warning') {
         const message = String(event.message || '');
-        if (message.includes('[System]')) {
-          return;
-        }
         if (lastWarningRef.current === message) {
           return;
         }

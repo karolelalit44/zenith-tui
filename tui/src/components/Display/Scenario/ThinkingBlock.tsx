@@ -14,12 +14,15 @@ interface ThinkingBlockProps {
 const getThoughtText = (thought: string | ThinkingThought): string =>
   typeof thought === 'string' ? thought : thought.text;
 
-const STATUS_THOUGHT_RE = /^Processing your request\b/i;
+function isStatusPlaceholder(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  return lower === 'processing your request' || lower.startsWith('processing your request');
+}
 
 function hasRealReasoning(event: ThinkingEvent): boolean {
   return event.thoughts.some((thought) => {
     const text = getThoughtText(thought);
-    return Boolean(text) && text.trim().length > 0 && !STATUS_THOUGHT_RE.test(text.trim());
+    return Boolean(text) && text.trim().length > 0 && !isStatusPlaceholder(text);
   });
 }
 
@@ -38,7 +41,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
   const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
   const firstRealThought = event.thoughts
     .map((thought) => getThoughtText(thought).trim())
-    .find((text) => text.length > 0 && !STATUS_THOUGHT_RE.test(text));
+    .find((text) => text.length > 0 && !isStatusPlaceholder(text));
   const preview =
     firstRealThought && firstRealThought.length >= 72 ? `${firstRealThought.slice(0, 71)}…` : firstRealThought;
 

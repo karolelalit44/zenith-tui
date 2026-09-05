@@ -67,7 +67,7 @@ async def service(home, test_config):
 
 async def _seed_turns(message_repo, session_id, turns=5, filler=40000):
     """Seed turn pairs with explicit timestamps so history ordering is deterministic."""
-    base = datetime.datetime(2026, 1, 1, 12, 0, 0)
+    base = datetime.datetime(2026, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
     for i in range(turns):
         await message_repo.create(
             Message(

@@ -10,12 +10,12 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from server.config.constants import (
-    EXPLORE_CUSTOM_FOCUS_MAX_CHARS,
-    EXPLORE_CUSTOM_NAME_MAX_CHARS,
-    EXPLORE_CUSTOM_ROLE_MAX_CHARS,
     APPOGEE_AGENT_ID,
     APPOGEE_AGENT_NAME,
     APPOGEE_AGENT_ROLE,
+    EXPLORE_CUSTOM_FOCUS_MAX_CHARS,
+    EXPLORE_CUSTOM_NAME_MAX_CHARS,
+    EXPLORE_CUSTOM_ROLE_MAX_CHARS,
     READ_ONLY_TOOLS,
 )
 

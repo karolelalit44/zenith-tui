@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from functools import wraps
+
 from server.config.loader import providers_requiring_key
 from server.config.settings import AppSettings
 from server.domain.errors import ConfigError

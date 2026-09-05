@@ -191,12 +191,14 @@ def test_format_model_payload_renders_messages_and_final_indicator():
 
 def test_log_model_payload_safety():
     mock_logger = MagicMock(spec=logging.Logger)
-    # Valid payload
+    mock_logger.isEnabledFor.return_value = True
+    # Valid payload — logged at DEBUG by default
     log_model_payload(mock_logger, {"model": "test", "messages": []})
-    mock_logger.info.assert_called_once()
+    mock_logger.debug.assert_called_once()
 
     # Even with weird arguments, does not crash
     mock_logger.reset_mock()
+    mock_logger.isEnabledFor.return_value = True
     log_model_payload(mock_logger, None)  # type: ignore[arg-type]
 
 
@@ -224,3 +226,25 @@ def test_setup_logging_initialization(tmp_path):
     content = log_file.read_text(encoding="utf-8")
     assert "\033[" not in content
     assert "Special colored message" in content
+
+
+def test_safe_stream_handler_closed_stream_suppressed():
+    from io import StringIO
+
+    from server.logging_config import SafeStreamHandler
+
+    s = StringIO()
+    handler = SafeStreamHandler(s)
+    s.close()
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="test message",
+        args=(),
+        exc_info=None,
+    )
+    # Emitting to a closed stream should be handled without raising unhandled ValueError
+    handler.emit(record)

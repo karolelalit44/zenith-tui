@@ -297,10 +297,17 @@ async def execute_tool(
     result = await tool_registry.execute(
         tool_name, tool_params, workspace_root, mode
     )
+    orig_len = len(result.output) if result.output else 0
     result.output, was_truncated = truncate_output(result.output or "", MAX_TOOL_OUTPUT_BASELINE)
     if was_truncated:
-        result.metadata = dict(result.metadata)
+        result.metadata = dict(result.metadata or {})
         result.metadata["truncated"] = True
+        chars_removed = max(0, orig_len - len(result.output or ""))
+        result.metadata["trim"] = {
+            "charsRemoved": chars_removed,
+            "tokensSaved": chars_removed // 4,
+            "reason": "truncated to baseline limit",
+        }
     duration_ms = int((_time.monotonic() - start) * 1000)
     logger.info(
         "TOOL RESULT: name=%s success=%s duration=%dms output_len=%d error=%s",

@@ -11,11 +11,13 @@ active workspace. Consumers:
 """
 
 from __future__ import annotations
+
 import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from server.workspace.ignore import get_matcher
 
 logger = logging.getLogger(__name__)

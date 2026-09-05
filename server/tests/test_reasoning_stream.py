@@ -13,6 +13,7 @@ New contract:
 """
 
 import asyncio
+import itertools
 
 from server.agents.llm_stream import (
     ReasoningEffort,
@@ -164,5 +165,5 @@ class TestAccumulateReasoningParts:
         assert isinstance(last["durationMs"], int)
         # Texts are monotonically growing (merged in place), not disjoint chunks.
         texts = [p["text"] for p in parts]
-        for earlier, later in zip(texts, texts[1:]):
+        for earlier, later in itertools.pairwise(texts):
             assert later.startswith(earlier)

@@ -188,6 +188,7 @@ NETWORK_COMMANDS: set[str] = {
 
 # ── Destructive commands (always blocked) ───────────────────────────────────
 DESTRUCTIVE_COMMANDS: set[str] = {
+    "dd",
     "mkfs",
     "fdisk",
     "parted",
@@ -241,34 +242,34 @@ DESTRUCTIVE_COMMANDS: set[str] = {
 
 # ── Dangerous command patterns (regex) ──────────────────────────────────────
 # Only truly dangerous patterns — not pipe/chaining detection.
-_DANGEROUS_PATTERNS: list[tuple[str, str]] = [
-    (r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\b", "Recursive force delete"),
-    (r"\bdel\s+/[sfq]\b", "Windows force delete"),
-    (r"\bchmod\s+777\b", "World-writable permissions"),
-    (r"\bchmod\s+-R\s+777\b", "Recursive world-writable permissions"),
-    (r"\bchown\s+.*\s+/", "Changing ownership of root paths"),
-    (r"curl\b.*\|\s*(ba)?sh\b", "Piping remote content to shell"),
-    (r"wget\b.*\|\s*(ba)?sh\b", "Piping remote content to shell"),
-    (r"curl\b.*\|\s*sudo\s+(ba)?sh\b", "Sudo piping remote content to shell"),
-    (r"\bgit\s+push\s+.*--force\b", "Force push to remote"),
-    (r"\bgit\s+push\s+.*-f\b", "Force push to remote"),
-    (r"\bgit\s+reset\s+--hard\b", "Hard reset (loses changes)"),
-    (r"\bgit\s+clean\s+-fd\b", "Git clean untracked files"),
-    (r"\bgit\s+checkout\s+.*\s+--force\b", "Force checkout (discards changes)"),
+_DANGEROUS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\b", re.IGNORECASE), "Recursive force delete"),
+    (re.compile(r"\bdel\s+/[sfq]\b", re.IGNORECASE), "Windows force delete"),
+    (re.compile(r"\bchmod\s+777\b", re.IGNORECASE), "World-writable permissions"),
+    (re.compile(r"\bchmod\s+-R\s+777\b", re.IGNORECASE), "Recursive world-writable permissions"),
+    (re.compile(r"\bchown\s+.*\s+/", re.IGNORECASE), "Changing ownership of root paths"),
+    (re.compile(r"curl\b.*\|\s*(ba)?sh\b", re.IGNORECASE), "Piping remote content to shell"),
+    (re.compile(r"wget\b.*\|\s*(ba)?sh\b", re.IGNORECASE), "Piping remote content to shell"),
+    (re.compile(r"curl\b.*\|\s*sudo\s+(ba)?sh\b", re.IGNORECASE), "Sudo piping remote content to shell"),
+    (re.compile(r"\bgit\s+push\s+.*--force\b", re.IGNORECASE), "Force push to remote"),
+    (re.compile(r"\bgit\s+push\s+.*-f\b", re.IGNORECASE), "Force push to remote"),
+    (re.compile(r"\bgit\s+reset\s+--hard\b", re.IGNORECASE), "Hard reset (loses changes)"),
+    (re.compile(r"\bgit\s+clean\s+-fd\b", re.IGNORECASE), "Git clean untracked files"),
+    (re.compile(r"\bgit\s+checkout\s+.*\s+--force\b", re.IGNORECASE), "Force checkout (discards changes)"),
 ]
 
 # ── Medium-risk patterns (require approval) ─────────────────────────────────
-_MEDIUM_RISK_PATTERNS: list[tuple[str, str]] = [
-    (r"\bnpm\s+install\s+-g\b", "Global npm install"),
-    (r"\bnpm\s+install\s+--global\b", "Global npm install"),
-    (r"\bpip\s+install\b", "Python package install"),
-    (r"\bpip3\s+install\b", "Python package install"),
-    (r"\bgem\s+install\b", "Ruby gem install"),
-    (r"\bpnpm\s+add\s+-g\b", "Global pnpm install"),
-    (r"\byarn\s+global\s+add\b", "Global yarn install"),
-    (r"\bcargo\s+install\b", "Cargo install"),
-    (r"\bexport\b.*=.*", "Environment variable change"),
-    (r"\bset\s+[A-Z_]+=.*", "Environment variable change"),
+_MEDIUM_RISK_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\bnpm\s+install\s+-g\b", re.IGNORECASE), "Global npm install"),
+    (re.compile(r"\bnpm\s+install\s+--global\b", re.IGNORECASE), "Global npm install"),
+    (re.compile(r"\bpip\s+install\b", re.IGNORECASE), "Python package install"),
+    (re.compile(r"\bpip3\s+install\b", re.IGNORECASE), "Python package install"),
+    (re.compile(r"\bgem\s+install\b", re.IGNORECASE), "Ruby gem install"),
+    (re.compile(r"\bpnpm\s+add\s+-g\b", re.IGNORECASE), "Global pnpm install"),
+    (re.compile(r"\byarn\s+global\s+add\b", re.IGNORECASE), "Global yarn install"),
+    (re.compile(r"\bcargo\s+install\b", re.IGNORECASE), "Cargo install"),
+    (re.compile(r"\bexport\b.*=.*", re.IGNORECASE), "Environment variable change"),
+    (re.compile(r"\bset\s+[A-Z_]+=.*", re.IGNORECASE), "Environment variable change"),
 ]
 
 
@@ -379,7 +380,7 @@ def assess_command(command: str) -> RiskAssessment:
 
     # 2. Check dangerous patterns (rm -rf, curl | sh, etc.)
     for pattern, reason in _DANGEROUS_PATTERNS:
-        if re.search(pattern, normalized, re.IGNORECASE):
+        if pattern.search(normalized):
             return RiskAssessment(
                 is_risky=True,
                 reason=reason,
@@ -421,7 +422,7 @@ def assess_command(command: str) -> RiskAssessment:
 
     # 6. Medium-risk patterns — require approval
     for pattern, reason in _MEDIUM_RISK_PATTERNS:
-        if re.search(pattern, normalized, re.IGNORECASE):
+        if pattern.search(normalized):
             return RiskAssessment(
                 is_risky=True,
                 reason=reason,

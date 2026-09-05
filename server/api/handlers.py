@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
+
 from fastapi import WebSocket
+
 import server.providers.responder as r
 from server.config.constants import BUILD_MODE, SESSION_TITLE_MAX_CHARS
 from server.config.settings import AGENT_MODES
@@ -11,6 +14,7 @@ from server.sessions.service import DefaultSessionService, SessionService
 from server.storage import StorageHome
 from server.storage.session_store import FileMessageRepository, FileSessionRepository
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
+
 from .protocol import make_error_response, make_response, serialize_event
 
 if TYPE_CHECKING:
@@ -84,6 +88,9 @@ class MethodHandlers:
         self._session_service = session_service
 
     def reload_config(self) -> None:
+        """Full config reload — rebuilds entire registry. Use ONLY for global
+        changes. Per-provider updates must use reload_provider() so unrelated
+        providers are not destroyed and re-instantiated."""
         from server.config.loader import load_config
         from server.providers.registry import ProviderRegistry
 
@@ -91,6 +98,17 @@ class MethodHandlers:
         self.registry = ProviderRegistry.from_config(
             self.config.providers, self.config.active_provider
         )
+
+    def reload_provider(self, provider_id: str) -> None:
+        """Targeted reload — re-reads config and updates only the specified provider."""
+        from server.config.loader import load_config
+
+        self.config = load_config()
+        provider_cfg = self.config.providers.get(provider_id)
+        if provider_cfg:
+            self.registry.update_provider(provider_id, provider_cfg)
+        else:
+            self.registry.remove_provider(provider_id)
 
     async def dispatch(
         self, ws: WebSocket, method: str, rid, params: dict, session_id: str | None
@@ -415,7 +433,7 @@ class MethodHandlers:
                 provider_name,
                 self.registry.list_providers(),
             )
-            self.reload_config()
+            self.reload_provider(provider_name)
             provider = self.registry.get(provider_name)
         if not provider:
             available = list((self.config.providers or {}).keys())

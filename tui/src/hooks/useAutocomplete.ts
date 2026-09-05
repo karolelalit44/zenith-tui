@@ -9,7 +9,9 @@ const MAX_HISTORY = 200;
 const HISTORY_DIR = path.join(os.homedir(), '.zenith');
 const HISTORY_PATH = path.join(HISTORY_DIR, 'history.json');
 
-const SLASH_PATTERN = /^\/[^\s]*$/;
+function isSlashCommandInput(val: string): boolean {
+  return val.startsWith('/') && !val.includes(' ') && !val.includes('\t') && !val.includes('\n');
+}
 
 const MIME_TYPES: Record<string, string> = {
   '.md': 'text/markdown',
@@ -113,7 +115,7 @@ export function useAutocomplete(): UseAutocompleteReturn {
       setShowAutocomplete(false);
       setPickerQuery(mention.text);
       setPickerPath('');
-    } else if (SLASH_PATTERN.test(val)) {
+    } else if (isSlashCommandInput(val)) {
       setShowAutocomplete(true);
       setShowFilePicker(false);
       setPickerQuery('');

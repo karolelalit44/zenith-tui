@@ -29,8 +29,12 @@ export const SessionStatusLine: React.FC<SessionStatusLineProps> = React.memo(({
     detail = `${formatRunTokens(event.totalTokens)}${typeof event.totalCost === 'number' && event.totalCost > 0 ? ` · $${event.totalCost.toFixed(4)}` : ''}`;
     accent = theme.colors.status.info;
   } else {
-    prefix = event.kind.replace(/^session_/, '').replace(/_/g, ' ');
-    detail = event.message.replace(/^Session [A-Z][a-z ]+:\s*/, '');
+    prefix = (event.kind.startsWith('session_') ? event.kind.slice(8) : event.kind).replaceAll('_', ' ');
+    const colonIdx = event.message.indexOf(': ');
+    detail =
+      event.message.startsWith('Session ') && colonIdx !== -1
+        ? event.message.slice(colonIdx + 2).trim()
+        : event.message;
   }
 
   return (
