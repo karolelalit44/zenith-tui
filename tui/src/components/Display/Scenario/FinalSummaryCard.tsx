@@ -30,7 +30,7 @@ export const FinalSummaryCard: React.FC<FinalSummaryCardProps> = React.memo(({ e
   const rows: Row[] = [];
   if (rs) {
     // Declutter: a pure Q&A turn (no file changes, no findings, no problems)
-    // renders NOTHING here — the SuccessCard status row already says ✓ done.
+    // renders NOTHING here — the SuccessCard status row already says  done.
     // The card earns its space only when there is substance to report.
     const hasChanges = (rs.manifest?.created?.length ?? 0) + (rs.manifest?.modified?.length ?? 0) > 0;
     const hasProblem = rs.final?.kind === 'error' || (rs.status ?? '') === 'failed' || (rs.status ?? '') === 'blocked';

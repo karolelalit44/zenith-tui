@@ -69,13 +69,13 @@ export function formatContextEventMessage(kind: string, d: Record<string, unknow
   if (kind === 'context_compacted') {
     const charsRemoved = typeof d.charsRemoved === 'number' ? d.charsRemoved : 0;
     const tool = d.tool ? String(d.tool) : 'output';
-    return `Compacted ${tool} output: removed ${charsRemoved} chars, saved ~${tokensSaved} tokens — ${reason}`;
+    return `Compacted ${tool} output: removed ${charsRemoved} chars, saved ${tokensSaved} tokens — ${reason}`;
   }
   const used = typeof d.used === 'number' ? d.used : 0;
   const total = typeof d.total === 'number' ? d.total : 0;
   const pct = total > 0 ? ` (${Math.round((used / total) * 100)}%)` : '';
   const verb = kind === 'context_compaction_started' ? 'started' : 'finished';
-  const saved = tokensSaved > 0 ? `, saved ~${tokensSaved} tokens` : '';
+  const saved = tokensSaved > 0 ? `, saved ${tokensSaved} tokens` : '';
   return `Context compaction ${verb}: ${used}/${total} tokens${pct}${saved} — ${reason}`;
 }
 

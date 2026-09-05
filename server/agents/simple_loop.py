@@ -390,6 +390,14 @@ class SimpleLoop:
         completed = bool(has_file_work or iteration > 0 or self._last_emitted_message)
         message = "Request processed successfully" if has_file_work else "Turn finished"
         elapsed_ms = max(1000, int((time.time() - start_time) * 1000))
+        cum_usage: dict = getattr(self.provider, "_cumulative_usage", {})
+        prompt_tokens = cum_usage.get("prompt_tokens") or token_info.used
+        completion_tokens = cum_usage.get("completion_tokens") or max(
+            0, token_info.used - prompt_tokens
+        )
+        is_estimated = cum_usage.get("total_tokens", 0) == 0
+        run_total = cum_usage.get("total_tokens", 0) or token_info.used
+
         yield r.turn_manifest(
             {
                 "completed": completed,
@@ -409,6 +417,17 @@ class SimpleLoop:
                 "remaining": token_info.remaining,
                 "total": token_info.total,
                 "percent": round(token_info.percent, 3),
+                "runTotal": run_total,
+                "runPrompt": cum_usage.get("prompt_tokens", 0),
+                "runCompletion": cum_usage.get("completion_tokens", 0),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "cached_tokens": cum_usage.get("cached_tokens", 0),
+                "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
+                "estimated": is_estimated,
+                "windowEstimated": bool(
+                    getattr(self.context_manager, "context_window_estimated", False)
+                ),
             },
             elapsed_ms=elapsed_ms,
         )

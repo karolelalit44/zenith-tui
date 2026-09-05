@@ -6,6 +6,7 @@ import { useProvider } from '../../hooks/useProvider';
 import type { SessionSummary } from '../../services/transport/WebSocketClient';
 import { wsClient } from '../../services/transport/WebSocketClient';
 import { useTheme } from '../../theme/ThemeContext';
+import { resolveWorkspaceRoot } from '../../utils/workspacePath';
 import { getGreeting, WELCOME_DATA } from './data/welcomeData';
 
 interface WelcomeScreenProps {
@@ -33,7 +34,7 @@ function formatTokens(n: number): string {
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspace }) => {
   const { theme } = useTheme();
   const { activeProvider } = useProvider();
-  const activeWorkspace = workspace || process.cwd();
+  const activeWorkspace = workspace || resolveWorkspaceRoot();
   const activeModelDisplay = activeProvider.config.model || activeProvider.meta.defaultModel;
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -119,7 +120,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = React.memo(({ workspa
               <Box flexDirection="row" marginBottom={0}>
                 <Text color={theme.colors.text.muted}>Provider: </Text>
                 <Text color={theme.colors.status.success} bold>
-                  ✓ {activeProvider.meta.name}
+                  {activeProvider.meta.name}
                 </Text>
                 <Text color={theme.colors.text.muted}> | Model: </Text>
                 <Text color={theme.colors.text.emerald} bold>

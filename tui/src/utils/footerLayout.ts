@@ -2,7 +2,7 @@ import type { ScenarioMode } from '../types/scenario';
 import { truncateEnd, truncateStart } from './text';
 import { getWorkspaceFolderName } from './workspacePath';
 
-export const FOOTER_EDGE_PAD = 4;
+export const FOOTER_EDGE_PAD = 6;
 const FOOTER_MIN_PROVIDER_LEN = 6;
 
 export interface FooterLayoutInput {
@@ -53,14 +53,17 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
   const modeLabel = input.mode === 'plan' ? '[PLAN] ' : '[BUILD] ';
 
   const gaugePercent =
-    typeof input.contextPercent === 'number' ? Math.max(0, Math.min(100, Math.round(input.contextPercent))) : null;
+    typeof input.contextPercent === 'number' ? Math.max(0, Math.min(100, input.contextPercent)) : null;
   const gauge = '';
   const showGauge = false;
 
   const runCount = typeof input.runTokens === 'number' ? input.runTokens : 0;
   const hasRunUsage = runCount > 0 || typeof input.runTokens === 'number';
-  const tokenStr = hasRunUsage ? `${input.runEstimated === true ? '~' : ''}${formatRunTokens(runCount)}` : '';
-  const ctxStr = gaugePercent !== null ? `(${input.windowEstimated === true ? '~' : ''}${gaugePercent}%)` : '';
+  const tokenStr = hasRunUsage ? formatRunTokens(runCount) : '';
+  const ctxStr =
+    gaugePercent !== null && (runCount > 0 || typeof input.runTokens !== 'number')
+      ? `(${gaugePercent.toFixed(1)}%)`
+      : '';
 
   const tokenUsage = [tokenStr, ctxStr].filter(Boolean).join(' ');
   const tokenCount = tokenUsage;

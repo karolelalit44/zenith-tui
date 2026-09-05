@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import logging
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from server.config.constants import (
     BUILD_MODE,
@@ -200,20 +202,21 @@ class ContextManager:
         for msg in history:
             if msg.role == "assistant" and not msg.content and not msg.tool_calls:
                 continue
-            if msg.role == "user" and not str(msg.content or "").startswith("[Tool:"):
-                continue
             key = (msg.role, msg.content)
             if key == last_key:
                 continue
             last_key = key
-            entry_dict = {"role": msg.role, "content": msg.content}
-            entry_tokens = self.token_counter.count(msg.content, model)
+            entry_dict: dict[str, Any] = {"role": msg.role, "content": msg.content}
+            if msg.tool_calls:
+                entry_dict["tool_calls"] = [
+                    tc.model_dump() if hasattr(tc, "model_dump") else tc for tc in msg.tool_calls
+                ]
+            entry_tokens = self.token_counter.count(str(msg.content or ""), model)
             # A tool result arrives two ways in persisted history: the live form
             # (role=user, content prefixed ``[Tool:``) and the legacy form
             # (role="tool"). Both are tool outputs. A ``role="tool"``/``[Tool:``
-            # entry that follows a plain user prompt (no assistant tool-call
-            # in between) is kept as-is; only those whose owning assistant
-            # tool-call message is evicted are dropped.
+            # entry that follows an assistant tool-call stays paired with it;
+            # user prompts and assistant messages are preserved chronologically.
             history_entries.append((entry_dict, entry_tokens, msg.has_tool_calls))
         retained: list[tuple[dict, int, bool]] = []
         index = len(history_entries) - 1
@@ -243,11 +246,15 @@ class ContextManager:
             new_entry = {"role": "user", "content": "\n\n".join(parts)}
         else:
             new_entry = {"role": "user", "content": new_prompt}
-        if not messages or not (
-            messages[-1].get("role") == "user"
-            and messages[-1].get("content") == new_entry.get("content")
-        ):
+        last_is_user_prompt = (
+            bool(messages)
+            and messages[-1].get("role") == "user"
+            and not str(messages[-1].get("content") or "").startswith("[Tool:")
+        )
+        if not last_is_user_prompt:
             messages.append(new_entry)
+        else:
+            messages[-1] = new_entry
         _instrument(messages, model)
         return messages
 

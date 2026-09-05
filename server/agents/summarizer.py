@@ -30,7 +30,7 @@ class ConversationSummarizer:
         previous_summary: str | None = None,
         prefix: list[dict] | None = None,
         focus: str | None = None,
-        event_sink: "Callable[[str, str], None] | None" = None,
+        event_sink: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> str:
         if not messages:
             return ""
@@ -64,7 +64,7 @@ class ConversationSummarizer:
 
     @staticmethod
     async def _report_degraded(
-        event_sink: "Callable[[str, str], Awaitable[None]] | None", session_id: str
+        event_sink: Callable[[str, str], Awaitable[None]] | None, session_id: str
     ) -> None:
         # Surfaces a degraded summary to the user instead of failing silently.
         # The fallback still returns a usable (reduced) summary so the session

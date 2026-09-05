@@ -40,6 +40,7 @@ import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
+import { resolveWorkspaceRoot } from './utils/workspacePath';
 
 /**
  * A flat item for the <Static> list. Each conversation turn produces two entries:
@@ -66,9 +67,9 @@ export interface RetryTarget {
 export const App: React.FC = () => {
   const { theme } = useTheme();
   const [startupState, setStartupState] = useState<AppStartupState>(() => startupService.state);
-  const [workspace, setWorkspace] = useState(() => process.cwd());
+  const [workspace, setWorkspace] = useState(() => resolveWorkspaceRoot());
   useEffect(() => {
-    setWorkspace(process.cwd());
+    setWorkspace(resolveWorkspaceRoot());
   }, []);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(() => loadUserProfile().settings.thinkingCollapsed);
   const [calmMode, setCalmMode] = useState(() => loadUserProfile().settings.calmMode);
@@ -222,10 +223,10 @@ export const App: React.FC = () => {
   // cumulative run usage (`runTokens`).
   const footerContextPercent = useMemo(() => {
     if (footerContext && typeof footerContext.used === 'number' && footerContext.total && footerContext.total > 0) {
-      return Math.min(100, Math.round((footerContext.used / footerContext.total) * 100));
+      return Math.min(100, (footerContext.used / footerContext.total) * 100);
     }
     if (contextInfo && contextInfo.total > 0) {
-      return Math.max(0, Math.min(100, Math.round(contextInfo.percent * 100)));
+      return Math.max(0, Math.min(100, contextInfo.percent * 100));
     }
     return undefined;
   }, [footerContext, contextInfo]);
@@ -305,9 +306,9 @@ export const App: React.FC = () => {
     const targetTurn = turns[turns.length - 1];
     const targetEvents = isRunning ? events : targetTurn?.events || [];
     if (targetEvents.length > 0) {
-      savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
+      savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', workspace, 'implementation-plan.md');
     }
-  }, [turns, events, isRunning]);
+  }, [turns, events, isRunning, workspace]);
 
   const handleExit = useCallback(() => {
     setExitPhase('exiting');

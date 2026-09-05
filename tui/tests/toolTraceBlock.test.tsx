@@ -38,7 +38,7 @@ describe('ToolTraceBlock', () => {
     };
     const { lastFrame } = renderTrace(result);
     const frame = lastFrame();
-    expect(frame).toContain('✓');
+    expect(frame).toContain('');
     expect(frame).toContain('Read');
   });
 

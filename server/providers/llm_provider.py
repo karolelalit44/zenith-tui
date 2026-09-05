@@ -25,6 +25,7 @@ from server.config.constants import (
 from server.config.env import optional_float, optional_int
 from server.domain.enums import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
+from server.logging_config import log_model_payload
 from server.storage import load_catalog
 
 from .base import BaseProvider, model_capabilities_from_catalog
@@ -649,6 +650,7 @@ class LLMProvider(BaseProvider):
 
         self._reset_cumulative_usage()
         kwargs = self._build_completion_kwargs(messages, tools, stream=False, model_override=model)
+        log_model_payload(logger, kwargs, call_type="complete")
         messages_chars = sum(
             len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in messages
         )
@@ -772,6 +774,7 @@ class LLMProvider(BaseProvider):
         kwargs = self._build_completion_kwargs(
             messages, tools, stream=True, tool_choice=tool_choice, response_format=response_format
         )
+        log_model_payload(logger, kwargs, call_type="stream")
         messages_chars = sum(
             len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in messages
         )

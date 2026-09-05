@@ -85,8 +85,8 @@ const ExploreCrewCard: React.FC<{
   const summary =
     ok && !isPending
       ? stripAnsi(event.output || '')
-          .replace(/^\[explore\][^\n]*\n?/, '')
-          .trim()
+        .replace(/^\[explore\][^\n]*\n?/, '')
+        .trim()
       : '';
 
   const borderColor = isPending
@@ -167,7 +167,7 @@ const ExploreCrewCard: React.FC<{
             {isPending
               ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} `
               : ok
-                ? '✓ '
+                ? ' '
                 : state === 'cancelled'
                   ? '⊘ '
                   : '✗ '}
@@ -330,7 +330,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     }
     return (
       <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-        {isSuccess ? '✓' : '✗'}{' '}
+        {isSuccess ? '' : '✗'}{' '}
       </Text>
     );
   })();
@@ -560,9 +560,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright} wrap="truncate-end">
               {hasTextHeader
                 ? event.text
-                : `${event.tool === 'glob' ? 'Glob' : 'Grep'} "${
-                    primary?.value ?? (event.metadata?.pattern as string) ?? ''
-                  }"`}
+                : `${event.tool === 'glob' ? 'Glob' : 'Grep'} "${primary?.value ?? (event.metadata?.pattern as string) ?? ''
+                }"`}
               {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
             </Text>
           ) : (

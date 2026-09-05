@@ -41,7 +41,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
     icon = '✗';
     iconColor = theme.colors.status.error;
   } else if (steps.length > 0 && doneCount === steps.length) {
-    icon = '✓';
+    icon = '';
     iconColor = theme.colors.status.success;
   }
 

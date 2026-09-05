@@ -29,13 +29,15 @@ class TestContextManager:
         assert messages[0]["content"] == "You are helpful."
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"] == "How are you?"
-        # Phase 2: the previous user *prompt* is never re-sent; only the latest is (T5).
-        assert len(messages) == 3
+        # Multi-turn dialogue: all previous user prompts and assistant replies are preserved.
+        assert len(messages) == 4
         contents = [m["content"] for m in messages]
-        assert "Hello" not in contents
-        assert contents[-1] == "How are you?"
+        assert "Hello" in contents
+        assert contents[1] == "Hello"
+        assert contents[2] == "Hi there!"
+        assert contents[3] == "How are you?"
 
-    def test_build_messages_drops_older_user_prompts_keeps_latest(self):
+    def test_build_messages_preserves_multi_turn_dialogue(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
         ctx = ContextManager(config)
         history = [
@@ -45,16 +47,13 @@ class TestContextManager:
             Message(session_id="s1", role="assistant", content="worker hand-off"),
         ]
         messages = ctx.build_messages(history, "System.", "LATEST.", "gpt-4")
-        assert "LATEST." in [m["content"] for m in messages]
-        assert messages[-1]["content"] == "LATEST."
-        # No old user prompt may appear in the *history-derived* portion (everything before T5).
-        for m in messages[:-1]:
-            if m["role"] == "user":
-                assert "[Tool:" in m["content"] or m["content"] in (
-                    "[Previous conversation summary]",
-                )
-        # Assistant hand-off / worker content is preserved.
-        assert any(m["role"] == "assistant" for m in messages)
+        contents = [m["content"] for m in messages]
+        assert "OLD prompt 1" in contents
+        assert "Interim assistant" in contents
+        assert "OLD prompt 2" in contents
+        assert "worker hand-off" in contents
+        assert contents[-1] == "LATEST."
+        assert len(messages) == 6
 
     def test_build_messages_keeps_tool_result_that_is_role_user(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
@@ -66,7 +65,22 @@ class TestContextManager:
         messages = ctx.build_messages(history, "System.", "Continue.", "gpt-4")
         joined = " ".join(str(m.get("content")) for m in messages)
         assert "[Tool: bash" in joined  # tool result preserved
-        assert "OLD prompt" not in joined  # real prompt dropped
+        assert "OLD prompt" in joined  # real prompt preserved
+
+    def test_build_messages_does_not_duplicate_when_prompt_already_in_history(self):
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        history = [
+            Message(session_id="s1", role="user", content="Hello"),
+            Message(session_id="s1", role="assistant", content="Hi!"),
+            Message(session_id="s1", role="user", content="Latest question"),
+        ]
+        messages = ctx.build_messages(history, "System.", "Latest question", "gpt-4")
+        contents = [m["content"] for m in messages]
+        # "Latest question" must appear exactly once at the end:
+        assert contents.count("Latest question") == 1
+        assert contents[-1] == "Latest question"
+        assert len(messages) == 4
 
     def test_build_messages_with_summary(self):
         config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)

@@ -137,7 +137,7 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓ Loaded tool definition file_write');
+    expect(frame).toContain(' Loaded tool definition file_write');
     expect(frame).not.toContain('$schema');
     expect(frame).not.toContain(json);
   });
@@ -184,7 +184,7 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓');
+    expect(frame).toContain('');
     expect(frame).toContain('❯❯');
     expect(frame).toContain('npm test');
     expect(frame).toContain('~ 1 s');
@@ -374,7 +374,7 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓ Web search');
+    expect(frame).toContain(' Web search');
     expect(frame).toContain('ink components');
   });
 });

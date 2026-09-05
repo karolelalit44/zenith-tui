@@ -152,8 +152,10 @@ test('Submitting a prompt triggers scenario flow', async () => {
   const { lastFrame, stdin, unmount } = mountApp();
 
   await waitForReady(lastFrame);
+  await new Promise((r) => setTimeout(r, 50));
 
   stdin.write('create a todo app');
+  await waitForFrame(lastFrame, (f) => f.includes('create a todo app'));
   // Submit with '\r' (real Enter → key.return). A bare '\n' is parsed by ink as
   // key.newline with input='', so it never reaches the composer's submit path.
   stdin.write('\r');
@@ -251,6 +253,26 @@ test('Esc closes the slash menu but keeps the input', async () => {
 
   const frame = await waitForFrame(lastFrame, (f) => !f.includes('[SLASH COMMANDS]') && f.includes('/plan'));
   expect(frame).toContain('/plan');
+  unmount();
+});
+
+test('Esc clears the input box when it has content and slash menu is closed', async () => {
+  mockBackendReady();
+  const { lastFrame, stdin, unmount } = mountApp();
+
+  await waitForReady(lastFrame);
+
+  stdin.write('some drafted prompt text');
+  await waitForFrame(lastFrame, (f) => f.includes('some drafted prompt text'));
+
+  stdin.write('\x1B');
+
+  const frame = await waitForFrame(
+    lastFrame,
+    (f) => !f.includes('some drafted prompt text') && f.includes('Ask anything...'),
+  );
+  expect(frame).not.toContain('some drafted prompt text');
+  expect(frame).toContain('Ask anything...');
   unmount();
 });
 

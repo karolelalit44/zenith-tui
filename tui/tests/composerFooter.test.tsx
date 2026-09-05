@@ -87,7 +87,7 @@ describe('ComposerFooter', () => {
 
     const frame = app.lastFrame();
     // The footer count is cumulative run/API usage and context percent...
-    expect(frame).toContain('12.4K (39%)');
+    expect(frame).toContain('12.4K (39.0%)');
     expect(frame).not.toContain('78.8K');
     expect(frame).not.toContain('RUN');
     expect(frame).not.toContain('CTX');
@@ -95,7 +95,7 @@ describe('ComposerFooter', () => {
     restore();
   });
 
-  it('marks estimated run usage and estimated context window with a tilde', () => {
+  it('renders exact run usage and context window without a tilde', () => {
     const restore = stubColumns(120);
 
     const app = mount(
@@ -114,7 +114,8 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('~12.4K (~39%)');
+    expect(frame).toContain('12.4K (39.0%)');
+    expect(frame).not.toContain('~');
     expect(frame).not.toContain('░');
     restore();
   });

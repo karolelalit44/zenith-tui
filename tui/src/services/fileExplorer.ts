@@ -10,21 +10,9 @@ export interface FileNode {
   parentPath?: string;
 }
 
-/** Resolves the true workspace root directory from which the application was launched. */
-export function resolveWorkspaceRoot(): string {
-  const cwd = path.resolve(process.cwd());
-  const base = path.basename(cwd).toLowerCase();
-  if (['tui', 'server', 'client', 'packages'].includes(base)) {
-    if (process.env.INIT_CWD && fs.existsSync(process.env.INIT_CWD)) {
-      return path.resolve(process.env.INIT_CWD);
-    }
-    const parent = path.dirname(cwd);
-    if (fs.existsSync(parent)) {
-      return parent;
-    }
-  }
-  return cwd;
-}
+import { resolveWorkspaceRoot } from '../utils/workspacePath';
+
+export { resolveWorkspaceRoot };
 
 export const workspaceRoot: string = resolveWorkspaceRoot();
 

@@ -25,7 +25,7 @@ from .constants import (
     READ_ONLY_MODE,
     READ_ONLY_TOOLS,
 )
-from .env import optional_env, optional_float, optional_int
+from .env import optional_bool, optional_env, optional_float, optional_int
 from .providers import ProviderConfig
 
 
@@ -116,6 +116,9 @@ class BootstrapDefaults(BaseModel):
     context_compaction_threshold: float = Field(
         default=optional_float("ZENITH_CONTEXT_COMPACTION_THRESHOLD", 0.7), ge=0.0, le=1.0
     )
+    async_summary_enabled: bool = Field(
+        default_factory=lambda: optional_bool("ZENITH_ASYNC_SUMMARY_ENABLED", False)
+    )
     tools: ToolConfig = Field(default_factory=ToolConfig)
 
 
@@ -132,6 +135,7 @@ class AppSettings(BaseModel):
     max_context_tokens: int = DEFAULTS.max_context_tokens
     summary_threshold: float = DEFAULTS.summary_threshold
     context_compaction_threshold: float = DEFAULTS.context_compaction_threshold
+    async_summary_enabled: bool = DEFAULTS.async_summary_enabled
     auto_approve_plan: bool = Field(
         default=False, description="Skip user confirmation when running a plan in build mode"
     )
@@ -175,10 +179,6 @@ class AppSettings(BaseModel):
     hooks: HooksConfig = Field(
         default_factory=HooksConfig,
         description="Lifecycle hooks (PreToolUse/PostToolUse/SessionStart). Loaded from ZENITH_HOOKS (JSON).",
-    )
-    async_summary_enabled: bool = Field(
-        default=True,
-        description="Schedule background running summaries for completed turns",
     )
 
     @field_validator("active_provider")

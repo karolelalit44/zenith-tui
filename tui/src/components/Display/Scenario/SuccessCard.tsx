@@ -54,8 +54,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   const reportedUsed = event.tokenInfo?.used ?? 0;
   const usageIsUnknown = reportedUsed <= 0 || event.tokenInfo === undefined;
   const usedTokens = usageIsUnknown ? (turnEvents ? estimateTokensForEvents(turnEvents) : 0) : reportedUsed;
-  const tokenIsEstimate = usageIsUnknown || event.tokenInfo?.estimated === true;
-  const tokenStr = usedTokens > 0 ? `${tokenIsEstimate ? '~' : ''}${formatTokenCount(usedTokens)} tokens` : '';
+  const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 
   const metricsParts: string[] = [];
   const iters =
@@ -63,9 +62,9 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
       ? event.iterations
       : !isLiveRunning
         ? Math.max(
-            1,
-            turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1,
-          )
+          1,
+          turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1,
+        )
         : undefined;
 
   if (iters !== undefined) {
@@ -109,7 +108,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
           </Box>
         ) : (
           <Text color={theme.colors.status.success} bold>
-            ✓{' '}
+            {' '}
           </Text>
         )}
 

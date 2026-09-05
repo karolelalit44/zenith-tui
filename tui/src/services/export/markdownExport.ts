@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ScenarioEvent } from '../../types/scenario';
+import { resolveWorkspaceRoot } from '../../utils/workspacePath';
 
 interface ExportResult {
   success: boolean;
@@ -120,7 +121,7 @@ function convertEventsToMarkdown(events: ScenarioEvent[], prompt: string): strin
 export function savePlanToFile(
   events: ScenarioEvent[],
   prompt: string,
-  targetDirectory: string = process.cwd(),
+  targetDirectory: string = resolveWorkspaceRoot(),
   filename: string = 'implementation-plan.md',
 ): ExportResult {
   try {

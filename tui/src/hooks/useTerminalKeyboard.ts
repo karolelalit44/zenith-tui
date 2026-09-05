@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { matchKeypress } from '../config/keybind';
 import { savePlanToFile } from '../services/export/markdownExport';
 import type { ScenarioEvent } from '../types/scenario';
+import { resolveWorkspaceRoot } from '../utils/workspacePath';
 import type { ConversationTurn } from './useConversation';
 import type { OverlayType } from './useOverlayManager';
 
@@ -151,7 +152,12 @@ export function useTerminalKeyboard({
         const targetTurn = opts.turns[opts.turns.length - 1];
         const targetEvents = opts.isRunning ? opts.events : targetTurn?.events || [];
         if (targetEvents.length > 0) {
-          savePlanToFile(targetEvents, targetTurn?.prompt || 'Plan Request', process.cwd(), 'implementation-plan.md');
+          savePlanToFile(
+            targetEvents,
+            targetTurn?.prompt || 'Plan Request',
+            resolveWorkspaceRoot(),
+            'implementation-plan.md',
+          );
         }
         return;
       }

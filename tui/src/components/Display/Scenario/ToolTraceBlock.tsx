@@ -44,7 +44,7 @@ export const ToolTraceBlock: React.FC<ToolTraceBlockProps> = React.memo(({ event
   return (
     <Box flexDirection="row" alignItems="center" width="100%" marginBottom={1} paddingX={1}>
       <Text color={statusColor} bold>
-        {event.success ? '✓' : '✗'} {getToolVerbLabel(event.tool)}
+        {event.success ? '' : '✗'} {getToolVerbLabel(event.tool)}
       </Text>
       {detail && (
         <>

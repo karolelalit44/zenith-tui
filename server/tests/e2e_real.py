@@ -162,7 +162,7 @@ async def run_all_tests() -> bool:
             else:
                 await coro_fn()
                 results.append((name, True, None))
-            log(f"  ✓ {name}")
+            log(f"   {name}")
         except Exception as e:
             results.append((name, False, str(e)))
             log(f"  ✗ {name}: {e}")
@@ -185,7 +185,7 @@ async def run_all_tests() -> bool:
                 kinds = [e.get("kind") for e in events]
                 if "success" in kinds:
                     prompt_ok = True
-                    log(f"  ✓ Prompt with {model} succeeded")
+                    log(f"   Prompt with {model} succeeded")
                     break
                 elif "error" in kinds:
                     err_msg = next(
@@ -201,7 +201,7 @@ async def run_all_tests() -> bool:
                 log(f"  Model {model} failed: {e}")
         results.append(("Prompt submission", prompt_ok, events))
         if prompt_ok:
-            log("  ✓ Prompt submission succeeded")
+            log("   Prompt submission succeeded")
         else:
             log("  ✗ All prompt models failed")
     else:
@@ -209,7 +209,7 @@ async def run_all_tests() -> bool:
     try:
         await test_workspace_status()
         results.append(("Workspace status", True, None))
-        log("  ✓ Workspace status")
+        log("   Workspace status")
     except Exception as e:
         results.append(("Workspace status", False, str(e)))
         log(f"  ✗ Workspace status: {e}")
@@ -219,7 +219,7 @@ async def run_all_tests() -> bool:
     print("=" * 60)
     all_ok = True
     for name, ok, _ in results:
-        status = "✓ PASS" if ok else "✗ FAIL"
+        status = " PASS" if ok else "✗ FAIL"
         print(f"  {status}  {name}")
         if not ok:
             all_ok = False

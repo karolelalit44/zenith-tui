@@ -1,9 +1,10 @@
 import { execSync } from 'node:child_process';
 import { appConfig } from '../config/appConfig';
+import { resolveWorkspaceRoot } from '../utils/workspacePath';
 
 let branchCache: { branch: string; timestamp: number } | null = null;
 
-export function getActiveGitBranch(cwd: string = process.cwd()): string {
+export function getActiveGitBranch(cwd: string = resolveWorkspaceRoot()): string {
   const now = Date.now();
   if (branchCache && now - branchCache.timestamp < appConfig.git.cacheTtlMs) {
     return branchCache.branch;

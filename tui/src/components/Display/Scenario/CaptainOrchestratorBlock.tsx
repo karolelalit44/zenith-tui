@@ -25,7 +25,7 @@ function renderPlanStatus(status: PlanItemStatus, themeColors: Theme['colors']) 
     case 'in_progress':
       return { icon: '⠋ ', label: 'In Progress', color: themeColors.status.info };
     case 'completed':
-      return { icon: '✓ ', label: 'Completed', color: themeColors.status.success };
+      return { icon: ' ', label: 'Completed', color: themeColors.status.success };
     case 'needs_review':
       return { icon: '🔍 ', label: 'Needs Review', color: themeColors.status.warning };
     case 'failed':
@@ -53,7 +53,7 @@ function renderCrewmateStatus(status: CrewmateStatus, themeColors: Theme['colors
       return { icon: '⬆ ', label: 'Returning', color: themeColors.text.emerald };
     case 'completed':
     case 'reviewed':
-      return { icon: '✓ ', label: 'Completed', color: themeColors.status.success };
+      return { icon: ' ', label: 'Completed', color: themeColors.status.success };
     case 'needs_review':
       return { icon: '🔍 ', label: 'Reviewing', color: themeColors.status.warning };
     case 'failed':
@@ -79,7 +79,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
 
   // Truthful completion state: a finished orchestration with any failed or
   // timed-out crewmate is a FAILED run — never render a green checkmark over
-  // a failed mission (2026-08-26 incident: "✓ Complete" above "✗ Failed").
+  // a failed mission (2026-08-26 incident: " Complete" above "✗ Failed").
   const crewmates = event.crewmates ?? [];
   const hasFailedCrew = crewmates.some((cm) => cm.status === 'failed' || cm.status === 'needs_review');
   const allRetiredOrDone =
@@ -155,7 +155,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
                 : hasFailedCrew && event.stage === 'complete'
                   ? `✗ ${stageLabel}`
                   : allRetiredOrDone || event.stage !== 'complete'
-                    ? `✓ ${stageLabel}`
+                    ? ` ${stageLabel}`
                     : `⊘ ${stageLabel}`}
             </Text>
           </Box>
@@ -253,7 +253,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
                     {/* Result Summary */}
                     {cm.resultSummary ? (
                       <Box flexDirection="row">
-                        <Text color={theme.colors.status.success}>✓ Result: </Text>
+                        <Text color={theme.colors.status.success}> Result: </Text>
                         <Text color={theme.colors.text.muted}>{cm.resultSummary}</Text>
                       </Box>
                     ) : null}

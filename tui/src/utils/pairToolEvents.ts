@@ -30,7 +30,7 @@ function stepFromCall(call: ToolCallEvent): ToolStepEvent {
 /**
  * Fold persisted tool_call → tool_result pairs into ONE completed tool_step
  * each, mirroring what the live reducer already does. This is what kills the
- * duplicated `→ Run …` / `✓ Run …` rows in restored scrollback.
+ * duplicated `→ Run …` / ` Run …` rows in restored scrollback.
  *
  * Pairing rules:
  *  - a result consumes the OLDEST still-open call for the same tool (the agent

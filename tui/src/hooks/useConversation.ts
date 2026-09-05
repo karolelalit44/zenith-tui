@@ -90,7 +90,7 @@ export function useConversation(): UseConversationReturn {
       if (!t.isComplete) return sum;
 
       const reported = getSuccessTokenInfo(t);
-      if (reported && !reported.estimated && reported.used > 0) {
+      if (reported && reported.used > 0) {
         return sum + reported.used;
       }
 
@@ -109,7 +109,7 @@ export function useConversation(): UseConversationReturn {
       if (reported && typeof reported.runTotal === 'number' && reported.runTotal > 0) {
         return sum + reported.runTotal;
       }
-      if (reported && !reported.estimated && reported.used > 0) {
+      if (reported && reported.used > 0) {
         return sum + reported.used;
       }
 

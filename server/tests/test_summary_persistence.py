@@ -68,11 +68,10 @@ async def test_summary_rehydration_and_persistence(home, tmp_path):
     if task is not None:
         await task
 
-    # 4. The async running summary refreshed the persisted session summary
-    #    (todo 3.13-3.14: per-turn write-back, freshest wins).
+    # 4. Normal turn does not run background running summary; existing summary is preserved.
     db_sess = await session_repo.get("test-summary-sess-1")
     assert db_sess is not None
-    assert db_sess.metadata.get("summary") == "Hello back!"
+    assert db_sess.metadata.get("summary") == "Previous summary: user built FastAPI app."
 
     # 5. Simulate summary update in agent loop
     agent = AgentLoop(config, provider)

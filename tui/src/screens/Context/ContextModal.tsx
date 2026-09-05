@@ -29,7 +29,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
   runTokens = 0,
   runPrompt,
   runCompletion,
-  runEstimated = false,
+  runEstimated: _runEstimated = false,
   contextInfo,
 }) => {
   const { theme } = useTheme();
@@ -44,7 +44,6 @@ export const ContextModal: React.FC<ContextModalProps> = ({
   const composedSnapshot = contextInfo && contextInfo.total > 0 ? contextInfo : null;
   const contextUsed = composedSnapshot ? composedSnapshot.used : totalTokens + estimateTokensForEvents(runningEvents);
   const contextTotal = composedSnapshot ? composedSnapshot.total : maxTokens;
-  const windowEstimated = composedSnapshot ? composedSnapshot.windowEstimated : false;
   // Raw occupancy ratio is kept before clamping so overflow (>100%) is
   // surfaced explicitly instead of silently flattened to a full bar.
   const rawPercent = Math.round((contextUsed / Math.max(1, contextTotal)) * 100);
@@ -83,9 +82,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
             [CONTEXT USAGE]{' '}
           </Text>
           <Text color={theme.colors.text.bright} bold>
-            {formatTokenCount(contextUsed)} / {windowEstimated ? '~' : ''}
-            {formatTokenCount(contextTotal)} ({windowEstimated ? '~' : ''}
-            {contextPercent}%)
+            {formatTokenCount(contextUsed)} / {formatTokenCount(contextTotal)} ({contextPercent}%)
           </Text>
         </Box>
 
@@ -108,7 +105,6 @@ export const ContextModal: React.FC<ContextModalProps> = ({
               RUN USAGE{' '}
             </Text>
             <Text color={theme.colors.text.bright}>
-              {runEstimated ? '~' : ''}
               {formatTokenCount(runTokens)}
               {typeof runPrompt === 'number' && runPrompt > 0 ? ` · prompt ${formatTokenCount(runPrompt)}` : ''}
               {typeof runCompletion === 'number' && runCompletion > 0

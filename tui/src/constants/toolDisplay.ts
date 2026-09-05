@@ -171,7 +171,7 @@ function formatFileDeleteStatus(source: StatusSource): string {
 function formatFileReadStatus(source: StatusSource): string {
   const path = pathFrom(source);
   const lines = linesFrom(source.metadata);
-  return `✓ Read${path ? ` ${path}` : ''}${lines !== undefined ? ` (${lines} lines)` : ''}`;
+  return ` Read${path ? ` ${path}` : ''}${lines !== undefined ? ` (${lines} lines)` : ''}`;
 }
 
 function formatListDirStatus(source: StatusSource): string {
@@ -181,34 +181,34 @@ function formatListDirStatus(source: StatusSource): string {
   const parts: string[] = [];
   if (subdirs !== undefined) parts.push(`${subdirs} subdir${subdirs === 1 ? '' : 's'}`);
   if (files !== undefined) parts.push(`${files} file${files === 1 ? '' : 's'}`);
-  return `✓ List${path ? ` ${path}` : ''}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`;
+  return ` List${path ? ` ${path}` : ''}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`;
 }
 
 function formatGlobStatus(source: StatusSource): string {
   const pattern = String(source.metadata.pattern || source.params?.pattern || '');
-  return `✓ Glob "${pattern}"`;
+  return ` Glob "${pattern}"`;
 }
 
 function formatGrepStatus(source: StatusSource): string {
   const query = String(source.metadata.query || source.params?.query || '');
-  return `✓ Grep "${query}"`;
+  return ` Grep "${query}"`;
 }
 
 function formatWebsearchStatus(source: StatusSource): string {
   const query = String(source.metadata.query || source.params?.query || '');
-  return `✓ Web search "${query}"`;
+  return ` Web search "${query}"`;
 }
 
 function formatWebfetchStatus(source: StatusSource): string {
   const url = String(source.metadata.url || source.params?.url || '');
-  return `✓ Web fetch ${url}`;
+  return ` Web fetch ${url}`;
 }
 
 function formatBashStatus(source: StatusSource): string {
   const durSec =
     typeof source.metadata.duration_ms === 'number' ? Math.max(1, Math.floor(source.metadata.duration_ms / 1000)) : 0;
   const duration = durSec > 0 ? ` (${formatDuration(durSec * 1000)})` : '';
-  return `✓ Ran command${duration}`;
+  return ` Ran command${duration}`;
 }
 
 function formatBackgroundStatus(source: StatusSource): string {
@@ -218,7 +218,7 @@ function formatBackgroundStatus(source: StatusSource): string {
 
 function formatJobOutputStatus(source: StatusSource): string {
   const job = jobIdFrom(source.metadata);
-  return `✓ Read background logs${job ? ` (#${job})` : ''}`;
+  return ` Read background logs${job ? ` (#${job})` : ''}`;
 }
 
 function formatJobKillStatus(source: StatusSource): string {
@@ -232,7 +232,7 @@ function formatCrewmateStatus(_source: StatusSource): string {
 
 function formatTodoStatus(source: StatusSource): string {
   const taskId = String(source.metadata.task_id || '');
-  return `✓ Track task${taskId ? ` #${taskId}` : ''}`;
+  return ` Track task${taskId ? ` #${taskId}` : ''}`;
 }
 
 export function getToolStepStatusText(event: {
@@ -248,11 +248,11 @@ export function getToolStepStatusText(event: {
 
   if (event.tool === GET_TOOL_DEFINITION_TOOL) {
     const toolName = String(event.metadata.tool_name || '');
-    return toolName ? `✓ Loaded tool definition ${toolName}` : `✓ Loaded tool definition`;
+    return toolName ? ` Loaded tool definition ${toolName}` : ` Loaded tool definition`;
   }
   if (event.tool === DISCOVER_CAPABILITIES_TOOL) {
     const count = typeof event.metadata.count === 'number' ? event.metadata.count : undefined;
-    return `✓ Discovered capabilities${count !== undefined ? ` (${count})` : ''}`;
+    return ` Discovered capabilities${count !== undefined ? ` (${count})` : ''}`;
   }
 
   switch (event.tool) {
@@ -298,6 +298,6 @@ export function getToolStepStatusText(event: {
     case TODO_TOOL:
       return formatTodoStatus(event);
     default:
-      return `✓ ${getToolVerbLabel(event.tool)}`;
+      return ` ${getToolVerbLabel(event.tool)}`;
   }
 }

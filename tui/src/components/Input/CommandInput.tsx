@@ -8,7 +8,6 @@ import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
 import type { FileAttachment } from '../../types/scenario';
 import { expandPastedMarkers } from '../../utils/pasteTracker';
-import { AttachmentChips } from './AttachmentChips';
 import { ComposerFooter } from './ComposerFooter';
 import { MultiLineTextInput } from './MultiLineTextInput';
 
@@ -53,8 +52,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     disabled = false,
     disabledMessage = 'Input disabled',
     running = false,
-    attachments = [],
-    onRemoveAttachment,
+    attachments: _attachments = [],
+    onRemoveAttachment: _onRemoveAttachment,
     historyUp,
     historyDown,
     mode = 'build',
@@ -79,7 +78,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
     const { columns } = useTerminalDimensions();
-    const dividerWidth = Math.max(0, columns - 4);
+    const termCols = columns || process.stdout.columns || 80;
+    const dividerWidth = Math.max(0, termCols - 6);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
     const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
@@ -115,6 +115,13 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           onCancel();
           return true;
         }
+        if (key.escape && !running && value.length > 0) {
+          onInputChange('', 0);
+          if (onClearInput) {
+            onClearInput();
+          }
+          return true;
+        }
         return false;
       },
       [slashMenuOpen, onOpenHelp, onOpenMode, onInputChange, onClearInput, onCancel, running],
@@ -132,8 +139,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
-        <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
-
         <Box
           flexDirection="column"
           width="100%"

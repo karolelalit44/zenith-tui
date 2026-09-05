@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -6,22 +7,23 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+
 import server.providers.responder as r
 from server.agents.context import ContextManager
+from server.agents.crewmate_loop import CrewmateLoop
 from server.agents.delegation import (
     CaptainOrchestrator,
     RepositoryIntelligenceCache,
     SpecialistRegistry,
 )
-from server.agents.simple_loop import SimpleLoop
-from server.api.event_adapter import iter_client_events
 from server.agents.run_state import (
     from_dict,
     merge_run_state,
     update_from_event,
 )
 from server.agents.running_summary import RunningSummaryScheduler
-from server.agents.crewmate_loop import CrewmateLoop
+from server.agents.simple_loop import SimpleLoop
+from server.api.event_adapter import iter_client_events
 from server.config.constants import (
     ATTACHMENT_MAX_FILE,
     ATTACHMENT_MAX_TOTAL,
@@ -451,7 +453,8 @@ class PromptExecutor:
             if isinstance(inline, str) and inline.strip():
                 text, error = (inline, None)
             elif kind == "folder":
-                text, error = await self._resolve_folder_attachment(path)
+                folder_text, error = await self._resolve_folder_attachment(path)
+                text = folder_text or ""
             else:
                 read_text, error = await read_attachment(path, self._config.workspace_root)
                 text = read_text if isinstance(read_text, str) else ""
@@ -492,8 +495,8 @@ class PromptExecutor:
         reference the agent resolves with its own file tools — never a raw dump.
         """
         data, error = await list_attachment(path, self._config.workspace_root)
-        if error:
-            return (None, error)
+        if error or data is None:
+            return (None, error or "Could not list attachment")
         entries = data.get("entries") or []
         total = data.get("total", 0)
         # Inline tiny folders; reference everything else.
@@ -794,7 +797,6 @@ class PromptExecutor:
             _original_model = getattr(self._provider, "model", None)
             _original_temperature = getattr(self._provider, "temperature", None)
             _original_max_tokens = getattr(self._provider, "max_tokens", None)
-            completed_ok = False
             effective_model = model_override or plan_model_override
             if effective_model and effective_model != _original_model:
                 logger.info("Per-prompt model override: %s -> %s", _original_model, effective_model)
@@ -1024,7 +1026,6 @@ class PromptExecutor:
                         await manager.send_event(session_id, event)
                 if event.kind == EventKind.MESSAGE and (not event.data.get("partial")):
                     response_text += event.data.get("text", "")
-            completed_ok = True
             if mode == PLAN_MODE and response_text:
                 await self._persist_plan_output(session_id, response_text)
             logger.info("=" * 60)
@@ -1125,5 +1126,3 @@ class PromptExecutor:
                     await self._session_repo.update(db_session)
                 except Exception as exc:  
                     logger.warning("Failed to persist idle status for %s: %s", session_id, exc)
-            if completed_ok:
-                self._summary_scheduler.schedule(session_id)
