@@ -1,4 +1,5 @@
 import { appConfig } from '../../config/appConfig';
+import { resolveWorkspaceRoot } from '../../utils/workspacePath';
 
 /**
  * User profile access — server-owned since the database removal.
@@ -67,7 +68,7 @@ function getInitialProfile(): UserProfile {
       defaultMode: DEFAULT_MODE,
     },
     providerSettings: {},
-    lastActiveWorkspace: process.cwd(),
+    lastActiveWorkspace: resolveWorkspaceRoot(),
     sessionCount: 1,
     lastSessionTimestamp: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

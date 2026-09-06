@@ -1,0 +1,40 @@
+"""Web research, LLM/provider, and validation constants.
+
+Owns the web research knobs (webfetch/websearch/URL regex), the LLM provider
+defaults (token/temperature/env wires), and per-subsystem validation timeouts.
+Leaf module: depends only on ``re``.
+"""
+
+import re
+
+DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; Zenith-Agent/1.0; +https://example.invalid/zenith)"
+
+WEBFETCH_TIMEOUT_ENV = "ZENITH_WEBFETCH_TIMEOUT"
+WEBFETCH_MAX_BYTES_ENV = "ZENITH_WEBFETCH_MAX_BYTES"
+WEBSEARCH_TIMEOUT_ENV = "ZENITH_WEBSEARCH_TIMEOUT"
+DEFAULT_WEB_TIMEOUT = 30
+DEFAULT_WEBFETCH_MAX_BYTES = 40_000
+DEFAULT_WEBSEARCH_MAX_RESULTS = 8
+
+VALIDATION_TIMEOUT_ENV = "ZENITH_VALIDATION_TIMEOUT"
+DEFAULT_VALIDATION_TIMEOUT = 30
+SUMMARIZER_TIMEOUT_ENV = "ZENITH_SUMMARIZER_TIMEOUT"
+DEFAULT_SUMMARIZER_TIMEOUT = 30.0
+
+LLM_MAX_TOKENS_ENV = "ZENITH_MAX_TOKENS"
+LLM_TEMPERATURE_ENV = "ZENITH_TEMPERATURE"
+DEFAULT_LLM_MAX_TOKENS = 4096
+DEFAULT_LLM_TEMPERATURE = 0.7
+
+DEFAULT_TOKENIZER_MODEL = "cl100k_base"
+
+MIN_REQUEST_INTERVAL_ENV = "ZENITH_MIN_REQUEST_INTERVAL"
+DEFAULT_MIN_REQUEST_INTERVAL = 0.0
+REQUEST_THROTTLE_JITTER = 0.5
+
+def is_http_url(url: str) -> bool:
+    """True when url begins with http:// or https:// (case-insensitive)."""
+    return bool(url and url.strip().lower().startswith(("http://", "https://")))
+
+
+URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)

@@ -50,7 +50,7 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
   onSelectMode,
   onClose,
   onComplete,
-  onOpenProvider,
+  onOpenProvider: _onOpenProvider,
   onResumeSession,
   onCompactNow,
 }) => {

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LIVE_PROGRESS_EVENT_ID } from '../constants/events';
-import type { ScenarioRunner } from '../types/scenario';
 import { backendScenarioProvider } from '../services/transport/BackendScenarioProvider';
 import { wsClient } from '../services/transport/WebSocketClient';
 import type {
@@ -8,6 +7,7 @@ import type {
   Scenario,
   ScenarioEvent,
   ScenarioMode,
+  ScenarioRunner,
   ThinkingEvent,
   ToolStepEvent,
   TurnManifestEvent,
@@ -58,7 +58,7 @@ export function useScenario(): UseScenarioReturn {
   const batchQueueRef = useRef<{ event: ScenarioEvent; index: number }[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingToolSteps = useRef<
-    Map<string, { index: number; tool: string; params: Record<string, unknown>; text?: string }>
+    Map<string, { callId?: string; index: number; tool: string; params: Record<string, unknown>; text?: string }>
   >(new Map());
   const lastWarningRef = useRef<string | null>(null);
 
@@ -85,15 +85,17 @@ export function useScenario(): UseScenarioReturn {
   );
 
   const flushBatch = useCallback(() => {
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
     if (batchQueueRef.current.length === 0) return;
     const queue = [...batchQueueRef.current];
     batchQueueRef.current = [];
 
-    setEvents((prev) => {
-      const next = applyQueueTo(prev, queue);
-      eventsRef.current = next;
-      return next;
-    });
+    const next = applyQueueTo(eventsRef.current, queue);
+    eventsRef.current = next;
+    setEvents(next);
   }, [applyQueueTo]);
 
   const commitPendingEvents = useCallback(() => {
@@ -155,15 +157,10 @@ export function useScenario(): UseScenarioReturn {
             return prev;
           }
 
-          let next: ScenarioEvent[];
-          if (typeof index === 'number' && index < prev.length) {
-            next = [...prev];
-            next[index] = toolStep;
-          } else {
-            next = [...prev, toolStep];
-          }
+          const next = [...prev, toolStep];
           pendingToolSteps.current.set(event.id, {
-            index: typeof index === 'number' && index < next.length ? index : next.length - 1,
+            callId: event.id,
+            index: next.length - 1,
             tool: event.tool,
             params: event.params,
             text: event.text,
@@ -179,10 +176,10 @@ export function useScenario(): UseScenarioReturn {
         const matched = resolvePendingToolStep(pendingToolSteps.current, event.id, event.tool);
 
         if (matched) {
-          const { step: pending } = matched;
+          const { key: callId, step: pending } = matched;
           const toolStep: ToolStepEvent = {
             kind: 'tool_step',
-            id: event.id,
+            id: callId,
             tool: event.tool,
             params: pending.params,
             success: event.success,
@@ -195,7 +192,14 @@ export function useScenario(): UseScenarioReturn {
           };
 
           setEvents((prev) => {
-            const next = upsertEvent(prev, toolStep, pending.index);
+            const existingIdx = prev.findIndex((e) => e.id === callId);
+            let next: ScenarioEvent[];
+            if (existingIdx >= 0) {
+              next = [...prev];
+              next[existingIdx] = toolStep;
+            } else {
+              next = upsertEvent(prev, toolStep, pending.index);
+            }
             eventsRef.current = next;
             return next;
           });
@@ -216,7 +220,7 @@ export function useScenario(): UseScenarioReturn {
         };
 
         setEvents((prev) => {
-          const next = upsertEvent(prev, orphan, index);
+          const next = [...prev, orphan];
           eventsRef.current = next;
           return next;
         });
@@ -225,9 +229,6 @@ export function useScenario(): UseScenarioReturn {
 
       if (event.kind === 'warning') {
         const message = String(event.message || '');
-        if (message.includes('[System]')) {
-          return;
-        }
         if (lastWarningRef.current === message) {
           return;
         }
@@ -236,7 +237,11 @@ export function useScenario(): UseScenarioReturn {
         lastWarningRef.current = null;
       }
 
-      if (event.kind === 'message' || event.kind === 'thinking') {
+      const isPartialStream =
+        (event.kind === 'message' && (event as import('../types/scenario').MessageEvent).partial === true) ||
+        (event.kind === 'thinking' && (event as import('../types/scenario').ThinkingEvent).partial === true);
+
+      if (isPartialStream) {
         batchQueueRef.current.push({ event, index });
         if (!batchTimerRef.current) {
           batchTimerRef.current = setTimeout(() => {
@@ -246,6 +251,7 @@ export function useScenario(): UseScenarioReturn {
         }
       } else {
         flushBatch();
+        eventsRef.current = upsertEvent(eventsRef.current, event, index);
         setEvents((prev) => {
           const next = upsertEvent(prev, event, index);
           eventsRef.current = next;
@@ -339,7 +345,14 @@ export function useScenario(): UseScenarioReturn {
       }
 
       const promptAttachments =
-        attachments && attachments.length > 0 ? attachments.map((a) => ({ path: a.path, name: a.name })) : undefined;
+        attachments && attachments.length > 0
+          ? attachments.map((a) => ({
+              path: a.path,
+              name: a.name,
+              ...(a.kind ? { kind: a.kind } : {}),
+              ...(typeof a.size === 'number' ? { size: a.size } : {}),
+            }))
+          : undefined;
 
       wsClient
         .sendPrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider, {

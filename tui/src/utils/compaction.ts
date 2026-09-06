@@ -71,7 +71,8 @@ export function consolidateCompactionEvents(events: ScenarioEvent[]): ContextCom
       sourceId = evt.id;
       if (!hasPhaseEvent && phase === 'preparing') phase = 'compacting';
       if (notes.length < MAX_NOTES && evt.message) {
-        const note = evt.message.replace(/^Compacted\s+/i, '').trim();
+        const trimmedMsg = evt.message.trim();
+        const note = trimmedMsg.toLowerCase().startsWith('compacted ') ? trimmedMsg.slice(10).trim() : trimmedMsg;
         if (note) notes.push(note);
       }
       if (typeof evt.tokensSaved === 'number') {

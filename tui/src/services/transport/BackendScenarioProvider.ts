@@ -27,7 +27,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
     let completed = false;
     let timerHandle: ReturnType<typeof setTimeout> | null = null;
     let staleTimer: ReturnType<typeof setTimeout> | null = null;
-    let lastEventKind: string | null = null;
+    let currentThinkingIndex: number | null = null;
     let mergedThinkingThoughts: string[] = [];
     let mergedThinkingId: string | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -160,7 +160,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
           eventIndex++;
         }
 
-        lastEventKind = 'message';
         onEvent(
           {
             kind: 'message',
@@ -185,7 +184,6 @@ export class BackendScenarioProvider implements ScenarioProvider {
           targetIndex = eventIndex++;
         }
 
-        lastEventKind = 'message';
         onEvent(
           {
             kind: 'message',
@@ -222,40 +220,45 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       const mapped = mapRawEvent(kind, data, rpcId);
 
-      if (kind === 'thinking' && lastEventKind === 'thinking' && eventIndex > 0) {
-        const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
+      if (kind === 'thinking') {
+        const thinkingEv = mapped as import('../../types/scenario').ThinkingEvent;
+        const newThoughts = thinkingEv.thoughts;
         mergedThinkingThoughts = newThoughts
           .map((t) => (typeof t === 'string' ? t : t.text))
           .filter(Boolean) as string[];
 
-        const mergedId = mergedThinkingId ?? (mapped as import('../../types/scenario').ThinkingEvent).id;
-        mergedThinkingId = mergedId;
+        if (currentThinkingIndex !== null) {
+          const mergedId = mergedThinkingId ?? thinkingEv.id;
+          mergedThinkingId = mergedId;
+          onEvent(
+            {
+              kind: 'thinking',
+              id: mergedId,
+              thoughts: [...mergedThinkingThoughts],
+              duration: thinkingEv.duration || 0,
+              partial: thinkingEv.partial,
+            },
+            currentThinkingIndex,
+          );
+        } else {
+          mergedThinkingId = thinkingEv.id;
+          currentThinkingIndex = eventIndex;
+          onEvent(mapped, eventIndex);
+          eventIndex++;
+        }
 
-        onEvent(
-          {
-            kind: 'thinking',
-            id: mergedId,
-            thoughts: [...mergedThinkingThoughts],
-            duration: 500,
-          },
-          eventIndex - 1,
-        );
-      } else {
-        if (kind !== 'thinking') {
+        if (!thinkingEv.partial) {
+          currentThinkingIndex = null;
           mergedThinkingThoughts = [];
           mergedThinkingId = null;
-        } else {
-          const newThoughts = (mapped as import('../../types/scenario').ThinkingEvent).thoughts;
-          mergedThinkingThoughts = newThoughts
-            .map((t) => (typeof t === 'string' ? t : t.text))
-            .filter(Boolean) as string[];
-          mergedThinkingId = (mapped as import('../../types/scenario').ThinkingEvent).id;
         }
+      } else {
+        currentThinkingIndex = null;
+        mergedThinkingThoughts = [];
+        mergedThinkingId = null;
         onEvent(mapped, eventIndex);
         eventIndex++;
       }
-
-      lastEventKind = kind;
 
       const isTerminal = (kind === 'success' && !data?.tool) || kind === 'error';
 

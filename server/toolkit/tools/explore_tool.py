@@ -23,18 +23,18 @@ from typing import Any
 
 from server.agents.delegation.agent_definition import (
     AgentDefinition,
-    build_custom_definition,
     build_apogee_definition,
+    build_custom_definition,
 )
 from server.agents.delegation.orchestrator import CaptainOrchestrator
 from server.config.constants import (
+    APPOGEE_AGENT_NAME,
+    APPOGEE_AGENT_ROLE,
     CONCURRENCY_GROUP_CREWMATE,
     COST_CLASS_HIGH,
-    DEFAULT_ENRICH_TIMEOUT_SECONDS,
     DEFAULT_EXPLORE_THOROUGHNESS,
     ENRICH_DELIVERABLE_VERBS,
     ENRICH_SKIP_MIN_CHARS,
-    ENRICH_TIMEOUT_ENV,
     EXPLORE_BUDGET_WINDOW_SECONDS,
     EXPLORE_BUDGETS,
     EXPLORE_CUSTOM_NAME_MAX_CHARS,
@@ -42,13 +42,11 @@ from server.config.constants import (
     EXPLORE_RESULT_MAX_CHARS,
     EXPLORE_THOROUGHNESS_LEVELS,
     LATENCY_CLASS_HIGH,
-    APPOGEE_AGENT_NAME,
-    APPOGEE_AGENT_ROLE,
     PERMISSION_CREWMATE,
     RISK_MEDIUM,
     TOOL_DOMAIN_CREWMATE,
 )
-from server.config.env import optional_float
+from server.config.environment import ZENITH_ENRICH_TIMEOUT
 from server.config.settings import AppSettings
 
 from ..base import BaseTool, ToolResult
@@ -322,7 +320,7 @@ class ExploreTool(BaseTool):
                 kwargs["model"] = self._weak_model
             result = await asyncio.wait_for(
                 self._provider.complete(request, **kwargs),
-                timeout=optional_float(ENRICH_TIMEOUT_ENV, DEFAULT_ENRICH_TIMEOUT_SECONDS),
+                timeout=ZENITH_ENRICH_TIMEOUT,
             )
         except Exception as e:
             logger.debug("Objective enrichment skipped (%s); using raw objective", e)

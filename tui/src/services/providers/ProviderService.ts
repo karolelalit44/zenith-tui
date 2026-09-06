@@ -15,8 +15,8 @@ export class ProviderService {
     this.repo = repo;
   }
 
-  public async refreshFromBackend(): Promise<ProviderState> {
-    await this.repo.refreshFromBackend();
+  public async refreshFromBackend(force = false): Promise<ProviderState> {
+    await this.repo.refreshFromBackend(force);
     const active = this.getActiveProvider();
     this.notifyListeners(active);
     return active;

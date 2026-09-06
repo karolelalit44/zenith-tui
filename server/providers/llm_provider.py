@@ -13,52 +13,24 @@ from collections.abc import AsyncIterator
 from server.config.constants import (
     ANSI_RE,
     DEFAULT_CONTEXT_WINDOW,
-    DEFAULT_LLM_MAX_TOKENS,
-    DEFAULT_LLM_TEMPERATURE,
-    DEFAULT_MIN_REQUEST_INTERVAL,
-    LLM_MAX_TOKENS_ENV,
-    LLM_TEMPERATURE_ENV,
     MAX_OUTPUT_TOKENS_CLAMP,
-    MIN_REQUEST_INTERVAL_ENV,
     REQUEST_THROTTLE_JITTER,
 )
-from server.config.env import optional_float, optional_int
-from server.domain.domain import FinishReason
+from server.config.environment import (
+    ZENITH_MAX_TOKENS,
+    ZENITH_MIN_REQUEST_INTERVAL,
+    ZENITH_TEMPERATURE,
+)
+from server.domain.enums import FinishReason
 from server.domain.errors import AuthenticationError, ProviderError, RateLimitError, TimeoutError
-from server.storage.catalog_compat import load_catalog
+from server.logging_config import log_model_payload
+from server.storage import load_catalog
 
-from .base import BaseProvider
+from .base import BaseProvider, model_capabilities_from_catalog
 from .token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 _catalog: dict | None = None
-_litellm_active_provider: LLMProvider | None = None
-_RETRY_DELAY_RE = re.compile(
-    r'retryDelay\s*"?\s*[:=]\s*"?(\d+(?:\.\d+)?)\s*(ms|s|m|h)?"?', re.IGNORECASE
-)
-_RETRY_IN_RE = re.compile(r"\bretry\s+in\s+(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\b", re.IGNORECASE)
-_MIN_REQUEST_INTERVAL_DEFAULT = optional_float(
-    MIN_REQUEST_INTERVAL_ENV, DEFAULT_MIN_REQUEST_INTERVAL
-)
-
-
-def _litellm_success_handler(model, messages, response, **kwargs):
-    if _litellm_active_provider:
-        logger.info(
-            "LITELLM SUCCESS model=%s provider=%s",
-            _litellm_active_provider._litellm_model,
-            _litellm_active_provider._name,
-        )
-
-
-def _litellm_failure_handler(model, messages, original_exception, **kwargs):
-    if _litellm_active_provider:
-        logger.error(
-            "LITELLM FAILURE model=%s provider=%s error=%s",
-            _litellm_active_provider._litellm_model,
-            _litellm_active_provider._name,
-            str(original_exception)[:500],
-        )
 
 
 _QUOTA_EXHAUSTED_KEYWORDS = (
@@ -70,6 +42,16 @@ _QUOTA_EXHAUSTED_KEYWORDS = (
     "daily quota",
     "daily_limit",
 )
+
+_RETRY_DELAY_RE = re.compile(
+    r'retrydelay["\']?\s*:\s*["\']?(\d+(?:\.\d+)?)\s*(ms|s|m|h|mins?|seconds?)?["\']?',
+    re.IGNORECASE,
+)
+_RETRY_IN_RE = re.compile(
+    r"\b(?:retry(?:\s+(?:in|after))?|try again in|wait(?:\s+for)?|in)\s+(\d+(?:\.\d+)?)\s*(s|seconds?|secs?|milliseconds?|ms|minutes?|mins?|hours?|h)\b",
+    re.IGNORECASE,
+)
+_MIN_REQUEST_INTERVAL_DEFAULT = ZENITH_MIN_REQUEST_INTERVAL
 
 
 def _strip_ansi(text: str) -> str:
@@ -167,6 +149,21 @@ def _set_api_key(provider_name: str, api_key: str | None) -> None:
         os.environ[env_var] = api_key
 
 
+def prewarm_litellm() -> None:
+    """Pre-load the LiteLLM runtime at application startup.
+
+    ``import litellm`` pulls in a heavy first-party chain (OpenAI/Anthropic/
+    Google GenAI/Boto3/Azure SDKs). Doing it lazily inside
+    ``LLMProvider.__init__`` blocks the first provider instantiation with ~11s
+    of dead air and no feedback. Call once during lifespan startup so the
+    subsequent imports resolve from ``sys.modules``."""
+    start = time.monotonic()
+    import litellm  # noqa: F401
+
+    elapsed_ms = (time.monotonic() - start) * 1000
+    logger.info("AI provider runtime pre-warmed in %.0fms", elapsed_ms)
+
+
 def _unwrap_bytes_literal(text: str) -> str:
     stripped = text.strip()
     for marker in ("b'", 'b"'):
@@ -243,11 +240,11 @@ def _parse_retry_delay(text: str) -> float | None:
     except (TypeError, ValueError):
         return None
     unit = (match.group(2) or "").lower()
-    if unit == "ms":
+    if unit in ("ms", "millisecond", "milliseconds"):
         return value / 1000.0
-    if unit == "m":
+    if unit in ("m", "min", "mins", "minute", "minutes"):
         return value * 60.0
-    if unit == "h":
+    if unit in ("h", "hr", "hrs", "hour", "hours"):
         return value * 3600.0
     return value
 
@@ -271,7 +268,7 @@ def _extract_retry_after(exc: Exception) -> float | None:
             if isinstance(raw, bytes):
                 try:
                     raw = raw.decode("utf-8", errors="replace")
-                except Exception:  # pragma: no cover - defensive
+                except Exception:  
                     continue
             body_parts.append(str(raw))
     for text in body_parts:
@@ -282,6 +279,17 @@ def _extract_retry_after(exc: Exception) -> float | None:
 
 
 def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderError:
+    status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            status_code = getattr(resp, "status_code", None)
+    try:
+        if status_code is not None:
+            status_code = int(status_code)
+    except (TypeError, ValueError):
+        status_code = None
+
     msg = _strip_ansi(str(exc)).lower()
     clean = _extract_clean_message(exc)
     retry_after = _extract_retry_after(exc)
@@ -322,6 +330,30 @@ def _classify_provider_error(exc: Exception, provider_name: str) -> ProviderErro
             return ProviderError(clean, provider=provider_name, code="API_ERROR", recoverable=True)
     except (ImportError, AttributeError):
         pass
+
+    if status_code in (401, 403):
+        return AuthenticationError(
+            f"Authentication failed for provider '{provider_name}': {clean}\nTip: Check your API key is set correctly in settings.",
+            provider=provider_name,
+        )
+    if status_code == 429:
+        return RateLimitError(
+            f"Rate limited by provider '{provider_name}': {clean}",
+            provider=provider_name,
+            retry_after=retry_after,
+            recoverable=not is_quota_exhausted,
+        )
+    if status_code in (408, 504):
+        return TimeoutError(
+            f"Timeout from provider '{provider_name}': {clean}", provider=provider_name
+        )
+    if status_code == 400 and ("context" in msg or "token" in msg or "length" in msg):
+        return ProviderError(
+            f"Context window exceeded for provider '{provider_name}': {clean}",
+            provider=provider_name,
+            code="CONTEXT_EXCEEDED",
+            recoverable=True,
+        )
     if (
         "401" in msg
         or "unauthorized" in msg
@@ -405,7 +437,7 @@ def _get_model_config(name: str, model_id: str) -> dict:
                     ),
                     "default_temperature": m.get(
                         "default_temperature",
-                        0.0 if caps.get("reasoning") else DEFAULT_LLM_TEMPERATURE,
+                        0.0 if caps.get("reasoning") else ZENITH_TEMPERATURE,
                     ),
                     # Capability overrides the default; otherwise Gemini 3+ drops
                     # sampling controls (deprecated by the provider).
@@ -427,8 +459,8 @@ def _get_model_config(name: str, model_id: str) -> dict:
         pass
     return {
         "context_window": DEFAULT_CONTEXT_WINDOW,
-        "max_output_tokens": optional_int(LLM_MAX_TOKENS_ENV, DEFAULT_LLM_MAX_TOKENS),
-        "default_temperature": optional_float(LLM_TEMPERATURE_ENV, DEFAULT_LLM_TEMPERATURE),
+        "max_output_tokens": ZENITH_MAX_TOKENS,
+        "default_temperature": ZENITH_TEMPERATURE,
         "supports_temperature": True,
         "enable_thinking": False,
         "supports_tools": True,
@@ -486,6 +518,7 @@ class LLMProvider(BaseProvider):
         base_url: str | None = None,
         enable_thinking: bool | None = None,
         reasoning_budget: int | None = None,
+        reasoning_effort: str | None = None,
         extra_params: dict | None = None,
         use_system_prompt: bool | None = None,
         streaming: bool | None = None,
@@ -512,6 +545,8 @@ class LLMProvider(BaseProvider):
             enable_thinking if enable_thinking is not None else model_cfg["enable_thinking"]
         )
         self.reasoning_budget = reasoning_budget
+        self.reasoning_effort = reasoning_effort
+        self.capabilities = model_capabilities_from_catalog(name, resolved_model)
         self.extra_params = (
             extra_params if extra_params is not None else model_cfg.get("extra_params")
         )
@@ -534,14 +569,6 @@ class LLMProvider(BaseProvider):
         self._token_counter = TokenCounter()
         self._throttle = _RequestThrottle(_resolve_min_request_interval(name))
         _set_api_key(name, self.api_key)
-        import litellm
-
-        global _litellm_active_provider
-        _litellm_active_provider = self
-        if not litellm.success_callback:
-            litellm.success_callback = [_litellm_success_handler]
-        if not litellm.failure_callback:
-            litellm.failure_callback = [_litellm_failure_handler]
         litellm_prefix = provider_entry.get("litellm_prefix", "")
         if not litellm_prefix and self.base_url:
             litellm_prefix = "openai/"
@@ -600,6 +627,10 @@ class LLMProvider(BaseProvider):
             kwargs["api_base"] = self.base_url
         if self.api_key:
             kwargs["api_key"] = self.api_key
+        elif self.base_url and self._base_url_style != "gemini":
+            # LiteLLM/OpenAI-compatible clients still require a non-empty key
+            # parameter even when the upstream local server does not.
+            kwargs["api_key"] = "sk-no-key-required"
         if tools and self._model_config.get("supports_tools", True):
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
@@ -610,6 +641,8 @@ class LLMProvider(BaseProvider):
             if self.reasoning_budget is not None:
                 thinking_cfg["budget_tokens"] = self.reasoning_budget
             kwargs["thinking"] = thinking_cfg
+        if self.reasoning_effort:
+            kwargs["reasoning_effort"] = self.reasoning_effort
         if self.extra_params and isinstance(self.extra_params, dict):
             for k, v in self.extra_params.items():
                 if k not in ("api_key", "api_base", "model", "messages"):
@@ -618,7 +651,13 @@ class LLMProvider(BaseProvider):
         # even if a catalog or extra_params still advertises them, to avoid the
         # provider-side DeprecationWarning and future removal breakage.
         if is_gemini_3_plus(self.model):
-            for _deprecated in ("temperature", "top_p", "top_k"):
+            for _deprecated in (
+                "temperature",
+                "top_p",
+                "top_k",
+                "frequency_penalty",
+                "presence_penalty",
+            ):
                 kwargs.pop(_deprecated, None)
         return kwargs
 
@@ -640,6 +679,7 @@ class LLMProvider(BaseProvider):
 
         self._reset_cumulative_usage()
         kwargs = self._build_completion_kwargs(messages, tools, stream=False, model_override=model)
+        log_model_payload(logger, kwargs, call_type="complete")
         messages_chars = sum(
             len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in messages
         )
@@ -658,6 +698,9 @@ class LLMProvider(BaseProvider):
         )
         await self._throttle.wait()
         t0 = time.monotonic()
+        # Each call is a fresh turn: never let a prior turn's tool calls leak
+        # forward and be replayed as if the model asked for them again.
+        self._last_native_tool_calls = []
         try:
             response = await litellm.acompletion(**kwargs)
             elapsed = (time.monotonic() - t0) * 1000
@@ -760,6 +803,7 @@ class LLMProvider(BaseProvider):
         kwargs = self._build_completion_kwargs(
             messages, tools, stream=True, tool_choice=tool_choice, response_format=response_format
         )
+        log_model_payload(logger, kwargs, call_type="stream")
         messages_chars = sum(
             len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in messages
         )
@@ -778,6 +822,9 @@ class LLMProvider(BaseProvider):
         )
         await self._throttle.wait()
         t0 = time.monotonic()
+        # Each call is a fresh turn: never let a prior turn's tool calls leak
+        # forward and be replayed as if the model asked for them again.
+        self._last_native_tool_calls = []
         stream = await litellm.acompletion(**kwargs)
         logger.info(
             "API STREAM OPENED model=%s latency=%.0fms",
@@ -849,14 +896,18 @@ class LLMProvider(BaseProvider):
         finish = None
         if accumulated_tool_calls:
             tool_calls = [accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls.keys())]
-            self._last_native_tool_calls.extend(tool_calls)
+            self._last_native_tool_calls = tool_calls
             finish = "tool_calls"
         # Propagate the streamed terminal condition (P3.1) so the loop sees
-        # length/content-filter stops instead of a defaulted "stop".
+        # length/content-filter stops instead of a defaulted "stop". Falls back
+        # to STOP (not a stale prior-turn value) when the provider reports
+        # neither a finish reason nor any tool calls.
         if streamed_finish:
             self._last_finish_reason = _map_finish_reason(streamed_finish)
         elif accumulated_tool_calls:
             self._last_finish_reason = FinishReason.TOOL_CALLS
+        else:
+            self._last_finish_reason = FinishReason.STOP
         if stream_usage:
             self._last_usage = dict(stream_usage)
             try:

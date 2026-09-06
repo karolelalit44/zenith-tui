@@ -31,14 +31,6 @@ def test_canonical_keys_preserved():
     assert res["path"] == "a.txt"
 
 
-def test_filepath_key_tools_keep_filepath():
-    for tool in ("multi_edit", "lsp_definition", "lsp_diagnostics", "lsp_rename"):
-        res = normalize_file_params({"path": "a.py"}, tool_name=tool)
-        assert res.get("filepath") == "a.py", tool
-        assert "path" not in res, tool
-        res2 = normalize_file_params({"filepath": "a.py"}, tool_name=tool)
-        assert res2.get("filepath") == "a.py", tool
-
 
 def test_path_key_tools_keep_path():
     res = normalize_file_params({"filepath": "a.py"}, tool_name="file_write")

@@ -13,10 +13,13 @@ edits take effect on the next tool call (mtime/size fingerprint reload).
 """
 
 from __future__ import annotations
+
 import logging
 import threading
 from pathlib import Path
+
 from pathspec import GitIgnoreSpec
+
 from server.config.constants import (
     DEFAULT_ZENITH_IGNORE_CONTENT,
     ZENITH_IGNORE_FILE_NAME,
@@ -27,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def ignore_file_path(workspace_root: str | Path) -> Path:
     """Absolute path of the ignore file for a workspace."""
-    return Path(workspace_root).resolve() / ZENITH_IGNORE_FILE_NAME
+    return Path(workspace_root) / ZENITH_IGNORE_FILE_NAME
 
 
 def ensure_ignore_file(workspace_root: str | Path) -> Path:
@@ -120,12 +123,6 @@ def get_matcher(workspace_root: str | Path) -> ZenithIgnoreMatcher:
             matcher = ZenithIgnoreMatcher(key)
             _matchers[key] = matcher
         return matcher
-
-
-def clear_matcher_cache() -> None:
-    """Drop cached matchers (test helper; also frees stale workspaces)."""
-    with _cache_lock:
-        _matchers.clear()
 
 
 def blocked_as_missing(matcher: ZenithIgnoreMatcher, rel_path: str | Path) -> bool:

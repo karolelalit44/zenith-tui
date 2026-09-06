@@ -71,7 +71,7 @@ async def _surface_summary_degraded(
     session_id: str,
     msg: str,
     code: str,
-    outcome: "CompactionOutcome | None" = None,
+    outcome: CompactionOutcome | None = None,
 ) -> None:
     """Surface a degraded summarization to the user and the compaction record.
 

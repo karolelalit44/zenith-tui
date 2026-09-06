@@ -83,6 +83,7 @@ export const commandRegistry: CommandDef[] = [
     title: '/clear',
     description: 'Clear conversation and start a new chat',
     category: 'Session',
+    keybind: 'clear_turns',
     keywords: ['new', 'reset', 'fresh', 'chat', 'session', 'clear'],
     run: (ctx) => ctx.clearTurns(),
   },
@@ -161,22 +162,6 @@ export const commandRegistry: CommandDef[] = [
     run: (ctx) => ctx.savePlan?.(),
   },
   {
-    id: 'clear_conversation',
-    title: 'Clear conversation',
-    description: 'Reset conversation and start a new chat',
-    category: 'Session',
-    keybind: 'clear_turns',
-    run: (ctx) => ctx.clearTurns(),
-  },
-  {
-    id: 'new_chat',
-    title: 'New chat',
-    description: 'Start a new chat session',
-    category: 'Session',
-    keywords: ['clear', 'reset', 'fresh', 'session'],
-    run: (ctx) => ctx.clearTurns(),
-  },
-  {
     id: 'command_palette',
     title: 'Command palette',
     description: 'Open this palette',
@@ -191,7 +176,7 @@ export const commandRegistry: CommandDef[] = [
     title: '/session',
     description: 'Browse and resume previous sessions',
     category: 'Session',
-    keywords: ['history', 'resume', 'previous', 'conversations'],
+    keywords: ['history', 'resume', 'previous', 'conversations', 'sessions'],
     run: (ctx) => ctx.openOverlay('session'),
   },
   {
@@ -207,7 +192,8 @@ export const commandRegistry: CommandDef[] = [
 
 export function dispatchCommand(rawInput: string, ctx: CommandRunContext): boolean {
   const trimmed = rawInput.trim().toLowerCase();
-  const def = commandRegistry.find((c) => c.slash && c.slash.toLowerCase() === trimmed);
+  const normalized = trimmed === '/sessions' ? '/session' : trimmed;
+  const def = commandRegistry.find((c) => Boolean(c.slash && c.slash.toLowerCase() === normalized));
   if (!def) return false;
   def.run(ctx);
   return true;

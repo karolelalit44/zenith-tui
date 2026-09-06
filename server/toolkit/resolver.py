@@ -72,19 +72,17 @@ class SchemaResolver:
             else:
                 break
 
-    def schemas(self, mode: str, allowed_mcp: dict[str, list[str]] | None = None) -> list[dict]:
+    def schemas(self, mode: str) -> list[dict]:
         if self.registry is None:
             return []
         return self.registry.get_schemas_for_mode(
-            mode, allowed_mcp=allowed_mcp, allowed_tools=list(self._active)
+            mode, allowed_tools=list(self._active)
         )
 
-    def openai_tools(
-        self, mode: str, allowed_mcp: dict[str, list[str]] | None = None
-    ) -> list[dict]:
+    def openai_tools(self, mode: str) -> list[dict]:
         from server.agents.validation import schemas_to_openai_tools
 
-        return schemas_to_openai_tools(self.schemas(mode, allowed_mcp=allowed_mcp))
+        return schemas_to_openai_tools(self.schemas(mode))
 
     def schema_tokens(self, model: str) -> int:
         if self.registry is None:

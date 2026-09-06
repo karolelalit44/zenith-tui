@@ -1,7 +1,6 @@
 /**
- * Vitest setup. Frontend config values come from `tui/.env` (the source of
- * truth, loaded by src/config/env.ts); this file only pins server-mirror and
- * test-scoped values that have no `.env` home.
+ * Vitest setup. Frontend config values come from src/config/environment.ts;
+ * this file pins server-mirror and test-scoped override values.
  */
 
 process.env.ZENITH_DB_PATH = ':memory:';

@@ -14,9 +14,7 @@ from server.domain.session import Session
 from server.providers.base import BaseProvider
 from server.providers.registry import ProviderRegistry
 from server.sessions.export import SessionExporter
-from server.skills.loader import SkillLoader
 from server.toolkit import create_default_registry
-from server.workspace.repo_map import RepoMap
 
 
 class EchoProvider(BaseProvider):
@@ -211,58 +209,6 @@ class TestAgentWorkflow:
         assert not any(e.kind == EventKind.ERROR for e in events)
 
 
-class TestMultiEditEndToEnd:
-    class _MultiEditProvider(BaseProvider):
-        def __init__(self):
-            super().__init__("multiedit", "multiedit-model")
-            self.call_count = 0
-
-        async def complete(self, messages, tools=None):
-            self.call_count += 1
-            if self.call_count == 1:
-                return '```tool\n{"tool": "file_write", "params": {"path": "src.txt", "content": "alpha\\nbeta\\ngamma"}}\n```'
-            if self.call_count == 2:
-                return (
-                    '```tool\n{"tool": "multi_edit", "params": {"filepath": "src.txt", '
-                    '"edits": [{"old_content": "alpha", "new_content": "alpha-one"}, '
-                    '{"old_content": "gamma", "new_content": "gamma-three"}]}}\n```'
-                )
-            return "Done."
-
-        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-            response = await self.complete(messages)
-            for char in response:
-                yield (char, None)
-
-        async def validate(self):
-            return True
-
-        async def list_models(self):
-            return ["multiedit-model"]
-
-    @pytest.mark.asyncio
-    async def test_multi_edit_executes_through_parser(self, test_config):
-        root = Path(test_config.workspace_root)
-        agent = AgentLoop(
-            test_config,
-            self._MultiEditProvider(),
-            tool_registry=create_default_registry(),
-        )
-        events = []
-        async for event in agent.process_prompt("Do the edits", "s1", [], "build"):
-            events.append(event)
-        assert (root / "src.txt").read_text(encoding="utf-8") == "alpha-one\nbeta\ngamma-three"
-        results = [
-            e
-            for e in events
-            if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "multi_edit"
-        ]
-        assert len(results) == 1, "multi_edit must execute and succeed"
-        assert results[0].data.get("success") is True, results[0].data.get("error", "")
-        assert events[-1].kind == EventKind.SUCCESS
-        assert not any(e.kind == EventKind.ERROR for e in events)
-
-
 class TestAutoApprovalGates:
     class _WriteProvider(BaseProvider):
         def __init__(self):
@@ -305,12 +251,6 @@ class TestAutoApprovalGates:
 
     @pytest.mark.asyncio
     async def test_auto_overwrite_false_rejects_existing_file(self, test_config):
-        # This test shares the "s1" session with other integration tests; clear the
-        # durable write registry so a prior test's identical write to out.txt is not
-        # mistaken for a replay and preempts the overwrite-denied gate under test.
-        from server.agents.session_workspace import reset_session
-
-        reset_session("s1")
         target = Path(test_config.workspace_root) / "out.txt"
         target.write_text("old", encoding="utf-8")
         test_config.auto_overwrite = False
@@ -1188,68 +1128,6 @@ class TestSessionExport:
         assert "tool_result" in md or "new.py" in md
 
 
-class TestSkillLoader:
-    def test_find_skills(self, temp_dir):
-        skills_dir = temp_dir / "agents" / "skills" / "my-skill"
-        skills_dir.mkdir(parents=True)
-        (skills_dir / "SKILL.md").write_text("# My Skill\nDo things.")
-        loader = SkillLoader(str(temp_dir))
-        skills = loader.find_skills()
-        assert len(skills) == 1
-        assert "My Skill" in skills[0]["content"]
-
-    def test_no_skills(self, temp_dir):
-        loader = SkillLoader(str(temp_dir))
-        skills = loader.find_skills()
-        assert len(skills) == 0
-
-    def test_skill_prompt(self, temp_dir):
-        skills_dir = temp_dir / "skills" / "test-skill"
-        skills_dir.mkdir(parents=True)
-        (skills_dir / "SKILL.md").write_text("# Test\nContent here.")
-        loader = SkillLoader(str(temp_dir))
-        prompt = loader.get_skill_prompt()
-        assert "Loaded Skills" in prompt
-        assert "skills/test-skill" in prompt
-
-    def test_skill_names(self, temp_dir):
-        for name in ["alpha", "beta"]:
-            d = temp_dir / "skills" / name
-            d.mkdir(parents=True)
-            (d / "SKILL.md").write_text(f"# {name}")
-        loader = SkillLoader(str(temp_dir))
-        names = loader.get_skill_names()
-        assert any("alpha" in n for n in names)
-        assert any("beta" in n for n in names)
-
-    def test_skip_hidden_dirs(self, temp_dir):
-        hidden = temp_dir / ".hidden" / "skill"
-        hidden.mkdir(parents=True)
-        (hidden / "SKILL.md").write_text("# Hidden")
-        loader = SkillLoader(str(temp_dir))
-        skills = loader.find_skills()
-        assert len(skills) == 0
-
-    def test_ignores_skills_outside_skill_dirs(self, temp_dir):
-        stray = temp_dir / "lib" / "vendor" / "skill"
-        stray.mkdir(parents=True)
-        (stray / "SKILL.md").write_text("# Stray")
-        loader = SkillLoader(str(temp_dir))
-        assert loader.find_skills() == []
-
-    def test_skill_prompt_is_metadata_only(self, temp_dir):
-        skills_dir = temp_dir / "skills" / "test-skill"
-        skills_dir.mkdir(parents=True)
-        (skills_dir / "SKILL.md").write_text(
-            "# Test\n\nA long body that must not be embedded verbatim."
-        )
-        loader = SkillLoader(str(temp_dir))
-        prompt = loader.get_skill_prompt()
-        assert "Loaded Skills" in prompt
-        assert "skills/test-skill/SKILL.md" in prompt
-        assert "long body that must not be embedded verbatim" not in prompt
-
-
 class TestGracefulShutdown:
     @pytest.mark.asyncio
     async def test_shutdown_calls_cleanup(self):
@@ -1290,14 +1168,3 @@ class TestContextManagerIntegration:
         assert len(messages) < 102
         assert messages[-1]["content"] == "New."
 
-
-class TestRepoMapIntegration:
-    def test_structure_and_summary(self, temp_dir):
-        (temp_dir / "src").mkdir()
-        (temp_dir / "src" / "main.py").write_text("print('hello')")
-        (temp_dir / "README.md").write_text("# Test")
-        repo = RepoMap(str(temp_dir))
-        structure = repo.get_structure()
-        summary = repo.get_summary()
-        assert "Python" in summary
-        assert len(structure["children"]) > 0

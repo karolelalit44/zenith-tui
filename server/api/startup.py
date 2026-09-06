@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from server.config.loader import load_config
+from server.config.loader import load_config, providers_requiring_key
 
 from .schemas import MissingItem, StartupResult, StartupStatus
 
@@ -31,7 +31,7 @@ def validate_startup(workspace_root: str = ".") -> StartupResult:
         active_model = provider_config.model or ""
     if not active_model:
         missing.append(MissingItem.MODEL)
-    if provider_config:
+    if provider_config and active in providers_requiring_key():
         has_key = bool(provider_config.api_key and provider_config.api_key.strip())
         if not has_key:
             missing.append(MissingItem.API_KEY)

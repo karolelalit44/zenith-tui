@@ -7,10 +7,10 @@ import pytest
 import server.agents.delegation.orchestrator as orch_module
 from server.agents.delegation import (
     AGENT_TIMEOUT_SECONDS,
-    MAX_DELEGATION_DEPTH,
     CREWMATE_CONTEXT_BUDGET_TOKENS,
-    CaptainOrchestrator,
+    MAX_DELEGATION_DEPTH,
     ApogeeCrewmate,
+    CaptainOrchestrator,
 )
 from server.config.settings import AppSettings
 from server.domain.events import EventKind

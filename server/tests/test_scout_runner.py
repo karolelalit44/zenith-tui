@@ -15,7 +15,7 @@ from server.agents.delegation.scout import (
     run_crewmate,
 )
 from server.agents.delegation.task_envelope import build_task_envelope
-from server.config.constants import READ_ONLY_TOOLS, CREWMATE_GRAPH_TOOLS, CREWMATE_MODE
+from server.config.constants import CREWMATE_MODE, READ_ONLY_TOOLS
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
@@ -173,7 +173,6 @@ class TestReadOnlyToolSurface:
         assert provider.tool_names_seen, "provider never received a tool surface"
         allowed = (
             set(READ_ONLY_TOOLS)
-            | set(CREWMATE_GRAPH_TOOLS)
             | {"discover_capabilities", "get_tool_definition"}
         )
         offered = {

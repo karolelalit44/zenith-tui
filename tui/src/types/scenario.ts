@@ -20,7 +20,6 @@ export type EventKind =
   | 'crewmate_complete'
   | 'crewmate_failed'
   | 'todo_board'
-  | 'todo_test'
   | 'session_created'
   | 'session_resumed'
   | 'session_state_changed'
@@ -134,6 +133,7 @@ export interface ToolStepEvent {
   metadata: Record<string, unknown>;
   text?: string;
   pending: boolean;
+  duration?: number;
 }
 
 export interface ProgressEvent {
@@ -412,42 +412,6 @@ export interface TodoBoardEvent {
 }
 
 /**
- * Lifecycle phases exercised by the todo lifecycle simulation (triggered by a
- * matching prompt against the test backend's `data/simulation` playback).
- * Ordered so the report card can render a phase stepper.
- */
-export type TodoLifecyclePhase = 'create' | 'manage' | 'update' | 'progress' | 'complete' | 'reopen' | 'persist';
-
-export interface TodoTestAssertion {
-  label: string;
-  passed: boolean;
-  detail?: string;
-}
-
-/** An invalid/incomplete-state operation that was attempted and correctly rejected. */
-export interface TodoTestRejectedOp {
-  op: string;
-  reason: string;
-}
-
-/**
- * One scenario result from the todo lifecycle simulation. These are internal
- * test-layer events: the stream still carries them (server tests assert the
- * counts), but the ScenarioRenderer does not render them — the visible todo
- * window is the minimal board list.
- */
-export interface TodoTestEvent {
-  kind: 'todo_test';
-  id: string;
-  phase: TodoLifecyclePhase;
-  scenario: string;
-  passed: boolean;
-  assertions: TodoTestAssertion[];
-  rejectedOps?: TodoTestRejectedOp[];
-  elapsedMs?: number;
-}
-
-/**
  * Lightweight session lifecycle status line (e.g. "Session created", "Session
  * resumed"). Backend session events carry a `session_id` plus a small number of
  * fields; they are operational signals, so the UI renders them as dim status
@@ -588,27 +552,12 @@ export type ScenarioEvent =
   | CrewmateCompleteEvent
   | CrewmateFailedEvent
   | TodoBoardEvent
-  | TodoTestEvent
   | SessionInfoEvent
   | SessionSummarizedEvent
   | ContextUpdatedEvent
   | TokenUsageRecordedEvent;
 
 export type ScenarioMode = 'plan' | 'build';
-
-export type ContentPart =
-  | { type: 'text'; text: string }
-  | { type: 'reasoning'; text: string }
-  | { type: 'tool_call'; id: string; name: string; params: Record<string, unknown> }
-  | { type: 'tool_result'; id: string; name: string; success: boolean; output: string }
-  | { type: 'finish'; reason: string };
-
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  parts: ContentPart[];
-  timestamp: number;
-}
 
 export interface Scenario {
   id: string;
@@ -623,6 +572,8 @@ export interface FileAttachment {
   name: string;
   mimeType: string;
   size: number;
+  /** 'file' for a regular file, 'folder' for a directory reference. */
+  kind?: 'file' | 'folder';
 }
 
 export type ScenarioListener = (event: ScenarioEvent, index: number) => void;

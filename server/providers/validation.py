@@ -19,15 +19,12 @@ from server.config.constants import (
     DEFAULT_CONTEXT_WINDOW,
     DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_TEMPERATURE,
-    DEFAULT_VALIDATION_TIMEOUT,
-    URL_SCHEME_RE,
-    VALIDATION_TIMEOUT_ENV,
     default_max_tokens_for_context,
+    is_http_url,
 )
-from server.config.env import optional_int
+from server.config.environment import ZENITH_VALIDATION_TIMEOUT
 from server.providers.llm_provider import LLMProvider, _extract_clean_message
-from server.storage import StorageHome, resolve_home
-from server.storage.catalog_compat import load_catalog
+from server.storage import StorageHome, load_catalog, resolve_home
 from server.storage.provider_config import (
     read_providers as read_stored_providers,
 )
@@ -257,7 +254,7 @@ async def validate_provider(
             ValidationError(code="MISSING_BASE_URL", message=msg),
         )
         return
-    if not URL_SCHEME_RE.match(base_url):
+    if not is_http_url(base_url):
         msg = f"Base URL '{base_url}' must start with http:// or https://"
         _update("base_url", ValidationStepStatus.FAILED, msg)
         yield _step_event("base_url", ValidationStepStatus.FAILED, msg)
@@ -293,7 +290,7 @@ async def validate_provider(
     _update("api_key", ValidationStepStatus.SUCCESS, key_note)
     yield _step_event("api_key", ValidationStepStatus.SUCCESS, key_note)
     models: list[ProviderModelInfo] = []
-    timeout = optional_int(VALIDATION_TIMEOUT_ENV, DEFAULT_VALIDATION_TIMEOUT)
+    timeout = ZENITH_VALIDATION_TIMEOUT
     endpoint = _base_url_endpoint(base_url)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key.strip() else {}
     try:
@@ -334,46 +331,6 @@ async def validate_provider(
         )
         return
     auth_msg = f"Authenticated (HTTP {resp.status_code})"
-    auth_ok = True
-    probe_model = cfg["model"]
-    if cfg["requires_api_key"] and api_key.strip() and probe_model:
-        try:
-            import litellm
-
-            litellm.drop_params = True
-            probe_provider = LLMProvider(
-                name=provider_id,
-                api_key=api_key,
-                base_url=base_url,
-                model=probe_model,
-                max_tokens=1,
-                temperature=0.0,
-                enable_thinking=False,
-            )
-            await asyncio.wait_for(
-                probe_provider.complete([{"role": "user", "content": "Say OK"}]), timeout=timeout
-            )
-        except ImportError:
-            logger.warning("litellm not available - auth probe skipped")
-        except TimeoutError:
-            auth_msg = "Authenticated (key accepted, probe timed out)"
-        except Exception as exc:
-            if _is_auth_rejection(exc):
-                auth_msg = f"Authentication failed - {_extract_clean_message(exc)}"
-                auth_ok = False
-            else:
-                auth_msg = "Authenticated (key accepted)"
-    if not auth_ok:
-        _update("auth", ValidationStepStatus.FAILED, auth_msg)
-        yield _step_event("auth", ValidationStepStatus.FAILED, auth_msg)
-        yield _result_event(
-            False,
-            provider_id,
-            _all_steps(),
-            [],
-            ValidationError(code="AUTH_FAILED", message=auth_msg),
-        )
-        return
     _update("auth", ValidationStepStatus.SUCCESS, auth_msg)
     yield _step_event("auth", ValidationStepStatus.SUCCESS, auth_msg)
     _update("models", ValidationStepStatus.RUNNING)
@@ -395,18 +352,21 @@ async def validate_provider(
     yield _step_event("smoke_test", ValidationStepStatus.RUNNING)
     smoke_model = cfg["model"]
     smoke_error = ""
+    is_auth_error = False
     if smoke_model:
         try:
             import litellm
 
             litellm.drop_params = True
+            smoke_max_tokens = min(16, cfg.get("max_tokens") or 16)
             temp_provider = LLMProvider(
                 name=provider_id,
                 api_key=api_key,
                 base_url=base_url,
                 model=smoke_model,
-                max_tokens=cfg["max_tokens"],
-                temperature=cfg["temperature"],
+                max_tokens=smoke_max_tokens,
+                temperature=0.0,
+                enable_thinking=False,
             )
             await asyncio.wait_for(
                 temp_provider.complete([{"role": "user", "content": "Say OK"}]), timeout=timeout
@@ -416,19 +376,36 @@ async def validate_provider(
         except TimeoutError:
             smoke_error = f"Smoke test timed out after {timeout}s"
         except Exception as exc:
-            smoke_error = _extract_clean_message(exc) or str(exc)
+            if _is_auth_rejection(exc):
+                is_auth_error = True
+                smoke_error = f"Authentication failed — {_extract_clean_message(exc)}"
+            else:
+                smoke_error = _extract_clean_message(exc) or str(exc)
     else:
         smoke_error = "No model selected for smoke test"
     if smoke_error:
-        _update("smoke_test", ValidationStepStatus.FAILED, smoke_error)
-        yield _step_event("smoke_test", ValidationStepStatus.FAILED, smoke_error)
-        yield _result_event(
-            False,
-            provider_id,
-            _all_steps(),
-            models,
-            ValidationError(code="SMOKE_TEST_FAILED", message=smoke_error),
-        )
+        if is_auth_error:
+            _update("auth", ValidationStepStatus.FAILED, smoke_error)
+            yield _step_event("auth", ValidationStepStatus.FAILED, smoke_error)
+            _update("smoke_test", ValidationStepStatus.FAILED, "Authentication failed")
+            yield _step_event("smoke_test", ValidationStepStatus.FAILED, "Authentication failed")
+            yield _result_event(
+                False,
+                provider_id,
+                _all_steps(),
+                models,
+                ValidationError(code="AUTH_FAILED", message=smoke_error),
+            )
+        else:
+            _update("smoke_test", ValidationStepStatus.FAILED, smoke_error)
+            yield _step_event("smoke_test", ValidationStepStatus.FAILED, smoke_error)
+            yield _result_event(
+                False,
+                provider_id,
+                _all_steps(),
+                models,
+                ValidationError(code="SMOKE_TEST_FAILED", message=smoke_error),
+            )
         return
     _update("smoke_test", ValidationStepStatus.SUCCESS, "Completed 'Say OK' round-trip")
     yield _step_event("smoke_test", ValidationStepStatus.SUCCESS, "Completed 'Say OK' round-trip")

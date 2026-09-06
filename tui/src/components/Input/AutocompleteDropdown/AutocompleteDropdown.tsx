@@ -11,7 +11,7 @@ interface CommandEntry {
 }
 
 const COMMAND_LIST: CommandEntry[] = commandRegistry
-  .filter((c) => c.slash)
+  .filter((c) => c.slash && !c.hidden)
   .map((c) => ({ command: c.slash as string, description: c.description }));
 
 export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({

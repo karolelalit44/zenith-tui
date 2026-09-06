@@ -16,12 +16,13 @@ from server.domain.session import Session
 from server.storage import (
     StorageHome,
     ensure_materialized,
+    invalidate_catalog_cache,
+    load_catalog,
     read_json,
     write_json_atomic,
 )
 from server.storage import session_store as session_store_mod
 from server.storage.atomic import read_jsonl, rewrite_jsonl_atomic
-from server.storage.catalog_compat import invalidate_catalog_cache, load_catalog
 from server.storage.catalog_store import upsert_model, upsert_provider
 from server.storage.profile_store import load_profile, save_profile, set_api_key
 from server.storage.session_store import (
@@ -379,7 +380,6 @@ class TestSingleFileLayout:
 
     async def test_all_state_lands_in_one_file(self, temp_dir: Path):
         from server.storage.usage_store import FileTokenUsageRepository
-        from server.storage.workspace_store import FileWorkspaceRepository
 
         home = StorageHome(temp_dir)
         ensure_materialized(home)
@@ -388,7 +388,6 @@ class TestSingleFileLayout:
         mrepo = FileMessageRepository(home)
         crepo = session_store_mod.FileCheckpointRepository(home)
         urepo = FileTokenUsageRepository(home)
-        wrepo = FileWorkspaceRepository(home)
 
         s = await srepo.create(Session(id="sess-one", title="f", workspace_root=ws_root))
         await mrepo.append(Message(session_id=s.id, role="user", content="hi"))
@@ -396,14 +395,13 @@ class TestSingleFileLayout:
         await urepo.record(
             s.id, provider="groq", model="m", total_tokens=10, context_window=1000, step_index=-1
         )
-        await wrepo.upsert(s.id, "a.txt", "h", 5, 1, 0, 0.0, 0.0)
 
         project_dir = home.project_dir(ws_root)
         files = list(project_dir.iterdir())
         assert [p.name for p in files] == ["sess-one.jsonl"]
         kinds = [r["t"] for r in read_jsonl(files[0])]
         assert kinds[0] == "header"
-        for kind in ("msg", "checkpoint", "usage", "wsfile"):
+        for kind in ("msg", "checkpoint", "usage"):
             assert kind in kinds
         # No stray per-session artifacts anywhere else.
         strays = [

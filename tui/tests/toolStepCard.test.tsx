@@ -137,7 +137,7 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓ Loaded tool definition file_write');
+    expect(frame).toContain(' Loaded tool definition file_write');
     expect(frame).not.toContain('$schema');
     expect(frame).not.toContain(json);
   });
@@ -169,13 +169,13 @@ describe('ToolStepCard', () => {
     );
     const frame = lastFrame();
     // Historical replay renders the terminal window frozen (no live spinner),
-    // showing the failed command prompt rather than a "Ran command" verdict.
+    // showing the generic command prompt without a success/failure verdict.
     expect(frame).toContain('npm test');
-    expect(frame).toContain('✗');
+    expect(frame).toContain('❯❯');
     expect(frame).not.toContain(SPINNER_FRAMES[0]);
   });
 
-  it('renders a bash step as a completed run command', () => {
+  it('renders a bash step as a completed run command without success/failure badges', () => {
     const { lastFrame } = renderStep(
       makeStep({
         tool: 'bash',
@@ -184,10 +184,11 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓');
     expect(frame).toContain('❯❯');
     expect(frame).toContain('npm test');
     expect(frame).toContain('~ 1 s');
+    expect(frame).not.toContain('✓');
+    expect(frame).not.toContain('✗');
   });
 
   it('renders bash stdout between the prompt and the footer', () => {
@@ -268,24 +269,22 @@ describe('ToolStepCard', () => {
     expect(frame).not.toContain('Write-Output $code');
   });
 
-  it('renders the failure error and caps failed output tighter', () => {
+  it('renders bash command output and caps output generically', () => {
     const longOutput = Array.from({ length: 30 }, (_, i) => `out ${i}`).join('\n');
     const { lastFrame } = renderStep(
       makeStep({
         tool: 'bash',
         params: { command: 'Set-Content -Path x.txt -Value $epoch' },
         output: longOutput,
-        error: 'Set-Content : A positional parameter cannot be found that accepts argument',
-        success: false,
+        error: '',
         metadata: { duration_ms: 2200 },
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('Set-Content : A positional parameter');
     expect(frame).toContain('out 0');
     expect(frame).toContain('more lines');
-    expect(frame).not.toContain('out 19');
-    expect(frame).toContain('✗');
+    expect(frame).not.toContain('✗');
+    expect(frame).not.toContain('✓');
     expect(frame).toContain('~ 2 s');
   });
 
@@ -374,7 +373,51 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✓ Web search');
+    expect(frame).toContain(' Web search');
     expect(frame).toContain('ink components');
+  });
+
+  it('renders a list_dir step with DirectoryListingCard showing folders, files, and tree glyphs', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'list_dir',
+        params: { path: 'src/components' },
+        output: 'Display/\nInput/\nindex.ts\nREADME.md',
+        metadata: {
+          path: 'src/components',
+          dirs: 2,
+          files: 2,
+          duration_ms: 1500,
+        },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('📁');
+    expect(frame).toContain('src/components/');
+    expect(frame).toContain('2 folders');
+    expect(frame).toContain('2 files');
+    expect(frame).toContain('Display/');
+    expect(frame).toContain('Input/');
+    expect(frame).toContain('index.ts');
+    expect(frame).toContain('README.md');
+    expect(frame).toContain('~ 1 s');
+  });
+
+  it('renders an empty directory listing gracefully', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'list_dir',
+        params: { path: 'empty_dir' },
+        output: '',
+        metadata: {
+          path: 'empty_dir',
+          dirs: 0,
+          files: 0,
+        },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('empty_dir/');
+    expect(frame).toContain('(empty directory)');
   });
 });

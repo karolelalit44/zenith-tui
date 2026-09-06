@@ -11,11 +11,13 @@ active workspace. Consumers:
 """
 
 from __future__ import annotations
+
 import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from server.workspace.ignore import get_matcher
 
 logger = logging.getLogger(__name__)
@@ -93,6 +95,3 @@ def get_workspace_stats(root: str | Path, force_refresh: bool = False) -> Worksp
     return stats
 
 
-def invalidate_workspace_stats(root: str | Path) -> None:
-    with _LOCK:
-        _CACHE.pop(str(Path(root).resolve()), None)

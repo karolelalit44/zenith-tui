@@ -115,7 +115,7 @@ class FileSessionRepository:
         for fields in rows:
             if not include_archived and not fields.get("is_active", True):
                 continue
-            if state_filter and fields.get("state") != state_filter:
+            if state_filter and fields.get("run_status") != state_filter:
                 continue
             if needle and needle not in str(fields.get("title", "")).lower():
                 continue
@@ -160,7 +160,7 @@ class FileSessionRepository:
                     "id": fields.get("id") or path.stem,
                     "title": fields.get("title", ""),
                     "mode": fields.get("mode", ""),
-                    "state": fields.get("state", ""),
+                    "status": fields.get("run_status", "idle"),
                     "provider": fields.get("provider"),
                     "model": fields.get("model"),
                     "message_count": int(fields.get("user_message_count", 0))
@@ -270,11 +270,6 @@ class FileMessageRepository:
 
     append = create
 
-    async def count_user_messages(self, session_id: str) -> int:
-        records = await asyncio.to_thread(load_snapshot, self.home, session_id)
-        if records is None:
-            return 0
-        return sum(1 for r in records["messages"] if r.get("role") == "user")
 
     async def get_by_session(self, session_id: str, limit: int = 50) -> list[Message]:
         snap = await asyncio.to_thread(load_snapshot, self.home, session_id)
@@ -290,18 +285,6 @@ class FileMessageRepository:
             return 0
         return sum(int(r.get("token_count", 0)) for r in snap["messages"])
 
-    async def delete_by_session(self, session_id: str) -> None:
-        """Remove all messages; keep the session itself and other records."""
-        async with self.home.lock:
-            path = locate(self.home, session_id)
-            if path is None:
-                return
-            records = read_jsonl(path)
-            if not records:
-                return
-            kept = [r for r in records if not (r.get("t") == "msg" or r.get("t") == "stats")]
-            kept.append(stats_record({}))
-            rewrite_jsonl_atomic(path, kept)
 
     async def compact_history(self, session_id: str, metadata: dict, delete_ids: list[str]) -> int:
         doomed = set(delete_ids or [])

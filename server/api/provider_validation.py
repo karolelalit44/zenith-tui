@@ -12,8 +12,7 @@ from server.config.constants import (
     DEFAULT_LLM_TEMPERATURE,
 )
 from server.providers.validation import validate_provider
-from server.storage import StorageHome, resolve_home
-from server.storage.catalog_compat import load_catalog
+from server.storage import StorageHome, load_catalog, resolve_home
 from server.storage.provider_config import (
     read_provider_config_full,
     read_providers,
@@ -32,26 +31,27 @@ from .schemas import (
 )
 
 logger = logging.getLogger(__name__)
-_CATALOG_META_KEYS = {
-    "id",
-    "name",
-    "description",
-    "adapter",
-    "litellm_prefix",
-    "default_model",
-    "base_url",
-    "api_key_prefix",
-    "requires_api_key",
-    "swatch",
-    "capabilities",
-    "config_fields",
-    "env_keys",
-    "is_popular",
-    "base_url_style",
-    "supports_prompt_caching",
-    "supports_thinking_headers",
-    "custom_flow",
-}
+
+
+def _make_model_info(m: dict[str, Any]) -> ProviderModelInfo:
+    mid = str(m.get("id") or "")
+    return ProviderModelInfo(
+        id=mid,
+        name=m.get("name") or mid,
+        context_window=m.get("context_window") or DEFAULT_CONTEXT_WINDOW,
+        max_output_tokens=m.get("max_output_tokens"),
+        description=m.get("description") or "",
+        is_default=bool(m.get("is_default")),
+        parameters=m.get("parameters"),
+        architecture=m.get("architecture"),
+        input_modalities=m.get("input_modalities"),
+        output_modalities=m.get("output_modalities"),
+        tags=[str(t) for t in m.get("tags", [])] if m.get("tags") else [],
+        model_capabilities=m.get("model_capabilities") or {},
+        speed_tier=m.get("speed_tier"),
+        best_for=m.get("best_for") or [],
+        pricing=m.get("pricing") or {},
+    )
 
 
 def build_provider_info(
@@ -60,59 +60,31 @@ def build_provider_info(
     cat = catalog.get("providers", {}).get(pid) or {}
     has_key = bool(p.get("has_api_key"))
     status = validation_state.get_status(pid, has_key)
-    options: dict[str, Any] = {}
-    for k, v in cat.items():
-        if k not in _CATALOG_META_KEYS and (not isinstance(v, (dict, list))):
-            options[k] = v
+    options: dict[str, Any] = {
+        k: v
+        for k, v in cat.items()
+        if k != "_catalog_version" and (not isinstance(v, (dict, list)))
+    }
     models: dict[str, ProviderModelInfo] = {}
     cat_models = cat.get("models", [])
     curated = bool(cat_models) and (not bool(cat.get("custom_flow", False)))
     if not curated:
         for m in p.get("models", []):
             try:
-                models[m["id"]] = ProviderModelInfo(
-                    id=m["id"],
-                    name=m.get("name") or m["id"],
-                    context_window=m.get("context_window") or DEFAULT_CONTEXT_WINDOW,
-                    description=m.get("description") or "",
-                    is_default=bool(m.get("is_default")),
-                    parameters=m.get("parameters"),
-                    architecture=m.get("architecture"),
-                    input_modalities=m.get("input_modalities"),
-                    output_modalities=m.get("output_modalities"),
-                    tags=[str(t) for t in m.get("tags", [])] if m.get("tags") else [],
-                    model_capabilities=m.get("model_capabilities") or {},
-                    speed_tier=m.get("speed_tier"),
-                    best_for=m.get("best_for") or [],
-                    pricing=m.get("pricing") or {},
-                )
+                if m.get("id"):
+                    models[m["id"]] = _make_model_info(m)
             except Exception:
                 continue
     for m in cat_models:
         mid = m.get("id")
         if not mid or mid in models:
             continue
-        models[mid] = ProviderModelInfo(
-            id=mid,
-            name=m.get("name") or mid,
-            context_window=m.get("context_window") or DEFAULT_CONTEXT_WINDOW,
-            description=m.get("description") or "",
-            is_default=bool(m.get("is_default")),
-            parameters=m.get("parameters"),
-            architecture=m.get("architecture"),
-            input_modalities=m.get("input_modalities"),
-            output_modalities=m.get("output_modalities"),
-            tags=[str(t) for t in m.get("tags", [])] if m.get("tags") else [],
-            model_capabilities=m.get("model_capabilities") or {},
-            speed_tier=m.get("speed_tier"),
-            best_for=m.get("best_for") or [],
-            pricing=m.get("pricing") or {},
-        )
+        models[mid] = _make_model_info(m)
     return ProviderInfo(
         id=pid,
         name=cat.get("name") or p.get("name") or pid,
         description=cat.get("description") or p.get("description") or "",
-        adapter=cat.get("adapter") or p.get("adapter_type") or "openai_compat",
+        adapter=cat.get("adapter") or p.get("adapter") or "openai_compat",
         swatch=cat.get("swatch") or p.get("swatch") or [],
         capabilities=cat.get("capabilities") or {},
         api_key_prefix=cat.get("api_key_prefix") or p.get("api_key_prefix"),
@@ -184,6 +156,7 @@ def get_provider_catalog(home: StorageHome | None = None) -> list[ProviderCatalo
                 id=pid,
                 name=entry.get("name") or pid,
                 type="custom" if entry.get("custom_flow") else "default",
+                base_url=entry.get("base_url") or "",
             )
         )
     seen: set[str] = set()

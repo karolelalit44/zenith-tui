@@ -2,7 +2,6 @@ import { formatDuration } from '../utils/text';
 
 export const FILE_WRITE_TOOL = 'file_write';
 export const FILE_EDIT_TOOL = 'file_edit';
-export const MULTI_EDIT_TOOL = 'multi_edit';
 export const FILE_DELETE_TOOL = 'file_delete';
 export const FILE_READ_TOOL = 'file_read';
 export const LIST_DIR_TOOL = 'list_dir';
@@ -17,9 +16,6 @@ export const WEBFETCH_TOOL = 'webfetch';
 export const BACKGROUND_TOOL = 'background';
 export const JOB_OUTPUT_TOOL = 'job_output';
 export const JOB_KILL_TOOL = 'job_kill';
-export const LSP_DEFINITION_TOOL = 'lsp_definition';
-export const LSP_DIAGNOSTICS_TOOL = 'lsp_diagnostics';
-export const LSP_RENAME_TOOL = 'lsp_rename';
 export const CREWMATE_TOOL = 'agent';
 export const CREWMATE_TOOL_ALIAS = 'agent_tool';
 /** WP5: model-invocable explore delegation (Apogee crewmate). */
@@ -52,20 +48,16 @@ export const FILE_MUTATION_TOOL_SET: ReadonlySet<string> = new Set([
   CREATE_FILE_ALIAS,
   FILE_EDIT_TOOL,
   EDIT_FILE_ALIAS,
-  MULTI_EDIT_TOOL,
+  'multi_edit',
 ]);
 
 export const FILE_DELETE_TOOL_SET: ReadonlySet<string> = new Set([FILE_DELETE_TOOL, DELETE_FILE_ALIAS]);
-
-export const LSP_TOOL_SET: ReadonlySet<string> = new Set([LSP_DEFINITION_TOOL, LSP_DIAGNOSTICS_TOOL, LSP_RENAME_TOOL]);
 
 /** Read-only tools eligible for consecutive-repeat folding (×N badge). */
 export const REPEATABLE_READ_ONLY_TOOL_SET: ReadonlySet<string> = new Set([
   ...FILE_READ_TOOL_SET,
   ...SEARCH_TOOL_SET,
   ...LIST_DIR_TOOL_SET,
-  LSP_DEFINITION_TOOL,
-  LSP_DIAGNOSTICS_TOOL,
 ]);
 
 /** Error text stamped onto a tool_call whose tool_result never arrived. */
@@ -77,16 +69,13 @@ export const TOOL_META_REPEAT_COUNT = 'repeatCount';
 /** ToolStep metadata flag marking an execution that never completed. */
 export const TOOL_META_INTERRUPTED = 'interrupted';
 
-/** Matches cancellation/interruption phrasing in tool errors. */
-export const CANCELLED_ERROR_PATTERN = /\b(cancel|interrupt|abort)/i;
-
 export const TOOL_VERB_LABELS: Record<string, string> = {
   [FILE_WRITE_TOOL]: 'Create',
   create_file: 'Create',
   write_file: 'Create',
   [FILE_EDIT_TOOL]: 'Update',
-  [MULTI_EDIT_TOOL]: 'Update',
   edit_file: 'Update',
+  multi_edit: 'Update',
   [FILE_DELETE_TOOL]: 'Delete',
   delete_file: 'Delete',
   [FILE_READ_TOOL]: 'Read',
@@ -106,14 +95,10 @@ export const TOOL_VERB_LABELS: Record<string, string> = {
   [JOB_KILL_TOOL]: 'Kill',
   [GET_TOOL_DEFINITION_TOOL]: 'Load',
   [DISCOVER_CAPABILITIES_TOOL]: 'Discover',
-  [LSP_DEFINITION_TOOL]: 'Inspect',
-  [LSP_DIAGNOSTICS_TOOL]: 'Diagnose',
-  [LSP_RENAME_TOOL]: 'Rename',
   [CREWMATE_TOOL]: 'Delegate',
   [CREWMATE_TOOL_ALIAS]: 'Delegate',
   [EXPLORE_TOOL]: 'Investigate',
   [TODO_TOOL]: 'Track',
-  mcp_tool: 'MCP action',
 };
 
 export function getToolVerbLabel(tool: string): string {
@@ -129,9 +114,7 @@ export const TOOL_STEP_PRIMARY_KEYS = [
   'pattern',
   'glob',
   'job_id',
-  'new_name',
   'task_id',
-  'symbol',
 ] as const;
 
 export function getToolStepPrimaryParam(
@@ -144,22 +127,6 @@ export function getToolStepPrimaryParam(
     }
   }
   return null;
-}
-
-/** Count errors and warnings from an lsp_diagnostics metadata payload. */
-export function countLspDiagnostics(metadata: Record<string, unknown>): {
-  errors: number;
-  warnings: number;
-} {
-  const diagnostics = Array.isArray(metadata.diagnostics) ? metadata.diagnostics : [];
-  let errors = 0;
-  let warnings = 0;
-  for (const d of diagnostics) {
-    const severity = String((d as Record<string, unknown>)?.severity ?? '').toLowerCase();
-    if (severity === 'error' || severity === '1') errors++;
-    else if (severity === 'warning' || severity === '2') warnings++;
-  }
-  return { errors, warnings };
 }
 
 function linesFrom(metadata: Record<string, unknown>): number | undefined {
@@ -201,7 +168,7 @@ function formatFileDeleteStatus(source: StatusSource): string {
 function formatFileReadStatus(source: StatusSource): string {
   const path = pathFrom(source);
   const lines = linesFrom(source.metadata);
-  return `✓ Read${path ? ` ${path}` : ''}${lines !== undefined ? ` (${lines} lines)` : ''}`;
+  return ` Read${path ? ` ${path}` : ''}${lines !== undefined ? ` (${lines} lines)` : ''}`;
 }
 
 function formatListDirStatus(source: StatusSource): string {
@@ -211,34 +178,34 @@ function formatListDirStatus(source: StatusSource): string {
   const parts: string[] = [];
   if (subdirs !== undefined) parts.push(`${subdirs} subdir${subdirs === 1 ? '' : 's'}`);
   if (files !== undefined) parts.push(`${files} file${files === 1 ? '' : 's'}`);
-  return `✓ List${path ? ` ${path}` : ''}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`;
+  return ` List${path ? ` ${path}` : ''}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`;
 }
 
 function formatGlobStatus(source: StatusSource): string {
   const pattern = String(source.metadata.pattern || source.params?.pattern || '');
-  return `✓ Glob "${pattern}"`;
+  return ` Glob "${pattern}"`;
 }
 
 function formatGrepStatus(source: StatusSource): string {
   const query = String(source.metadata.query || source.params?.query || '');
-  return `✓ Grep "${query}"`;
+  return ` Grep "${query}"`;
 }
 
 function formatWebsearchStatus(source: StatusSource): string {
   const query = String(source.metadata.query || source.params?.query || '');
-  return `✓ Web search "${query}"`;
+  return ` Web search "${query}"`;
 }
 
 function formatWebfetchStatus(source: StatusSource): string {
   const url = String(source.metadata.url || source.params?.url || '');
-  return `✓ Web fetch ${url}`;
+  return ` Web fetch ${url}`;
 }
 
 function formatBashStatus(source: StatusSource): string {
   const durSec =
     typeof source.metadata.duration_ms === 'number' ? Math.max(1, Math.floor(source.metadata.duration_ms / 1000)) : 0;
   const duration = durSec > 0 ? ` (${formatDuration(durSec * 1000)})` : '';
-  return `✓ Ran command${duration}`;
+  return `Ran command${duration}`;
 }
 
 function formatBackgroundStatus(source: StatusSource): string {
@@ -248,33 +215,12 @@ function formatBackgroundStatus(source: StatusSource): string {
 
 function formatJobOutputStatus(source: StatusSource): string {
   const job = jobIdFrom(source.metadata);
-  return `✓ Read background logs${job ? ` (#${job})` : ''}`;
+  return ` Read background logs${job ? ` (#${job})` : ''}`;
 }
 
 function formatJobKillStatus(source: StatusSource): string {
   const job = jobIdFrom(source.metadata);
   return `✗ Cancel background task${job ? ` (#${job})` : ''}`;
-}
-
-function formatLspDefinitionStatus(source: StatusSource): string {
-  const definitions = Array.isArray(source.metadata.definitions) ? source.metadata.definitions : [];
-  const first = definitions[0] as Record<string, unknown> | undefined;
-  const loc = first?.file ? `  ${first.file}:${Number(first.line || 0) + 1}:${Number(first.character || 0) + 1}` : '';
-  return `✓ Inspect definition${loc}`;
-}
-
-function formatLspDiagnosticsStatus(source: StatusSource): string {
-  const { errors, warnings } = countLspDiagnostics(source.metadata);
-  const count =
-    errors + warnings > 0
-      ? ` (${errors} error${errors === 1 ? '' : 's'}, ${warnings} warning${warnings === 1 ? '' : 's'})`
-      : '';
-  return `✓ Lint diagnostics${count}`;
-}
-
-function formatLspRenameStatus(source: StatusSource): string {
-  const newName = String(source.metadata.new_name || source.params?.new_name || '');
-  return `● Rename symbol${newName ? ` → ${newName}` : ''}`;
 }
 
 function formatCrewmateStatus(_source: StatusSource): string {
@@ -283,16 +229,7 @@ function formatCrewmateStatus(_source: StatusSource): string {
 
 function formatTodoStatus(source: StatusSource): string {
   const taskId = String(source.metadata.task_id || '');
-  return `✓ Track task${taskId ? ` #${taskId}` : ''}`;
-}
-
-function formatMcpStatus(source: StatusSource): string {
-  const tool = String(source.metadata.tool || '');
-  const server = String(source.metadata.server || '');
-  const parts: string[] = [];
-  if (server) parts.push(server);
-  if (tool) parts.push(tool);
-  return `⚡ MCP action ${parts.join('/')}`.trim();
+  return ` Track task${taskId ? ` #${taskId}` : ''}`;
 }
 
 export function getToolStepStatusText(event: {
@@ -302,17 +239,18 @@ export function getToolStepStatusText(event: {
   metadata: Record<string, unknown>;
   params?: Record<string, unknown>;
 }): string {
-  if (!event.success) {
+  const isShell = SHELL_TOOL_SET.has(event.tool.toLowerCase());
+  if (!isShell && !event.success) {
     return `✗ Failed`;
   }
 
   if (event.tool === GET_TOOL_DEFINITION_TOOL) {
     const toolName = String(event.metadata.tool_name || '');
-    return toolName ? `✓ Loaded tool definition ${toolName}` : `✓ Loaded tool definition`;
+    return toolName ? ` Loaded tool definition ${toolName}` : ` Loaded tool definition`;
   }
   if (event.tool === DISCOVER_CAPABILITIES_TOOL) {
     const count = typeof event.metadata.count === 'number' ? event.metadata.count : undefined;
-    return `✓ Discovered capabilities${count !== undefined ? ` (${count})` : ''}`;
+    return ` Discovered capabilities${count !== undefined ? ` (${count})` : ''}`;
   }
 
   switch (event.tool) {
@@ -321,8 +259,8 @@ export function getToolStepStatusText(event: {
     case 'write_file':
       return formatFileWriteStatus(event);
     case FILE_EDIT_TOOL:
-    case MULTI_EDIT_TOOL:
     case 'edit_file':
+    case 'multi_edit':
       return formatFileEditStatus(event);
     case FILE_DELETE_TOOL:
     case 'delete_file':
@@ -352,19 +290,12 @@ export function getToolStepStatusText(event: {
       return formatJobOutputStatus(event);
     case JOB_KILL_TOOL:
       return formatJobKillStatus(event);
-    case LSP_DEFINITION_TOOL:
-      return formatLspDefinitionStatus(event);
-    case LSP_DIAGNOSTICS_TOOL:
-      return formatLspDiagnosticsStatus(event);
-    case LSP_RENAME_TOOL:
-      return formatLspRenameStatus(event);
     case CREWMATE_TOOL:
     case CREWMATE_TOOL_ALIAS:
       return formatCrewmateStatus(event);
     case TODO_TOOL:
       return formatTodoStatus(event);
     default:
-      if (event.tool.startsWith('mcp_')) return formatMcpStatus(event);
-      return `✓ ${getToolVerbLabel(event.tool)}`;
+      return ` ${getToolVerbLabel(event.tool)}`;
   }
 }

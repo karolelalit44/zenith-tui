@@ -11,7 +11,7 @@ _REPLY_PRIMING = 2
 
 def _encoding_name_for_model(model: str) -> str | None:
     try:
-        from server.storage.catalog_compat import load_catalog
+        from server.storage import load_catalog
 
         catalog = load_catalog()
         for prov in catalog.get("providers", {}).values():

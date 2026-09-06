@@ -130,7 +130,6 @@ class TestAgentTask:
         assert crewmate.allowed_crewmates == []
         assert crewmate.delegation_depth == 0
         assert set(crewmate.allowed_tools) == {"file_read", "glob", "grep", "list_dir"}
-        assert crewmate.allowed_mcp == {}
 
 
 class TestTaskSignature:

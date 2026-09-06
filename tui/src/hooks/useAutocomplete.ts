@@ -3,12 +3,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { useCallback, useRef, useState } from 'react';
 import type { FileAttachment } from '../types/scenario';
+import { activeMentionAtOffset, insertMentionAt, replaceMention } from '../utils/mentionTokens';
 
 const MAX_HISTORY = 200;
 const HISTORY_DIR = path.join(os.homedir(), '.zenith');
 const HISTORY_PATH = path.join(HISTORY_DIR, 'history.json');
 
-const SLASH_PATTERN = /^\/[^\s]*$/;
+function isSlashCommandInput(val: string): boolean {
+  return val.startsWith('/') && !val.includes(' ') && !val.includes('\t') && !val.includes('\n');
+}
 
 const MIME_TYPES: Record<string, string> = {
   '.md': 'text/markdown',
@@ -68,10 +71,14 @@ export interface UseAutocompleteReturn {
   input: string;
   showAutocomplete: boolean;
   showFilePicker: boolean;
-  handleInputChange: (val: string) => void;
+  /** The current folder being browsed in the picker ('' = workspace root). */
+  pickerPath: string;
+  /** The initial filter seed for the picker (mid-text @ prefix). */
+  pickerQuery: string;
+  handleInputChange: (val: string, cursor?: number) => void;
   handleAutocompleteSelect: (cmd: string) => void;
   clearInput: () => void;
-  insertFilePath: (relPath: string) => void;
+  insertFilePath: (relPath: string, kind?: 'file' | 'folder') => void;
   closeFilePicker: () => void;
   closeAutocomplete: () => void;
   addHistory: (prompt: string) => void;
@@ -79,29 +86,43 @@ export interface UseAutocompleteReturn {
   historyDown: () => string | undefined;
   attachments: FileAttachment[];
   removeAttachment: (index: number) => void;
+  clearAttachments: () => void;
 }
 
 export function useAutocomplete(): UseAutocompleteReturn {
   const [input, setInput] = useState('');
+  const [cursor, setCursor] = useState(0);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
+  const [pickerPath, setPickerPath] = useState('');
+  const [pickerQuery, setPickerQuery] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const historyRef = useRef<string[]>(loadHistoryFromDisk());
   const historyIndexRef = useRef(-1);
   const draftRef = useRef('');
+  const cursorRef = useRef(0);
+  cursorRef.current = cursor;
 
-  const handleInputChange = useCallback((val: string) => {
+  const handleInputChange = useCallback((val: string, newCursor?: number) => {
+    const cur = typeof newCursor === 'number' ? newCursor : val.length;
     setInput(val);
+    setCursor(cur);
+    cursorRef.current = cur;
     historyIndexRef.current = -1;
-    if (val.startsWith('@')) {
+    const mention = activeMentionAtOffset(val, cur);
+    if (mention) {
       setShowFilePicker(true);
       setShowAutocomplete(false);
-    } else if (SLASH_PATTERN.test(val)) {
+      setPickerQuery(mention.text);
+      setPickerPath('');
+    } else if (isSlashCommandInput(val)) {
       setShowAutocomplete(true);
       setShowFilePicker(false);
+      setPickerQuery('');
     } else {
       setShowAutocomplete(false);
       setShowFilePicker(false);
+      setPickerQuery('');
     }
   }, []);
 
@@ -119,9 +140,13 @@ export function useAutocomplete(): UseAutocompleteReturn {
       }
       return '';
     });
+    setCursor(0);
+    cursorRef.current = 0;
     setShowAutocomplete(false);
     setShowFilePicker(false);
+    setPickerQuery('');
     historyIndexRef.current = -1;
+    setAttachments([]);
   }, []);
 
   const addHistory = useCallback((prompt: string) => {
@@ -161,25 +186,48 @@ export function useAutocomplete(): UseAutocompleteReturn {
   }, []);
 
   const insertFilePath = useCallback(
-    (relPath: string) => {
-      setInput((prev) => prev.replace(/^@/, ''));
+    (relPath: string, kind: 'file' | 'folder' = 'file') => {
+      // Replace the active @mention token at the cursor with the inline @path,
+      // preserving all other surrounding text. If there is no active token (edge
+      // case), insert the mention at the cursor.
+      const cur = cursorRef.current;
+      const mention = activeMentionAtOffset(input, cur);
       let size = 0;
       try {
-        size = fs.statSync(path.resolve(relPath)).size;
-      } catch {}
+        const stat = fs.statSync(path.resolve(relPath));
+        size = kind === 'folder' ? stat.size : stat.size;
+      } catch {
+        /* size unknown */
+      }
+      if (mention) {
+        const { value, end } = replaceMention(input, mention, relPath);
+        setInput(value);
+        setCursor(end);
+        cursorRef.current = end;
+      } else {
+        const { value, end } = insertMentionAt(input, cur, relPath);
+        setInput(value);
+        setCursor(end);
+        cursorRef.current = end;
+      }
       addAttachment({
         path: relPath,
         name: path.basename(relPath),
-        mimeType: mimeTypeForPath(relPath),
+        mimeType: kind === 'folder' ? 'inode/directory' : mimeTypeForPath(relPath),
         size,
+        kind,
       });
       setShowFilePicker(false);
+      setPickerPath('');
+      setPickerQuery('');
     },
-    [addAttachment],
+    [addAttachment, input],
   );
 
   const closeFilePicker = useCallback(() => {
     setShowFilePicker(false);
+    setPickerPath('');
+    setPickerQuery('');
   }, []);
 
   const closeAutocomplete = useCallback(() => {
@@ -190,10 +238,16 @@ export function useAutocomplete(): UseAutocompleteReturn {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const clearAttachments = useCallback(() => {
+    setAttachments([]);
+  }, []);
+
   return {
     input,
     showAutocomplete,
     showFilePicker,
+    pickerPath,
+    pickerQuery,
     handleInputChange,
     handleAutocompleteSelect,
     clearInput,
@@ -205,5 +259,6 @@ export function useAutocomplete(): UseAutocompleteReturn {
     historyDown,
     attachments,
     removeAttachment,
+    clearAttachments,
   };
 }

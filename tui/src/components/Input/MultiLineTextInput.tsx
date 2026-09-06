@@ -2,11 +2,12 @@ import { Box, type Key, Text, useInput } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchKeypress } from '../../config/keybind';
 import { useTheme } from '../../theme/ThemeContext';
+import { parseStyledSegments } from '../../utils/mentionTokens';
 import { expandPastedMarkers, insertOrMergePaste } from '../../utils/pasteTracker';
 
 interface MultiLineTextInputProps {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, cursor?: number) => void;
   onSubmit: (value: string) => void;
   placeholder?: string;
   focus?: boolean;
@@ -72,7 +73,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             const { nextValue, nextCursor } = insertOrMergePaste(currentValue, currentCursor, cleanPaste);
             valueRef.current = nextValue;
             cursorRef.current = nextCursor;
-            onChange(nextValue);
+            onChange(nextValue, nextCursor);
             setCursor(nextCursor);
           }
           return;
@@ -92,7 +93,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
           const nextValue = `${currentValue.slice(0, currentCursor)}\n${currentValue.slice(currentCursor)}`;
           valueRef.current = nextValue;
           cursorRef.current = currentCursor + 1;
-          onChange(nextValue);
+          onChange(nextValue, cursorRef.current);
           setCursor(cursorRef.current);
           return;
         }
@@ -104,7 +105,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             if (prev !== undefined) {
               valueRef.current = prev;
               cursorRef.current = prev.length;
-              onChange(prev);
+              onChange(prev, prev.length);
               setCursor(prev.length);
             }
             return;
@@ -124,7 +125,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             if (next !== undefined) {
               valueRef.current = next;
               cursorRef.current = next.length;
-              onChange(next);
+              onChange(next, next.length);
               setCursor(next.length);
             }
             return;
@@ -172,7 +173,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             const nextValue = currentValue.slice(0, currentCursor - 1) + currentValue.slice(currentCursor);
             valueRef.current = nextValue;
             cursorRef.current = currentCursor - 1;
-            onChange(nextValue);
+            onChange(nextValue, cursorRef.current);
             setCursor(cursorRef.current);
           }
           return;
@@ -193,7 +194,7 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
             const nextValue = currentValue.slice(0, currentCursor) + cleanInput + currentValue.slice(currentCursor);
             valueRef.current = nextValue;
             cursorRef.current = currentCursor + cleanInput.length;
-            onChange(nextValue);
+            onChange(nextValue, cursorRef.current);
             setCursor(cursorRef.current);
           }
         }
@@ -218,17 +219,22 @@ export const MultiLineTextInput: React.FC<MultiLineTextInputProps> = React.memo(
       const cursorCol = cursor - (value.lastIndexOf('\n', cursor - 1) + 1);
 
       const renderStyledSegment = (text: string) => {
-        const parts = text.split(/(\[Pasted (?:(?:\+\d+ lines)|\d+ chars) #\d+\])/g);
-        return parts.map((part, i) => {
-          const match = part.match(/\[Pasted ((?:\+\d+ lines)|\d+ chars) #\d+\]/);
-          if (match) {
+        return parseStyledSegments(text).map((seg, i) => {
+          if (seg.type === 'paste') {
             return (
               <Text key={i} color={theme.colors.status.info} bold>
-                [{`Pasted ${match[1]}`}]
+                [{`Pasted ${seg.pasteInfo}`}]
               </Text>
             );
           }
-          return <Text key={i}>{part}</Text>;
+          if (seg.type === 'mention') {
+            return (
+              <Text key={i} italic color={theme.colors.status.accent}>
+                {seg.text}
+              </Text>
+            );
+          }
+          return <Text key={i}>{seg.text}</Text>;
         });
       };
 

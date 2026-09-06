@@ -107,6 +107,15 @@ interface TableBlock {
   rows: string[][];
 }
 
+/** Remove markdown inline markers so table cells render as clean monospace text. */
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+}
+
 function parseTable(lines: string[]): TableBlock | null {
   if (lines.length < 2) return null;
   const parseRow = (line: string) =>
@@ -133,16 +142,19 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   const { theme } = useTheme();
   const { columns } = useTerminalDimensions();
 
-  const numCols = table.headers.length || 1;
+  const headers = table.headers.map(stripInlineMarkdown);
+  const rows = table.rows.map((r) => r.map(stripInlineMarkdown));
+
+  const numCols = headers.length || 1;
   const maxTableWidth = Math.max(24, columns - 6);
   // Account for table borders: "│ " (2) + " │ " (3 * (numCols - 1)) + " │" (2) = 4 + 3*(numCols - 1)
   const overhead = 4 + 3 * (numCols - 1);
   const availCellWidth = Math.max(numCols * 4, maxTableWidth - overhead);
   const colBudget = Math.max(4, Math.floor(availCellWidth / numCols));
 
-  const colWidths = table.headers.map((h, i) => {
+  const colWidths = headers.map((h, i) => {
     let max = h.length;
-    table.rows.forEach((r) => {
+    rows.forEach((r) => {
       if (r[i] && r[i].length > max) {
         max = r[i].length;
       }
@@ -164,13 +176,13 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
       </Text>
       <Box flexDirection="row" width="100%">
         <Text color={theme.colors.text.bright} bold wrap="truncate-end">
-          {makeRowStr(table.headers)}
+          {makeRowStr(headers)}
         </Text>
       </Box>
       <Text color={theme.colors.border.muted} wrap="truncate-end">
         {headerSep}
       </Text>
-      {table.rows.map((r, idx) => (
+      {rows.map((r, idx) => (
         <Box key={idx} flexDirection="row" width="100%">
           <Text color={theme.colors.text.ethereal} wrap="truncate-end">
             {makeRowStr(r)}
@@ -195,59 +207,6 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
   while (idx < rawLines.length) {
     const line = rawLines[idx];
-
-    const fileWriteMatch = line.trim().match(/^\[file_write\s+path=["']([^"']+)["']\s+content=["']([\s\S]*)["']\]?$/);
-    if (fileWriteMatch) {
-      const rawPath = fileWriteMatch[1];
-      const winPath = rawPath.replace(/\//g, '\\');
-      const rawContent = fileWriteMatch[2].replace(/\\n/g, '\n').replace(/\\"/g, '"');
-      const ext = rawPath.split('.').pop() || 'text';
-      const fileCodeLines = rawContent.split('\n');
-      const MAX_CODE_LINES = 15;
-      const isTruncated = fileCodeLines.length > MAX_CODE_LINES;
-      const visibleLines = isTruncated ? fileCodeLines.slice(0, MAX_CODE_LINES) : fileCodeLines;
-      const gutterWidth = Math.max(2, String(fileCodeLines.length).length);
-
-      blocks.push(
-        <Box key={`filewrite_${idx}`} flexDirection="column" marginTop={1} width="100%">
-          {}
-          <Box flexDirection="row" alignItems="center" marginBottom={0}>
-            <Text color={theme.colors.status.success} bold>
-              ●{' '}
-            </Text>
-            <Text color={theme.colors.status.success} bold>
-              Update({winPath})
-            </Text>
-          </Box>
-          {}
-          <Box flexDirection="row" alignItems="center" paddingLeft={1} marginBottom={0}>
-            <Text color={theme.colors.text.dim}>└ </Text>
-            <Text color={theme.colors.text.dim}>
-              {fileCodeLines.length} {fileCodeLines.length === 1 ? 'line' : 'lines'}
-            </Text>
-          </Box>
-          {}
-          <Box flexDirection="column" paddingLeft={3} marginTop={0}>
-            {visibleLines.map((cL, cIdx) => {
-              const numStr = String(cIdx + 1).padStart(gutterWidth, ' ');
-              return (
-                <Box key={cIdx} width="100%">
-                  <Text color={theme.colors.text.dim}>{numStr} </Text>
-                  <CodeText text={cL} lang={ext} />
-                </Box>
-              );
-            })}
-            {isTruncated && (
-              <Text color={theme.colors.text.dim} italic>
-                ... [{fileCodeLines.length - MAX_CODE_LINES} more lines]
-              </Text>
-            )}
-          </Box>
-        </Box>,
-      );
-      idx++;
-      continue;
-    }
 
     if (line.trim().startsWith('```')) {
       const lang = line.trim().replace(/^```/, '').toUpperCase() || 'CODE';

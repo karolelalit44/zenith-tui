@@ -54,6 +54,10 @@ export interface SessionSummary {
 export interface PromptAttachment {
   path: string;
   name?: string;
+  /** 'file' | 'folder' — defaults to 'file' when absent. */
+  kind?: 'file' | 'folder';
+  /** Size in bytes when known. */
+  size?: number;
 }
 
 export interface PromptOptions {
@@ -76,6 +80,7 @@ export class WebSocketClient {
   private rpcTimeout = appConfig.timeout.rpcMs;
   private _connectedAt: number = 0;
   private _disposed = false;
+  private _connectPromise: Promise<void> | null = null;
 
   constructor(url?: string) {
     this.url = url || WebSocketClient.detectBackendUrl();
@@ -105,25 +110,40 @@ export class WebSocketClient {
 
   async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this._connectPromise) {
+      return this._connectPromise;
+    }
 
+    this._disposed = false;
     this.setStatus('connecting');
 
-    return new Promise((resolve, reject) => {
+    this._connectPromise = new Promise<void>((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.url);
-        this.ws.onopen = () => {
+        const socket = new WebSocket(this.url);
+        this.ws = socket;
+
+        socket.onopen = () => {
+          if (this.ws !== socket) return;
+          this._connectPromise = null;
           this.reconnectAttempts = 0;
           this._connectedAt = Date.now();
           this.setStatus('connected');
           resolve();
         };
-        this.ws.onmessage = (event) => {
+
+        socket.onmessage = (event) => {
+          if (this.ws !== socket) return;
           try {
             const data = JSON.parse(event.data as string);
             this.handleMessage(data);
           } catch {}
         };
-        this.ws.onclose = () => {
+
+        socket.onclose = () => {
+          if (this.ws === socket) {
+            this.ws = null;
+          }
+          this._connectPromise = null;
           this.setStatus('disconnected');
           if (this._disposed) return;
           const wasStable = Date.now() - this._connectedAt > 5000;
@@ -132,17 +152,25 @@ export class WebSocketClient {
           }
           this.reconnect();
         };
-        this.ws.onerror = (evt) => {
+
+        socket.onerror = (evt) => {
+          if (this.ws === socket) {
+            this.ws = null;
+          }
+          this._connectPromise = null;
           this.setStatus('disconnected');
           const errEvt = evt as { message?: string; error?: { message?: string } };
           const msg = errEvt.message || errEvt.error?.message || `Failed to connect to ${this.url}`;
           reject(new Error(msg));
         };
       } catch (err) {
+        this._connectPromise = null;
         this.setStatus('disconnected');
         reject(err);
       }
     });
+
+    return this._connectPromise;
   }
 
   async send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
@@ -339,6 +367,7 @@ export class WebSocketClient {
 
   close(): Promise<void> {
     this._disposed = true;
+    this._connectPromise = null;
     if (this.ws) {
       try {
         this.ws.close();

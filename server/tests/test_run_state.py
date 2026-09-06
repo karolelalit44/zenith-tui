@@ -248,10 +248,6 @@ class TestPromptExecutorPersistence:
             async def schedule(self, session_id):
                 pass
 
-        class _SkillLoader:
-            def get_skill_prompt(self):
-                return ""
-
         class _Provider:
             name = "test"
             model = "test-model"
@@ -273,7 +269,6 @@ class TestPromptExecutorPersistence:
             _Registry(),
             repo,
             msg_repo,
-            _SkillLoader(),
         )
 
         # Emulate a completed turn with tool activity + success.
@@ -300,9 +295,9 @@ class TestPromptExecutorPersistence:
     @pytest.mark.asyncio
     async def test_persist_renders_todo_md_artifact(self, temp_dir):
         from server.agents.prompt_executor import PromptExecutor
-        from server.agents.todo_state import get_todo_state, reset_todo_states
+        from server.agents.todo_state import get_todo_state
 
-        reset_todo_states()
+        get_todo_state("s1").hydrate([])
 
         class _Repo:
             def __init__(self):
@@ -343,10 +338,6 @@ class TestPromptExecutorPersistence:
         class _Registry:
             pass
 
-        class _SkillLoader:
-            def get_skill_prompt(self):
-                return ""
-
         from server.config.settings import AppSettings
 
         config = AppSettings(home_dir=str(temp_dir / "run_state.db"), workspace_root=str(temp_dir))
@@ -356,7 +347,6 @@ class TestPromptExecutorPersistence:
             _Registry(),
             _Repo(),
             _MsgRepo(),
-            _SkillLoader(),
         )
 
         state = get_todo_state("s1")
@@ -373,28 +363,28 @@ class TestPromptExecutorPersistence:
         assert "- [x] Write the module" in text
         assert "- [ ] Review the diff (priority: high) — two files" in text
         # Empty board never clobbers a model-authored todo.md.
-        reset_todo_states()
+        get_todo_state("s1").hydrate([])
         (temp_dir / "todo.md").write_text("# Hand-written plan", encoding="utf-8")
         await PromptExecutor._persist_run_state(
             executor, "s1", "build the module", "build", [], 1.0
         )
         assert artifact.read_text(encoding="utf-8") == "# Hand-written plan"
-        reset_todo_states()
+        get_todo_state("s1").hydrate([])
 
     @pytest.mark.asyncio
     async def test_persist_without_session_is_noop(self):
         from server.agents.prompt_executor import PromptExecutor
+        from server.config.settings import AppSettings
 
         class _EmptyRepo:
             async def get(self, session_id):
                 return None
 
         executor = PromptExecutor(
-            _EmptyRepo(),
+            AppSettings(),
             None,
             None,
             _EmptyRepo(),
-            None,
             None,
         )
         await PromptExecutor._persist_run_state(executor, "missing", "obj", "build", [], 1.0)

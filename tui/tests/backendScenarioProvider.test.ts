@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backendScenarioProvider } from '../src/services/transport/BackendScenarioProvider';
-import { type JsonRpcEvent, type WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
+import { type JsonRpcEvent, WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
 
+let rpcIdCounter = 0;
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
   return {
     jsonrpc: '2.0',
     method: 'event',
     params: {
       kind,
-      id: `test_${Date.now()}`,
+      id: `test_${Date.now()}_${++rpcIdCounter}`,
       data,
     },
   };
@@ -385,5 +386,166 @@ describe('executeCompaction (manual /compact pipeline)', () => {
     expect(completed).toBe(true);
     expect(kinds).toEqual(['context_compaction_started', 'context_compaction_ended']);
     runner.abort();
+  });
+});
+
+describe('Multi-Iteration Thinking and Tool Call Chronological Sequence', () => {
+  it('preserves distinct thinking blocks across multiple iterations in exact emitted sequence', () => {
+    const received: Array<{ event: import('../src/types/scenario').ScenarioEvent; index: number }> = [];
+    let completed = false;
+
+    const scenario = backendScenarioProvider.resolve('create file sms-plan.md', 'build');
+    const runner = backendScenarioProvider.execute(
+      scenario,
+      (evt, idx) => {
+        received.push({ event: evt, index: idx });
+      },
+      () => {
+        completed = true;
+      },
+    );
+
+    const emit = (kind: string, data: Record<string, unknown> = {}) =>
+      (wsClient as unknown as { emitter: { emit: (name: string, data: unknown) => void } }).emitter.emit(
+        'event',
+        makeRpcEvent(kind, data),
+      );
+
+    // Iteration 1: Reasoning -> Tool Call -> Tool Result
+    emit('thinking', { text: 'Thinking iter 1 part 1', partial: true });
+    emit('thinking', { text: 'Thinking iter 1 full reasoning', partial: true });
+    emit('thinking', { text: 'Thinking iter 1 full reasoning', duration: 1500, partial: false });
+    emit('tool_call', { tool: 'file_write', params: { path: 'sms-plan.md' } });
+    emit('tool_result', { tool: 'file_write', success: true, output: 'Created sms-plan.md' });
+
+    // Iteration 2: Reasoning -> Assistant Message -> Turn Manifest -> Success
+    emit('thinking', { text: 'Thinking iter 2 part 1', partial: true });
+    emit('thinking', { text: 'Thinking iter 2 full reasoning', duration: 2500, partial: false });
+    emit('message', { text: 'The file sms-plan.md has been created.', partial: true });
+    emit('message', { text: 'The file sms-plan.md has been created.', partial: false, iteration: 2 });
+    emit('turn_manifest', { completed: true, created: ['sms-plan.md'], modified: [] });
+    emit('success', { message: 'done', iterations: 2 });
+
+    expect(completed).toBe(true);
+
+    const thinkingEvents = received
+      .map((r) => r.event)
+      .filter((e): e is import('../src/types/scenario').ThinkingEvent => e.kind === 'thinking');
+
+    // Exactly two distinct thinking IDs (iter 1 and iter 2)
+    const thinkingIds = Array.from(new Set(thinkingEvents.map((e) => e.id)));
+    expect(thinkingIds.length).toBe(2);
+
+    // Final thinking for iter 1
+    const iter1Final = thinkingEvents.find((e) => e.id === thinkingIds[0] && !e.partial);
+    expect(iter1Final).toBeDefined();
+    expect(iter1Final?.thoughts).toContain('Thinking iter 1 full reasoning');
+    expect(iter1Final?.duration).toBe(1500);
+
+    // Final thinking for iter 2
+    const iter2Final = thinkingEvents.find((e) => e.id === thinkingIds[1] && !e.partial);
+    expect(iter2Final).toBeDefined();
+    expect(iter2Final?.thoughts).toContain('Thinking iter 2 full reasoning');
+    expect(iter2Final?.duration).toBe(2500);
+
+    runner.abort();
+  });
+});
+
+describe('WebSocketClient connection deduplication', () => {
+  class MockSocket {
+    static instances: MockSocket[] = [];
+    static readonly OPEN = 1;
+    static readonly CLOSED = 3;
+    readonly OPEN = 1;
+    readonly CLOSED = 3;
+
+    readyState = 0;
+    url: string;
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: ((evt: unknown) => void) | null = null;
+    onmessage: ((evt: { data: string }) => void) | null = null;
+
+    constructor(url: string) {
+      this.url = url;
+      MockSocket.instances.push(this);
+    }
+
+    simulateOpen() {
+      this.readyState = MockSocket.OPEN;
+      this.onopen?.();
+    }
+
+    simulateError(msg = 'Connection error') {
+      this.readyState = MockSocket.CLOSED;
+      this.onerror?.({ message: msg });
+    }
+
+    close() {
+      this.readyState = MockSocket.CLOSED;
+    }
+
+    send(_data: string) {}
+  }
+
+  const originalWs = (globalThis as unknown as { WebSocket?: unknown }).WebSocket;
+
+  afterEach(() => {
+    (globalThis as unknown as { WebSocket?: unknown }).WebSocket = originalWs;
+    MockSocket.instances = [];
+  });
+
+  it('deduplicates concurrent connect calls into a single underlying WebSocket', async () => {
+    MockSocket.instances = [];
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = MockSocket;
+
+    const client = new WebSocketClient('ws://127.0.0.1:8765/ws');
+
+    // Launch 4 concurrent connect calls simultaneously (reproducing the startup burst)
+    const p1 = client.connect();
+    const p2 = client.connect();
+    const p3 = client.connect();
+    const p4 = client.connect();
+
+    // Exactly one WebSocket instance should be created
+    expect(MockSocket.instances.length).toBe(1);
+
+    // Simulate connection established
+    MockSocket.instances[0].simulateOpen();
+
+    await Promise.all([p1, p2, p3, p4]);
+
+    expect(client.status).toBe('connected');
+    expect(MockSocket.instances.length).toBe(1);
+
+    // Subsequent connect calls while already OPEN must not create another instance
+    await client.connect();
+    expect(MockSocket.instances.length).toBe(1);
+
+    await client.close();
+  });
+
+  it('allows clean retry after a connection failure', async () => {
+    MockSocket.instances = [];
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = MockSocket;
+
+    const client = new WebSocketClient('ws://127.0.0.1:8765/ws');
+
+    const p1 = client.connect();
+    expect(MockSocket.instances.length).toBe(1);
+
+    MockSocket.instances[0].simulateError('Connection refused');
+    await expect(p1).rejects.toThrow('Connection refused');
+
+    // Next connect call creates a new instance since the previous attempt failed
+    const p2 = client.connect();
+    expect(MockSocket.instances.length).toBe(2);
+
+    MockSocket.instances[1].simulateOpen();
+    await p2;
+    expect(client.status).toBe('connected');
+
+    await client.close();
   });
 });

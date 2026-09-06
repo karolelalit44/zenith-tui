@@ -11,6 +11,7 @@ import type {
 } from '../../services/providers/types';
 import { ApiKeyPrompt } from './ApiKeyPrompt';
 import { CustomProviderPrompt } from './CustomProviderPrompt';
+import { LocalLLMPrompt } from './LocalLLMPrompt';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker, type ProviderPickerSelection } from './ProviderPicker';
 import { ValidationProgress } from './ValidationProgress';
@@ -91,6 +92,20 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
     setPhase('validating');
   }, []);
 
+  const handleLocalLLMSubmit = useCallback(
+    (values: Record<string, string>) => {
+      setPrevPhase('custom');
+      setValidateOptions({
+        name: 'Local LLM',
+        baseUrl: catalogItems.find((item) => item.id === 'local_llm')?.base_url || '',
+        apiKey: undefined,
+        model: values.model || undefined,
+      });
+      setPhase('validating');
+    },
+    [catalogItems],
+  );
+
   const handleValidResult = useCallback(
     async (result: ValidationResult) => {
       await providerService.refreshFromBackend();
@@ -117,6 +132,15 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({ onClose, onComplete,
         />
       );
     case 'custom':
+      if (providerID === 'local_llm') {
+        return (
+          <LocalLLMPrompt
+            baseUrl={catalogItems.find((item) => item.id === 'local_llm')?.base_url || 'http://localhost:8080/v1'}
+            onBack={() => setPhase('pick')}
+            onSubmit={handleLocalLLMSubmit}
+          />
+        );
+      }
       return <CustomProviderPrompt onBack={() => setPhase('pick')} onSubmit={handleCustomSubmit} />;
     case 'validating':
       return (

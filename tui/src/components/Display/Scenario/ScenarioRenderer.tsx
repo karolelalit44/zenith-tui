@@ -5,6 +5,7 @@ import type {
   CaptainOrchestrationEvent,
   CrewmateAgent,
   ScenarioEvent,
+  ThinkingEvent,
   TimelineEntry,
   TurnManifestEvent,
 } from '../../../types/scenario';
@@ -77,21 +78,15 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const expanded = hasOverflow && historyExpanded;
 
-    const pinnedEarly = useMemo(() => {
-      if (!hasOverflow || expanded) return null;
-      const firstAssistantMessage = events.find((e) => e.kind === 'message');
-      if (!firstAssistantMessage) return null;
-      return events.slice(-dynamicLimit).includes(firstAssistantMessage) ? null : firstAssistantMessage;
-    }, [events, hasOverflow, expanded, dynamicLimit]);
-
     const visibleEvents = useMemo(() => {
       // Thinking stays in the stream in every mode; its visibility contract is
       // handled inside ThinkingBlock (full by default, collapsed under calm
       // mode or an explicit user toggle).
       let source = events;
       // Session lifecycle notices ("Session created: ...") are backend
-      // plumbing, never part of the conversation transcript.
-      source = source.filter((e) => !String(e.kind).startsWith('session_'));
+      // plumbing, never part of the conversation transcript. Preserve
+      // session_summarized so the FinalSummaryCard can render.
+      source = source.filter((e) => !String(e.kind).startsWith('session_') || e.kind === 'session_summarized');
       // Progress rows are LIVE-ONLY instrumentation. After completion the
       // SuccessCard status row supersedes them; keeping them in scrollback
       // triple-echoed every tool call.
@@ -119,6 +114,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       for (const ev of source) {
         const prev = grouped[grouped.length - 1];
         if (ev.kind === 'thinking' && prev && prev.kind === 'thinking') {
+          if ((prev as ThinkingEvent).partial && !(ev as ThinkingEvent).partial) {
+            grouped[grouped.length - 1] = ev;
+          }
           continue; // collapse back-to-back duplicates from split streams
         }
         grouped.push(ev);
@@ -205,7 +203,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const consolidatedCompaction = consolidateCompactionEvents(events);
       const consolidatedBoard = consolidateTodoBoardEvents(events);
 
-      for (const e of source) {
+      for (const e of source2) {
         if (e.kind === 'captain_orchestration') {
           if (!orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
@@ -218,17 +216,14 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
             result.push(consolidatedBoard);
             boardInserted = true;
           }
-        } else if (e.kind === 'todo_test') {
-          // The assertion/edge-case report is an internal test layer — the
-          // rendered todo window shows the board only, so skip these events.
-      } else if (
-        e.kind === 'crewmate_spawned' ||
-        e.kind === 'crewmate_status' ||
-        e.kind === 'crewmate_complete' ||
-        e.kind === 'crewmate_failed'
-      ) {
-        // Raw crewmate lifecycle kinds are folded into the consolidated
-        // orchestration card's timeline above; never render standalone.
+        } else if (
+          e.kind === 'crewmate_spawned' ||
+          e.kind === 'crewmate_status' ||
+          e.kind === 'crewmate_complete' ||
+          e.kind === 'crewmate_failed'
+        ) {
+          // Raw crewmate lifecycle kinds are folded into the consolidated
+          // orchestration card's timeline above; never render standalone.
         } else if (
           e.kind === 'context_compaction_started' ||
           e.kind === 'context_compaction_phase' ||
@@ -256,8 +251,34 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           } as ScenarioEvent,
         ];
       }
+      if (isHistorical) {
+        return result.map((e) => {
+          if (e.kind === 'success' && (!e.elapsedMs || e.elapsedMs <= 0)) {
+            return { ...e, elapsedMs: 1000 };
+          }
+          return e;
+        });
+      }
       return result;
     }, [events, isRunning, isHistorical]);
+
+    const displayedEvents = useMemo(() => {
+      if (!hasOverflow || expanded) {
+        return visibleEvents;
+      }
+      // The status row must survive overflow: slice the non-success events
+      // and always re-append successful ones last so they are never cut off.
+      const successEvents = visibleEvents.filter((e) => e.kind === 'success');
+      const otherEvents = visibleEvents.filter((e) => e.kind !== 'success');
+      return [...otherEvents.slice(-dynamicLimit), ...successEvents];
+    }, [visibleEvents, hasOverflow, expanded, dynamicLimit]);
+
+    const pinnedEarly = useMemo(() => {
+      if (!hasOverflow || expanded) return null;
+      const firstAssistantMessage = visibleEvents.find((e) => e.kind === 'message');
+      if (!firstAssistantMessage) return null;
+      return displayedEvents.some((e) => e.id === firstAssistantMessage.id) ? null : firstAssistantMessage;
+    }, [visibleEvents, displayedEvents, hasOverflow, expanded]);
 
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.
@@ -291,17 +312,18 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         {hasOverflow && !expanded && (
           <Box paddingX={1} marginBottom={1}>
             <Text color={theme.colors.text.muted} italic>
-              ... {events.length - dynamicLimit} earlier events hidden — shift+e to show all
+              ... {Math.max(1, visibleEvents.length - dynamicLimit)} earlier events hidden — shift+e to show all
             </Text>
           </Box>
         )}
 
-        {visibleEvents.map((event) => {
-          return (
+        {displayedEvents.map((event) => {
+          const rendered = renderEvent(event);
+          return rendered ? (
             <Box key={event.id} flexDirection="column" width={contentWidth}>
-              {renderEvent(event)}
+              {rendered}
             </Box>
-          );
+          ) : null;
         })}
       </Box>
     );

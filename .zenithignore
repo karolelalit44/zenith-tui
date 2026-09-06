@@ -45,6 +45,5 @@ Cargo.lock
 scripts/e2e_logs/
 
 # --- Local-only working data ---
-memory/
 test_snapshots/
 

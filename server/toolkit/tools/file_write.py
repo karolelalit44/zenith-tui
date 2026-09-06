@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from server.agents.validation import PLACEHOLDER_RE
 from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     FILE_ALREADY_EXISTS_ERROR,
@@ -14,6 +13,7 @@ from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
+from .file_mutation_queue import FILE_MUTATION_QUEUE
 
 
 class FileWriteTool(BaseTool):
@@ -69,13 +69,6 @@ class FileWriteTool(BaseTool):
             return ToolResult(success=False, error=f"File not found: {rel_path}")
         content = params.get("content", "")
         overwrite = params.get(FILE_OVERWRITE_PARAM, False)
-        if content:
-            m = PLACEHOLDER_RE.search(content)
-            if m:
-                return ToolResult(
-                    success=False,
-                    error=f"Content contains placeholder ({m.group(0)}). Write the actual content, not a placeholder.",
-                )
         if resolved.exists() and (not overwrite):
             return ToolResult(
                 success=False,
@@ -84,8 +77,13 @@ class FileWriteTool(BaseTool):
                 ),
             )
         try:
-            resolved.parent.mkdir(parents=True, exist_ok=True)
-            resolved.write_text(content, encoding="utf-8")
+            # Serialize the filesystem mutation per workspace (opencode's
+            # file-mutation Semaphore) so parallel tool calls cannot race on
+            # the same file. Validation above stays outside the critical
+            # section to keep lock hold-time minimal.
+            async with FILE_MUTATION_QUEUE.mutation(workspace_root):
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+                resolved.write_text(content, encoding="utf-8")
             return ToolResult(
                 success=True,
                 output=f"Created {rel_path} ({len(content)} bytes)",

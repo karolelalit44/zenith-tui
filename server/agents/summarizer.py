@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-from server.config.constants import DEFAULT_SUMMARIZER_TIMEOUT, SUMMARIZER_TIMEOUT_ENV
-from server.config.env import optional_float
+from server.config.environment import ZENITH_SUMMARIZER_TIMEOUT
 from server.config.settings import AppSettings
 from server.domain.message import Message
 from server.providers.base import BaseProvider
@@ -29,7 +29,7 @@ class ConversationSummarizer:
         previous_summary: str | None = None,
         prefix: list[dict] | None = None,
         focus: str | None = None,
-        event_sink: "Callable[[str, str], None] | None" = None,
+        event_sink: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> str:
         if not messages:
             return ""
@@ -49,7 +49,7 @@ class ConversationSummarizer:
             request = list(prefix or []) + [{"role": "user", "content": prompt}]
             result = await asyncio.wait_for(
                 provider.complete(request, **kwargs),
-                timeout=optional_float(SUMMARIZER_TIMEOUT_ENV, DEFAULT_SUMMARIZER_TIMEOUT),
+                timeout=ZENITH_SUMMARIZER_TIMEOUT,
             )
         except TimeoutError:
             logger.warning("Summarization timed out, using fallback")
@@ -63,7 +63,7 @@ class ConversationSummarizer:
 
     @staticmethod
     async def _report_degraded(
-        event_sink: "Callable[[str, str], Awaitable[None]] | None", session_id: str
+        event_sink: Callable[[str, str], Awaitable[None]] | None, session_id: str
     ) -> None:
         # Surfaces a degraded summary to the user instead of failing silently.
         # The fallback still returns a usable (reduced) summary so the session

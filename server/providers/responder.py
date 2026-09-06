@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 
-from server.config.constants import MAX_EVENT_OUTPUT
 from server.domain.events import Event, EventKind
+from server.toolkit.base import truncate_output
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +48,15 @@ def tool_result(
     error: str = "",
     metadata: dict | None = None,
 ) -> Event:
-    max_event_output = MAX_EVENT_OUTPUT
+    kept, truncated = truncate_output(output)
     return event(
         EventKind.TOOL_RESULT,
         {
             "tool": tool_name,
             "success": success,
-            "output": output[:max_event_output] if output else "",
+            "output": kept,
             "error": error,
-            "truncated": len(output) > max_event_output if output else False,
+            "truncated": truncated,
             "metadata": metadata or {},
         },
         session_id,

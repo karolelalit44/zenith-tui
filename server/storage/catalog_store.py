@@ -15,15 +15,18 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 
 from . import builtin_seed
 from .atomic import read_json, write_json_atomic
-from .catalog_compat import invalidate_catalog_cache
 from .paths import StorageHome
 
 logger = logging.getLogger(__name__)
 
 CATALOG_VERSION = 2
+
+_lock = threading.Lock()
+_cache: dict[str, dict] = {}
 
 _FORBIDDEN_KEYS = {"apiKey", "apiKeyValue", "api_key", "secret", "token"}
 
@@ -88,14 +91,90 @@ def read_model_entries(home: StorageHome) -> dict[str, dict]:
     return out
 
 
-def models_for_provider(home: StorageHome, provider_id: str) -> list[dict]:
-    providers = read_providers(home)
-    provider = providers.get(provider_id)
-    if not provider:
-        return []
-    models = [m for m in provider.get("models", []) if isinstance(m, dict)]
-    models.sort(key=lambda m: (not m.get("isDefault", False), str(m.get("id", ""))))
-    return models
+def invalidate_catalog_cache() -> None:
+    with _lock:
+        _cache.clear()
+
+
+def load_catalog(home: StorageHome | None = None) -> dict:
+    from .paths import resolve_home
+
+    root_key = str((home or StorageHome(resolve_home())).root)
+    with _lock:
+        cached = _cache.get(root_key)
+        if cached is not None:
+            return cached
+        built = _build_runtime_catalog(home or StorageHome(root_key))
+        _cache[root_key] = built
+        return built
+
+
+def _build_runtime_catalog(home: StorageHome) -> dict:
+    doc = read_catalog_doc(home)
+    providers: dict[str, dict] = {}
+    for entry in sorted(
+        (p for p in doc.get("providers", []) if isinstance(p, dict)),
+        key=lambda p: (p.get("sortOrder", 99), str(p.get("id", ""))),
+    ):
+        pid = str(entry.get("id", ""))
+        if not pid:
+            continue
+        default_model = str(entry.get("defaultModelId") or "")
+        prefix = f"{pid}/"
+        default_model = default_model.removeprefix(prefix)
+        models = sorted(
+            (_model_runtime_shape(m) for m in entry.get("models", []) if isinstance(m, dict)),
+            key=lambda m: (not m["is_default"], m["name"]),
+        )
+        providers[pid] = {
+            "id": pid,
+            "name": entry.get("name", pid),
+            "description": entry.get("description", ""),
+            "adapter": entry.get("adapter", "openai_compat"),
+            "litellm_prefix": entry.get("litellmPrefix", ""),
+            "default_model": default_model,
+            "base_url": entry.get("baseUrl", ""),
+            "api_key_prefix": entry.get("apiKeyPrefixHint"),
+            "requires_api_key": bool(entry.get("requiresApiKey", True)),
+            "swatch": entry.get("swatch", []),
+            "capabilities": entry.get("capabilities", {}),
+            "config_fields": entry.get("configFields", []),
+            "env_keys": entry.get("apiKeyEnv", []),
+            "is_popular": bool(entry.get("isPopular", False)),
+            "base_url_style": entry.get("baseStyle", ""),
+            "supports_prompt_caching": bool(entry.get("supportsPromptCaching", False)),
+            "supports_thinking_headers": bool(entry.get("supportsThinkingHeaders", False)),
+            "custom_flow": bool(entry.get("customFlow", False)),
+            "rate_limit": entry.get("rateLimit", {}),
+            "models": models,
+            "_catalog_version": CATALOG_VERSION,
+        }
+    return {"version": 1, "providers": providers}
+
+
+def _model_runtime_shape(entry: dict) -> dict:
+    shape = {
+        "id": entry.get("id", ""),
+        "name": entry.get("name", ""),
+        "description": entry.get("description", ""),
+        "context_window": int(entry.get("contextWindow", 128000)),
+        "parameters": entry.get("parameters"),
+        "architecture": entry.get("architecture"),
+        "input_modalities": entry.get("inputModalities", []),
+        "output_modalities": entry.get("outputModalities", []),
+        "tags": entry.get("tags", []),
+        "model_capabilities": entry.get("capabilities", {}),
+        "speed_tier": entry.get("speedTier", ""),
+        "best_for": entry.get("bestFor", []),
+        "pricing": entry.get("pricing", {}),
+        "is_default": bool(entry.get("isDefault", False)),
+        "tokenizer": entry.get("tokenizer", ""),
+        "prompt_tier": entry.get("promptTier", ""),
+    }
+    max_out = entry.get("maxOutputTokens") or entry.get("max_output_tokens")
+    if max_out:
+        shape["max_output_tokens"] = int(max_out)
+    return shape
 
 
 def _write(home: StorageHome, providers: list[dict]) -> None:
@@ -248,21 +327,6 @@ def upsert_provider(home: StorageHome, entry: dict) -> None:
         out.append(fresh)
     _write(home, out)
     invalidate_catalog_cache()
-
-
-def delete_provider(home: StorageHome, provider_id: str) -> bool:
-    providers = read_catalog_doc(home).get("providers", [])
-    entry = next((p for p in providers if p.get("id") == provider_id), None)
-    if entry is None:
-        return False
-    if entry.get("firstClass"):
-        raise CatalogValidationError(
-            f"Provider '{provider_id}' is first-class and cannot be deleted"
-        )
-    remaining = [p for p in providers if p.get("id") != provider_id]
-    _write(home, remaining)
-    invalidate_catalog_cache()
-    return True
 
 
 def upsert_model(home: StorageHome, entry: dict) -> str:

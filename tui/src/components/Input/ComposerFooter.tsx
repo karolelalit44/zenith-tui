@@ -11,9 +11,8 @@ interface ComposerFooterProps {
   providerName: string;
   dir: string;
   branch: string;
-  totalTokens: number;
   effectiveMaxTokens: number;
-  /** Cumulative run/API usage (telemetry); falls back to totalTokens when omitted. */
+  /** Cumulative run/API usage (telemetry). */
   runTokens?: number;
   /** True when the cumulative run usage is estimated, not provider-reported. */
   runEstimated?: boolean;
@@ -30,7 +29,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     providerName,
     dir,
     branch,
-    totalTokens,
     effectiveMaxTokens,
     runTokens,
     runEstimated,
@@ -49,7 +47,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
       providerName,
       dir,
       branch,
-      totalTokens,
       effectiveMaxTokens,
       runTokens,
       runEstimated,
@@ -92,8 +89,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
             <Text> </Text>
           )}
           <Text color={theme.colors.text.muted} wrap="truncate-end">
-            {layout.gauge}
-            {layout.gauge && layout.tokenUsage ? ' ' : ''}
             {layout.tokenUsage}
           </Text>
         </Box>

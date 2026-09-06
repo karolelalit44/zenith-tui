@@ -2,7 +2,6 @@ import { Box, Text } from 'ink';
 import React, { useRef } from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import {
-  CANCELLED_ERROR_PATTERN,
   EXPLORE_TOOL,
   FILE_DELETE_TOOL_SET,
   FILE_MUTATION_TOOL_SET,
@@ -10,7 +9,7 @@ import {
   getToolStepPrimaryParam,
   getToolStepStatusText,
   getToolVerbLabel,
-  LSP_TOOL_SET,
+  LIST_DIR_TOOL_SET,
   SEARCH_TOOL_SET,
   SHELL_TOOL_SET,
   TOOL_META_INTERRUPTED,
@@ -22,6 +21,7 @@ import type { ToolStepEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
 import { getWorkspaceFolderName } from '../../../utils/workspacePath';
 import type { EventRenderContext } from './componentRegistry';
+import { DirectoryListingCard } from './DirectoryListingCard';
 import { formatErrorSummary } from './errorSummary';
 import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
 
@@ -168,7 +168,7 @@ const ExploreCrewCard: React.FC<{
             {isPending
               ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} `
               : ok
-                ? '✓ '
+                ? ' '
                 : state === 'cancelled'
                   ? '⊘ '
                   : '✗ '}
@@ -227,20 +227,30 @@ ExploreCrewCard.displayName = 'ExploreCrewCard';
 
 /** Cap on how many stdout lines are rendered inside the terminal window. */
 const MAX_OUTPUT_LINES = 50;
-/** Success output reads slightly deeper than failures (errors need less). */
-const SHELL_OUTPUT_LINES_SUCCESS = 6;
-const SHELL_OUTPUT_LINES_ERROR = 4;
+/** Shell output lines kept in preview (generic for all command results). */
+const SHELL_OUTPUT_LINES = 6;
 /** Generic informational tools keep only a tiny excerpt. */
 const GENERIC_OUTPUT_PREVIEW_LINES = 4;
 
 /** Execution lifecycle glyphs — one visual language across every card. */
 type ExecutionState = 'running' | 'success' | 'failed' | 'cancelled';
 
+function isExecutionInterrupted(event: ToolStepEvent): boolean {
+  const meta = event.metadata ?? {};
+  if (meta[TOOL_META_INTERRUPTED] === true || meta.cancelled === true) return true;
+  const err = (event.error ?? '').trim().toLowerCase();
+  return (
+    err === 'execution interrupted' ||
+    err.startsWith('execution interrupted') ||
+    err === 'request cancelled' ||
+    err === 'cancelled'
+  );
+}
+
 function resolveExecutionState(event: ToolStepEvent, isPending: boolean): ExecutionState {
   if (isPending) return 'running';
+  if (isExecutionInterrupted(event)) return 'cancelled';
   if (event.success !== false) return 'success';
-  const interruptedMeta = (event.metadata ?? {})[TOOL_META_INTERRUPTED] === true;
-  if (interruptedMeta || CANCELLED_ERROR_PATTERN.test(event.error ?? '')) return 'cancelled';
   return 'failed';
 }
 
@@ -249,13 +259,18 @@ function stripAnsi(text: string): string {
   return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
 }
 
+function isToolStatusBoilerplate(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith('[Tool:') && trimmed.includes('| Status:') && trimmed.endsWith(']');
+}
+
 /** Format raw command output: strip ANSI codes, boilerplate headers, normalize line endings, trim trailing blanks, and cap to size. */
 function formatCommandOutput(output: string, maxLines = MAX_OUTPUT_LINES): string {
   const sanitized = stripAnsi(output)
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
-    .filter((line) => !/^\[Tool:\s*[^\]]+\|\s*Status:\s*[^\]]+\]/i.test(line.trim()))
+    .filter((line) => !isToolStatusBoilerplate(line))
     .join('\n')
     .replace(/\s+$/, '');
   const lines = sanitized.split('\n');
@@ -309,8 +324,12 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
   const statusText = !isPending ? getToolStepStatusText(event) : '';
   const verb = getToolVerbLabel(event.tool);
-  const isGenericTemplate = event.text != null && /^Executing\s+.+(?:\.\.\.|…)$/.test(event.text.trim());
-  const hasTextHeader = Boolean(event.text) && !isGenericTemplate;
+  const textTrimmed = event.text ? event.text.trim() : '';
+  const isGenericTemplate =
+    textTrimmed.length > 0 &&
+    textTrimmed.startsWith('Executing ') &&
+    (textTrimmed.endsWith('...') || textTrimmed.endsWith('…'));
+  const hasTextHeader = textTrimmed.length > 0 && !isGenericTemplate;
   const headerText = (hasTextHeader ? event.text : `${verb}${primary ? ` ${primary.value}` : ''}`) || '';
 
   /** Status glyph column shared by every branch — one coherent language. */
@@ -331,7 +350,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     }
     return (
       <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-        {isSuccess ? '✓' : '✗'}{' '}
+        {isSuccess ? '' : '✗'}{' '}
       </Text>
     );
   })();
@@ -397,14 +416,12 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     const meta = event.metadata ?? {};
     const exitCode = typeof meta.exit_code === 'number' ? meta.exit_code : undefined;
 
-    // Border colour carries the execution state at a glance.
+    // Border colour carries the execution state: info while pending, warning if cancelled, neutral muted when completed.
     const borderColor = isPending
       ? theme.colors.status.info
-      : state === 'failed'
-        ? theme.colors.status.error
-        : state === 'cancelled'
-          ? theme.colors.status.warning
-          : theme.colors.border.muted;
+      : state === 'cancelled'
+        ? theme.colors.status.warning
+        : theme.colors.border.muted;
 
     const promptLine = collapseFirstLine(cmdString);
     const folderName = getWorkspaceFolderName(context?.workspaceName);
@@ -413,6 +430,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       event.output ||
       (typeof event.metadata?.output === 'string' ? event.metadata.output : '') ||
       (typeof event.metadata?.result === 'string' ? event.metadata.result : '') ||
+      event.error ||
       '';
 
     const trimInfo = event.metadata?.trim as { charsRemoved?: number } | undefined;
@@ -448,9 +466,17 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             {metaPill}
           </Box>
 
-          {/* Terminal Body Prompt Line: Status Icon ❯❯ Command String */}
+          {/* Terminal Body Prompt Line: Generic prompt icon + Command String (no success/failure verdict) */}
           <Box flexDirection="row" alignItems="center">
-            {statusGlyph}
+            {isPending ? (
+              <Text color={theme.colors.status.info} bold>
+                {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
+              </Text>
+            ) : state === 'cancelled' ? (
+              <Text color={theme.colors.status.warning} bold>
+                ⊘{' '}
+              </Text>
+            ) : null}
 
             <Text color={theme.colors.text.bright} bold>
               ❯❯{' '}
@@ -461,17 +487,16 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             </Text>
           </Box>
 
-          {/* Command execution response text on second line (height-truncated) */}
+          {/* Command execution response text (generic height-truncated preview) */}
           {!isPending && cmdOutputText.trim().length > 0 ? (
             <Box flexDirection="column" paddingLeft={2} marginTop={0} marginBottom={0}>
               <Text color={theme.colors.code.output} wrap="truncate-end">
-                {formatCommandOutput(cmdOutputText, isSuccess ? SHELL_OUTPUT_LINES_SUCCESS : SHELL_OUTPUT_LINES_ERROR)}
+                {formatCommandOutput(cmdOutputText, SHELL_OUTPUT_LINES)}
               </Text>
             </Box>
           ) : null}
 
-          {/* Footer meta: failure context, exit code, model-side trim note */}
-          {!isPending && !isSuccess && event.error ? (
+          {(state === 'failed' || state === 'cancelled') && event.error ? (
             <Box paddingLeft={2}>
               <Text
                 color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
@@ -515,8 +540,22 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     );
   }
 
+  /** Modern interactive card for list_dir / ls / dir results. */
+  if (LIST_DIR_TOOL_SET.has(toolKey)) {
+    return (
+      <DirectoryListingCard
+        event={event}
+        isPending={isPending}
+        state={state}
+        elapsedMs={elapsedMs}
+        context={context}
+        metaPill={metaPill}
+        tick={tick}
+      />
+    );
+  }
+
   const isFileDelete = FILE_DELETE_TOOL_SET.has(toolKey);
-  const isLsp = LSP_TOOL_SET.has(toolKey);
 
   const outputText =
     event.output ||
@@ -566,10 +605,6 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                     primary?.value ?? (event.metadata?.pattern as string) ?? ''
                   }"`}
               {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
-            </Text>
-          ) : isLsp ? (
-            <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright} wrap="truncate-end">
-              {verb} {primary?.value || ''}
             </Text>
           ) : (
             <Text

@@ -15,166 +15,54 @@ TOOL_PATTERNS = [
     re.compile(
         '(\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\"params\\"\\s*:\\s*\\{[\\s\\S]*?\\}\\s*\\})'
     ),
-    re.compile("```(?:tool|json)?\\s*\\n?(\\[[\\s\\S]*?\\])\\s*\\n?```", re.IGNORECASE),
-    re.compile(
-        '(\\[[\\s\\S]*?\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\}[\\s\\S]*?\\])'
-    ),
 ]
-UNCLOSED_PATTERN = re.compile(
-    '```(?:tool|json)?\\s*\\n?(\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*)$',
-    re.IGNORECASE,
+XML_TOOL_CALL_PATTERN = re.compile(
+    r"<tool_call>\s*([^<\s]+)([\s\S]*?)</tool_call>", re.IGNORECASE
 )
-BRACKET_PATTERN = re.compile('\\[(\\w+)((?:\\s+\\w+=(?:\\"[^\\"]*\\"|\\S+))+\\s*)\\]')
-BRACKET_KV_PATTERN = re.compile('(\\w+)=(?:"((?:[^"\\\\]|\\\\.)*)"|(\\S+))')
-XML_TOOL_CALL_PATTERN = re.compile("<tool_call>([\\s\\S]*?)</tool_call>", re.IGNORECASE)
-XML_ARG_PAIR_PATTERN = re.compile(
-    "<arg_key>(.*?)</arg_key>\\s*<arg_value>(.*?)</arg_value>", re.DOTALL | re.IGNORECASE
+XML_ARG_PATTERN = re.compile(
+    r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>", re.IGNORECASE | re.DOTALL
+)
+BRACKET_TOOL_CALL_PATTERN = re.compile(
+    r"\[Tool:\s*([a-zA-Z0-9_\-\.]+)([\s\S]*?)\]", re.IGNORECASE
+)
+_BRACKET_KEY_VAL_PATTERN = re.compile(
+    r'([a-zA-Z0-9_\-]+)\s*[=:]\s*(?:"([^"]*)"|\'([^\']*)\'|(\S+))', re.DOTALL
 )
 PLACEHOLDER_TOOL_NAMES = frozenset(
     {"tool_name", "tool", "function", "name", "call", "action", "command", "method"}
 )
 
-
-def _extract_string_value(text: str, key: str) -> str | None:
-    single_line = re.search(f'"{key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"', text)
-    if single_line:
-        raw = single_line.group(1)
-        end_pos = single_line.end()
-        is_triple_quote = raw == "" and end_pos < len(text) and (text[end_pos : end_pos + 1] == '"')
-        if "\n" not in raw and (not is_triple_quote):
-            return raw.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
-    multi_match = re.search(f'"{key}"\\s*:\\s*(.*)"\\s*\\}}\\s*\\}}', text, re.DOTALL)
-    if multi_match:
-        raw = multi_match.group(1)
-        raw = raw.removeprefix('"')
-        return raw.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
-    multi_match2 = re.search(f'"{key}"\\s*:\\s*(.*)"\\s*\\}}', text, re.DOTALL)
-    if multi_match2:
-        raw = multi_match2.group(1)
-        raw = raw.removeprefix('"')
-        return raw.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
-    return None
-
-
-def _extract_param_fallback(
-    candidate: str, key: str, aliases: list[str] | None = None
-) -> str | None:
-    result = _extract_string_value(candidate, key)
-    if result is not None:
-        return result
-    for alias in aliases or []:
-        result = _extract_string_value(candidate, alias)
-        if result is not None:
-            return result
-    return None
+_XML_CALL_CLEAN_RE = re.compile(r"<tool_call>[\s\S]*?</tool_call>", re.IGNORECASE)
+_TOOL_FENCE_CLEAN_RE = re.compile(
+    r'```(?:tool|json)?\s*\n?\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\}\s*\n?```',
+    re.IGNORECASE,
+)
+_TOOL_OBJECT_CLEAN_RE = re.compile(
+    r'\{[\s\S]*?\"tool\"\s*:\s*\"[^\"]+\"[\s\S]*?\"params\"\s*:\s*\{[\s\S]*?\}\s*\}'
+)
+_SIMULATED_CMD_RE = re.compile(
+    r"^Command:\s+.*$\n^Output:.*$", flags=re.MULTILINE | re.IGNORECASE
+)
+_SIMULATED_SUCCESS_RE = re.compile(
+    r"^Successfully (?:created|wrote|deleted|edited) (?:new )?file:\s*[^\n]+$",
+    flags=re.MULTILINE | re.IGNORECASE,
+)
+_PLACEHOLDER_MARKER_RE = re.compile(
+    r"\[(?:PASTE|INSERT|TODO|HTML|UPDATED|ACTUAL|CURRENT|DESIRED)[^\]]{0,50}\]",
+    flags=re.IGNORECASE,
+)
+_YOUR_PLACEHOLDER_RE = re.compile(r"\bYOUR_[\w_]+_HERE\b")
+_EXTRA_NEWLINES_RE = re.compile(r"\n{3,}")
 
 
-def _repair_and_parse_json(candidate: str) -> dict | None:
-    cleaned_cand = re.sub("^```(?:tool|json)?\\s*", "", candidate.strip(), flags=re.IGNORECASE)
-    cleaned_cand = re.sub("\\s*```$", "", cleaned_cand).strip()
+def _normalize_triple_quoted_strings(candidate: str) -> str:
+    if '"""' not in candidate:
+        return candidate
 
-    def _validate_tool_name(data: dict) -> dict | None:
-        name = data.get("tool", "")
-        if name in PLACEHOLDER_TOOL_NAMES:
-            return None
-        return data
+    def _replace(match: re.Match[str]) -> str:
+        return f"{match.group(1)}{json.dumps(match.group(2))}"
 
-    def _remap_openai_format(data: dict) -> dict:
-        if "function" in data and "tool" not in data:
-            data["tool"] = data.pop("function")
-        if "arguments" in data and "params" not in data:
-            args = data.pop("arguments")
-            data["params"] = args if isinstance(args, dict) else {}
-        return data
-
-    if '"function"' in cleaned_cand and '"tool"' not in cleaned_cand:
-        cleaned_cand = re.sub('"function"\\s*:\\s*"([^"]+)"', '"tool": "\\1"', cleaned_cand)
-    if '"arguments"' in cleaned_cand and '"params"' not in cleaned_cand:
-        cleaned_cand = cleaned_cand.replace('"arguments"', '"params"')
-    json_result = None
-    try:
-        repaired = repair_json(cleaned_cand)
-        data = json.loads(repaired)
-        if isinstance(data, dict):
-            if "tool" in data and "params" in data:
-                json_result = _validate_tool_name(data)
-            if not json_result and ("function" in data or "arguments" in data):
-                data = _remap_openai_format(data)
-                if "tool" in data and "params" in data:
-                    json_result = _validate_tool_name(data)
-    except Exception:
-        pass
-    if json_result:
-        js_params = json_result.get("params", {})
-        content = js_params.get("content", "")
-        if content or json_result["tool"] != "file_write":
-            return json_result
-    tool_match = re.search('"tool"\\s*:\\s*"([^"]+)"', candidate)
-    if tool_match:
-        tool_name = tool_match.group(1)
-        if tool_name in PLACEHOLDER_TOOL_NAMES:
-            return None
-        params: dict = {}
-        path_val = _extract_param_fallback(
-            candidate,
-            "path",
-            [
-                "filePath",
-                "filepath",
-                "file_path",
-                "targetFile",
-                "target_file",
-                "filename",
-                "file_name",
-                "targetPath",
-                "target_path",
-                "dest",
-                "destination",
-                "src",
-                "source",
-            ],
-        )
-        if path_val is not None:
-            params["path"] = path_val
-        content_val = _extract_param_fallback(candidate, "content")
-        if content_val is not None:
-            params["content"] = content_val
-        old_val = _extract_param_fallback(
-            candidate,
-            "old_content",
-            ["oldContent", "search", "find", "old_string", "original", "oldtext", "targettext"],
-        )
-        if old_val is not None:
-            params["old_content"] = old_val
-        new_val = _extract_param_fallback(
-            candidate,
-            "new_content",
-            ["newContent", "replace", "new_string", "replacement", "newtext", "replacementtext"],
-        )
-        if new_val is not None:
-            params["new_content"] = new_val
-        cmd_val = _extract_param_fallback(
-            candidate, "command", ["cmd", "commandString", "script", "exec", "run"]
-        )
-        if cmd_val is not None:
-            params["command"] = cmd_val
-        pattern_val = _extract_param_fallback(
-            candidate, "pattern", ["query", "glob", "searchPattern", "filter", "regex"]
-        )
-        if pattern_val is not None:
-            params["pattern"] = pattern_val
-        url_val = _extract_param_fallback(candidate, "url")
-        if url_val is not None:
-            params["url"] = url_val
-        include_val = _extract_param_fallback(candidate, "include")
-        if include_val is not None:
-            params["include"] = include_val
-        timeout_match = re.search('"timeout"\\s*:\\s*(\\d+)', candidate)
-        if timeout_match:
-            params["timeout"] = int(timeout_match.group(1))
-        if tool_name:
-            return {"tool": tool_name, "params": params}
-    return None
+    return re.sub(r'(:\s*)"""([\s\S]*?)"""', _replace, candidate)
 
 
 def _split_top_level_objects(text: str) -> list[str]:
@@ -204,6 +92,41 @@ def _split_top_level_objects(text: str) -> list[str]:
                 objects.append(text[start : i + 1])
                 start = -1
     return objects
+
+
+def _repair_and_parse_json(candidate: str) -> dict | None:
+    cleaned_cand = re.sub("^```(?:tool|json)?\\s*", "", candidate.strip(), flags=re.IGNORECASE)
+    cleaned_cand = re.sub("\\s*```$", "", cleaned_cand).strip()
+    cleaned_cand = _normalize_triple_quoted_strings(cleaned_cand)
+
+    def _validate_tool_name(data: dict) -> dict | None:
+        name = data.get("tool", "")
+        if name in PLACEHOLDER_TOOL_NAMES:
+            return None
+        return data
+
+    try:
+        repaired = repair_json(cleaned_cand)
+        data = json.loads(repaired)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    if "function" in data and "tool" not in data:
+        data["tool"] = data.pop("function")
+    if "arguments" in data and "params" not in data:
+        args = data.pop("arguments")
+        data["params"] = args if isinstance(args, dict) else {}
+    if "tool" not in data:
+        return None
+    if data.get("tool") in PLACEHOLDER_TOOL_NAMES:
+        return None
+    params = data.get("params")
+    if params is None:
+        data["params"] = {}
+    elif not isinstance(params, dict):
+        return None
+    return _validate_tool_name(data)
 
 
 def parse_tool_calls(text: str) -> list[dict]:
@@ -236,12 +159,15 @@ def parse_tool_calls(text: str) -> list[dict]:
                 try:
                     arr = json.loads(candidate, strict=False)
                     if isinstance(arr, list):
+                        added = False
                         for item in arr:
                             if isinstance(item, dict) and "tool" in item:
                                 if "params" not in item:
                                     item["params"] = {}
-                                _add_call(item)
-                        matched_spans.append((start, end))
+                                if _add_call(item):
+                                    added = True
+                        if added:
+                            matched_spans.append((start, end))
                         continue
                 except Exception:
                     pass
@@ -250,7 +176,7 @@ def parse_tool_calls(text: str) -> list[dict]:
                 added = False
                 for obj in objects:
                     parsed = _repair_and_parse_json(obj)
-                    if parsed is not None and _add_call(parsed):
+                    if parsed and _add_call(parsed):
                         added = True
                 if added:
                     matched_spans.append((start, end))
@@ -258,89 +184,70 @@ def parse_tool_calls(text: str) -> list[dict]:
             parsed = _repair_and_parse_json(candidate)
             if parsed and _add_call(parsed):
                 matched_spans.append((start, end))
-    if not calls:
-        unclosed = UNCLOSED_PATTERN.search(text)
-        if unclosed:
-            candidate = unclosed.group(1).strip()
-            parsed = _repair_and_parse_json(candidate)
-            if parsed and _add_call(parsed):
-                calls.append(parsed)
-    if not calls:
-        for match in BRACKET_PATTERN.finditer(text):
-            tool_name = match.group(1)
-            if tool_name in PLACEHOLDER_TOOL_NAMES:
-                continue
-            params = {}
-            for kv in BRACKET_KV_PATTERN.finditer(match.group(2)):
-                key = kv.group(1)
-                val = kv.group(2) if kv.group(2) is not None else kv.group(3)
-                params[key] = val
-            parsed = {"tool": tool_name, "params": normalize_file_params(params, tool_name)}
-            _add_call(parsed)
-    if not calls:
-        for match in XML_TOOL_CALL_PATTERN.finditer(text):
-            content = match.group(1).strip()
-            if not content:
-                continue
-            parsed = _repair_and_parse_json(content)
-            if parsed and _add_call(parsed):
-                continue
-            arg_key_pos = content.find("<arg_key>")
-            if arg_key_pos >= 0:
-                tool_name = content[:arg_key_pos].strip()
-                params = {}
-                for kv in XML_ARG_PAIR_PATTERN.finditer(content):
-                    k = kv.group(1).strip()
-                    v = kv.group(2).strip()
-                    params[k] = v
-                if tool_name and tool_name not in PLACEHOLDER_TOOL_NAMES:
-                    parsed = {"tool": tool_name, "params": normalize_file_params(params, tool_name)}
-                    _add_call(parsed)
+
+    for match in XML_TOOL_CALL_PATTERN.finditer(text):
+        start, end = match.span()
+        if any((s <= start and end <= e for s, e in matched_spans)):
+            continue
+        tool = match.group(1).strip()
+        if not tool or tool in PLACEHOLDER_TOOL_NAMES:
+            continue
+        params: dict[str, str] = {}
+        for key, value in XML_ARG_PATTERN.findall(match.group(2)):
+            params[key.strip()] = value
+        if _add_call({"tool": tool, "params": params}):
+            matched_spans.append((start, end))
+
+    for match in BRACKET_TOOL_CALL_PATTERN.finditer(text):
+        start, end = match.span()
+        if any((s <= start and end <= e for s, e in matched_spans)):
+            continue
+        body = match.group(2)
+        if re.search(r"\|\s*status\s*:\s*(?:success|failed)", body, re.IGNORECASE):
+            continue
+        tool = match.group(1).strip()
+        if not tool or tool in PLACEHOLDER_TOOL_NAMES:
+            continue
+
+        params: dict = {}
+        json_match = re.search(r"\{[\s\S]*\}", body)
+        if json_match:
+            parsed_json = _repair_and_parse_json(json_match.group(0))
+            if parsed_json and isinstance(parsed_json, dict):
+                params = parsed_json.get("params", parsed_json)
+
+        if not params:
+            for kv in _BRACKET_KEY_VAL_PATTERN.finditer(body):
+                key = kv.group(1).strip()
+                val = kv.group(2) if kv.group(2) is not None else (kv.group(3) if kv.group(3) is not None else kv.group(4))
+                if key.lower() not in ("status", "tool"):
+                    params[key] = val.strip()
+
+        if _add_call({"tool": tool, "params": params}):
+            matched_spans.append((start, end))
     return calls
 
 
+def _clean_bracket_calls(text: str) -> str:
+    def _repl(m: re.Match) -> str:
+        content = m.group(0)
+        if re.search(r"\|\s*Status\s*:", content, re.IGNORECASE):
+            return content
+        return ""
+
+    return re.sub(r"\[Tool:\s*[a-zA-Z0-9_\-\.][^\]]*\]", _repl, text, flags=re.IGNORECASE)
+
+
 def clean_tool_text(text: str) -> str:
-    cleaned = re.sub("<tool_call>[\\s\\S]*?</tool_call>", "", text, flags=re.IGNORECASE)
-    cleaned = re.sub(
-        '```(?:tool|json)?\\s*\\n?\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\}\\s*\\n?```',
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        '\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\"params\\"\\s*:\\s*\\{[\\s\\S]*?\\}\\s*\\}',
-        "",
-        cleaned,
-    )
-    cleaned = re.sub(
-        '```(?:tool|json)?\\s*\\n?\\[[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\]\\s*\\n?```',
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        '\\[[\\s\\S]*?\\{[\\s\\S]*?\\"tool\\"\\s*:\\s*\\"[^\\"]+\\"[\\s\\S]*?\\}[\\s\\S]*?\\]',
-        "",
-        cleaned,
-    )
-    cleaned = BRACKET_PATTERN.sub("", cleaned)
-    cleaned = re.sub(
-        "^Command:\\s+.*$\\n^Output:.*$", "", cleaned, flags=re.MULTILINE | re.IGNORECASE
-    )
-    cleaned = re.sub(
-        "^Successfully (?:created|wrote|deleted|edited) (?:new )?file:\\s*[^\\n]+$",
-        "",
-        cleaned,
-        flags=re.MULTILINE | re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        "\\[(?:PASTE|INSERT|TODO|HTML|UPDATED|ACTUAL|CURRENT|DESIRED)[^\\]]{0,50}\\]",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = re.sub("\\bYOUR_[\\w_]+_HERE\\b", "", cleaned)
-    cleaned = re.sub("\\n{3,}", "\n\n", cleaned)
+    cleaned = _XML_CALL_CLEAN_RE.sub("", text)
+    cleaned = _clean_bracket_calls(cleaned)
+    cleaned = _TOOL_FENCE_CLEAN_RE.sub("", cleaned)
+    cleaned = _TOOL_OBJECT_CLEAN_RE.sub("", cleaned)
+    cleaned = _SIMULATED_CMD_RE.sub("", cleaned)
+    cleaned = _SIMULATED_SUCCESS_RE.sub("", cleaned)
+    cleaned = _PLACEHOLDER_MARKER_RE.sub("", cleaned)
+    cleaned = _YOUR_PLACEHOLDER_RE.sub("", cleaned)
+    cleaned = _EXTRA_NEWLINES_RE.sub("\n\n", cleaned)
     return cleaned.strip()
 
 
@@ -362,6 +269,8 @@ class UnifiedResponseFormatter:
 
     @staticmethod
     def _remap_native_tool_call(tc: dict) -> dict | None:
+        from server.toolkit.param_normalizer import normalize_file_params
+
         if "function" in tc:
             func = tc["function"]
             name = func.get("name", "")
@@ -375,10 +284,10 @@ class UnifiedResponseFormatter:
                     args = {}
             if not isinstance(args, dict):
                 args = {}
-            return {"tool": name, "params": args}
+            return {"tool": name, "params": normalize_file_params(args, name)}
         if "tool" in tc:
             params = tc.get("params", {})
             if not isinstance(params, dict):
                 params = {}
-            return {"tool": tc["tool"], "params": params}
+            return {"tool": tc["tool"], "params": normalize_file_params(params, tc["tool"])}
         return None

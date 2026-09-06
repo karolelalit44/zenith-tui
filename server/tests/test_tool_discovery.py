@@ -166,7 +166,7 @@ class TestSchemaResolver:
         # Derive the core set from the config so the trim (web tools no longer
         # seeded, T1) is tracked automatically instead of a hard-coded list.
         core = set(CORE_BUILD_TOOLS)
-        for name in ("file_delete", "todo", "multi_edit", "job_kill", "lsp_rename"):
+        for name in ("file_delete", "todo", "job_kill", "websearch"):
             assert resolver.request_tool(name) is True
         active = set(resolver.active_names())
         assert len(active) <= MAX_ACTIVE_TOOLS_PER_TURN
@@ -224,9 +224,7 @@ class TestSchemaMinimality:
             "webfetch",
             "file_delete",
             "todo",
-            "multi_edit",
             "agent",
-            "lsp_rename",
             "job_kill",
         ):
             assert name not in names, f"{name} leaked into build-mode seed"

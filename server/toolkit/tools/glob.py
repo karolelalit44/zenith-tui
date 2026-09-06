@@ -13,9 +13,10 @@ from server.config.constants import (
     TOOL_DOMAIN_WORKSPACE_DISCOVERY,
 )
 from server.workspace.ignore import get_matcher
+from server.workspace.search import RipgrepBackend, _find_rg
 
 from ..base import BaseTool, ToolResult
-from ..brace_expand import expand_braces
+from .grep import _iter_source_files, _matches_glob, _safe_rel
 
 
 def _pattern_is_unscoped(pattern: str) -> bool:
@@ -109,22 +110,35 @@ class GlobTool(BaseTool):
         if not search_path.exists():
             return ToolResult(success=False, error=f"Search path not found: {search_path}")
 
-        matcher = get_matcher(workspace_root)
-        matcher.refresh()
-
         try:
-            matched_rel_paths: list[Path] = []
-            for variant in expand_braces(pattern):
-                for f in search_path.glob(variant):
-                    if not f.is_file():
+            backend = RipgrepBackend(ignore_files=[str(base / ".zenithignore")])
+            matcher = get_matcher(workspace_root)
+            matcher.refresh()
+            if _find_rg() is not None:
+                files = await backend.glob(pattern, str(search_path))
+            else:
+                files = []
+                max_results = backend.max_results
+                for file_path in sorted(
+                    _iter_source_files(search_path, base, matcher),
+                    key=lambda candidate: str(candidate),
+                ):
+                    relative_path = _safe_rel(file_path, base)
+                    if relative_path is None:
                         continue
-                    try:
-                        rel = f.relative_to(base)
-                    except ValueError:
-                        rel = f
-                    if matcher.is_ignored(rel):
-                        continue
-                    matched_rel_paths.append(rel)
+                    if _matches_glob(relative_path, pattern):
+                        files.append(str(file_path))
+                        if len(files) >= max_results:
+                            break
+            matched_rel_paths = []
+            for file_name in files:
+                file_path = Path(file_name)
+                try:
+                    relative_path = file_path.resolve().relative_to(base)
+                except ValueError:
+                    relative_path = file_path
+                if not matcher.is_ignored(relative_path):
+                    matched_rel_paths.append(relative_path)
 
             matched_rel_paths = sorted(set(matched_rel_paths))
             total = len(matched_rel_paths)

@@ -11,15 +11,10 @@ from server.config.settings import AGENT_MODES
 from server.domain.message import Message
 from server.sessions.export import SessionExporter
 from server.sessions.service import DefaultSessionService, SessionService
-from server.skills.loader import SkillLoader
 from server.storage import StorageHome
-from server.storage.search_store import FileSearchRepository
 from server.storage.session_store import FileMessageRepository, FileSessionRepository
-from server.storage.usage_store import FileTokenUsageRepository
-from server.storage.workspace_store import FileWorkspaceRepository
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
-from server.domain.session import SessionState
 from .protocol import make_error_response, make_response, serialize_event
 
 if TYPE_CHECKING:
@@ -62,6 +57,10 @@ def _normalize_attachments(raw) -> list[dict]:
             normalized["name"] = str(item["name"])
         if item.get("content") is not None:
             normalized["content"] = item["content"]
+        if item.get("kind") in ("file", "folder"):
+            normalized["kind"] = str(item["kind"])
+        if item.get("size") is not None and isinstance(item.get("size"), (int, float)):
+            normalized["size"] = int(item["size"])
         result.append(normalized)
         if len(result) >= 25:
             break
@@ -83,15 +82,15 @@ class MethodHandlers:
         self.tool_registry = tool_registry
         self.session_repo = FileSessionRepository(home)
         self.message_repo = FileMessageRepository(home)
-        self.skill_loader = SkillLoader(config.workspace_root)
         self.exporter = SessionExporter()
         self.manager: ConnectionManager | None = None
         self._session_executors: dict[str, PromptExecutor] = {}
         self._session_service = session_service
-        self._workspace_repo = FileWorkspaceRepository(home)
-        self.usage_repo = FileTokenUsageRepository(home)
 
     def reload_config(self) -> None:
+        """Full config reload — rebuilds entire registry. Use ONLY for global
+        changes. Per-provider updates must use reload_provider() so unrelated
+        providers are not destroyed and re-instantiated."""
         from server.config.loader import load_config
         from server.providers.registry import ProviderRegistry
 
@@ -99,7 +98,17 @@ class MethodHandlers:
         self.registry = ProviderRegistry.from_config(
             self.config.providers, self.config.active_provider
         )
-        self.skill_loader = SkillLoader(self.config.workspace_root)
+
+    def reload_provider(self, provider_id: str) -> None:
+        """Targeted reload — re-reads config and updates only the specified provider."""
+        from server.config.loader import load_config
+
+        self.config = load_config()
+        provider_cfg = self.config.providers.get(provider_id)
+        if provider_cfg:
+            self.registry.update_provider(provider_id, provider_cfg)
+        else:
+            self.registry.remove_provider(provider_id)
 
     async def dispatch(
         self, ws: WebSocket, method: str, rid, params: dict, session_id: str | None
@@ -133,7 +142,6 @@ class MethodHandlers:
             "workspace.status": lambda: self._workspace_status(ws, rid),
             "workspace.diff": lambda: self._workspace_diff(ws, rid, params),
             "workspace.log": lambda: self._workspace_log(ws, rid, params),
-            "workspace.repo_map": lambda: self._workspace_repo_map(ws, rid, params),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
         }
         handler = handlers.get(method)
@@ -155,7 +163,7 @@ class MethodHandlers:
 
     async def _session_create(self, ws, rid, params) -> str:
         svc = self._resolve_service()
-        from server.domain.domain import ScenarioMode
+        from server.domain.enums import ScenarioMode
 
         session = await svc.create(
             title=params.get("title", "New Session"),
@@ -199,7 +207,7 @@ class MethodHandlers:
         if not session:
             await ws.send_text(make_error_response(rid, -32602, "Session not found"))
             return None
-        prior_state = session.state
+        was_busy = session.status == "busy"
         rejected: str | None = None
         try:
             session = await svc.resume(sid)
@@ -208,12 +216,6 @@ class MethodHandlers:
             # to the user via the response and the live event stream, not just logs.
             rejected = str(exc)
             logger.warning("Resume rejected for session %s: %s", sid, exc)
-        try:
-            from server.agents.session_workspace import load_from_db
-
-            await load_from_db(sid, self._workspace_repo)
-        except Exception as exc:
-            logger.warning("Workspace hydration failed on resume for %s: %s", sid, exc)
         messages = await svc.get_history(sid)
         replayed = 0
         if self.manager:
@@ -228,17 +230,13 @@ class MethodHandlers:
             "sync_events": sync_events,
             "latest_sequence": await svc.get_latest_sync_sequence(sid),
         }
-        # Re-resume (already resumed) is expected on reconnect, not an error:
-        # report it as a benign notice rather than a rejection.
         if rejected:
             result["warning"] = rejected
-        elif prior_state == SessionState.RESUMED:
-            result["notice"] = "Session was already resumed; continuing with existing state."
+        elif was_busy:
+            result["notice"] = "Session was already active; continuing with existing work."
         await ws.send_text(make_response(rid, result))
         if rejected:
-            await ws.send_text(
-                serialize_event(r.warning(rejected, sid, code="RESUME_REJECTED"))
-            )
+            await ws.send_text(serialize_event(r.warning(rejected, sid, code="RESUME_REJECTED")))
         return sid
 
     async def _session_update(self, ws, rid, params, session_id) -> None:
@@ -285,13 +283,6 @@ class MethodHandlers:
             return
         svc = self._resolve_service()
         await svc.delete(sid)
-        try:
-            await self._workspace_repo.delete_session(sid)
-        except Exception as exc:
-            logger.warning("Workspace cleanup failed on delete for %s: %s", sid, exc)
-        from server.agents.session_workspace import reset_session
-
-        reset_session(sid)
         from server.agents.compaction_service import cleanup_session
 
         cleanup_session(sid)
@@ -366,10 +357,9 @@ class MethodHandlers:
             return
         sid = params.get("session_id", session_id)
         limit = int(params.get("limit", 20))
-        repo = FileSearchRepository(self.home)
         try:
-            hits = await repo.search(query, limit=limit, session_id=sid)
-            parity = await repo.index_parity()
+            svc = self._resolve_service()
+            hits, parity = await svc.search(query=query, session_id=sid or None, limit=limit)
         except Exception as e:
             logger.warning("Search failed: %s", e)
             await ws.send_text(make_error_response(rid, -32603, f"Search failed: {e}"))
@@ -443,7 +433,7 @@ class MethodHandlers:
                 provider_name,
                 self.registry.list_providers(),
             )
-            self.reload_config()
+            self.reload_provider(provider_name)
             provider = self.registry.get(provider_name)
         if not provider:
             available = list((self.config.providers or {}).keys())
@@ -529,6 +519,15 @@ class MethodHandlers:
             user_msg.metadata["model"] = model_override
         if attachments:
             user_msg.metadata["attachment_paths"] = [a["path"] for a in attachments]
+            user_msg.metadata["attachment_refs"] = [
+                {
+                    "path": a.get("path", ""),
+                    "name": a.get("name", ""),
+                    "kind": a.get("kind", "file"),
+                    "size": a.get("size"),
+                }
+                for a in attachments
+            ]
         await self.message_repo.create(user_msg)
         provider = await self._resolve_provider_for_prompt(ws, rid, provider_name)
         if provider is None:
@@ -548,8 +547,6 @@ class MethodHandlers:
                 self.tool_registry,
                 self.session_repo,
                 self.message_repo,
-                self.skill_loader,
-                workspace_repo=self._workspace_repo,
             )
             self._session_executors[session_id] = executor
             executor.run(
@@ -699,11 +696,10 @@ class MethodHandlers:
     async def _tools_list(self, ws, rid, params) -> None:
         mode = params.get("mode", BUILD_MODE)
         mode_config = AGENT_MODES.get(mode)
-        allowed_mcp = mode_config.allowed_mcp if mode_config else None
         seed = build_mode_tool_seed(mode_config.allowed_tools if mode_config else None)
         resolver = SchemaResolver(self.tool_registry, seed=seed)
         await ws.send_text(
-            make_response(rid, {"tools": resolver.schemas(mode, allowed_mcp=allowed_mcp)})
+            make_response(rid, {"tools": resolver.schemas(mode)})
         )
 
     async def _workspace_status(self, ws, rid) -> None:
@@ -724,24 +720,7 @@ class MethodHandlers:
         log = GitOps(self.config.workspace_root).log(params.get("count", 10))
         await ws.send_text(make_response(rid, {"log": log}))
 
-    async def _workspace_repo_map(self, ws, rid, params) -> None:
-        from server.workspace.repo_map import RepoMap
-
-        repo = RepoMap(self.config.workspace_root)
-        await ws.send_text(
-            make_response(
-                rid,
-                {
-                    "structure": repo.get_structure(params.get("depth", 3)),
-                    "summary": repo.get_summary(),
-                    "keyFiles": repo.get_key_files(),
-                },
-            )
-        )
-
     def _resolve_service(self) -> SessionService:
         if self._session_service is not None:
             return self._session_service
         return DefaultSessionService(session_repo=self.session_repo, message_repo=self.message_repo)
-
-

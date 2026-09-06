@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from server.agents.session_workspace import (
+    cache_file_read,
+    covering_slice_for,
+    get_cached_read,
+)
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     DEFAULT_FILE_READ_LINES,
@@ -10,6 +15,7 @@ from server.config.constants import (
     PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
+from server.toolkit.registry import current_tool_session_id
 from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
@@ -27,6 +33,32 @@ _OUTLINE_PATTERN = re.compile(
     r"|#{1,4}\s+.+"  # Markdown headings
     r")"
 )
+
+
+_LINE_PREFIX_RE = re.compile(r"^(\d+): ")
+
+
+def _subslice_from_cached(
+    cached_output: str, h_offset: int, offset: int, limit: int
+) -> str | None:
+    """Extract a numbered sub-range from a cached formatted read output.
+
+    ``cached_output`` is the ``"{line}: {text}"`` numbered listing of a
+    previously read slice that started at ``h_offset`` (0-indexed). Returns the
+    numbered lines for ``[offset, offset+limit)`` if fully present, else None.
+    """
+    requested = range(offset + 1, offset + limit + 1)
+    selected: list[str] = []
+    for line in cached_output.splitlines():
+        m = _LINE_PREFIX_RE.match(line)
+        if not m:
+            continue
+        line_no = int(m.group(1))
+        if line_no in requested:
+            selected.append(line)
+    if not selected:
+        return None
+    return "\n".join(selected)
 
 
 def _first_meaningful_line(lines: list[str], start: int) -> str | None:
@@ -136,6 +168,60 @@ class FileReadTool(BaseTool):
             return ToolResult(success=False, error=f"Path is a directory: {rel_path}")
 
         try:
+            session_id = current_tool_session_id.get() or ""
+            stat = resolved.stat()
+            size = stat.st_size
+            mtime_ns = stat.st_mtime_ns
+
+            offset = max(0, int(params.get("offset", 0)))
+            raw_limit = params.get("limit")
+            limit = (
+                min(int(raw_limit), MAX_FILE_READ_LINES)
+                if raw_limit is not None
+                else DEFAULT_FILE_READ_LINES
+            )
+
+            cached = (
+                get_cached_read(session_id, str(resolved), offset, limit, mtime_ns, size)
+                if session_id
+                else None
+            )
+            if cached is not None:
+                return ToolResult(
+                    success=True,
+                    output=cached,
+                    metadata={
+                        "path": str(resolved),
+                        "from_cache": True,
+                    },
+                )
+
+            # Sub-slice: the requested range may be fully contained within an
+            # already-cached, unchanged slice. Extract the numbered lines directly
+            # from the cached formatted output so no disk read is needed.
+            if session_id:
+                covering = covering_slice_for(
+                    session_id, str(resolved), offset, limit, mtime_ns=mtime_ns, size=size
+                )
+                if covering is not None:
+                    h_offset, h_limit = covering
+                    covering_out = get_cached_read(
+                        session_id, str(resolved), h_offset, h_limit, mtime_ns, size
+                    )
+                    if covering_out is not None:
+                        subslice = _subslice_from_cached(
+                            covering_out, h_offset, offset, limit
+                        )
+                        if subslice is not None:
+                            return ToolResult(
+                                success=True,
+                                output=subslice,
+                                metadata={
+                                    "path": str(resolved),
+                                    "from_cache": True,
+                                },
+                            )
+
             content = resolved.read_text(encoding="utf-8", errors="replace")
             lines = content.split("\n")
             total_lines = len(lines)
@@ -152,14 +238,6 @@ class FileReadTool(BaseTool):
                     },
                 )
 
-            offset = max(0, int(params.get("offset", 0)))
-            raw_limit = params.get("limit")
-            limit = (
-                min(int(raw_limit), MAX_FILE_READ_LINES)
-                if raw_limit is not None
-                else DEFAULT_FILE_READ_LINES
-            )
-
             selected = lines[offset : offset + limit]
             numbered = "\n".join(f"{i + offset + 1}: {line}" for i, line in enumerate(selected))
 
@@ -171,6 +249,18 @@ class FileReadTool(BaseTool):
                     f"To read further, pass offset={next_offset}) ..."
                 )
                 numbered += notice
+
+            if session_id:
+                cache_file_read(
+                    session_id,
+                    str(resolved),
+                    offset,
+                    limit,
+                    numbered,
+                    mtime_ns,
+                    size,
+                    total_lines,
+                )
 
             return ToolResult(
                 success=True,

@@ -13,18 +13,6 @@ def reflection_error_limit(context_window: int = DEFAULT_CONTEXT_WINDOW) -> int:
     return min(3 + extra, 20)
 
 
-_PLACEHOLDER_PATTERNS_RAW = [
-    (
-        "\\[[\\w\\s]*(?:CONTENT|FILE|CODE|PASTE|INSERT|DESIRED|UPDATED|REPLACE|YOUR)[\\w\\s]*\\]",
-        "placeholder pattern",
-    ),
-    ("\\bYOUR_[\\w_]+_HERE\\b", "YOUR_..._HERE placeholder"),
-    ("\\[HTML\\]", "HTML placeholder"),
-    ("\\[ACTUAL_[\\w_]+\\]", "ACTUAL_ placeholder"),
-    ("\\[Current ", "Current... placeholder"),
-    ("\\[UPDATED_[\\w_]+\\]", "UPDATED_ placeholder"),
-]
-PLACEHOLDER_RE = re.compile("|".join((p for p, _ in _PLACEHOLDER_PATTERNS_RAW)), re.IGNORECASE)
 _INTERACTIVE_CMD_PATTERNS = re.compile(
     "\\binput\\s*\\(|python\\s+-i\\b|python\\s+-im\\b|python\\s+-mi\\b|\\bpdb\\b|\\bgetpass\\b|\\bread\\s+-[srp]\\b",
     re.IGNORECASE,
@@ -36,13 +24,25 @@ _CD_PREFIX_RE = re.compile(
 )
 
 
+_PLACEHOLDER_RE = re.compile(
+    r"\b(?:YOUR_[A-Z0-9_]+_HERE|REPLACE_WITH_[A-Z0-9_]+|INSERT_[A-Z0-9_]+_HERE)\b"
+    r"|\[[\w\s]*(?:INSERT|PASTE|REPLACE)[\w\s]+HERE\]"
+    r"|\[ACTUAL_[A-Z0-9_]+\]"
+    r"|\[YOUR_[A-Z0-9_]+\]",
+    re.IGNORECASE,
+)
+
+
 def detect_placeholders(params: dict) -> str | None:
     for key in ("content", "old_content", "new_content"):
         val = params.get(key, "")
         if isinstance(val, str) and val:
-            m = PLACEHOLDER_RE.search(val)
+            m = _PLACEHOLDER_RE.search(val)
             if m:
-                return f"Parameter '{key}' contains placeholder content ({m.group(0)}). Provide the actual content."
+                return (
+                    f"Parameter '{key}' contains template placeholder ({m.group(0)}). "
+                    "Provide the actual implementation, not a placeholder."
+                )
     return None
 
 

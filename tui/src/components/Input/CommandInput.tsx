@@ -8,7 +8,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
 import type { FileAttachment } from '../../types/scenario';
 import { expandPastedMarkers } from '../../utils/pasteTracker';
-import { AttachmentChips } from './AttachmentChips';
+import { formatBytes } from '../../utils/text';
 import { ComposerFooter } from './ComposerFooter';
 import { MultiLineTextInput } from './MultiLineTextInput';
 
@@ -16,17 +16,17 @@ const STATIC_PLACEHOLDER = 'Ask anything...';
 
 interface CommandInputProps {
   input: string;
-  onInputChange: (value: string) => void;
+  onInputChange: (value: string, cursor?: number) => void;
   onSubmit: (value: string) => void;
   disabled?: boolean;
   disabledMessage?: string;
   running?: boolean;
   attachments?: FileAttachment[];
   onRemoveAttachment?: (index: number) => void;
+  onClearAttachments?: () => void;
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
   mode?: ScenarioMode;
-  totalTokens?: number;
   maxTokens?: number;
   /** Cumulative run/API token usage (telemetry). */
   runTokens?: number;
@@ -56,10 +56,10 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     running = false,
     attachments = [],
     onRemoveAttachment,
+    onClearAttachments,
     historyUp,
     historyDown,
     mode = 'build',
-    totalTokens = 0,
     maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
     runTokens,
     runEstimated,
@@ -81,7 +81,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const modelFallback = activeProvider.config.model || activeProvider.meta.defaultModel || 'unknown';
 
     const { columns } = useTerminalDimensions();
-    const dividerWidth = Math.max(0, columns - 4);
+    const termCols = columns || process.stdout.columns || 80;
+    const dividerWidth = Math.max(0, termCols - 6);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
     const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
@@ -111,15 +112,64 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           } else if (onClearInput) {
             onClearInput();
           }
+          if (attachments.length > 0) {
+            if (onClearAttachments) {
+              onClearAttachments();
+            } else if (onRemoveAttachment) {
+              for (let i = attachments.length - 1; i >= 0; i--) {
+                onRemoveAttachment(i);
+              }
+            }
+          }
           return true;
         }
-        if (key.escape && running && onCancel) {
+        const isEscape = Boolean(key.escape || char === '\x1b' || char === '\x1B');
+        if (isEscape && running && onCancel) {
           onCancel();
+          return true;
+        }
+        if (isEscape && !running && (value.length > 0 || attachments.length > 0)) {
+          if (value.length > 0) {
+            onInputChange('', 0);
+          }
+          if (onClearInput) {
+            onClearInput();
+          }
+          if (attachments.length > 0) {
+            if (onClearAttachments) {
+              onClearAttachments();
+            } else if (onRemoveAttachment) {
+              for (let i = attachments.length - 1; i >= 0; i--) {
+                onRemoveAttachment(i);
+              }
+            }
+          }
+          return true;
+        }
+        if (
+          (key.backspace || key.delete) &&
+          !running &&
+          value.length === 0 &&
+          attachments.length > 0 &&
+          onRemoveAttachment
+        ) {
+          onRemoveAttachment(attachments.length - 1);
           return true;
         }
         return false;
       },
-      [slashMenuOpen, onOpenHelp, onOpenMode, onInputChange, onClearInput, onCancel, running],
+      [
+        slashMenuOpen,
+        onOpenHelp,
+        onOpenMode,
+        onInputChange,
+        onClearInput,
+        onCancel,
+        running,
+        attachments,
+        onRemoveAttachment,
+        onClearAttachments,
+      ],
     );
 
     const handleSubmit = useCallback(
@@ -134,8 +184,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     return (
       <Box flexDirection="column" width="100%" marginTop={1}>
-        <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
-
         <Box
           flexDirection="column"
           width="100%"
@@ -144,6 +192,44 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           paddingX={1}
           paddingY={0}
         >
+          {/* Attachment Dock */}
+          {attachments.length > 0 && (
+            <Box flexDirection="row" flexWrap="wrap" marginBottom={1} alignItems="center">
+              {attachments.map((att, idx) => {
+                const isFolder = att.kind === 'folder' || att.mimeType === 'inode/directory';
+                const sizeText = att.size > 0 ? formatBytes(att.size) : '';
+                return (
+                  <Box
+                    key={`${att.path}-${idx}`}
+                    flexDirection="row"
+                    alignItems="center"
+                    marginRight={1}
+                    paddingX={1}
+                    borderStyle="single"
+                    borderColor={theme.colors.border.muted}
+                  >
+                    <Text color={isFolder ? theme.colors.status.info : theme.colors.text.muted}>
+                      {isFolder ? '📁 ' : '📄 '}
+                    </Text>
+                    <Text italic color={theme.colors.status.accent}>
+                      {att.name || att.path}
+                    </Text>
+                    {sizeText ? (
+                      <Box marginLeft={1}>
+                        <Text color={theme.colors.text.dim}>{sizeText}</Text>
+                      </Box>
+                    ) : null}
+                    {onRemoveAttachment && (
+                      <Box marginLeft={1}>
+                        <Text color={theme.colors.status.error}>×</Text>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+
           <Box flexDirection="row" width="100%" alignItems="flex-start">
             <Box flexShrink={0}>
               <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
@@ -184,7 +270,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             providerName={providerName}
             dir={workspaceName}
             branch={activeBranch}
-            totalTokens={totalTokens}
             effectiveMaxTokens={effectiveMaxTokens}
             runTokens={runTokens}
             runEstimated={runEstimated}

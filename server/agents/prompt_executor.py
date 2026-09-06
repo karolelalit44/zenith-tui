@@ -10,25 +10,24 @@ from typing import TYPE_CHECKING
 
 import server.providers.responder as r
 from server.agents.context import ContextManager
+from server.agents.crewmate_loop import CrewmateLoop
 from server.agents.delegation import (
-    CaptainOrchestrator,
     RepositoryIntelligenceCache,
     SpecialistRegistry,
 )
-from server.agents.recovery import RecoverableAgentLoop
 from server.agents.run_state import (
     from_dict,
     merge_run_state,
     update_from_event,
 )
 from server.agents.running_summary import RunningSummaryScheduler
-from server.agents.crewmate_loop import CrewmateLoop
+from server.agents.simple_loop import SimpleLoop
+from server.api.event_adapter import iter_client_events
 from server.config.constants import (
     ATTACHMENT_MAX_FILE,
     ATTACHMENT_MAX_TOTAL,
     BUILD_MODE,
     DEFAULT_CONTEXT_WINDOW,
-    EXPLORE_DELEGATION_PROACTIVE,
     HANDOFF_PLACEHOLDER_CANCELLED,
     HANDOFF_PLACEHOLDER_ERROR,
     HANDOFF_PLACEHOLDER_NO_SUMMARY,
@@ -38,27 +37,35 @@ from server.config.constants import (
     TERMINAL_STATUS_ERROR,
 )
 from server.config.settings import AGENT_MODES
-from server.domain.domain import SessionState
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
 from server.storage.usage_store import FileTokenUsageRepository
+from server.workspace.ignore import get_matcher
 
 if TYPE_CHECKING:
     from server.api.handlers import MethodHandlers
     from server.config.settings import AppSettings
     from server.providers.base import BaseProvider
-    from server.skills.loader import SkillLoader
     from server.storage.session_store import FileMessageRepository, FileSessionRepository
     from server.toolkit.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 # When a worker turn produced files and its raw last-emitted text is this long, fold it into
-# a weak-model summary so the persisted assistant hand-off stays compact (§3.3 of the design).
+# a weak-model summary so the persisted assistant hand-off stays compact.
 _HANDOFF_SUMMARY_CHARS = 800
 # Hard ceiling on the persisted assistant message. Guards against repeated
 # tool/reasoning noise ever becoming the canonical message (evidence-aware
 # finalization, QA-3).
 _HANDOFF_MAX_CHARS = 4000
+
+# Folder attachments are treated as scope/reference, not raw content dumps.
+# These caps keep the injected tree small even for huge directories.
+FOLDER_TREE_MAX_ENTRIES = 200
+FOLDER_TREE_MAX_DEPTH = 6
+# A folder is inlined as content only when it is tiny; otherwise it becomes a
+# scope/tree reference the agent resolves with its file tools.
+FOLDER_INLINE_MAX_ENTRIES = 10
+FOLDER_INLINE_MAX_TOTAL = 100 * 1024
 
 
 def _read_file_head(path: str | Path) -> bytes:
@@ -94,6 +101,102 @@ async def read_attachment(path: str, workspace_root: str | Path) -> tuple[str | 
         return (None, f"read failed: {e}")
 
 
+def _list_folder_entries(
+    root: Path,
+    rel_dir: str,
+    matcher,
+    max_entries: int,
+    max_depth: int,
+) -> tuple[list[dict], int]:
+    """Walk a folder and return (entry list, total bytes) bounded by caps.
+
+    Each entry is ``{ path, name, kind, size }``.
+    """
+    entries: list[dict] = []
+    total = 0
+    seen = 0
+
+    def walk(abs_path: Path, rel_path: str, depth: int) -> None:
+        nonlocal total, seen
+        if depth > max_depth or seen >= max_entries:
+            return
+        try:
+            children = sorted(
+                abs_path.iterdir(),
+                key=lambda p: (p.is_file(), p.name.lower()),
+            )
+        except OSError:
+            return
+        for child in children:
+            if seen >= max_entries:
+                return
+            rel = f"{rel_path}/{child.name}" if rel_path else child.name
+            try:
+                is_dir = child.is_dir()
+            except OSError:
+                continue
+            if is_dir:
+                if matcher.is_ignored_dir(rel):
+                    continue
+                entries.append({"path": rel, "name": child.name, "kind": "folder", "size": None})
+                seen += 1
+                walk(child, rel, depth + 1)
+            else:
+                if matcher.is_ignored(rel):
+                    continue
+                try:
+                    size = child.stat().st_size
+                except OSError:
+                    size = 0
+                entries.append({"path": rel, "name": child.name, "kind": "file", "size": size})
+                seen += 1
+                total += size
+
+    walk(root, rel_dir, 0)
+    return entries, total
+
+
+async def list_attachment(path: str, workspace_root: str | Path) -> tuple[dict | None, str | None]:
+    """Resolve a directory attachment into a bounded scope/tree reference."""
+    try:
+        root = Path(workspace_root).resolve()
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        candidate = candidate.resolve()
+        if not candidate.is_relative_to(root):
+            return (None, "path escapes workspace")
+        if not candidate.is_dir():
+            return (None, "folder not found")
+        matcher = get_matcher(root)
+        rel_dir = str(candidate.relative_to(root)).replace("\\", "/")
+        entries, total = _list_folder_entries(
+            candidate, rel_dir, matcher, FOLDER_TREE_MAX_ENTRIES, FOLDER_TREE_MAX_DEPTH
+        )
+        truncated = len(entries) >= FOLDER_TREE_MAX_ENTRIES
+        return ({"entries": entries, "truncated": truncated, "total": total}, None)
+    except OSError as e:
+        return (None, f"list failed: {e}")
+
+
+def _format_folder_tree(data: dict, rel_dir: str) -> str:
+    """Render a compact ASCII tree for a folder scope reference."""
+    entries = data.get("entries") or []
+    total = data.get("total", 0)
+    truncated = data.get("truncated", False)
+    lines = [f"directory `{rel_dir}` ({len(entries)} entries, ~{total} bytes)"]
+    for e in entries[:FOLDER_TREE_MAX_ENTRIES]:
+        kind = "[dir] " if e["kind"] == "folder" else ""
+        if e["kind"] == "file":
+            size = f" {e['size']}B" if e.get("size") else ""
+            lines.append(f"  {kind}{e['name']}{size}")
+        else:
+            lines.append(f"  {kind}{e['name']}/")
+    if truncated:
+        lines.append("  ... (truncated)")
+    return "\n".join(lines)
+
+
 def _turn_manifest_from_events(collected_events: list[Event]) -> dict | None:
     """Extract the last TURN_MANIFEST payload (the crafted created/modified/verified record)."""
     manifest: dict | None = None
@@ -106,11 +209,15 @@ def _turn_manifest_from_events(collected_events: list[Event]) -> dict | None:
 
 
 def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | None:
-    """Build a deterministic, terse assistant hand-off from the turn manifest.
+    """Build the persisted assistant hand-off from the model's own text plus manifest evidence.
 
-    Shape: `Created: <files> | Modified: <files> | Verified: <bool>` then the model's own
-    last emitted text as the body. Rich enough for the next prompt, never empty.
-    Returns ``None`` when nothing of substance happened and there is no body text.
+    Shape: the model's own last emitted text first (never buried), then a terse
+    `Created: <files> | Modified: <files> | Verified: <bool>` footer when the
+    manifest has anything to add. The model's own words are always the primary,
+    immediately visible content — the manifest footer is corroborating evidence,
+    not a replacement (the same data is also rendered by the dedicated turn-
+    manifest UI card, so this footer is a plain-text fallback for that, not the
+    only place it is shown). Returns ``None`` when there is nothing at all.
     """
     parts: list[str] = []
     if manifest:
@@ -132,14 +239,9 @@ def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | N
             snippet = (str(remaining[0]) or "").strip()
             if snippet:
                 parts.append("Remaining: " + snippet[:160])
-    header = " | ".join(parts)
+    footer = " | ".join(parts)
     body = (response_text or "").strip()
-    # The manifest is authoritative: a body that asserts work the manifest
-    # proves never happened is corrected before it can be persisted/rendered.
-    # Correction requires an actual manifest that shows no work — with no
-    # manifest there is no evidence to contradict, so prose is left untouched.
-    # A plan.md miss (QA-6.5) is a blocking correction even when other work
-    # (e.g. todo.md) happened.
+
     missing_plan = (manifest or {}).get("plan_artifacts") or {}
     blocking = (
         "plan.md" in (missing_plan.get("missing") or [])
@@ -148,37 +250,33 @@ def _build_crafted_handoff(manifest: dict | None, response_text: str) -> str | N
     )
     if manifest is not None and (not _did_work(manifest) or blocking):
         body = _rewrite_false_completion_claim(body, manifest)
-    if header and body:
-        return f"{header}\n\n{body}"
+    if footer and body:
+        return f"{body}\n\n{footer}"
     if body:
         return body
-    return header or None
+    return footer or None
 
 
 def _did_work(manifest: dict | None) -> bool:
     if not manifest:
         return False
-    return bool((manifest.get("created") or []) or (manifest.get("modified") or []))
+    return bool(
+        (manifest.get("created") or [])
+        or (manifest.get("modified") or [])
+        or manifest.get("any_tool_succeeded")
+    )
 
 
-# ---------------------------------------------------------------------------
-# Evidence-aware finalization: the execution manifest is authoritative. A claim
-# in the model's prose (``Created X``, ``Fixed the bug``, ``Done``) that the
-# manifest does not back up is rewritten to a factual correction so the
-# persisted assistant message never asserts work that did not happen.
-# ---------------------------------------------------------------------------
 
-# Confident work-claims / completion signals that would be false when the
-# manifest records no created/modified files. Anchored to word boundaries and
-# matched case-insensitively.
 _COMPLETION_CLAIM_PATTERNS = (
-    r"\b(?:created|wrote|written|wrote out)\s+(?:the\s+)?(?:file|files)",
+    r"\b(?:created|wrote|written|wrote out)\s+(?:the\s+)?(?:file|files)\b",
     r"\b(?:created|wrote)\s+[`']?[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|toml|yaml|yml|md|txt|css|html)\b",
-    r"\b(?:fixed|resolved|solved|implemented|completed|finished|done)\b",
-    r"\bcreated\b.{0,80}\b(?:file|file[s]?)\b",
-    r"\bnew\s+file\b",
+    r"\b(?:fixed|resolved|solved|implemented)\s+(?:the\s+)?(?:failing\s+)?(?:test|tests|issue|bug|problem|error|feature)\b",
+    r"\b(?:implementation\s+complete|all\s+tasks?\s+done|all\s+done|done\s*[—–-]\s*implementation\s+complete)\b",
+    r"\bcreated\b.{0,80}\b(?:file|files)\b",
+    r"\bnew\s+file\s+[`']?[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|toml|yaml|yml|md|txt)\b",
 )
-# A negative claim (``no file was created``) must not be corrected.
+
 _NEGATIVE_CLAIM_PATTERNS = (
     r"\b(?:not|no)\s+(?:able\s+to\s+)?(?:create|write|implement|fix|resolve|complete|done)\b",
     r"\bcouldn'?t\b",
@@ -224,10 +322,7 @@ def _rewrite_false_completion_claim(response_text: str, manifest: dict | None) -
     text = (response_text or "").strip()
     if not text or text.startswith("[Not implemented]"):
         return text
-    # Plan-mode artifact contract (QA-6.5): a missing plan.md is evidence that
-    # positive plan-completion prose is a false claim — even when other work
-    # happened (e.g. only todo.md was written), a claimed plan.md still must be
-    # corrected.
+
     missing_plan = (manifest or {}).get("plan_artifacts") or {}
     missing = (missing_plan.get("missing") or []) if isinstance(missing_plan, dict) else []
     if missing and not plan_claim_is_negative(text):
@@ -273,16 +368,12 @@ class PromptExecutor:
         tool_registry: ToolRegistry,
         session_repo: FileSessionRepository,
         message_repo: FileMessageRepository,
-        skill_loader: SkillLoader,
-        workspace_repo=None,
     ) -> None:
         self._config = config
         self._provider = provider
         self._tool_registry = tool_registry
         self._session_repo = session_repo
         self._message_repo = message_repo
-        self._skill_loader = skill_loader
-        self._workspace_repo = workspace_repo
         self._active_task: asyncio.Task | None = None
         self._context_manager = ContextManager(self._config)
         self._summary_scheduler = RunningSummaryScheduler(
@@ -356,9 +447,13 @@ class PromptExecutor:
             path = att.get("path", "") if isinstance(att, dict) else ""
             if not path:
                 continue
+            kind = att.get("kind", "file") if isinstance(att, dict) else "file"
             inline = att.get("content") if isinstance(att, dict) else None
             if isinstance(inline, str) and inline.strip():
                 text, error = (inline, None)
+            elif kind == "folder":
+                folder_text, error = await self._resolve_folder_attachment(path)
+                text = folder_text or ""
             else:
                 read_text, error = await read_attachment(path, self._config.workspace_root)
                 text = read_text if isinstance(read_text, str) else ""
@@ -378,7 +473,7 @@ class PromptExecutor:
                 if manager:
                     await manager.send_event(session_id, warning)
                 continue
-            blocks.append(f'<attachment path="{path}">\n{text}\n</attachment>')
+            blocks.append(f'<attachment path="{path}" kind="{kind}">\n{text}\n</attachment>')
         if not blocks:
             return content
         injected = "\n\n".join(blocks) + "\n\n" + content
@@ -390,6 +485,47 @@ class PromptExecutor:
             len(injected),
         )
         return injected
+
+    async def _resolve_folder_attachment(self, path: str) -> tuple[str | None, str | None]:
+        """Resolve a directory attachment into an injectable text block.
+
+        Tiny folders (few entries, small total) are inlined as their content so
+        the model can work directly. Larger folders become a compact scope/tree
+        reference the agent resolves with its own file tools — never a raw dump.
+        """
+        data, error = await list_attachment(path, self._config.workspace_root)
+        if error or data is None:
+            return (None, error or "Could not list attachment")
+        entries = data.get("entries") or []
+        total = data.get("total", 0)
+        # Inline tiny folders; reference everything else.
+        if len(entries) <= FOLDER_INLINE_MAX_ENTRIES and total <= FOLDER_INLINE_MAX_TOTAL:
+            root = Path(self._config.workspace_root).resolve()
+            candidate = Path(path)
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            candidate = candidate.resolve()
+            rel_dir = str(candidate.relative_to(root)).replace("\\", "/")
+            chunks: list[str] = []
+            for e in entries:
+                if e["kind"] != "file":
+                    continue
+                read_text, read_err = await read_attachment(e["path"], self._config.workspace_root)
+                if read_err:
+                    continue
+                chunks.append(f'<file path="{e["path"]}">\n{read_text}\n</file>')
+            body = "\n\n".join(chunks) if chunks else _format_folder_tree(data, rel_dir)
+            header = (
+                f"directory `{rel_dir}` ({len(entries)} entries, ~{total} bytes) — inlined contents"
+            )
+            return (f"{header}\n{body}", None)
+
+        rel_dir = str(Path(path).name)
+        if entries:
+            parent = str(Path(entries[0]["path"]).parent or "")
+            if parent:
+                rel_dir = parent
+        return (_format_folder_tree(data, rel_dir), None)
 
     async def _load_plan_context(self, session_id: str, mode: str) -> tuple[str, bool, str | None]:
         plan_context = ""
@@ -460,7 +596,6 @@ class PromptExecutor:
                     session.plan_approved_at = datetime.now()
                 else:
                     session.plan_approved_at = None
-                session.state = SessionState.SUMMARIZED
                 await self._session_repo.update(session)
                 logger.info(
                     "Plan output saved to session %s: %d chars (auto_approve=%s)",
@@ -497,8 +632,6 @@ class PromptExecutor:
             state.mode = mode
             for ev in collected_events or []:
                 update_from_event(state, ev.kind, ev.data or {}, ev.timestamp)
-            # Session-scoped todos are authoritative; export them into run_state
-            # so plan artifacts (todo.md) render FROM this structured state.
             try:
                 from server.agents.todo_state import get_todo_state
 
@@ -513,11 +646,8 @@ class PromptExecutor:
                 workspace_root = session_row.workspace_root if session_row else None
             self._render_todo_artifact(workspace_root, session_id, state.todo)
             snapshot = state.to_dict()
-            # Metadata-only targeted write: never a whole-record update, so a
-            # concurrent token-count/model writer cannot be clobbered here.
             await self._session_repo.merge_metadata(session_id, {"run_state": snapshot})
-            # Unique executed calls (P6.5): tool_history holds one entry per
-            # call AND result event, so its raw length double-counts.
+
             executed_calls = sum(
                 1 for step in state.tool_history if step.get("kind") == "tool_call"
             )
@@ -533,11 +663,6 @@ class PromptExecutor:
             return None
 
     def _render_todo_artifact(self, workspace_root: str | None, session_id: str, todos) -> None:
-        """Write ``todo.md`` from the structured todo snapshot (QA-5.8).
-
-        The artifact is only rendered when structured todos exist so a
-        model-authored ``todo.md`` is never clobbered by an empty board.
-        """
         if not todos:
             return
         try:
@@ -570,8 +695,6 @@ class PromptExecutor:
             worked = _did_work(manifest)
             body = response_text
             if not worked:
-                # The manifest is authoritative: never persist prose that asserts
-                # files were created/modified when the execution record proves none were.
                 body = _rewrite_false_completion_claim(response_text, manifest)
             handoff = _build_crafted_handoff(manifest, body)
             if worked and body.strip() and len(body) > _HANDOFF_SUMMARY_CHARS:
@@ -579,10 +702,6 @@ class PromptExecutor:
                 if summarized:
                     handoff = _build_crafted_handoff(manifest, summarized)
             if not handoff:
-                # Never persist a placeholder when real work happened. The
-                # placeholder reflects the actual terminal condition
-                # (AGENT_RELIABILITY_PLAN P1.4): "[Cancelled by user]" is only
-                # ever produced by a real cancellation, never assumed.
                 if terminal_status == TERMINAL_STATUS_CANCELLED:
                     handoff = HANDOFF_PLACEHOLDER_CANCELLED
                 elif terminal_status == TERMINAL_STATUS_ERROR:
@@ -649,25 +768,13 @@ class PromptExecutor:
         event_count = 0
         token_usage_recorded = False
         _step_count = 0
-        # C-F02: terminal events (SUCCESS/ERROR) are held back until the
-        # end-of-run SESSION_SUMMARIZED snapshot has been persisted and sent.
-        # The TUI client finalizes and unsubscribes on the first terminal
-        # event, so forwarding SUCCESS/ERROR before the summary means the
-        # summary is silently dropped (and never replayed, since it was not
-        # part of the persisted message either).
         _pending_terminal: list[Event] = []
         _original_model: str | None = None
         _original_temperature: float | None = None
         _original_max_tokens: int | None = None
-        # Bound before any early return (plan-ready / CrewmateLoop handoff):
-        # the finally block reads these, and an UnboundLocalError there would
-        # skip assistant-message persistence and terminal-event delivery.
-        agent: RecoverableAgentLoop | None = None
+        agent: SimpleLoop | None = None
         db_session = None
         summary_at_start: str | None = None
-        # What actually ended the turn (AGENT_RELIABILITY_PLAN P1.4): the
-        # persistence placeholder must reflect the real terminal condition,
-        # never assume a user cancellation.
         _terminal_status = TERMINAL_STATUS_COMPLETED
         try:
             history = await self._message_repo.get_by_session(session_id)
@@ -689,7 +796,6 @@ class PromptExecutor:
             _original_model = getattr(self._provider, "model", None)
             _original_temperature = getattr(self._provider, "temperature", None)
             _original_max_tokens = getattr(self._provider, "max_tokens", None)
-            completed_ok = False
             effective_model = model_override or plan_model_override
             if effective_model and effective_model != _original_model:
                 logger.info("Per-prompt model override: %s -> %s", _original_model, effective_model)
@@ -708,55 +814,8 @@ class PromptExecutor:
                 mode == BUILD_MODE
                 and plan_context
                 and plan_approved
-                and mode_config
-                and mode_config.crewmate
+                and bool(getattr(mode_config, "crewmate", False))
             )
-
-            # Captain delegation route: capability-driven dispatch to a
-            # specialist agent. Never hijacks plan mode, never competes with
-            # the plan->build CrewmateLoop handoff (trigger conditions are
-            # disjoint); non-matching prompts fall through to the normal loop.
-            # Governance (WP5 D3, revised after live incident): 'tool' (the
-            # default) means ONLY the mid-turn explore tool delegates — the
-            # pre-loop route requires explicit 'proactive'. Evidence: the
-            # router captured research prompts and ran them on the legacy path
-            # (fixed 120s timeout, no budgets), starving the better tool path.
-            if (
-                mode != PLAN_MODE
-                and not crewmate_handoff
-                and self._config.explore_delegation == EXPLORE_DELEGATION_PROACTIVE
-            ):
-                routed_definition = self._specialist_registry.route(content)
-                if routed_definition is not None:
-                    logger.info(
-                        "Captain delegating session=%s capability-route -> %s",
-                        session_id,
-                        routed_definition.id,
-                    )
-                    orchestrator = CaptainOrchestrator(
-                        self._config,
-                        self._provider,
-                        self._tool_registry,
-                        session_repo=self._session_repo,
-                        message_repo=self._message_repo,
-                        compaction_service=self._compaction_service,
-                        cache=self._repo_intelligence_cache,
-                    )
-                    async for event in orchestrator.investigate(
-                        content, routed_definition, session_id, history=history
-                    ):
-                        event_count += 1
-                        collected_events.append(event)
-                        if manager:
-                            await manager.send_event(session_id, event)
-                    if orchestrator.last_result is not None:
-                        response_text = orchestrator.last_result.summary
-                    logger.info(
-                        "Delegation complete session=%s result=%s",
-                        session_id,
-                        orchestrator.last_result.status if orchestrator.last_result else "none",
-                    )
-                    return
 
             if crewmate_handoff:
                 logger.info("Spawning CrewmateLoop for session %s (plan→build handoff)", session_id)
@@ -782,12 +841,11 @@ class PromptExecutor:
                 )
                 return
             context_manager = self._context_manager
-            agent = RecoverableAgentLoop(
+            agent = SimpleLoop(
                 self._config,
                 self._provider,
-                context_manager,
-                self._tool_registry,
-                self._compaction_service,
+                context_manager=context_manager,
+                tool_registry=self._tool_registry,
             )
             db_session = await self._session_repo.get(session_id)
             summary_at_start = (db_session.metadata or {}).get("summary") if db_session else None
@@ -798,17 +856,22 @@ class PromptExecutor:
                     len(db_session.metadata["summary"]),
                     session_id,
                 )
-            skills_section = self._skill_loader.get_skill_prompt()
-            logger.info("Agent initialized, skills loaded=%d chars", len(skills_section))
-            async for event in agent.process_prompt(
-                content,
-                session_id,
-                history,
-                mode,
-                skills_section=skills_section,
-                plan_context=plan_context,
-                model_override=None,
-                repo_map="" if mode == PLAN_MODE else None,
+            if db_session is not None:
+                db_session.mark_busy()
+                try:
+                    await self._session_repo.update(db_session)
+                except Exception as exc:  
+                    logger.warning("Failed to persist busy status for %s: %s", session_id, exc)
+            async for event in iter_client_events(
+                agent.process_prompt(
+                    content,
+                    session_id,
+                    history,
+                    mode,
+                    plan_context=plan_context,
+                    model_override=None,
+                    repo_map="" if mode == PLAN_MODE else None,
+                )
             ):
                 event_count += 1
                 collected_events.append(event)
@@ -818,7 +881,8 @@ class PromptExecutor:
                             _step_count += 1
                         logger.info("  [ASSISTANT MESSAGE]: %s", event.data.get("text", ""))
                 elif event.kind == EventKind.THINKING:
-                    logger.info("  [THINKING]: %s", event.data.get("text", ""))
+                    if not event.data.get("partial"):
+                        logger.info("  [THINKING]: %s", event.data.get("text", ""))
                 elif event.kind == EventKind.TOOL_CALL:
                     from server.toolkit.executor import redact_tool_params
 
@@ -855,10 +919,6 @@ class PromptExecutor:
                             token_repo = FileTokenUsageRepository(self._session_repo.home)
                             provider_name = getattr(self._provider, "name", "unknown")
                             model_name = getattr(self._provider, "model", "unknown")
-                            # QA-10: `used` is composed-context OCCUPANCY (gauge
-                            # input); runTotal/runPrompt/runCompletion are the
-                            # provider-billed run usage (spend). They are
-                            # persisted separately and never mixed.
                             used = ti.get("used", 0)
                             run_total = ti.get("runTotal", 0) or used
                             prompt_t = ti.get("prompt_tokens", ti.get("runPrompt", run_total))
@@ -883,8 +943,6 @@ class PromptExecutor:
                                         cache_creation_tokens=cache_creation_t // _step_count,
                                         step_index=s,
                                         estimated=estimated,
-                                        # Occupancy is a composed snapshot: only
-                                        # the final step of the turn carries it.
                                         context_occupancy=used if s == _step_count else 0,
                                     )
                             elif not token_usage_recorded:
@@ -931,7 +989,6 @@ class PromptExecutor:
                         await manager.send_event(session_id, event)
                 if event.kind == EventKind.MESSAGE and (not event.data.get("partial")):
                     response_text += event.data.get("text", "")
-            completed_ok = True
             if mode == PLAN_MODE and response_text:
                 await self._persist_plan_output(session_id, response_text)
             logger.info("=" * 60)
@@ -971,11 +1028,7 @@ class PromptExecutor:
                 and (db_session is None or summary_at_start != agent.summary)
             ):
                 try:
-                    # Only apply the in-memory summary if no newer writer (manual
-                    # compaction or a background running summary) replaced it
-                    # while this turn was in flight: a stale result must never
-                    # overwrite newer session state. Metadata-only targeted
-                    # write — never a stale whole-record update.
+                    
                     current = await self._session_repo.get_metadata(session_id)
                     if current is None:
                         logger.info(
@@ -998,10 +1051,8 @@ class PromptExecutor:
                         )
                 except Exception as e:
                     logger.warning("Failed to persist session summary: %s", e)
-            # C-F02 ordering: compute the end-of-run snapshot BEFORE persisting
-            # the assistant message so SESSION_SUMMARIZED is part of the
-            # persisted event trail (replayable on resume), then deliver it to
-            # the live client BEFORE any terminal event.
+
+           
             persisted_state = None
             try:
                 persisted_state = await self._persist_run_state(
@@ -1011,8 +1062,7 @@ class PromptExecutor:
                 logger.debug("Failed to persist run state for %s", session_id)
             summarized_event: Event | None = None
             if persisted_state and persisted_state.get("final"):
-                # The authoritative end-of-run summary; FinalSummaryCard renders
-                # FROM this snapshot, never from prose.
+                
                 summary = (getattr(agent, "summary", None) or "").strip() or response_text.strip()
                 summarized_event = Event(
                     kind=EventKind.SESSION_SUMMARIZED,
@@ -1033,12 +1083,9 @@ class PromptExecutor:
                 for terminal in _pending_terminal:
                     await manager.send_event(session_id, terminal)
                 _pending_terminal.clear()
-            if self._workspace_repo:
+            if db_session is not None:
+                db_session.mark_idle()
                 try:
-                    from server.agents.session_workspace import flush_to_db
-
-                    await flush_to_db(session_id, self._workspace_repo)
-                except Exception:
-                    logger.debug("Failed to flush workspace to DB for %s", session_id)
-            if completed_ok:
-                self._summary_scheduler.schedule(session_id)
+                    await self._session_repo.update(db_session)
+                except Exception as exc:  
+                    logger.warning("Failed to persist idle status for %s: %s", session_id, exc)

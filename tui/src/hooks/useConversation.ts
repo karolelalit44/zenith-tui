@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
-import type { ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo } from '../types/scenario';
+import type { FileAttachment, ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo } from '../types/scenario';
+import { clearTerminalScreen } from '../utils/terminal';
 
 export interface ConversationTurn {
   id: string;
@@ -14,6 +15,8 @@ export interface ConversationTurn {
   /** Long timestamp frozen at turn creation: "HH:MM, DD Mon" (e.g. "12:08, 12 Aug") */
   timestampLong: string;
   startedAt: number;
+  /** Attachments selected for this turn (snapshot at send time). */
+  attachments?: FileAttachment[];
 }
 
 /**
@@ -64,7 +67,7 @@ export interface UseConversationReturn {
   /** Latest composed-context occupancy snapshot from a completed turn (undefined when unknown). */
   contextInfo: ContextInfoSnapshot | undefined;
   staticKey: number;
-  addTurn: (prompt: string, mode: ScenarioMode, model?: string) => string;
+  addTurn: (prompt: string, mode: ScenarioMode, model?: string, attachments?: FileAttachment[]) => string;
   completeActiveTurn: (events: ScenarioEvent[]) => void;
   abortActiveTurn: (events?: ScenarioEvent[]) => void;
   clearTurns: () => void;
@@ -88,7 +91,7 @@ export function useConversation(): UseConversationReturn {
       if (!t.isComplete) return sum;
 
       const reported = getSuccessTokenInfo(t);
-      if (reported && !reported.estimated && reported.used > 0) {
+      if (reported && reported.used > 0) {
         return sum + reported.used;
       }
 
@@ -107,7 +110,7 @@ export function useConversation(): UseConversationReturn {
       if (reported && typeof reported.runTotal === 'number' && reported.runTotal > 0) {
         return sum + reported.runTotal;
       }
-      if (reported && !reported.estimated && reported.used > 0) {
+      if (reported && reported.used > 0) {
         return sum + reported.used;
       }
 
@@ -169,31 +172,35 @@ export function useConversation(): UseConversationReturn {
     return snapshot;
   }, [turns]);
 
-  const addTurn = useCallback((prompt: string, mode: ScenarioMode, model?: string): string => {
-    // Freeze both formats at the exact moment the turn is created.
-    // The display component must never call new Date() — these values are immutable.
-    const now = new Date();
-    const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
-    const turnId = `turn_${Date.now()}`;
+  const addTurn = useCallback(
+    (prompt: string, mode: ScenarioMode, model?: string, attachments?: FileAttachment[]): string => {
+      // Freeze both formats at the exact moment the turn is created.
+      // The display component must never call new Date() — these values are immutable.
+      const now = new Date();
+      const timeShort = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const timeLong = `${timeShort}, ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+      const turnId = `turn_${Date.now()}`;
 
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: turnId,
-        prompt,
-        mode,
-        model,
-        events: [],
-        isComplete: false,
-        timestamp: timeShort,
-        timestampLong: timeLong,
-        startedAt: Date.now(),
-      },
-    ]);
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: turnId,
+          prompt,
+          mode,
+          model,
+          events: [],
+          isComplete: false,
+          timestamp: timeShort,
+          timestampLong: timeLong,
+          startedAt: Date.now(),
+          attachments: attachments && attachments.length > 0 ? attachments.map((a) => ({ ...a })) : undefined,
+        },
+      ]);
 
-    return turnId;
-  }, []);
+      return turnId;
+    },
+    [],
+  );
 
   const completeActiveTurn = useCallback((events: ScenarioEvent[]) => {
     setTurns((prev) => {
@@ -203,7 +210,14 @@ export function useConversation(): UseConversationReturn {
 
       const stampedEvents =
         elapsedMs !== undefined
-          ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs: e.elapsedMs ?? elapsedMs } : e))
+          ? events.map((e) =>
+              e.kind === 'success'
+                ? {
+                    ...e,
+                    elapsedMs: typeof e.elapsedMs === 'number' && e.elapsedMs > 0 ? e.elapsedMs : elapsedMs,
+                  }
+                : e,
+            )
           : events;
 
       // Ensure a success event always exists so the unified status row renders
@@ -240,7 +254,8 @@ export function useConversation(): UseConversationReturn {
             updated.success = updated.success ?? true;
           }
           if (updated.kind === 'success') {
-            updated.elapsedMs = updated.elapsedMs ?? elapsedMs;
+            updated.elapsedMs =
+              typeof updated.elapsedMs === 'number' && updated.elapsedMs > 0 ? updated.elapsedMs : elapsedMs;
           }
           return updated;
         });
@@ -269,13 +284,13 @@ export function useConversation(): UseConversationReturn {
   const clearTurns = useCallback(() => {
     setTurns([]);
     setStaticKey((k) => k + 1);
-    process.stdout.write('\x1B[2J\x1B[H');
+    clearTerminalScreen();
   }, []);
 
   const loadTurns = useCallback((newTurns: ConversationTurn[]) => {
     setTurns(newTurns);
     setStaticKey((k) => k + 1);
-    process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+    clearTerminalScreen();
   }, []);
 
   return {

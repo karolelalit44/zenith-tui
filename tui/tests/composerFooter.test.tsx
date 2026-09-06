@@ -39,7 +39,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={10}
         effectiveMaxTokens={131072}
       />,
     );
@@ -60,7 +59,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={10}
         effectiveMaxTokens={131072}
       />,
     );
@@ -81,7 +79,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={78_800}
         effectiveMaxTokens={200_000}
         runTokens={12_400}
         contextPercent={39}
@@ -89,15 +86,16 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    // The footer count is cumulative run/API usage...
-    expect(frame).toContain('RUN 12.4K tok');
+    // The footer count is cumulative run/API usage and context percent...
+    expect(frame).toContain('12.4K tok · 39.0% ctx');
     expect(frame).not.toContain('78.8K');
-    // ...while the gauge shows only composed-context occupancy.
-    expect(frame).toContain('[████░░░░░░] CTX 39%');
+    expect(frame).not.toContain('RUN');
+    expect(frame).not.toContain('CTX');
+    expect(frame).not.toContain('░');
     restore();
   });
 
-  it('marks estimated run usage and estimated context window with a tilde', () => {
+  it('renders exact run usage and context window without a tilde', () => {
     const restore = stubColumns(120);
 
     const app = mount(
@@ -107,7 +105,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={78_800}
         effectiveMaxTokens={200_000}
         runTokens={12_400}
         runEstimated={true}
@@ -117,8 +114,9 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('RUN ~12.4K tok');
-    expect(frame).toContain('[████░░░░░░] ~CTX 39%');
+    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).not.toContain('~');
+    expect(frame).not.toContain('░');
     restore();
   });
 
@@ -132,7 +130,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        totalTokens={10}
         effectiveMaxTokens={131072}
       />,
     );
@@ -154,7 +151,6 @@ describe('ComposerFooter', () => {
         providerName: 'NVIDIA AI',
         dir: '.../code/zenith-frontend-tui',
         branch: 'fix/ser-tu-communication-n-separations',
-        totalTokens: 10,
         effectiveMaxTokens: 131072,
       });
 
@@ -182,7 +178,6 @@ describe('ComposerFooter', () => {
         providerName: 'NVIDIA AI',
         dir: '.../code/zenith-frontend-tui',
         branch: 'fix/ser-tu-communication-n-separations',
-        totalTokens: 12_400,
         effectiveMaxTokens: 128_000,
         runTokens: 12_400,
         runEstimated: true,
@@ -220,5 +215,28 @@ describe('ComposerFooter', () => {
       expect(layout.gauge).toBe('');
       expect(layout.showGauge).toBe(false);
     }
+  });
+
+  it('keeps only session-wide figures in the footer (per-turn cost is not rendered)', () => {
+    const restore = stubColumns(120);
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        effectiveMaxTokens={200_000}
+        runTokens={12_400}
+        contextPercent={39}
+      />,
+    );
+
+    const frame = app.lastFrame();
+    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).not.toContain('+168');
+    expect(frame).not.toContain('(23 s)');
+    restore();
   });
 });

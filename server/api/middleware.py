@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable
 from functools import wraps
 
+from server.config.loader import providers_requiring_key
 from server.config.settings import AppSettings
 from server.domain.errors import ConfigError
 
@@ -21,7 +22,8 @@ def validate_provider_config(config: AppSettings, provider: str | None = None) -
         raise ConfigError(
             f"Provider '{active}' is not configured. Available: {list(providers.keys()) or 'none'}. Use the /provider command to configure a provider."
         )
-    if not provider_config.api_key or not provider_config.api_key.strip():
+    key_required = active in providers_requiring_key()
+    if key_required and (not provider_config.api_key or not provider_config.api_key.strip()):
         raise ConfigError(
             f"API key for '{active}' is missing. Configure it via the /provider command."
         )

@@ -106,7 +106,7 @@ describe('TodoBoardBlock', () => {
 
   it('never renders the underlying assertion report', () => {
     const frame = frameFor(boardEvent([item('T1', 'Done task', 'done')]));
-    expect(frame).not.toContain('✓ ALL SCENARIOS PASSED');
+    expect(frame).not.toContain(' ALL SCENARIOS PASSED');
     expect(frame).not.toContain('assertions');
     expect(frame).not.toContain('REJECTED EDGE CASES');
   });

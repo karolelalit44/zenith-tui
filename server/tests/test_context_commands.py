@@ -105,7 +105,7 @@ class TestContextCommands:
         h, events = handler
         session = await h.session_repo.create(Session(title="Compact Test"))
         turns = 5
-        base = datetime.datetime(2026, 1, 1, 12, 0, 0)
+        base = datetime.datetime(2026, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
         for i in range(turns):
             await h.message_repo.create(
                 Message(
@@ -193,7 +193,7 @@ class TestContextCommands:
 
         h.handlers.manager = type("M", (), {"send_event": mock_send_event})()
         session = await h.session_repo.create(Session(title="Compact Focus"))
-        base = datetime.datetime(2026, 1, 1, 12, 0, 0)
+        base = datetime.datetime(2026, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
         for i in range(5):
             await h.message_repo.create(
                 Message(

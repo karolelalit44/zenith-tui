@@ -29,7 +29,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
   runTokens = 0,
   runPrompt,
   runCompletion,
-  runEstimated = false,
+  runEstimated: _runEstimated = false,
   contextInfo,
 }) => {
   const { theme } = useTheme();
@@ -44,7 +44,6 @@ export const ContextModal: React.FC<ContextModalProps> = ({
   const composedSnapshot = contextInfo && contextInfo.total > 0 ? contextInfo : null;
   const contextUsed = composedSnapshot ? composedSnapshot.used : totalTokens + estimateTokensForEvents(runningEvents);
   const contextTotal = composedSnapshot ? composedSnapshot.total : maxTokens;
-  const windowEstimated = composedSnapshot ? composedSnapshot.windowEstimated : false;
   // Raw occupancy ratio is kept before clamping so overflow (>100%) is
   // surfaced explicitly instead of silently flattened to a full bar.
   const rawPercent = Math.round((contextUsed / Math.max(1, contextTotal)) * 100);
@@ -63,16 +62,11 @@ export const ContextModal: React.FC<ContextModalProps> = ({
 
   const sampleFiles = WORKSPACE_FILES.filter((f) => !f.isDir).slice(0, 7);
 
-  const estimateFileTokens = (sizeFormatted: string | undefined): number => {
-    const sizeStr = sizeFormatted || '1.2 KB';
-    const match = sizeStr.match(/([\d.]+)\s*(KB|MB|GB)/i);
-    if (!match) return 300;
-    const value = Number.parseFloat(match[1]);
-    const unit = match[2].toUpperCase();
-    let bytes = value * 1024;
-    if (unit === 'MB') bytes = value * 1024 * 1024;
-    if (unit === 'GB') bytes = value * 1024 * 1024 * 1024;
-    return Math.round(bytes / 4);
+  const estimateFileTokens = (file: { sizeBytes?: number }): number => {
+    if (typeof file.sizeBytes === 'number' && file.sizeBytes > 0) {
+      return Math.round(file.sizeBytes / 4);
+    }
+    return 300;
   };
 
   return (
@@ -83,9 +77,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
             [CONTEXT USAGE]{' '}
           </Text>
           <Text color={theme.colors.text.bright} bold>
-            {formatTokenCount(contextUsed)} / {windowEstimated ? '~' : ''}
-            {formatTokenCount(contextTotal)} ({windowEstimated ? '~' : ''}
-            {contextPercent}%)
+            {formatTokenCount(contextUsed)} / {formatTokenCount(contextTotal)} ({contextPercent}%)
           </Text>
         </Box>
 
@@ -108,7 +100,6 @@ export const ContextModal: React.FC<ContextModalProps> = ({
               RUN USAGE{' '}
             </Text>
             <Text color={theme.colors.text.bright}>
-              {runEstimated ? '~' : ''}
               {formatTokenCount(runTokens)}
               {typeof runPrompt === 'number' && runPrompt > 0 ? ` · prompt ${formatTokenCount(runPrompt)}` : ''}
               {typeof runCompletion === 'number' && runCompletion > 0
@@ -153,7 +144,7 @@ export const ContextModal: React.FC<ContextModalProps> = ({
           </Box>
         ) : (
           sampleFiles.map((f, idx) => {
-            const fileTokens = estimateFileTokens(f.sizeFormatted);
+            const fileTokens = estimateFileTokens(f);
             return (
               <Box key={idx} flexDirection="row" alignItems="center" width="100%">
                 <Box width={32}>

@@ -1,6 +1,7 @@
 export type {
   ErrorEvent,
   EventKind,
+  FileAttachment,
   MessageEvent,
   ProgressEvent,
   Scenario,
@@ -13,10 +14,8 @@ export type {
   TodoBoardChange,
   TodoBoardEvent,
   TodoItem,
-  TodoLifecyclePhase,
   TodoPriority,
   TodoStatus,
-  TodoTestEvent,
   TokenInfo,
   ToolCallEvent,
   ToolResultEvent,

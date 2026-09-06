@@ -1,5 +1,4 @@
-import logging
-import os
+from server.logging_config import setup_logging
 
 from .protocol import (
     Connection,
@@ -14,15 +13,7 @@ from .protocol import (
 from .server import create_app
 from .websocket import ConnectionManager, ZenithHandler
 
-_log_level = os.getenv("ZENITH_LOG_LEVEL", "INFO").upper()
-logging.basicConfig(
-    level=getattr(logging, _log_level, logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("zenith_server.log", mode="w")],
-    force=True,
-)
-for _noisy in ("LiteLLM",):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+setup_logging()
 __all__ = [
     "Connection",
     "ConnectionManager",

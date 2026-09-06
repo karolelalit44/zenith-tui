@@ -7,7 +7,7 @@ from typing import Any
 
 from server.config.constants import BUILD_MODE
 
-from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
+from .base import BaseTool, ToolContext, ToolDef, ToolMiddleware, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -35,34 +35,26 @@ class ToolRegistry:
     def get(self, name: str) -> BaseTool | None:
         return self._tools.get(name)
 
+    def get_definition(self, name: str) -> ToolDef | None:
+        """Expose a legacy registration through the model-facing ToolDef contract."""
+        tool = self.get(name)
+        if tool is None:
+            return None
+        return ToolDef(
+            name=tool.name,
+            description=tool.description,
+            parameters=tool.get_schema(),
+            execute=tool.execute,
+        )
+
     def list_tools(self) -> list[str]:
         return list(self._tools.keys())
 
-    def list_tools_for_mode(
-        self, mode: str, allowed_mcp: dict[str, list[str]] | None = None
-    ) -> list[str]:
-        tools = []
-        for name in self._tools:
-            if not self._is_available_in_mode(name, mode):
-                continue
-            if name.startswith("mcp_") and (not self._is_mcp_allowed(name, allowed_mcp)):
-                continue
-            tools.append(name)
-        return tools
-
-    @staticmethod
-    def _is_mcp_allowed(tool_name: str, allowed_mcp: dict[str, list[str]] | None) -> bool:
-        if allowed_mcp is None:
-            return True
-        for server, tools in allowed_mcp.items():
-            for t in tools:
-                if t == "*":
-                    return True
-                if tool_name == f"mcp_{t}":
-                    return True
-                if tool_name == f"mcp_{server}_{t}":
-                    return True
-        return False
+    def list_tools_for_mode(self, mode: str) -> list[str]:
+        return [
+            name for name in self._tools
+            if self._is_available_in_mode(name, mode)
+        ]
 
     def get_schemas(self) -> list[dict]:
         return [
@@ -73,7 +65,6 @@ class ToolRegistry:
     def get_schemas_for_mode(
         self,
         mode: str,
-        allowed_mcp: dict[str, list[str]] | None = None,
         allowed_tools: list[str] | None = None,
     ) -> list[dict]:
         schemas = []
@@ -82,8 +73,6 @@ class ToolRegistry:
             if not self._is_available_in_mode(name, mode):
                 continue
             if allowed_tools is not None and name not in allowed_tools:
-                continue
-            if name.startswith("mcp_") and (not self._is_mcp_allowed(name, allowed_mcp)):
                 continue
             schemas.append(s)
         return schemas
@@ -103,7 +92,6 @@ class ToolRegistry:
         mode: str = BUILD_MODE,
         request_id: str | None = None,
         session_id: str | None = None,
-        allowed_mcp: dict[str, list[str]] | None = None,
     ) -> ToolResult:
         tool = self.get(tool_name)
         if not tool:
@@ -111,10 +99,6 @@ class ToolRegistry:
         if not self._is_available_in_mode(tool_name, mode):
             return ToolResult(
                 success=False, error=f"Tool '{tool_name}' not available in '{mode}' mode"
-            )
-        if tool_name.startswith("mcp_") and (not self._is_mcp_allowed(tool_name, allowed_mcp)):
-            return ToolResult(
-                success=False, error=f"MCP tool '{tool_name}' not allowed in this mode"
             )
         if not tool.validate_params(params):
             return ToolResult(success=False, error=f"Invalid parameters for tool '{tool_name}'")

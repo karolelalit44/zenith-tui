@@ -10,13 +10,12 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from server.config.constants import (
-    EXPLORE_CUSTOM_FOCUS_MAX_CHARS,
-    EXPLORE_CUSTOM_NAME_MAX_CHARS,
-    EXPLORE_CUSTOM_ROLE_MAX_CHARS,
     APPOGEE_AGENT_ID,
     APPOGEE_AGENT_NAME,
     APPOGEE_AGENT_ROLE,
-    CREWMATE_MODE,
+    EXPLORE_CUSTOM_FOCUS_MAX_CHARS,
+    EXPLORE_CUSTOM_NAME_MAX_CHARS,
+    EXPLORE_CUSTOM_ROLE_MAX_CHARS,
     READ_ONLY_TOOLS,
 )
 
@@ -79,7 +78,6 @@ class AgentDefinition(BaseModel):
     best_for: list[str] = Field(default_factory=list)
     avoid_for: list[str] = Field(default_factory=list)
     allowed_tools: list[str] = Field(default_factory=list)
-    allowed_mcp: dict = Field(default_factory=dict)
     output_schema: dict = Field(default_factory=lambda: CREWMATE_RESULT_SCHEMA)
     can_delegate: bool = False
     max_crewmates: int = 0
@@ -121,7 +119,6 @@ ApogeeCrewmate = AgentDefinition(
         "add a test",
     ],
     allowed_tools=READ_ONLY_TOOLS,
-    allowed_mcp={},
     can_delegate=False,
     max_crewmates=0,
     allowed_crewmates=[],

@@ -5,20 +5,17 @@ from typing import Any
 
 from server.config.constants import (
     BUILD_MODE,
-    CONCURRENCY_GROUP_LSP,
-    CONCURRENCY_GROUP_MCP,
+    CONCURRENCY_GROUP_CREWMATE,
     CONCURRENCY_GROUP_READONLY,
     CONCURRENCY_GROUP_SHELL,
-    CONCURRENCY_GROUP_CREWMATE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     MAX_TOOL_DESCRIPTION_LENGTH,
     MAX_TOOL_NAME_LENGTH,
     PERMISSION_COMMAND,
+    PERMISSION_CREWMATE,
     PERMISSION_DELETE,
-    PERMISSION_MCP,
     PERMISSION_NETWORK,
     PERMISSION_READ,
-    PERMISSION_CREWMATE,
     PERMISSION_WRITE,
     PLAN_MODE,
     RISK_HIGH,
@@ -26,7 +23,6 @@ from server.config.constants import (
     RISK_MEDIUM,
     RISK_SAFE,
 )
-from server.toolkit.catalog import is_known_capability
 from server.toolkit.registry import ToolRegistry
 
 _VALID_MODES = (None, BUILD_MODE, PLAN_MODE)
@@ -37,15 +33,12 @@ _VALID_PERMISSION_SCOPES = (
     PERMISSION_DELETE,
     PERMISSION_COMMAND,
     PERMISSION_NETWORK,
-    PERMISSION_MCP,
     PERMISSION_CREWMATE,
 )
 _VALID_CONCURRENCY_GROUPS = (
     CONCURRENCY_GROUP_READONLY,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     CONCURRENCY_GROUP_SHELL,
-    CONCURRENCY_GROUP_LSP,
-    CONCURRENCY_GROUP_MCP,
     CONCURRENCY_GROUP_CREWMATE,
 )
 
@@ -103,8 +96,6 @@ def validate_registry(registry: ToolRegistry) -> list[str]:
             errors.append(f"Tool '{name}': description exceeds {MAX_TOOL_DESCRIPTION_LENGTH} chars")
         if tool.requires_mode not in _VALID_MODES:
             errors.append(f"Tool '{name}': invalid mode declaration '{tool.requires_mode}'")
-        if not is_known_capability(tool.capability_id):
-            errors.append(f"Tool '{name}': unknown capability_id '{tool.capability_id}'")
         if tool.risk_level not in _VALID_RISK_LEVELS:
             errors.append(f"Tool '{name}': invalid risk_level '{tool.risk_level}'")
         if tool.permission_scope not in _VALID_PERMISSION_SCOPES:

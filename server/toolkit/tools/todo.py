@@ -18,13 +18,13 @@ from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
-_ACTION_ENUM = ["add", "update", "complete", "fail", "reopen", "reorder", "remove", "list"]
-_STATUS_ENUM = ["pending", "in_progress", "completed", "blocked", "failed", "cancelled"]
+_ACTION_ENUM = ["write", "list", "remove"]
+_STATUS_ENUM = ["pending", "in_progress", "completed", "blocked", "cancelled"]
 _PRIORITY_ENUM = ["low", "medium", "high"]
 
 
 def _todo_item_dict(entry: TodoEntry) -> dict:
-    """Shape a TodoEntry into the frontend `TodoItem` contract (todo_board board)."""
+    """Shape a TodoEntry into the frontend ``TodoItem`` contract."""
     return {
         "id": entry.id,
         "title": entry.title,
@@ -40,42 +40,36 @@ def _todo_item_dict(entry: TodoEntry) -> dict:
 
 
 def _map_status(status: str) -> str:
-    """Map internal status to the frontend TodoStatus vocabulary.
+    """Map internal status to the frontend ``TodoStatus`` vocabulary.
 
-    Frontend: ``todo | in_progress | blocked | done | cancelled``. ``pending``
-    becomes ``todo``; ``completed``/``failed`` map to ``done``/``blocked`` so the
-    board renderer's status→tone mapping keeps working.
+    Frontend: ``todo | in_progress | blocked | done | cancelled``.
     """
     return {
         "pending": "todo",
         "in_progress": "in_progress",
         "completed": "done",
         "blocked": "blocked",
-        "failed": "blocked",
         "cancelled": "cancelled",
     }.get(status, "todo")
 
 
 class TodoTool(BaseTool):
     name = "todo"
-    description = "Track a session-scoped task list"
+    description = (
+        "Write or update a session-scoped task checklist. "
+        "Call with ``action=write`` and a ``tasks`` array to replace the "
+        "entire board (each item needs at least a ``title``). "
+        "Call with ``action=list`` to read the current board. "
+        "Call with ``action=remove`` and a ``task_id`` to delete one item."
+    )
     capability_id = "task_tracking"
-    # Plan mode needs task tracking too (QA-5.6), but read_only must stay
-    # non-mutating: todo mutates persisted task state, so it is gated to
-    # plan + build only.
     requires_mode = None
     modes = (PLAN_MODE, BUILD_MODE)
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_READONLY
     permission_scope = PERMISSION_WRITE
     domains = (TOOL_DOMAIN_TASK,)
-    search_terms = (
-        "todo",
-        "task",
-        "track",
-        "plan list",
-        "progress",
-    )
+    search_terms = ("todo", "task", "track", "plan list", "progress")
 
     def get_schema(self) -> dict:
         return {
@@ -83,131 +77,119 @@ class TodoTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "Action: add, update, complete, fail, reopen, reorder, remove, list",
+                    "description": "Action: write (set entire board), list, remove",
                     "enum": list(_ACTION_ENUM),
                 },
-                "task_id": {"type": "string", "description": "Task ID (t1, t2, ...)"},
-                "description": {"type": "string", "description": "Task description / title"},
-                "status": {
+                "task_id": {
                     "type": "string",
-                    "description": "Status: pending, in_progress, completed, blocked, failed, cancelled",
-                    "enum": list(_STATUS_ENUM),
+                    "description": "Task ID (t1, t2, ...) — required for remove",
                 },
-                "priority": {
-                    "type": "string",
-                    "description": "Priority: low, medium, high",
-                    "enum": list(_PRIORITY_ENUM),
-                    "default": "medium",
-                },
-                "order": {
+                "tasks": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Ordered list of task ids for reorder",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "description": "Existing task id (omit to add new)",
+                            },
+                            "title": {"type": "string", "description": "Task description"},
+                            "status": {
+                                "type": "string",
+                                "enum": list(_STATUS_ENUM),
+                                "description": "Task status",
+                                "default": "pending",
+                            },
+                            "priority": {
+                                "type": "string",
+                                "enum": list(_PRIORITY_ENUM),
+                                "description": "Task priority",
+                                "default": "medium",
+                            },
+                        },
+                        "required": ["title"],
+                    },
+                    "description": "Full task list for write action",
                 },
-                "depends_on": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Task ids this task depends on",
-                },
-                "notes": {"type": "string", "description": "Optional notes"},
             },
             "required": ["action"],
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
-        # Session id comes from server-side state (set by Registry.execute via
-        # the contextvar), never from model-supplied params.
         session_id = current_tool_session_id.get() or ""
         action = params.get("action", "")
         if not action:
             return ToolResult(success=False, error="No action provided")
-        state = get_todo_state(session_id)
-        board: list[dict] = []
-        action_name = action
-        message = ""
 
-        if action == "add":
-            description = str(params.get("description") or "").strip()
-            if not description:
-                return ToolResult(success=False, error="No task description provided")
-            entry = state.add(
-                description,
-                priority=str(params.get("priority") or "medium"),
-                depends_on=[str(x) for x in (params.get("depends_on") or [])],
-                notes=str(params.get("notes") or ""),
-            )
-            board = [_todo_item_dict(e) for e in state.list()]
-            message = f"Task {entry.id} added: {entry.title} (priority: {entry.priority})"
-        elif action == "update":
-            task_id = str(params.get("task_id") or "")
-            if not task_id:
-                return ToolResult(success=False, error="No task_id provided")
-            entry = state.update(
-                task_id,
-                title=params.get("description"),
-                status=params.get("status"),
-                priority=params.get("priority"),
-                notes=params.get("notes"),
-            )
-            if entry is None:
-                return ToolResult(success=False, error=f"Task {task_id} not found")
-            board = [_todo_item_dict(e) for e in state.list()]
-            message = (
-                f"Task {entry.id} updated: {entry.title} "
-                f"(status: {entry.status}, priority: {entry.priority})"
-            )
-        elif action == "complete":
-            task_id = str(params.get("task_id") or "")
-            entry = state.complete(task_id) if task_id else None
-            if entry is None:
-                return ToolResult(success=False, error=f"Task {task_id} not found")
-            board = [_todo_item_dict(e) for e in state.list()]
-            message = f"Task {entry.id} completed: {entry.title}"
-        elif action == "fail":
-            task_id = str(params.get("task_id") or "")
-            entry = state.fail(task_id) if task_id else None
-            if entry is None:
-                return ToolResult(success=False, error=f"Task {task_id} not found")
-            board = [_todo_item_dict(e) for e in state.list()]
-            message = f"Task {entry.id} failed: {entry.title}"
-        elif action == "reopen":
-            task_id = str(params.get("task_id") or "")
-            entry = state.reopen(task_id) if task_id else None
-            if entry is None:
-                return ToolResult(success=False, error=f"Task {task_id} not found")
-            board = [_todo_item_dict(e) for e in state.list()]
-            message = f"Task {entry.id} reopened: {entry.title}"
-        elif action == "reorder":
-            ordered = [str(x) for x in (params.get("order") or [])]
-            if not ordered:
-                return ToolResult(success=False, error="No order list provided")
-            state.reorder(ordered)
-            board = [_todo_item_dict(e) for e in state.list()]
-            message = "Tasks reordered."
-        elif action == "remove":
-            task_id = str(params.get("task_id") or "")
-            if not state.remove(task_id):
-                return ToolResult(success=False, error=f"Task {task_id} not found")
-            board = [_todo_item_dict(e) for e in state.list()]
-            message = f"Task {task_id} removed."
+        state = get_todo_state(session_id)
+
+        if action == "write":
+            return self._handle_write(state, params)
         elif action == "list":
-            entries = state.list()
-            if not entries:
-                return ToolResult(
-                    success=True,
-                    output="No tasks tracked.",
-                    metadata={"board": [], "action": "list", "count": 0},
-                )
-            board = [_todo_item_dict(e) for e in entries]
-            message = _format_board(board)
+            return self._handle_list(state)
+        elif action == "remove":
+            return self._handle_remove(state, params)
         else:
             return ToolResult(
                 success=False,
                 error=f"Unknown action: {action}. Use one of {', '.join(_ACTION_ENUM)}.",
             )
 
-        metadata = {"board": board, "action": action_name, "count": len(board)}
-        return ToolResult(success=True, output=message, metadata=metadata)
+    def _handle_write(self, state: Any, params: dict[str, Any]) -> ToolResult:
+        tasks = params.get("tasks")
+        if not isinstance(tasks, list):
+            return ToolResult(success=False, error="write requires a tasks array")
+
+        state.reset()
+        for item in tasks:
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            existing_id = str(item.get("id") or "")
+            status = str(item.get("status") or "pending")
+            priority = str(item.get("priority") or "medium")
+            state.add(
+                title,
+                priority=priority,
+                status=status,
+                existing_id=existing_id if existing_id else None,
+            )
+
+        board = [_todo_item_dict(e) for e in state.list()]
+        message = _format_board(board)
+        return ToolResult(
+            success=True,
+            output=message,
+            metadata={"board": board, "action": "write", "count": len(board)},
+        )
+
+    def _handle_list(self, state: Any) -> ToolResult:
+        entries = state.list()
+        if not entries:
+            return ToolResult(
+                success=True,
+                output="No tasks tracked.",
+                metadata={"board": [], "action": "list", "count": 0},
+            )
+        board = [_todo_item_dict(e) for e in entries]
+        return ToolResult(
+            success=True,
+            output=_format_board(board),
+            metadata={"board": board, "action": "list", "count": len(board)},
+        )
+
+    def _handle_remove(self, state: Any, params: dict[str, Any]) -> ToolResult:
+        task_id = str(params.get("task_id") or "")
+        if not task_id:
+            return ToolResult(success=False, error="No task_id provided")
+        if not state.remove(task_id):
+            return ToolResult(success=False, error=f"Task {task_id} not found")
+        board = [_todo_item_dict(e) for e in state.list()]
+        return ToolResult(
+            success=True,
+            output=f"Task {task_id} removed.",
+            metadata={"board": board, "action": "remove", "count": len(board)},
+        )
 
 
 def _format_board(board: list[dict]) -> str:

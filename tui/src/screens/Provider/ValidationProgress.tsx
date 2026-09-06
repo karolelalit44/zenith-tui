@@ -21,7 +21,7 @@ interface ValidationProgressProps {
 const STATUS_GLYPH: Record<ValidationStepStatus, string> = {
   pending: '◌',
   running: '◉',
-  success: '✓',
+  success: '',
   failed: '✕',
 };
 

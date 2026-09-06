@@ -119,10 +119,6 @@ async def test_session_summarized_precedes_terminal_and_is_persisted(test_config
     message_repo = FileMessageRepository(test_home)
     session = await session_repo.create(Session(title="Ordering"))
 
-    class _SkillLoader:
-        def get_skill_prompt(self):
-            return ""
-
     class _Registry:
         pass
 
@@ -132,7 +128,6 @@ async def test_session_summarized_precedes_terminal_and_is_persisted(test_config
         _Registry(),
         session_repo,
         message_repo,
-        _SkillLoader(),
     )
     manager = ConnectionManager()
 
@@ -140,12 +135,12 @@ async def test_session_summarized_precedes_terminal_and_is_persisted(test_config
         Event(kind=EventKind.MESSAGE, data={"text": "Hello world", "partial": False}),
         Event(kind=EventKind.SUCCESS, data={"iterations": 1}),
     ]
-    original_cls = pe_module.RecoverableAgentLoop
-    pe_module.RecoverableAgentLoop = _FakeAgentLoop
+    original_cls = pe_module.SimpleLoop
+    pe_module.SimpleLoop = _FakeAgentLoop
     try:
         await executor._execute(session.id, "do the thing", "build", None, manager)
     finally:
-        pe_module.RecoverableAgentLoop = original_cls
+        pe_module.SimpleLoop = original_cls
 
     kinds = _buffered_kinds(manager, session.id)
     assert "session_summarized" in kinds, f"summarized missing from transport stream: {kinds}"
@@ -179,20 +174,16 @@ async def test_session_summarized_error_terminal_ordering(test_config, test_home
             yield Event(kind=EventKind.MESSAGE, data={"text": "working", "partial": False})
             raise RuntimeError("provider exploded")
 
-    class _SkillLoader:
-        def get_skill_prompt(self):
-            return ""
-
     executor = pe_module.PromptExecutor(
-        test_config, StubProvider(), type("R", (), {})(), session_repo, message_repo, _SkillLoader()
+        test_config, StubProvider(), type("R", (), {})(), session_repo, message_repo
     )
     manager = ConnectionManager()
-    original_cls = pe_module.RecoverableAgentLoop
-    pe_module.RecoverableAgentLoop = _BoomAgent
+    original_cls = pe_module.SimpleLoop
+    pe_module.SimpleLoop = _BoomAgent
     try:
         await executor._execute(session.id, "break it", "build", None, manager)
     finally:
-        pe_module.RecoverableAgentLoop = original_cls
+        pe_module.SimpleLoop = original_cls
 
     kinds = _buffered_kinds(manager, session.id)
     assert "error" in kinds and "session_summarized" in kinds, kinds

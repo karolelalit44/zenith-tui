@@ -763,10 +763,10 @@ class _ExhaustedContextManager:
     def build_messages(self, *a, **kw):
         return [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}]
 
-    def is_context_exhausted(self, messages, model, provider):
+    def is_context_exhausted(self, messages, model):
         return True
 
-    def get_token_info(self, messages, model, provider):
+    def get_token_info(self, messages, model):
         from server.agents.context import TokenInfo
 
         return TokenInfo(used=1000, total=1000, remaining=0, percent=1.0)
@@ -777,5 +777,5 @@ class _ExhaustedContextManager:
     def set_aux_tokens(self, tokens):
         pass
 
-    def should_summarize(self, messages, model, provider):
+    def should_summarize(self, messages, model):
         return False

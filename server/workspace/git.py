@@ -1,20 +1,16 @@
 from __future__ import annotations
+
 import logging
-import os
 import subprocess
 from pathlib import Path
-from server.config.env import optional_int
 
+from server.config.environment import ZENITH_GIT_TIMEOUT
 
 logger = logging.getLogger(__name__)
-_GIT_TIMEOUT_DEFAULT = 30
 
 
 def _git_timeout() -> int:
-    raw = os.environ.get("ZENITH_GIT_TIMEOUT", "").strip()
-    if not raw:
-        return _GIT_TIMEOUT_DEFAULT
-    return optional_int("ZENITH_GIT_TIMEOUT", _GIT_TIMEOUT_DEFAULT)
+    return ZENITH_GIT_TIMEOUT
 
 
 class GitOps:
@@ -168,55 +164,3 @@ class GitOps:
                     }
                 )
         return commits
-
-    def undo(self) -> dict:
-        status = self.status()
-        if status.get("error"):
-            return {"success": False, "error": status["error"]}
-        code, _stdout, stderr = self._run("revert", "HEAD", "--no-edit")
-        if code != 0:
-            return {"success": False, "error": stderr}
-        return {"success": True, "message": "Reverted last commit"}
-
-    def is_gitignored(self, file_path: str) -> bool:
-        code, _, _ = self._run("check-ignore", "--no-index", file_path)
-        return code == 0
-
-    def get_repo_info(self) -> dict:
-        root = self.find_git_root()
-        if not root:
-            return {"is_git_repo": False}
-        remote_code, remote_out, _ = self._run("remote", "get-url", "origin")
-        return {
-            "is_git_repo": True,
-            "root": str(root),
-            "remote": remote_out.strip() if remote_code == 0 else None,
-            "status": self.status(),
-        }
-
-    def get_prompt_context(self) -> str:
-        if not self.is_git_repo():
-            return ""
-        parts: list[str] = []
-        branch_code, branch_out, _ = self._run("branch", "--show-current")
-        branch = branch_out.strip() if branch_code == 0 else ""
-        if branch:
-            parts.append(f"Current branch: {branch}")
-        status_code, status_out, _ = self._run("status", "--short")
-        if status_code == 0:
-            lines = [line for line in status_out.strip().split("\n") if line]
-            if not lines:
-                parts.append("Working tree: clean")
-            else:
-                parts.append(f"Working tree: {len(lines)} changed file(s)")
-                for line in lines[:20]:
-                    parts.append(f"  {line}")
-                if len(lines) > 20:
-                    parts.append(f"  ... and {len(lines) - 20} more")
-        log_code, log_out, _ = self._run("log", "--max-count=3", "--pretty=format:%h %s (%ar)")
-        if log_code == 0 and log_out.strip():
-            parts.append("Recent commits:")
-            for line in log_out.strip().split("\n"):
-                if line:
-                    parts.append(f"  {line}")
-        return "\n".join(parts)

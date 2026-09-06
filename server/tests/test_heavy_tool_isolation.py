@@ -1,11 +1,8 @@
-"""Heavy-tool isolation (Gap #3): oversized tool outputs are summarized and
-stored out-of-band instead of consuming the main context window."""
+"""Heavy-tool output no longer uses the isolation side channel."""
 
 import pytest
 
 from server.agents.loop import AgentLoop
-from server.agents.session_workspace import read_heavy_output
-from server.config.constants import HEAVY_TOOL_ISOLATION_PREVIEW_CHARS
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.toolkit.base import BaseTool, ToolResult
@@ -69,22 +66,14 @@ def _make_loop(temp_dir, provider, registry: ToolRegistry | None = None) -> Agen
 
 
 @pytest.mark.asyncio
-async def test_heavy_output_is_summarized_and_stored(temp_dir):
+async def test_heavy_output_is_not_isolated(temp_dir):
     loop = _make_loop(temp_dir, _SummarizingProvider())
     result = ToolResult(success=True, output=HEAVY_TEXT)
     rel = await loop._maybe_summarize_heavy_output("s1", "bash", result)
 
-    assert rel is not None
-    stored = temp_dir / rel
-    assert stored.exists()
-    assert stored.read_text(encoding="utf-8") == HEAVY_TEXT
-    assert read_heavy_output("s1", rel) == HEAVY_TEXT
-    assert "Output truncated (" in result.output
-    assert "file_read" in result.output
-    # The in-context preview is bounded by HEAVY_TOOL_ISOLATION_PREVIEW_CHARS
-    # plus the (short) truncation marker overhead.
-    assert len(result.output) < HEAVY_TOOL_ISOLATION_PREVIEW_CHARS + 256
-    assert loop._heavy_tools_summarized == 1
+    assert rel is None
+    assert result.output == HEAVY_TEXT
+    assert loop._heavy_tools_summarized == 0
 
 
 @pytest.mark.asyncio
@@ -113,16 +102,6 @@ async def test_file_read_excluded_from_heavy_summarization(temp_dir):
 
 
 @pytest.mark.asyncio
-async def test_full_output_re_readable_via_cached_read(temp_dir):
-    loop = _make_loop(temp_dir, _SummarizingProvider())
-    result = ToolResult(success=True, output=HEAVY_TEXT)
-    rel = await loop._maybe_summarize_heavy_output("s1", "bash", result)
-    assert rel is not None
-    cached = loop._try_cached_read("s1", {"path": rel})
-    assert cached == HEAVY_TEXT
-
-
-@pytest.mark.asyncio
 async def test_success_event_contains_heavy_tools_counter(temp_dir):
     registry = ToolRegistry()
     registry.register(_HeavyDumpTool())
@@ -131,7 +110,7 @@ async def test_success_event_contains_heavy_tools_counter(temp_dir):
     events = [ev async for ev in loop.process_prompt("Run the dump", "s1", [], "build")]
     success = [ev for ev in events if ev.kind == EventKind.SUCCESS]
     assert success, "a success event must be emitted"
-    assert success[0].data["tokenInfo"].get("heavy_tools_summarized", 0) >= 1
+    assert success[0].data["tokenInfo"].get("heavy_tools_summarized", 0) == 0
 
     tool_msgs = [
         ev.data.get("output", "")
@@ -139,5 +118,4 @@ async def test_success_event_contains_heavy_tools_counter(temp_dir):
         if ev.kind == EventKind.TOOL_RESULT and ev.data.get("tool") == "heavy_dump"
     ]
     assert tool_msgs, "the heavy tool result must be emitted"
-    assert "Output truncated (" in tool_msgs[0]
     assert HEAVY_TEXT not in tool_msgs[0]

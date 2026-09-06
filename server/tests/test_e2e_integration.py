@@ -527,17 +527,6 @@ class TestWorkspaceOperations:
             assert "log" in resp["result"]
             assert isinstance(resp["result"]["log"], list)
 
-    @pytest.mark.asyncio
-    async def test_workspace_repo_map(self, echo_server):
-        async with websockets.connect(f"ws://127.0.0.1:{echo_server}/ws") as ws:
-            resp = await _ws_rpc(ws, "workspace.repo_map", {"depth": 2})
-            assert "result" in resp
-            data = resp["result"]
-            assert "structure" in data
-            assert "summary" in data
-            assert "keyFiles" in data
-
-
 class TestConcurrentSessions:
     @pytest.mark.asyncio
     async def test_interleaved_prompts_different_sessions(self, echo_server):

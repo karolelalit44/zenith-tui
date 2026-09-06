@@ -21,10 +21,9 @@ from server.config.constants import (
     RISK_MEDIUM,
     TOOL_DOMAIN_EXECUTION,
 )
-from server.shell_runner import run_shell_command
+from server.shell_runner import run_shell_command_streamed
 
 from ..base import BaseTool, ToolResult
-from ..command_result import detect_false_success
 from .background import get_background_manager
 
 logger = logging.getLogger(__name__)
@@ -123,9 +122,8 @@ class BashTool(BaseTool):
     cost_class = COST_CLASS_HIGH
     latency_class = LATENCY_CLASS_HIGH
 
-    def __init__(self, timeout: int = 30, auto_background_after: int = 60) -> None:
+    def __init__(self, timeout: int = 30) -> None:
         self.timeout = timeout
-        self.auto_background_after = auto_background_after
 
     def get_schema(self) -> dict:
         command_desc = (
@@ -141,11 +139,6 @@ class BashTool(BaseTool):
                     "description": "Run in background",
                     "default": False,
                 },
-                "auto_background_after": {
-                    "type": "integer",
-                    "description": "Background delay seconds",
-                    "default": 60,
-                },
             },
             "required": ["command"],
         }
@@ -155,7 +148,6 @@ class BashTool(BaseTool):
         workdir = params.get(BASH_WORKDIR_PARAM) or workspace_root
         timeout = params.get("timeout", self.timeout)
         run_in_background = params.get("run_in_background", False)
-        auto_background_after = params.get("auto_background_after", self.auto_background_after)
         if not command.strip():
             return ToolResult(success=False, error="No command provided")
         refusal = _assess_enumeration(command, workspace_root)
@@ -172,7 +164,32 @@ class BashTool(BaseTool):
             return ToolResult(success=False, error=f"{refusal}{detail}")
         if run_in_background:
             return await self._start_background(command, workdir, params.get("description", ""))
-        return await self._execute_sync(command, workdir, timeout, auto_background_after)
+        return await self._execute_streamed(command, workdir, timeout)
+
+    async def _execute_streamed(self, command: str, workdir: str, timeout: int) -> ToolResult:
+        chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        exit_code: int | None = None
+        try:
+            async for event in run_shell_command_streamed(command, cwd=workdir, timeout=timeout):
+                if event.kind in ("stdout", "stderr"):
+                    chunks.append(event.data)
+                    if event.kind == "stderr":
+                        stderr_chunks.append(event.data)
+                elif event.kind == "exit":
+                    exit_code = event.exit_code
+        except TimeoutError:
+            return ToolResult(success=False, error=f"Command timed out after {timeout}s")
+        except RuntimeError as exc:
+            return ToolResult(success=False, error=str(exc))
+
+        output = "".join(chunks)
+        return ToolResult(
+            success=exit_code == 0,
+            output=output,
+            error="" if exit_code == 0 else output,
+            metadata={"exit_code": exit_code, "stderr_len": len("".join(stderr_chunks))},
+        )
 
     async def _start_background(self, command: str, workdir: str, description: str) -> ToolResult:
         manager = get_background_manager()
@@ -186,17 +203,6 @@ class BashTool(BaseTool):
             return ToolResult(success=False, error="Failed to start background job")
         if job.done:
             manager.remove(job.id)
-            false_sig = detect_false_success(job.stdout, job.stderr)
-            if job.exit_code == 0 and false_sig:
-                return ToolResult(
-                    success=False,
-                    output=job.stdout,
-                    error=(
-                        f"Background job reported success (exit 0) but its output indicates "
-                        f"failure: '{false_sig}'. The command was likely not actually executed."
-                    ),
-                    metadata={"exit_code": job.exit_code, "background": False, "job_id": job.id},
-                )
             return ToolResult(
                 success=job.exit_code == 0,
                 output=output,
@@ -208,122 +214,3 @@ class BashTool(BaseTool):
             output=f"Background job started with ID: {job.id}\nCommand: {command}\n\nUse job_output tool to view output or job_kill to terminate.",
             metadata={"background": True, "job_id": job.id},
         )
-
-    async def _execute_sync(
-        self, command: str, workdir: str, timeout: int, auto_background_after: int
-    ) -> ToolResult:
-        process = None
-        try:
-            # exec (not shell): the FULL command string must reach
-            # PowerShell as a single argument. Routing through
-            # create_subprocess_shell made cmd.exe parse the string first,
-            # so any `|`/`&` in the command was treated as a CMD pipe and
-            # PowerShell segments after it failed with "'X' is not
-            # recognized as an internal or external command" (F2).
-            try:
-                process = await run_shell_command(command, cwd=workdir)
-            except RuntimeError as e:
-                return ToolResult(success=False, error=str(e))
-            stdout_chunks: list[bytes] = []
-            stderr_chunks: list[bytes] = []
-
-            async def _read_stream(reader: asyncio.StreamReader, chunks: list[bytes]) -> None:
-                while True:
-                    chunk = await reader.read(4096)
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-
-            stdout_task = (
-                asyncio.create_task(_read_stream(process.stdout, stdout_chunks))
-                if process.stdout
-                else None
-            )
-            stderr_task = (
-                asyncio.create_task(_read_stream(process.stderr, stderr_chunks))
-                if process.stderr
-                else None
-            )
-            try:
-                auto_bg_timeout = min(auto_background_after, timeout)
-                await asyncio.wait_for(process.wait(), timeout=auto_bg_timeout)
-            except TimeoutError:
-                if process.returncode is None:
-                    for t in (stdout_task, stderr_task):
-                        if t and (not t.done()):
-                            t.cancel()
-                    await asyncio.gather(
-                        *(t for t in (stdout_task, stderr_task) if t is not None),
-                        return_exceptions=True,
-                    )
-                    manager = get_background_manager()
-                    job = manager.register(command, workdir, "", process)
-                    return ToolResult(
-                        success=True,
-                        output=f"Command is taking longer than expected and has been moved to background.\nBackground job ID: {job.id}\nCommand: {command}\n\nUse job_output tool to view output or job_kill to terminate.",
-                        metadata={"background": True, "job_id": job.id},
-                    )
-                else:
-                    return ToolResult(success=False, error=f"Command timed out after {timeout}s")
-            except asyncio.CancelledError:
-                if process.returncode is None:
-                    process.kill()
-                    try:
-                        await process.wait()
-                    except Exception:
-                        pass
-                raise
-            for t in (stdout_task, stderr_task):
-                if t:
-                    try:
-                        await t
-                    except asyncio.CancelledError:
-                        pass
-            output = b"".join(stdout_chunks).decode("utf-8", errors="replace")
-            error = b"".join(stderr_chunks).decode("utf-8", errors="replace")
-            exit_code = process.returncode
-            if exit_code == 0:
-                false_sig = detect_false_success(output, error)
-                if false_sig:
-                    return ToolResult(
-                        success=False,
-                        output=output,
-                        error=(
-                            f"Command reported success (exit 0) but its output indicates "
-                            f"failure: '{false_sig}'. This usually means the command was not "
-                            "actually executed (e.g. the Windows Store 'python' alias). Run it "
-                            "again with an explicit interpreter or fix the environment."
-                        ),
-                        metadata={"exit_code": exit_code, "false_success": false_sig},
-                    )
-                # Surface stderr on success too: tools like `python -m unittest`
-                # write their entire report to stderr, so dropping it on exit 0
-                # leaves the model with a SUCCESS and zero evidence bytes.
-                combined = output
-                if error:
-                    combined = output + ("\n" if output else "") + error
-                return ToolResult(
-                    success=True,
-                    output=combined,
-                    metadata={"exit_code": exit_code, "stderr_len": len(error)},
-                )
-            else:
-                return ToolResult(
-                    success=False, output=output, error=error, metadata={"exit_code": exit_code}
-                )
-        except asyncio.CancelledError:
-            if process and process.returncode is None:
-                process.kill()
-                try:
-                    await process.wait()
-                except Exception:
-                    pass
-            raise
-        except Exception as e:
-            if process and process.returncode is None:
-                process.kill()
-                try:
-                    await process.wait()
-                except Exception:
-                    pass
-            return ToolResult(success=False, error=str(e))

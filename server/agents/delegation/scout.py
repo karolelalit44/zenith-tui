@@ -24,11 +24,10 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from server.config.constants import (
+    CREWMATE_MODE,
     DISCOVER_CAPABILITIES_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     READ_ONLY_TOOLS,
-    CREWMATE_GRAPH_TOOLS,
-    CREWMATE_MODE,
 )
 from server.config.settings import AGENT_MODES, AppSettings
 from server.domain.events import Event, EventKind
@@ -61,11 +60,10 @@ THINKING_FORWARD_MAX_CHARS = 500
 ACTIVITY_MAX_CHARS = 200
 
 # Read tools plus the dynamic-escalation discovery pair: a crewmate may ask for
-# another schema, but never gain a mutation tool through it. WP6 adds the
-# structural query family so relational questions are one-call lookups.
+# another schema, but never gain a mutation tool through it.
+
 _CREWMATE_ALLOWED_TOOLS = (
     frozenset(READ_ONLY_TOOLS)
-    | set(CREWMATE_GRAPH_TOOLS)
     | {
         DISCOVER_CAPABILITIES_TOOL,
         GET_TOOL_DEFINITION_TOOL,
@@ -134,19 +132,12 @@ def build_crewmate_prompt(task: AgentTask, mission_brief: str | None = None) -> 
         task.objective.strip(),
     ]
     if mission_brief:
-        # WP6: zero-tool orientation — hub symbols + workspace shape up front.
+        
         parts += ["", "MISSION BRIEF (precomputed orientation; advisory):", mission_brief.strip()]
     parts += [
         "",
-        "STRUCTURAL TOOLS:",
-        "- code_callers(symbol) / code_outline(path) / code_blast_radius(symbol): "
-        "one-call answers to relational questions. Prefer them over grep chains "
-        "for 'who uses X?' and 'what breaks if Y changes?'. Grep remains the "
-        "tool for literal strings.",
-        "",
         "READ-ONLY MANDATE:",
-        "- Investigate using discovery/read tools only (file_read, glob, grep, list_dir, "
-        "code_callers, code_outline, code_blast_radius).",
+        "- Investigate using discovery/read tools only (file_read, glob, grep, list_dir).",
         "- You MUST NOT create, modify or delete anything; mutation attempts are rejected.",
         "- Stay focused on the objective; keep tool calls small and targeted.",
     ]
@@ -199,24 +190,26 @@ def build_crewmate_prompt(task: AgentTask, mission_brief: str | None = None) -> 
         "- Do not fabricate paths or snippets.",
         "",
         "STOP CONDITIONS:",
-        "- Stop as soon as the objective is answerable with cited evidence; "
-        'do not keep reading "for completeness".',
+        (
+            "- Stop as soon as the objective is answerable with cited evidence; "
+            'do not keep reading "for completeness".'
+        ),
         "- If you catch yourself opening the same file twice, stop and write the report.",
         "- Prefer finishing with honest unverified[] entries over exceeding your budget.",
         "",
         "RETREAT CLAUSE:",
-        "- Reporting absence is a SUCCESS. If ~5 distinct searches (vary "
-        "tool, terms, and scope) yield no trace of the target, STOP and "
-        'return status=completed with the target listed under "blocked" '
-        'or "unverified" - e.g. "no X found in <scope searched>". Do not '
-        "keep hunting for something that is not there.",
+        (
+            "- Reporting absence is a SUCCESS. If ~5 distinct searches (vary "
+            "tool, terms, and scope) yield no trace of the target, STOP and "
+            'return status=completed with the target listed under "blocked" '
+            'or "unverified" - e.g. "no X found in <scope searched>". Do not '
+            "keep hunting for something that is not there."
+        ),
     ]
     return "\n".join(parts)
 
 
-# WP5 Phase 3: budget-exhausted crewmates must still produce the structured
-# contract, so their salvage pass demands the fenced JSON block instead of
-# the generic final-answer prose.
+
 CREWMATE_SALVAGE_INSTRUCTION = (
     "You have run out of steps. Produce your FINAL REPORT now as ONE fenced "
     "```json block matching the OUTPUT CONTRACT above, using only evidence "
@@ -236,25 +229,13 @@ def build_mission_brief(workspace_root: str) -> str | None:
     prompt.
     """
     try:
-        from server.config.constants import (
-            EXPLORE_BRIEF_MAX_CHARS,
-            EXPLORE_BRIEF_TOP_SYMBOLS,
-        )
-        from server.workspace.graph_queries import get_code_graph
+        from server.config.constants import EXPLORE_BRIEF_MAX_CHARS
         from server.workspace.index import get_workspace_stats
 
         stats = get_workspace_stats(workspace_root)
-        graph = get_code_graph(workspace_root)
-        hubs = graph.top_symbols(EXPLORE_BRIEF_TOP_SYMBOLS)
         lines = [
             f"Workspace: ~{stats.total_files} files ({stats.describe_top_level(8)}).",
         ]
-        if hubs:
-            lines.append(
-                "Hub symbols (most referenced): "
-                + ", ".join(f"{name}({count})" for name, count in hubs)
-                + "."
-            )
         brief = "\n".join(lines).strip()
         return brief[:EXPLORE_BRIEF_MAX_CHARS] if brief else None
     except Exception as e:
@@ -292,8 +273,7 @@ async def run_crewmate(
         tool_registry,
         compaction_service,
     )
-    # WP5 Phase 3: budget exits inside the child must salvage into the
-    # structured report contract, not generic prose.
+    
     agent._salvage_instruction = CREWMATE_SALVAGE_INSTRUCTION
     mode_config = AGENT_MODES.get(CREWMATE_MODE)
     model_override = definition.model_override or (

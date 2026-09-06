@@ -1,13 +1,7 @@
 import logging
 
 from .base import BaseTool, ToolContext, ToolMiddleware, ToolResult
-from .catalog import (
-    CapabilityCatalog,
-    CapabilityDescriptor,
-    ToolInventoryEntry,
-    build_catalog,
-    build_inventory,
-)
+from .catalog import ToolInventoryEntry, build_inventory
 from .discovery import DiscoverCapabilitiesTool, GetToolDefinitionTool
 from .registry import ToolRegistry
 from .registry_validation import validate_registry
@@ -23,11 +17,6 @@ from .tools.grep import GrepTool
 from .tools.job_kill import JobKillTool
 from .tools.job_output import JobOutputTool
 from .tools.list_dir import ListDirTool
-from .tools.lsp_definition import LspDefinitionTool
-from .tools.lsp_diagnostics import LspDiagnosticsTool
-from .tools.lsp_rename import LspRenameTool
-from .tools.mcp_tool import McpToolWrapper
-from .tools.multi_edit import MultiEditTool
 from .tools.todo import TodoTool
 from .tools.webfetch import WebfetchTool
 from .tools.websearch import WebsearchTool
@@ -38,8 +27,6 @@ __all__ = [
     "DISCOVERY_TOOLS",
     "BaseTool",
     "BashTool",
-    "CapabilityCatalog",
-    "CapabilityDescriptor",
     "DiscoverCapabilitiesTool",
     "FileDeleteTool",
     "FileEditTool",
@@ -50,11 +37,6 @@ __all__ = [
     "GrepTool",
     "JobKillTool",
     "JobOutputTool",
-    "LspDefinitionTool",
-    "LspDiagnosticsTool",
-    "LspRenameTool",
-    "McpToolWrapper",
-    "MultiEditTool",
     "SchemaResolver",
     "TodoTool",
     "ToolContext",
@@ -64,7 +46,6 @@ __all__ = [
     "ToolResult",
     "WebfetchTool",
     "WebsearchTool",
-    "build_catalog",
     "build_inventory",
     "build_mode_tool_seed",
     "estimate_tool_schema_tokens",
@@ -85,7 +66,6 @@ def create_default_registry(
         SafetyCheckMiddleware,
     )
     from .middleware.plan_write import PlanWriteGuard
-    from .registry_validation import validate_registry
 
     registry = ToolRegistry()
     registry.register_middleware(LoggingMiddleware())
@@ -100,24 +80,11 @@ def create_default_registry(
     registry.register(ListDirTool())
     # WP6: structural query family — read-only, evidence-carrying lookups
     # over the tree-sitter symbol graph (callers/outline/blast radius).
-    from .tools.code_graph_tools import (
-        CodeBlastRadiusTool,
-        CodeCallersTool,
-        CodeOutlineTool,
-    )
-
-    registry.register(CodeCallersTool())
-    registry.register(CodeOutlineTool())
-    registry.register(CodeBlastRadiusTool())
     registry.register(WebfetchTool(provider=provider))
     registry.register(WebsearchTool())
     registry.register(JobOutputTool())
     registry.register(JobKillTool())
-    registry.register(MultiEditTool())
     registry.register(TodoTool())
-    registry.register(LspDiagnosticsTool())
-    registry.register(LspDefinitionTool())
-    registry.register(LspRenameTool())
     # WP5 (D3/D7, completed): the legacy write-capable "agent" tool has been
     # deleted; explore is the sole delegation surface. See
     # docs/WP5_EXPLORE_DELEGATION_PLAN.md §5.2.5.

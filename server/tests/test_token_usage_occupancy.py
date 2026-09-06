@@ -123,6 +123,25 @@ async def test_get_efficiency_legacy_row_falls_back_to_billed(usage_repo, sessio
     assert eff["average_context_utilization"] == pytest.approx(1.0, abs=0.001)
 
 
+@pytest.mark.asyncio
+async def test_get_efficiency_omits_placeholder_scaffolding(usage_repo, session_id):
+    await usage_repo.record(
+        session_id=session_id,
+        provider="acme",
+        model="model-x",
+        total_tokens=1500,
+        context_window=16000,
+        prompt_tokens=1000,
+        completion_tokens=500,
+        context_occupancy=1200,
+    )
+
+    eff = await usage_repo.get_efficiency(session_id)
+
+    assert "waste_ratio" not in eff
+    assert "summarization_count" not in eff
+
+
 class _Provider:
     name = "acme"
     model = "model-x"
@@ -137,11 +156,6 @@ class _Registry:
     pass
 
 
-class _SkillLoader:
-    def get_skill_prompt(self):
-        return ""
-
-
 class _NoopScheduler:
     def schedule(self, session_id):
         pass
@@ -150,7 +164,7 @@ class _NoopScheduler:
 def _make_executor(config, s_repo, m_repo):
     from server.agents.prompt_executor import PromptExecutor
 
-    executor = PromptExecutor(config, _Provider(), _Registry(), s_repo, m_repo, _SkillLoader())
+    executor = PromptExecutor(config, _Provider(), _Registry(), s_repo, m_repo)
     # The real scheduler spawns a background summarizer task that outlives the
     # test event loop; stub it out for the recording-path assertion.
     executor._summary_scheduler = _NoopScheduler()
@@ -161,14 +175,14 @@ def _make_executor(config, s_repo, m_repo):
 async def test_execute_persists_billed_and_occupancy_separately(
     config, session_repo, message_repo, monkeypatch
 ):
-    from server.agents.prompt_executor import PromptExecutor, RecoverableAgentLoop
+    from server.agents.prompt_executor import PromptExecutor, SimpleLoop
     from server.storage.usage_store import FileTokenUsageRepository
 
     session = Session(title="t")
     await session_repo.create(session)
 
     executor = PromptExecutor(
-        config, _Provider(), _Registry(), session_repo, message_repo, _SkillLoader()
+        config, _Provider(), _Registry(), session_repo, message_repo
     )
     executor._summary_scheduler = _NoopScheduler()
 
@@ -188,7 +202,7 @@ async def test_execute_persists_billed_and_occupancy_separately(
             },
         )
 
-    monkeypatch.setattr(RecoverableAgentLoop, "process_prompt", fake_process_prompt)
+    monkeypatch.setattr(SimpleLoop, "process_prompt", fake_process_prompt)
     await executor._execute(session.id, "do it", "build", None, None)
 
     usage_repo = FileTokenUsageRepository(session_repo.home)

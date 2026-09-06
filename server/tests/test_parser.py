@@ -79,33 +79,21 @@ def test_parse_multiple_same_tool_objects_in_single_fence():
     assert calls[1]["params"]["path"] == "b.txt"
 
 
-def test_parse_multi_edit_keeps_filepath():
-    text = (
-        '```tool\n{"tool": "multi_edit", "params": {"filepath": "source.txt", "edits": '
-        '[{"old_content": "alpha", "new_content": "alpha-one"}]}}\n```'
-    )
-    calls = parse_tool_calls(text)
+def test_parse_bracket_tool_call():
+    raw_text = 'Let me search the files: [Tool: glob pattern="*.py"]'
+    clean, calls = UnifiedResponseFormatter.process_response(raw_text)
     assert len(calls) == 1
-    assert calls[0]["tool"] == "multi_edit"
-    assert calls[0]["params"]["filepath"] == "source.txt", calls[0]["params"]
-    assert "path" not in calls[0]["params"]
+    assert calls[0]["tool"] == "glob"
+    assert calls[0]["params"]["pattern"] == "*.py"
+    assert "[Tool: glob" not in clean
+    assert "Let me search the files:" in clean
 
 
-def test_parse_multi_edit_path_alias_becomes_filepath():
-    text = (
-        '```tool\n{"tool": "multi_edit", "params": {"path": "source.txt", "edits": '
-        '[{"old_content": "a", "new_content": "b"}]}}\n```'
-    )
-    calls = parse_tool_calls(text)
-    assert calls[0]["params"]["filepath"] == "source.txt"
-    assert "path" not in calls[0]["params"]
+def test_parse_bracket_ignores_tool_result():
+    raw_text = 'Previous step output:\n[Tool: glob | Status: SUCCESS]\nFound 3 files'
+    clean, calls = UnifiedResponseFormatter.process_response(raw_text)
+    assert len(calls) == 0
+    assert "[Tool: glob | Status: SUCCESS]" in clean
+    assert "Found 3 files" in clean
 
 
-def test_parse_lsp_keeps_filepath():
-    text = (
-        '```tool\n{"tool": "lsp_definition", "params": {"filepath": "sample.py", '
-        '"line": 1, "character": 0}}\n```'
-    )
-    calls = parse_tool_calls(text)
-    assert calls[0]["params"]["filepath"] == "sample.py"
-    assert "path" not in calls[0]["params"]

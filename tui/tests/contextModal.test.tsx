@@ -83,8 +83,9 @@ describe('ContextModal', () => {
     );
 
     const frame = lastFrame();
-    expect(frame).toContain('51.2k / ~51.2k (~100%)');
-    expect(frame).toContain('~52.3k');
+    expect(frame).toContain('51.2k / 51.2k (100%)');
+    expect(frame).toContain('52.3k');
+    expect(frame).not.toContain('~');
   });
 
   it('falls back to the live estimate and hides the run row for legacy runs', () => {

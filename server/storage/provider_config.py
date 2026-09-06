@@ -14,8 +14,9 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from .catalog_compat import load_catalog
-from .catalog_store import upsert_model
+from server.config.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
+
+from .catalog_store import load_catalog, upsert_model
 from .paths import StorageHome
 from .profile_store import (
     PROFILE_LOCK,
@@ -26,9 +27,6 @@ from .profile_store import (
 )
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MAX_TOKENS = 4096
-DEFAULT_TEMPERATURE = 0.7
 
 
 def read_active_provider(home: StorageHome) -> str | None:
@@ -57,8 +55,8 @@ def read_providers(home: StorageHome) -> dict[str, dict[str, Any]]:
             "api_key": get_api_key(profile, pid),
             "model": str(cfg.get("model") or ""),
             "base_url": str(cfg.get("baseUrl") or ""),
-            "max_tokens": int(cfg.get("maxTokens", DEFAULT_MAX_TOKENS)),
-            "temperature": float(cfg.get("temperature", DEFAULT_TEMPERATURE)),
+            "max_tokens": int(cfg.get("maxTokens", DEFAULT_LLM_MAX_TOKENS)),
+            "temperature": float(cfg.get("temperature", DEFAULT_LLM_TEMPERATURE)),
             "is_active": pid == active,
         }
     return result
@@ -115,12 +113,10 @@ def read_provider_config_full(
             "api_key_masked": mask_api_key(key),
             "model": str(cfg.get("model") or ""),
             "base_url": str(cfg.get("baseUrl") or cat_entry.get("base_url") or ""),
-            "max_tokens": int(cfg.get("maxTokens", DEFAULT_MAX_TOKENS)),
-            "temperature": float(cfg.get("temperature", DEFAULT_TEMPERATURE)),
+            "max_tokens": int(cfg.get("maxTokens", DEFAULT_LLM_MAX_TOKENS)),
+            "temperature": float(cfg.get("temperature", DEFAULT_LLM_TEMPERATURE)),
             "is_active": pid == active,
-            "swatch_json": _json_dump(cat_entry.get("swatch", [])),
-            "adapter_type": cat_entry.get("adapter", "openai_compat"),
-            "capabilities_json": _json_dump(cat_entry.get("capabilities", {})),
+            "adapter": cat_entry.get("adapter", "openai_compat"),
             "api_key_prefix": cat_entry.get("api_key_prefix"),
             "updated_at": cfg.get("updatedAt"),
             "models": enriched,
@@ -135,8 +131,8 @@ def save_provider_config(
     api_key: str = "",
     model: str = "",
     base_url: str = "",
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    temperature: float = DEFAULT_TEMPERATURE,
+    max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
+    temperature: float = DEFAULT_LLM_TEMPERATURE,
     set_active: bool = True,
 ) -> None:
     # Full read-modify-write under the process-wide profile lock: this runs

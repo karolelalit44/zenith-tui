@@ -159,42 +159,6 @@ class AgentCancelledError(AgentError):
         self.code = "AGENT_CANCELLED"
 
 
-class LspError(ZenithError):
-    def __init__(self, message: str, language: str = "", cause: Exception | None = None):
-        super().__init__(message, code="LSP_ERROR", recoverable=True, cause=cause)
-        self.language = language
-
-
-class LspNotRunning(LspError):
-    def __init__(self, language: str = ""):
-        super().__init__(f"LSP server not running for '{language}'", language=language)
-        self.code = "LSP_NOT_RUNNING"
-
-
-class LspTimeout(LspError):
-    def __init__(self, language: str = "", operation: str = ""):
-        super().__init__(f"LSP timeout: {operation} for '{language}'", language=language)
-        self.code = "LSP_TIMEOUT"
-
-
-class McpError(ZenithError):
-    def __init__(self, message: str, server: str = "", cause: Exception | None = None):
-        super().__init__(message, code="MCP_ERROR", recoverable=True, cause=cause)
-        self.server = server
-
-
-class McpNotConnected(McpError):
-    def __init__(self, server: str = ""):
-        super().__init__(f"MCP server not connected: '{server}'", server=server)
-        self.code = "MCP_NOT_CONNECTED"
-
-
-class McpHandshakeFailed(McpError):
-    def __init__(self, server: str = "", detail: str = ""):
-        super().__init__(f"MCP handshake failed for '{server}': {detail}", server=server)
-        self.code = "MCP_HANDSHAKE_FAILED"
-
-
 class PermissionError(ZenithError):
     def __init__(self, message: str, tool: str = "", recoverable: bool = False):
         super().__init__(message, code="PERMISSION_ERROR", recoverable=recoverable)
