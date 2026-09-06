@@ -35,5 +35,5 @@ Do not assume workspace file structure. Discover files and hierarchy on demand:
 - `glob(pattern, path)`: Find files matching patterns or extensions (e.g. `path="server", pattern="**/*.py"`).
 - `grep(pattern, path)`: Search code definitions, symbols, imports, and exact text.
 - `list_dir(path)`: Explore directory hierarchy and folders.
-- `file_read(path, offset, limit, outline)`: Inspect targeted line slices or symbol outlines without loading whole files.
+- `file_read(path, offset, limit, outline)`: Inspect targeted line slices or symbol outlines without loading whole files. Repeated reads of unchanged files return cached results — use read receipts to track coverage.
 """

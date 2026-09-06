@@ -77,21 +77,21 @@ class MockWs {
     const evt = (kind: string, data: Record<string, unknown>, id: string) =>
       this.sendJson({ jsonrpc: '2.0', method: 'event', params: { kind, id, data } });
 
-    evt('tool_call', { tool: 'glob', params: { pattern: '*' } }, 'evt_1');
+    evt('tool_call', { tool: 'glob', params: { pattern: '**/todo.md' } }, 'evt_1');
     evt(
       'tool_result',
-      { tool: 'glob', success: true, output: '.env\n.env.example\n.gitignore\n.keys', error: '', metadata: {} },
+      { tool: 'glob', success: true, output: 'todo.md', error: '', metadata: {} },
       'evt_2',
     );
-    evt('message', { text: 'Verified all tasks are done.', partial: false }, 'evt_3');
+    evt('message', { text: 'Would you like me to update the todo.md to address these gaps?', partial: false }, 'evt_3');
     evt(
       'success',
       {
         message: 'Request processed successfully',
-        iterations: 8,
-        tokenInfo: { used: 51944, remaining: 76056, total: 128000, percent: 0.406, estimated: false },
-        elapsedMs: 87516,
-        duration: 87516,
+        iterations: 6,
+        tokenInfo: { used: 17001, remaining: 110999, total: 128000, percent: 0.133, runTotal: 64758, estimated: false },
+        elapsedMs: 62821,
+        duration: 62821,
       },
       'evt_4',
     );
@@ -156,13 +156,18 @@ test('completed static response shows token usage + duration status row', async 
   stdin.write('Hey');
   stdin.write('\r');
 
-  const done = await waitForFrame(lastFrame, (f) => f.includes('Verified all tasks'), 20_000);
+  const done = await waitForFrame(lastFrame, (f) => f.includes('Would you like me to update'), 20_000);
+  console.log(`DONE_FRAME_HAS_TOKENS: ${done.includes('17.0k tokens')}`);
+  if (!done.includes('17.0k tokens')) {
+    console.log(`DONE_FRAME_BOTTOM>>>\n${done.slice(-500)}\n<<<DONE_FRAME_BOTTOM`);
+  }
   // Allow completeActiveTurn + Static commit to settle.
-  await waitForFrame(lastFrame, (f) => f.includes('51.9k tokens'), 20_000);
+  const hasTokens = await waitForFrame(lastFrame, (f) => f.includes('17.0k tokens'), 20_000);
 
   expect(done).toBeTruthy();
   const frame = lastFrame();
-  console.log(`FINAL>>>\n${frame}\n<<<FINAL`);
-  expect(frame).toContain('51.9k tokens');
+  console.log(`FLOW_CF60E0DB_FINAL>>>\n${frame}\n<<<FLOW_CF60E0DB_FINAL`);
+  expect(hasTokens).toBeTruthy();
+  expect(frame).toContain('17.0k tokens');
   unmount();
 });

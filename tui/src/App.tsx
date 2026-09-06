@@ -35,11 +35,12 @@ import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
-import type { ScenarioEvent, ScenarioMode, TurnManifestEvent } from './types/scenario';
+import type { ScenarioEvent, ScenarioMode, TokenInfo, TurnManifestEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
+import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
 import { resolveWorkspaceRoot } from './utils/workspacePath';
 
 /**
@@ -54,8 +55,6 @@ interface StaticItem {
   id: string;
   type: 'message' | 'response';
   turn: import('./hooks/useConversation').ConversationTurn;
-  /** Index of this turn in the full turns array (for divider logic). */
-  turnIndex: number;
 }
 
 export interface RetryTarget {
@@ -218,6 +217,18 @@ export const App: React.FC = () => {
     };
   }, [compactionEvent]);
 
+  // The latest backend success/usage snapshot from the LIVE stream. The moment
+  // it arrives the TUI must surface its authoritative values (occupancy %,
+  // window estimate, cumulative run total) instead of the stale committed-turn
+  // snapshot or the frontend character estimate.
+  const liveSuccessTokenInfo = useMemo(() => {
+    let latest: TokenInfo | undefined;
+    for (const e of events) {
+      if (e.kind === 'success' && e.tokenInfo) latest = e.tokenInfo;
+    }
+    return latest;
+  }, [events]);
+
   // Composed-context occupancy for the footer gauge: prefer the in-flight
   // compaction totals, then the latest backend success snapshot. Never the
   // cumulative run usage (`runTokens`).
@@ -225,20 +236,43 @@ export const App: React.FC = () => {
     if (footerContext && typeof footerContext.used === 'number' && footerContext.total && footerContext.total > 0) {
       return Math.min(100, (footerContext.used / footerContext.total) * 100);
     }
+    if (liveSuccessTokenInfo && typeof liveSuccessTokenInfo.percent === 'number' && liveSuccessTokenInfo.total > 0) {
+      return Math.max(0, Math.min(100, liveSuccessTokenInfo.percent * 100));
+    }
     if (contextInfo && contextInfo.total > 0) {
       return Math.max(0, Math.min(100, contextInfo.percent * 100));
     }
     return undefined;
-  }, [footerContext, contextInfo]);
+  }, [footerContext, contextInfo, liveSuccessTokenInfo]);
 
   const footerWindowEstimated = useMemo(() => {
     if ((footerContext?.total ?? 0) > 0) return false;
+    if (liveSuccessTokenInfo?.windowEstimated === true) return true;
     return contextInfo?.windowEstimated === true;
-  }, [footerContext, contextInfo]);
+  }, [footerContext, contextInfo, liveSuccessTokenInfo]);
+
+  const turnUsageCosts = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of completedTurns) {
+      const cost = formatTurnCost(resolveTurnUsage(t.events));
+      if (cost) map.set(t.id, cost);
+    }
+    return map;
+  }, [completedTurns]);
 
   useEffect(() => {
     if (!isRunning) {
       setLiveRunTokens(runTokens);
+      return;
+    }
+    // The backend's cumulative run total is authoritative: the instant its
+    // usage/success event arrives, surface THAT number, not the estimate.
+    if (
+      liveSuccessTokenInfo &&
+      typeof liveSuccessTokenInfo.runTotal === 'number' &&
+      liveSuccessTokenInfo.runTotal > 0
+    ) {
+      setLiveRunTokens(liveSuccessTokenInfo.runTotal);
       return;
     }
     const now = Date.now();
@@ -246,7 +280,7 @@ export const App: React.FC = () => {
       lastTokenUpdateRef.current = now;
       setLiveRunTokens(runTokens + estimateTokensForEvents(events));
     }
-  }, [runTokens, isRunning, events]);
+  }, [runTokens, isRunning, events, liveSuccessTokenInfo]);
 
   useEffect(() => {
     // contentHeight tracks completed turns only; the live running block is
@@ -454,8 +488,9 @@ export const App: React.FC = () => {
       const finalTurnEvents = eventsRef.current.length >= events.length ? eventsRef.current : events;
       completeActiveTurn(finalTurnEvents);
       refreshStats();
+      scrollToBottom();
     }
-  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats, lastManifest]);
+  }, [isRunning, events, eventsRef, activeTurn, completeActiveTurn, refreshStats, lastManifest, scrollToBottom]);
 
   const handleAutocompleteSelectWithRouter = useCallback(
     (cmd: string) => {
@@ -525,9 +560,9 @@ export const App: React.FC = () => {
     const items: StaticItem[] = [];
     for (let i = 0; i < turns.length; i++) {
       const turn = turns[i];
-      items.push({ id: `msg_${turn.id}`, type: 'message', turn, turnIndex: i });
+      items.push({ id: `msg_${turn.id}`, type: 'message', turn });
       if (turn.isComplete && turn.events.length > 0) {
-        items.push({ id: `resp_${turn.id}`, type: 'response', turn, turnIndex: i });
+        items.push({ id: `resp_${turn.id}`, type: 'response', turn });
       }
     }
     return items;
@@ -580,30 +615,26 @@ export const App: React.FC = () => {
             if (item.type === 'message') {
               return (
                 <Box key={item.id} flexDirection="column" width="100%">
-                  {/* Divider between turns */}
-                  {item.turnIndex > 0 ? (
-                    <Box marginTop={1} marginBottom={0} width="100%">
-                      <Text color={theme.colors.border.muted} wrap="truncate-end">
-                        {'─'.repeat(Math.max(10, (termDims.columns || 80) - 2))}
-                      </Text>
-                    </Box>
-                  ) : null}
-                  <Box marginTop={1} flexDirection="column" width="100%">
-                    <UserMessageBlock
-                      prompt={item.turn.prompt}
-                      model={item.turn.model}
-                      timestamp={item.turn.timestamp}
-                      timestampLong={item.turn.timestampLong}
-                      attachments={item.turn.attachments}
-                    />
-                  </Box>
+                  <UserMessageBlock
+                    prompt={item.turn.prompt}
+                    model={item.turn.model}
+                    timestamp={item.turn.timestamp}
+                    timestampLong={item.turn.timestampLong}
+                    attachments={item.turn.attachments}
+                  />
                 </Box>
               );
             }
 
             // type === 'response'
+            const turnCost = turnUsageCosts.get(item.turn.id);
             return (
               <Box key={item.id} flexDirection="column" width={contentWidth}>
+                {turnCost ? (
+                  <Box marginBottom={1}>
+                    <Text color={theme.colors.text.muted}>◈ {turnCost}</Text>
+                  </Box>
+                ) : null}
                 <ScenarioRenderer
                   events={item.turn.events}
                   isRunning={false}
@@ -680,6 +711,7 @@ export const App: React.FC = () => {
               }
               attachments={attachments}
               onRemoveAttachment={removeAttachment}
+              onClearAttachments={clearAttachments}
               historyUp={historyUp}
               historyDown={historyDown}
               mode={selectedMode}

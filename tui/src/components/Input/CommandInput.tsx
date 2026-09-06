@@ -23,6 +23,7 @@ interface CommandInputProps {
   running?: boolean;
   attachments?: FileAttachment[];
   onRemoveAttachment?: (index: number) => void;
+  onClearAttachments?: () => void;
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
   mode?: ScenarioMode;
@@ -55,6 +56,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     running = false,
     attachments = [],
     onRemoveAttachment,
+    onClearAttachments,
     historyUp,
     historyDown,
     mode = 'build',
@@ -110,6 +112,15 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           } else if (onClearInput) {
             onClearInput();
           }
+          if (attachments.length > 0) {
+            if (onClearAttachments) {
+              onClearAttachments();
+            } else if (onRemoveAttachment) {
+              for (let i = attachments.length - 1; i >= 0; i--) {
+                onRemoveAttachment(i);
+              }
+            }
+          }
           return true;
         }
         const isEscape = Boolean(key.escape || char === '\x1b' || char === '\x1B');
@@ -117,15 +128,22 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           onCancel();
           return true;
         }
-        if (isEscape && !running && value.length > 0) {
-          onInputChange('', 0);
+        if (isEscape && !running && (value.length > 0 || attachments.length > 0)) {
+          if (value.length > 0) {
+            onInputChange('', 0);
+          }
           if (onClearInput) {
             onClearInput();
           }
-          return true;
-        }
-        if (isEscape && !running && value.length === 0 && attachments.length > 0 && onRemoveAttachment) {
-          onRemoveAttachment(attachments.length - 1);
+          if (attachments.length > 0) {
+            if (onClearAttachments) {
+              onClearAttachments();
+            } else if (onRemoveAttachment) {
+              for (let i = attachments.length - 1; i >= 0; i--) {
+                onRemoveAttachment(i);
+              }
+            }
+          }
           return true;
         }
         if (
@@ -150,6 +168,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
         running,
         attachments,
         onRemoveAttachment,
+        onClearAttachments,
       ],
     );
 

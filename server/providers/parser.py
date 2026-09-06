@@ -22,6 +22,12 @@ XML_TOOL_CALL_PATTERN = re.compile(
 XML_ARG_PATTERN = re.compile(
     r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>", re.IGNORECASE | re.DOTALL
 )
+BRACKET_TOOL_CALL_PATTERN = re.compile(
+    r"\[Tool:\s*([a-zA-Z0-9_\-\.]+)([\s\S]*?)\]", re.IGNORECASE
+)
+_BRACKET_KEY_VAL_PATTERN = re.compile(
+    r'([a-zA-Z0-9_\-]+)\s*[=:]\s*(?:"([^"]*)"|\'([^\']*)\'|(\S+))', re.DOTALL
+)
 PLACEHOLDER_TOOL_NAMES = frozenset(
     {"tool_name", "tool", "function", "name", "call", "action", "command", "method"}
 )
@@ -191,11 +197,50 @@ def parse_tool_calls(text: str) -> list[dict]:
             params[key.strip()] = value
         if _add_call({"tool": tool, "params": params}):
             matched_spans.append((start, end))
+
+    for match in BRACKET_TOOL_CALL_PATTERN.finditer(text):
+        start, end = match.span()
+        if any((s <= start and end <= e for s, e in matched_spans)):
+            continue
+        body = match.group(2)
+        if re.search(r"\|\s*status\s*:\s*(?:success|failed)", body, re.IGNORECASE):
+            continue
+        tool = match.group(1).strip()
+        if not tool or tool in PLACEHOLDER_TOOL_NAMES:
+            continue
+
+        params: dict = {}
+        json_match = re.search(r"\{[\s\S]*\}", body)
+        if json_match:
+            parsed_json = _repair_and_parse_json(json_match.group(0))
+            if parsed_json and isinstance(parsed_json, dict):
+                params = parsed_json.get("params", parsed_json)
+
+        if not params:
+            for kv in _BRACKET_KEY_VAL_PATTERN.finditer(body):
+                key = kv.group(1).strip()
+                val = kv.group(2) if kv.group(2) is not None else (kv.group(3) if kv.group(3) is not None else kv.group(4))
+                if key.lower() not in ("status", "tool"):
+                    params[key] = val.strip()
+
+        if _add_call({"tool": tool, "params": params}):
+            matched_spans.append((start, end))
     return calls
+
+
+def _clean_bracket_calls(text: str) -> str:
+    def _repl(m: re.Match) -> str:
+        content = m.group(0)
+        if re.search(r"\|\s*Status\s*:", content, re.IGNORECASE):
+            return content
+        return ""
+
+    return re.sub(r"\[Tool:\s*[a-zA-Z0-9_\-\.][^\]]*\]", _repl, text, flags=re.IGNORECASE)
 
 
 def clean_tool_text(text: str) -> str:
     cleaned = _XML_CALL_CLEAN_RE.sub("", text)
+    cleaned = _clean_bracket_calls(cleaned)
     cleaned = _TOOL_FENCE_CLEAN_RE.sub("", cleaned)
     cleaned = _TOOL_OBJECT_CLEAN_RE.sub("", cleaned)
     cleaned = _SIMULATED_CMD_RE.sub("", cleaned)

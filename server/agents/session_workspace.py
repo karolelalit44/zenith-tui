@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 
+
 @dataclass
 class SessionFileRecord:
     path: str
@@ -36,11 +37,27 @@ class SessionFileRecord:
 
 
 _STORE: dict[str, dict[str, SessionFileRecord]] = {}
-# Per-session read cache: path -> {content_hash, output, ts}. A repeated read of
-# an unchanged file within the same session returns the cached output instead of
-# re-reading (and re-injecting) the full content. Cleared when the file changes.
+# Per-session read cache: path -> cache entry. A repeated read of an unchanged
+# file within the same session returns the cached output instead of re-reading
+# (and re-injecting) the full content. The entry is keyed by an mtime+size
+# fingerprint of the file at read time; a later read returns the cache only
+# while the on-disk fingerprint still matches. Cleared when the file changes.
 # Bounded per session (oldest entries evicted) so long-lived sessions cannot
 # grow it without limit.
+#
+# Entry shape:
+#   {
+#     "mtime_ns": int,          # stat().st_mtime_ns at read time
+#     "size": int,              # stat().st_size at read time
+#     "total_lines": int,       # total lines in the file at read time
+#     "slices": {               # (offset, limit) -> formatted output
+#         (offset, limit): {
+#             "output": str,
+#             "count": int,     # how many times this slice was served
+#         },
+#     },
+#     "history": [(offset, limit), ...],  # all distinct ranges read for this path
+#   }
 _READ_CACHE: dict[str, dict[str, dict]] = {}
 _MAX_READ_CACHE_ENTRIES = 200
 _LOCK = threading.Lock()
@@ -68,41 +85,6 @@ def _session_map(session_id: str) -> dict[str, SessionFileRecord]:
     return _STORE.setdefault(session_id, {})
 
 
-def record_write(session_id: str, path: str, content: str) -> None:
-    """Record that ``path`` was written with this exact content this session."""
-    now = _time.time()
-    with _LOCK:
-        rec = _session_map(session_id).get(path)
-        if rec is None:
-            rec = SessionFileRecord(
-                path=path,
-                content_hash=_content_hash(content),
-                size=len(content.encode("utf-8")),
-                writes=1,
-                last_edited_at=now,
-            )
-        else:
-            rec.content_hash = _content_hash(content)
-            rec.size = len(content.encode("utf-8"))
-            rec.writes += 1
-            rec.last_edited_at = now
-        _session_map(session_id)[path] = rec
-        _READ_CACHE.get(session_id, {}).pop(path, None)
-
-
-def record_edit(session_id: str, path: str) -> None:
-    """Mark ``path`` as modified this session (keeps the last known hash)."""
-    now = _time.time()
-    with _LOCK:
-        rec = _session_map(session_id).get(path)
-        if rec is None:
-            rec = SessionFileRecord(path=path, content_hash="", size=0, edits=1, last_edited_at=now)
-        else:
-            rec.edits += 1
-            rec.last_edited_at = now
-        _session_map(session_id)[path] = rec
-        _READ_CACHE.get(session_id, {}).pop(path, None)
-
 
 def record_read(session_id: str, path: str) -> None:
     """Mark ``path`` as read this session for staleness tracking."""
@@ -116,14 +98,6 @@ def record_read(session_id: str, path: str) -> None:
         _session_map(session_id)[path] = rec
 
 
-def is_stale(session_id: str, path: str) -> bool:
-    """Return True if ``path`` was read before its last edit in this session."""
-    with _LOCK:
-        rec = _session_map(session_id).get(path)
-        if rec is None or rec.last_read_at == 0.0 or rec.last_edited_at == 0.0:
-            return False
-        return rec.last_edited_at > rec.last_read_at
-
 
 def is_identical_replay(session_id: str, path: str, content: str) -> bool:
     """True when this exact content was already written for this path in this session."""
@@ -134,59 +108,144 @@ def is_identical_replay(session_id: str, path: str, content: str) -> bool:
         return rec.content_hash == _content_hash(content)
 
 
-def store_cached_read(session_id: str, path: str, output: str, content_hash: str) -> None:
-    """Cache a successful file-read output under ``(session, path)``.
+def _cache_evict(session_id: str, path: str) -> None:
+    """Drop the cached read entry for ``path``. Caller must hold ``_LOCK``."""
+    paths = _READ_CACHE.get(session_id)
+    if paths is not None:
+        paths.pop(path, None)
 
-    Only the exact content hash that produced ``output`` is stored; a later read
-    returns the cache only while the on-disk hash still matches.
+
+def cache_file_read(
+    session_id: str,
+    path: str,
+    offset: int,
+    limit: int,
+    output: str,
+    mtime_ns: int,
+    size: int,
+    total_lines: int,
+) -> None:
+    """Cache a successful file-read slice under ``(session, path, offset, limit)``.
+
+    The (``mtime_ns``, ``size``) pair is the staleness fingerprint — a later read
+    returns the cache only while the on-disk stat still matches. This is the
+    industry-standard O(1) change detection (matches Claude Code's approach).
+
+    ``path`` must be an absolute, resolved path (callers use ``str(resolved)`` or
+    ``str(validate_path(rel, root))``). No further normalization is done here;
+    the caller owns the canonical key.
     """
     with _LOCK:
-        _READ_CACHE.setdefault(session_id, {})[path] = {
-            "content_hash": content_hash,
-            "output": output,
-            "ts": _time.monotonic(),
-        }
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        if entry is None or entry.get("mtime_ns") != mtime_ns or entry.get("size") != size:
+            entry = {
+                "mtime_ns": mtime_ns,
+                "size": size,
+                "total_lines": total_lines,
+                "slices": {},
+                "history": [],
+            }
+            _READ_CACHE.setdefault(session_id, {})[path] = entry
+        entry["slices"][(offset, limit)] = {"output": output}
+        if (offset, limit) not in entry["history"]:
+            entry["history"].append((offset, limit))
         _bound_entries(_READ_CACHE, session_id, _MAX_READ_CACHE_ENTRIES)
 
 
-def store_cached_read_output(session_id: str, path: str, output: str) -> None:
-    """Convenience: cache ``output`` for ``path``, hashing it internally."""
-    store_cached_read(session_id, path, output, _content_hash(output))
+def get_cached_read(
+    session_id: str, path: str, offset: int, limit: int, mtime_ns: int, size: int
+) -> str | None:
+    """Return the cached read output for ``path`` slice if unchanged.
 
+    ``mtime_ns``/``size`` is the file's current stat; the cache is returned only
+    when it matches the fingerprint the cached output was produced from. On a
+    fingerprint mismatch the stale entry is evicted.
 
-def cached_read_for(session_id: str, path: str, current_hash: str) -> str | None:
-    """Return the cached read output for ``path`` only while unchanged.
-
-    ``current_hash`` is the hash of the file's current content; the cache is
-    returned only when it matches the hash the cached output was produced from.
+    ``path`` must be an absolute, resolved path (same key space as ``cache_file_read``).
     """
-    return get_cached_read(session_id, path, current_hash)
-
-
-def current_path_hash(path_text: str) -> str:
-    """Hash a text value (used to fingerprint a file's current content)."""
-    return _content_hash(path_text)
-
-
-def get_cached_read(session_id: str, path: str, content_hash: str) -> str | None:
-    """Return the cached read output for ``path`` if unchanged (hash matches)."""
     with _LOCK:
         entry = _READ_CACHE.get(session_id, {}).get(path)
         if entry is None:
             return None
-        if entry.get("content_hash") != content_hash:
-            _READ_CACHE.get(session_id, {}).pop(path, None)
+        if entry.get("mtime_ns") != mtime_ns or entry.get("size") != size:
+            _cache_evict(session_id, path)
             return None
-        return entry.get("output")
+        slice_entry = entry.get("slices", {}).get((offset, limit))
+        if slice_entry is None:
+            return None
+        count = slice_entry.get("count", 0)
+        slice_entry["count"] = count + 1
+        return slice_entry.get("output")
 
 
-def invalidate_read_cache(session_id: str, path: str | None = None) -> None:
-    """Drop cached reads for a session (or a single path) after a mutation."""
+def get_read_history(session_id: str, path: str) -> list[tuple[int, int]]:
+    """Return all distinct ``(offset, limit)`` ranges read for ``path`` this session.
+
+    ``path`` must be an absolute, resolved path (same key space as ``cache_file_read``).
+    """
     with _LOCK:
-        if path is not None:
-            _READ_CACHE.get(session_id, {}).pop(path, None)
-        else:
-            _READ_CACHE.pop(session_id, None)
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        if entry is None:
+            return []
+        return list(entry.get("history", []))
+
+
+def cached_file_fingerprint(session_id: str, path: str, mtime_ns: int, size: int) -> bool:
+    """True when a cache entry exists for ``path`` and the fingerprint still matches.
+
+    ``path`` must be an absolute, resolved path (same key space as ``cache_file_read``).
+    """
+    with _LOCK:
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        return entry is not None and entry.get("mtime_ns") == mtime_ns and entry.get("size") == size
+
+
+def is_range_covered(
+    session_id: str, path: str, offset: int, limit: int, mtime_ns: int | None = None, size: int | None = None
+) -> bool:
+    """True when prior reads of ``path`` fully cover ``[offset, offset+limit)``.
+
+    Used for overlap dedup: if the requested range is fully contained within the
+    union of previously read ranges (with uncached-runs still accurate), a
+    re-read is redundant and can be served from cache.
+
+    ``mtime_ns``/``size`` (when given) are forwarded to ``covering_slice_for``
+    so a stale cache entry (changed fingerprint) is correctly rejected here
+    rather than causing a misleading "covered" result that get_cached_read then
+    has to evict separately.
+
+    ``path`` must be an absolute, resolved path (same key space as ``cache_file_read``).
+    """
+    return covering_slice_for(session_id, path, offset, limit, mtime_ns=mtime_ns, size=size) is not None
+
+
+def covering_slice_for(
+    session_id: str, path: str, offset: int, limit: int, mtime_ns: int | None = None, size: int | None = None
+) -> tuple[int, int] | None:
+    """Return the cached slice key that fully covers ``[offset, offset+limit)``.
+
+    Returns ``None`` when no single prior read covers the whole requested range
+    or when the cache entry is stale. ``mtime_ns``/``size`` (when given) must
+    match the stale fingerprint; otherwise a fresh disk read is required.
+
+    ``path`` must be an absolute, resolved path (same key space as ``cache_file_read``).
+    """
+    with _LOCK:
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        if entry is None:
+            return None
+        if mtime_ns is not None and entry.get("mtime_ns") != mtime_ns:
+            _cache_evict(session_id, path)
+            return None
+        if size is not None and entry.get("size") != size:
+            _cache_evict(session_id, path)
+            return None
+        end = offset + limit
+        for h_off, h_lim in entry.get("history", []):
+            if h_off <= offset and h_off + h_lim >= end:
+                return (h_off, h_lim)
+        return None
+
 
 
 def known_files(session_id: str) -> dict[str, SessionFileRecord]:

@@ -174,3 +174,31 @@ async def test_rejected_tool_call_triggers_reflection_retry(test_config):
     assert target.is_file(), "file_write in turn 3 should have created test.txt"
     assert target.read_text(encoding="utf-8") == "fixed"
 
+
+@pytest.mark.asyncio
+async def test_file_write_with_template_placeholder_rejected_and_reflected(test_config):
+    """File write with template placeholders like YOUR_API_KEY_HERE is rejected and prompts reflection."""
+    provider = _EchoProvider(
+        [
+            # Turn 1: Attempt to write code with a template stub
+            '```tool\n{"tool": "file_write", "params": {"path": "config.py", "content": "API_KEY = \\"YOUR_API_KEY_HERE\\""}}\n```',
+            # Turn 2: Upon rejection feedback, provide the real implementation
+            '```tool\n{"tool": "file_write", "params": {"path": "config.py", "content": "API_KEY = \\"real-secret-123\\""}}\n```',
+            # Turn 3: Complete
+            "Saved config successfully.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Write config", "s_placeholder", []):
+        events.append(event)
+
+    rejections = [e for e in events if e.kind == EventKind.WARNING and e.data.get("code") == "REJECTED"]
+    assert rejections, "Placeholder write should trigger a REJECTED warning"
+    assert "template placeholder" in rejections[0].data.get("message", "")
+
+    target = Path(test_config.workspace_root) / "config.py"
+    assert target.is_file(), "config.py should have been written on retry"
+    assert "real-secret-123" in target.read_text(encoding="utf-8")
+

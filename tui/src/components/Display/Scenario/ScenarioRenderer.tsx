@@ -78,21 +78,15 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const expanded = hasOverflow && historyExpanded;
 
-    const pinnedEarly = useMemo(() => {
-      if (!hasOverflow || expanded) return null;
-      const firstAssistantMessage = events.find((e) => e.kind === 'message');
-      if (!firstAssistantMessage) return null;
-      return events.slice(-dynamicLimit).includes(firstAssistantMessage) ? null : firstAssistantMessage;
-    }, [events, hasOverflow, expanded, dynamicLimit]);
-
     const visibleEvents = useMemo(() => {
       // Thinking stays in the stream in every mode; its visibility contract is
       // handled inside ThinkingBlock (full by default, collapsed under calm
       // mode or an explicit user toggle).
       let source = events;
       // Session lifecycle notices ("Session created: ...") are backend
-      // plumbing, never part of the conversation transcript.
-      source = source.filter((e) => !String(e.kind).startsWith('session_'));
+      // plumbing, never part of the conversation transcript. Preserve
+      // session_summarized so the FinalSummaryCard can render.
+      source = source.filter((e) => !String(e.kind).startsWith('session_') || e.kind === 'session_summarized');
       // Progress rows are LIVE-ONLY instrumentation. After completion the
       // SuccessCard status row supersedes them; keeping them in scrollback
       // triple-echoed every tool call.
@@ -268,6 +262,24 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       return result;
     }, [events, isRunning, isHistorical]);
 
+    const displayedEvents = useMemo(() => {
+      if (!hasOverflow || expanded) {
+        return visibleEvents;
+      }
+      // The status row must survive overflow: slice the non-success events
+      // and always re-append successful ones last so they are never cut off.
+      const successEvents = visibleEvents.filter((e) => e.kind === 'success');
+      const otherEvents = visibleEvents.filter((e) => e.kind !== 'success');
+      return [...otherEvents.slice(-dynamicLimit), ...successEvents];
+    }, [visibleEvents, hasOverflow, expanded, dynamicLimit]);
+
+    const pinnedEarly = useMemo(() => {
+      if (!hasOverflow || expanded) return null;
+      const firstAssistantMessage = visibleEvents.find((e) => e.kind === 'message');
+      if (!firstAssistantMessage) return null;
+      return displayedEvents.some((e) => e.id === firstAssistantMessage.id) ? null : firstAssistantMessage;
+    }, [visibleEvents, displayedEvents, hasOverflow, expanded]);
+
     // The server emits turn_manifest immediately before the success event, so
     // associate each success with the most recent manifest to enrich its line.
     const successManifests = useMemo(() => {
@@ -300,17 +312,18 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         {hasOverflow && !expanded && (
           <Box paddingX={1} marginBottom={1}>
             <Text color={theme.colors.text.muted} italic>
-              ... {events.length - dynamicLimit} earlier events hidden — shift+e to show all
+              ... {Math.max(1, visibleEvents.length - dynamicLimit)} earlier events hidden — shift+e to show all
             </Text>
           </Box>
         )}
 
-        {visibleEvents.map((event) => {
-          return (
+        {displayedEvents.map((event) => {
+          const rendered = renderEvent(event);
+          return rendered ? (
             <Box key={event.id} flexDirection="column" width={contentWidth}>
-              {renderEvent(event)}
+              {rendered}
             </Box>
-          );
+          ) : null;
         })}
       </Box>
     );

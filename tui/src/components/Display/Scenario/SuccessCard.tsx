@@ -62,16 +62,16 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
 
   // Used tokens calculation. Authoritative priority:
-  // 1. Provider cumulative runTotal if reported and non-zero
-  // 2. Composed context occupancy (used) if reported and non-zero
+  // 1. Composed context occupancy / turn tokens (used) if reported and non-zero
+  // 2. Provider cumulative runTotal if reported and non-zero
   // 3. Recorded token telemetry in turnEvents (token_usage_recorded / context_updated)
   // 4. Character-based estimation from turnEvents content
+  const reportedUsed =
+    typeof event.tokenInfo?.used === 'number' && event.tokenInfo.used > 0 ? event.tokenInfo.used : undefined;
   const reportedRunTotal =
     typeof event.tokenInfo?.runTotal === 'number' && event.tokenInfo.runTotal > 0
       ? event.tokenInfo.runTotal
       : undefined;
-  const reportedUsed =
-    typeof event.tokenInfo?.used === 'number' && event.tokenInfo.used > 0 ? event.tokenInfo.used : undefined;
 
   let turnRecordedTokens: number | undefined;
   if (turnEvents) {
@@ -86,7 +86,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
     }
   }
 
-  const finalReportedTokens = reportedRunTotal ?? reportedUsed ?? turnRecordedTokens;
+  const finalReportedTokens = reportedUsed ?? reportedRunTotal ?? turnRecordedTokens;
   const usedTokens =
     finalReportedTokens !== undefined ? finalReportedTokens : turnEvents ? estimateTokensForEvents(turnEvents) : 0;
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
@@ -95,12 +95,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   const rawIters =
     event.iterations !== undefined && event.iterations > 0
       ? event.iterations
-      : !isLiveRunning
-        ? Math.max(
-            1,
-            turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1,
-          )
-        : undefined;
+      : Math.max(1, turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1);
   const iters = rawIters !== undefined ? Math.max(1, rawIters) : undefined;
 
   if (iters !== undefined) {

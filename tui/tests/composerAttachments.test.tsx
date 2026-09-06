@@ -88,7 +88,7 @@ describe('Composer File Attachments & UserMessageBlock', () => {
     expect(onRemoveAttachment).toHaveBeenCalledWith(0);
   });
 
-  it('removes the last attachment when Escape is pressed on an empty prompt', async () => {
+  it('clears attachments and input when Escape is pressed on a prompt with attachments', async () => {
     const attachments: FileAttachment[] = [
       {
         path: 'bar.ts',
@@ -99,7 +99,41 @@ describe('Composer File Attachments & UserMessageBlock', () => {
       },
     ];
 
-    const onRemoveAttachment = vi.fn();
+    const onClearAttachments = vi.fn();
+    const onClearInput = vi.fn();
+    const onInputChange = vi.fn();
+    const app = mount(
+      <ThemeProvider>
+        <CommandInput
+          input="some drafted text"
+          onInputChange={onInputChange}
+          onSubmit={vi.fn()}
+          attachments={attachments}
+          onClearInput={onClearInput}
+          onClearAttachments={onClearAttachments}
+        />
+      </ThemeProvider>,
+    );
+
+    app.stdin.write('\x1B'); // Escape
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(onInputChange).toHaveBeenCalledWith('', 0);
+    expect(onClearInput).toHaveBeenCalled();
+    expect(onClearAttachments).toHaveBeenCalled();
+  });
+
+  it('clears attachments when Escape is pressed on an empty prompt', async () => {
+    const attachments: FileAttachment[] = [
+      {
+        path: 'bar.ts',
+        name: 'bar.ts',
+        mimeType: 'text/typescript',
+        size: 2048,
+        kind: 'file',
+      },
+    ];
+
+    const onClearAttachments = vi.fn();
     const app = mount(
       <ThemeProvider>
         <CommandInput
@@ -107,14 +141,14 @@ describe('Composer File Attachments & UserMessageBlock', () => {
           onInputChange={vi.fn()}
           onSubmit={vi.fn()}
           attachments={attachments}
-          onRemoveAttachment={onRemoveAttachment}
+          onClearAttachments={onClearAttachments}
         />
       </ThemeProvider>,
     );
 
     app.stdin.write('\x1B'); // Escape
     await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(onRemoveAttachment).toHaveBeenCalledWith(0);
+    expect(onClearAttachments).toHaveBeenCalled();
   });
 
   it('does not render attached file badges below user prompt in UserMessageBlock and preserves @mentions', () => {

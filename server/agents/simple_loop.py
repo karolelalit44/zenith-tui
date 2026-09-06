@@ -9,6 +9,7 @@ from typing import Any
 
 from server.config.constants import (
     BUILD_MODE,
+    DEFAULT_FILE_READ_LINES,
     MAX_STEPS_DEFAULT,
     MAX_STEPS_PROMPT,
     MAX_TOOL_OUTPUT_BASELINE,
@@ -37,12 +38,19 @@ from ..toolkit.executor import (
     validate_tool_calls,
     validate_tool_rejection,
 )
+from ..toolkit.base import ToolResult
 from .compaction import compact_tool_output
 from .context import ContextManager
 from .llm_stream import StreamState, stream_completion
 from .prompts import compose_system_context, default_template_sections
 from .run_state import _activity_label
-from .session_workspace import is_identical_replay, record_read
+from .session_workspace import (
+    get_cached_read,
+    get_read_history,
+    is_identical_replay,
+    is_range_covered,
+    record_read,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -493,6 +501,81 @@ class SimpleLoop:
                     current_turn_emitted
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
+
+                # file_read dedup runs BEFORE the silent is_dup-continue. A read
+                # whose range is already covered this session (exact duplicate or
+                # overlapping) is served straight from the read cache. Transparent
+                # to the user (a normal tool_result fires) — only the LLM sees a
+                # compact notice. This is what keeps the turn alive: an exact-duplicate
+                # re-read of an unchanged file no longer terminates the turn early via
+                # the "is_dup and has_substantive_answer" silent-skip path below.
+                if tool_name == "file_read":
+                    read_path = tool_params.get("path", "")
+                    read_offset = max(0, int(tool_params.get("offset", 0) or 0))
+                    read_limit = int(
+                        tool_params.get("limit", DEFAULT_FILE_READ_LINES) or DEFAULT_FILE_READ_LINES
+                    )
+                    if read_path:
+                        try:
+                            abs_file = (Path(self.config.workspace_root) / read_path).resolve()
+                            stat = abs_file.stat()
+                        except OSError:
+                            stat = None
+                            abs_file = None
+                        abs_path = str(abs_file) if abs_file is not None else ""
+                        if abs_path and stat is not None and is_range_covered(
+                            session_id, abs_path, read_offset, read_limit,
+                            mtime_ns=stat.st_mtime_ns, size=stat.st_size,
+                        ):
+                            cached = get_cached_read(
+                                session_id,
+                                abs_path,
+                                read_offset,
+                                read_limit,
+                                stat.st_mtime_ns,
+                                stat.st_size,
+                            )
+                            if cached is not None:
+                                detail = _param_detail(tool_params)
+                                yield _emit_progress_running(tool_name, detail)
+                                yield r.tool_call(tool_name, tool_params, session_id)
+                                metadata = build_tool_metadata(
+                                    tool_name, tool_params, ToolResult(success=True, output=cached), 0, self.config.workspace_root
+                                )
+                                yield r.tool_result(
+                                    tool_name,
+                                    True,
+                                    session_id,
+                                    output=cached,
+                                    metadata=metadata,
+                                )
+                                yield _emit_progress(tool_name, True, detail)
+                                executed_calls.add(sig)
+                                executed_call_status[sig] = True
+                                executed_any_call_this_turn = True
+                                stall_count = 0
+                                consecutive_failures = 0
+                                any_tool_succeeded = True
+                                read_files.add(read_path)
+                                record_read(session_id, read_path)
+                                messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            f"[Tool: file_read | Status: SUCCESS] "
+                                            f"(range already read this turn from unchanged "
+                                            f"'{read_path}'; full content is above — do not "
+                                            "read again.)"
+                                        ),
+                                        "digest": "file_read: ok",
+                                    }
+                                )
+                                continue
+                        # Cache miss or stale: the file may have changed since the last
+                        # read. Force execution even if is_dup is set — the LLM must be
+                        # able to read files it just edited.
+                        is_dup = False
+
                 if is_dup and has_substantive_answer:
                     continue
 
@@ -589,6 +672,7 @@ class SimpleLoop:
                     tool_params,
                     self.config.workspace_root,
                     mode,
+                    session_id=session_id,
                 )
                 if result.output and len(result.output) > MAX_TOOL_OUTPUT_BASELINE:
                     compacted_out, stats = compact_tool_output(result.output)
@@ -650,6 +734,18 @@ class SimpleLoop:
                         f"\nThe {tool_name} call failed - respond to the error above "
                         "rather than repeating the same call."
                     )
+                if result.success and tool_name == "file_read" and p and session_id:
+                    abs_p = str((Path(self.config.workspace_root) / p).resolve())
+                    read_ranges = get_read_history(session_id, abs_p)
+                    total = result.metadata.get("total_lines", "?")
+                    if read_ranges:
+                        ranges = ", ".join(
+                            f"{o + 1}-{o + length}" for o, length in sorted(read_ranges)
+                        )
+                        content += (
+                            f"\n[read receipt: '{p}' lines in context: {ranges}"
+                            f" / {total} total. Re-read only unlisted ranges.]"
+                        )
                 messages.append(
                     {
                         "role": "user",

@@ -24,7 +24,25 @@ _CD_PREFIX_RE = re.compile(
 )
 
 
+_PLACEHOLDER_RE = re.compile(
+    r"\b(?:YOUR_[A-Z0-9_]+_HERE|REPLACE_WITH_[A-Z0-9_]+|INSERT_[A-Z0-9_]+_HERE)\b"
+    r"|\[[\w\s]*(?:INSERT|PASTE|REPLACE)[\w\s]+HERE\]"
+    r"|\[ACTUAL_[A-Z0-9_]+\]"
+    r"|\[YOUR_[A-Z0-9_]+\]",
+    re.IGNORECASE,
+)
+
+
 def detect_placeholders(params: dict) -> str | None:
+    for key in ("content", "old_content", "new_content"):
+        val = params.get(key, "")
+        if isinstance(val, str) and val:
+            m = _PLACEHOLDER_RE.search(val)
+            if m:
+                return (
+                    f"Parameter '{key}' contains template placeholder ({m.group(0)}). "
+                    "Provide the actual implementation, not a placeholder."
+                )
     return None
 
 

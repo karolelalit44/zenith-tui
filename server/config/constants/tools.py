@@ -155,6 +155,12 @@ BROAD_PATTERN_THRESHOLD = 50
 TOOL_DIGEST_MAX_CHARS = 300
 DEFAULT_FILE_READ_LINES = 250
 MAX_FILE_READ_LINES = 1000
+# file_read returns file content by design and is line-bounded (max
+# MAX_FILE_READ_LINES); the generic 10k baseline head-truncated reads like
+# todo.md (14KB), starving the model of the tail. Give it a ceiling that
+# comfortably covers a default 250-line read of a dense file while still
+# bounding pathological 1000-line fetches.
+FILE_READ_MAX_OUTPUT_CHARS = 40_000
 TOOL_MAX_OUTPUT_CHARS = 15_000
 
 # ---- WP5: explore delegation (Apogee crewmate) -------------------------------

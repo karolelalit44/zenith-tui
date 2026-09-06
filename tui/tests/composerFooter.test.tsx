@@ -216,4 +216,27 @@ describe('ComposerFooter', () => {
       expect(layout.showGauge).toBe(false);
     }
   });
+
+  it('keeps only session-wide figures in the footer (per-turn cost is not rendered)', () => {
+    const restore = stubColumns(120);
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        effectiveMaxTokens={200_000}
+        runTokens={12_400}
+        contextPercent={39}
+      />,
+    );
+
+    const frame = app.lastFrame();
+    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).not.toContain('+168');
+    expect(frame).not.toContain('(23 s)');
+    restore();
+  });
 });

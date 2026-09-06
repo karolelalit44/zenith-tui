@@ -146,6 +146,7 @@ export function useAutocomplete(): UseAutocompleteReturn {
     setShowFilePicker(false);
     setPickerQuery('');
     historyIndexRef.current = -1;
+    setAttachments([]);
   }, []);
 
   const addHistory = useCallback((prompt: string) => {

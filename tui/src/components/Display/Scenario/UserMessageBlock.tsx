@@ -48,7 +48,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
     const modelLabel = model ?? '';
 
     return (
-      <Box flexDirection="column" width={contentWidth} marginTop={1} marginBottom={1}>
+      <Box flexDirection="column" width={contentWidth} marginTop={0} marginBottom={1}>
         {/* ── Full-width prompt bar with theme background fill ── */}
         <Box
           flexDirection="row"

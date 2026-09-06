@@ -14,6 +14,7 @@ from server.config.constants import (
     FILE_EDIT_TOOL,
     FILE_READ_TOOL,
     FILE_WRITE_TOOL,
+    FILE_READ_MAX_OUTPUT_CHARS,
     MAX_TOOL_METADATA_PREVIEW_CHARS,
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
@@ -252,6 +253,11 @@ def validate_tool_rejection(
 
 
 def check_placeholder_and_edit(tool_name: str, tool_params: dict) -> str | None:
+    from server.agents.validation import detect_placeholders
+
+    placeholder = detect_placeholders(tool_params)
+    if placeholder:
+        return placeholder
     if tool_name == "file_edit" and (not tool_params.get("old_content")):
         return "old_content cannot be empty. Use file_read first to get the current content."
     return None
@@ -272,6 +278,7 @@ async def execute_tool(
     tool_params: dict,
     workspace_root: str,
     mode: str,
+    session_id: str | None = None,
 ) -> tuple[ToolResult, int]:
     logger.info(
         "TOOL EXECUTE: name=%s mode=%s params=%s",
@@ -290,10 +297,18 @@ async def execute_tool(
         return ToolResult(success=False, error=str(exc)), 0
 
     result = await tool_registry.execute(
-        tool_name, tool_params, workspace_root, mode
+        tool_name, tool_params, workspace_root, mode, session_id=session_id
     )
     orig_len = len(result.output) if result.output else 0
-    result.output, was_truncated = truncate_output(result.output or "", MAX_TOOL_OUTPUT_BASELINE)
+    # file_read is line-bounded and self-paginating, so the default 10k baseline
+    # (which head-truncates, cutting the model off mid-file) does not apply.
+    # Use a larger ceiling so a dense default read is never silently clipped.
+    read_max = (
+        FILE_READ_MAX_OUTPUT_CHARS
+        if tool_name == FILE_READ_TOOL
+        else MAX_TOOL_OUTPUT_BASELINE
+    )
+    result.output, was_truncated = truncate_output(result.output or "", read_max)
     if was_truncated:
         result.metadata = dict(result.metadata or {})
         result.metadata["truncated"] = True

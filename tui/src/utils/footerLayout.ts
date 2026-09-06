@@ -65,7 +65,12 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
       ? `${gaugePercent.toFixed(1)}% ctx`
       : '';
 
-  const tokenUsage = [tokenStr, ctxStr].filter(Boolean).join(' · ');
+  const parts = [tokenStr];
+  if (ctxStr) {
+    parts.push(ctxStr);
+  }
+
+  const tokenUsage = parts.filter(Boolean).join(' · ');
   const tokenCount = tokenUsage;
   const maxTokens =
     typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0 ? `${input.effectiveMaxTokens}` : '0';

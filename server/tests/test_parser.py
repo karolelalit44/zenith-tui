@@ -78,3 +78,22 @@ def test_parse_multiple_same_tool_objects_in_single_fence():
     assert calls[0]["params"]["path"] == "a.txt"
     assert calls[1]["params"]["path"] == "b.txt"
 
+
+def test_parse_bracket_tool_call():
+    raw_text = 'Let me search the files: [Tool: glob pattern="*.py"]'
+    clean, calls = UnifiedResponseFormatter.process_response(raw_text)
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "glob"
+    assert calls[0]["params"]["pattern"] == "*.py"
+    assert "[Tool: glob" not in clean
+    assert "Let me search the files:" in clean
+
+
+def test_parse_bracket_ignores_tool_result():
+    raw_text = 'Previous step output:\n[Tool: glob | Status: SUCCESS]\nFound 3 files'
+    clean, calls = UnifiedResponseFormatter.process_response(raw_text)
+    assert len(calls) == 0
+    assert "[Tool: glob | Status: SUCCESS]" in clean
+    assert "Found 3 files" in clean
+
+
