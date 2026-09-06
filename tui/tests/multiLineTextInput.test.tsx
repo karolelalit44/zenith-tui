@@ -3,6 +3,8 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MultiLineTextInput } from '../src/components/Input/MultiLineTextInput';
 
+import { ThemeProvider } from '../src/theme/ThemeContext';
+
 const cleanups: Array<() => void> = [];
 
 function mount(node: React.ReactNode) {
@@ -39,5 +41,20 @@ describe('MultiLineTextInput', () => {
     app.stdin.write('\r');
 
     expect(onSubmit).toHaveBeenCalledWith('first-chunksecond-chunk');
+  });
+
+  it('renders @mention tokens within the input text', () => {
+    const onChange = vi.fn();
+    const onSubmit = vi.fn();
+    const app = mount(
+      <ThemeProvider>
+        <MultiLineTextInput value="Review @agent-aegis.md please" onChange={onChange} onSubmit={onSubmit} />
+      </ThemeProvider>,
+    );
+
+    const frame = app.lastFrame();
+    expect(frame).toContain('@agent-aegis.md');
+    expect(frame).toContain('Review');
+    expect(frame).toContain('please');
   });
 });

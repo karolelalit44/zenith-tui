@@ -2,7 +2,22 @@ import type { ScenarioEvent } from '../../types/scenario';
 
 function estimateEventTokens(event: ScenarioEvent): number {
   if (event.kind === 'success' && event.tokenInfo) {
-    return event.tokenInfo.used;
+    if (typeof event.tokenInfo.runTotal === 'number' && event.tokenInfo.runTotal > 0) {
+      return event.tokenInfo.runTotal;
+    }
+    if (typeof event.tokenInfo.used === 'number' && event.tokenInfo.used > 0) {
+      return event.tokenInfo.used;
+    }
+  }
+  if (
+    event.kind === 'token_usage_recorded' &&
+    typeof (event as any).totalTokens === 'number' &&
+    (event as any).totalTokens > 0
+  ) {
+    return (event as any).totalTokens;
+  }
+  if (event.kind === 'context_updated' && typeof (event as any).used === 'number' && (event as any).used > 0) {
+    return (event as any).used;
   }
 
   let chars = 0;

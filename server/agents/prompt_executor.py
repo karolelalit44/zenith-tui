@@ -881,7 +881,8 @@ class PromptExecutor:
                             _step_count += 1
                         logger.info("  [ASSISTANT MESSAGE]: %s", event.data.get("text", ""))
                 elif event.kind == EventKind.THINKING:
-                    logger.info("  [THINKING]: %s", event.data.get("text", ""))
+                    if not event.data.get("partial"):
+                        logger.info("  [THINKING]: %s", event.data.get("text", ""))
                 elif event.kind == EventKind.TOOL_CALL:
                     from server.toolkit.executor import redact_tool_params
 

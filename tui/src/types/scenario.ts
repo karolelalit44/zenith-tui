@@ -133,6 +133,7 @@ export interface ToolStepEvent {
   metadata: Record<string, unknown>;
   text?: string;
   pending: boolean;
+  duration?: number;
 }
 
 export interface ProgressEvent {

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from server.agents.validation import PLACEHOLDER_RE
 from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     FILE_ALREADY_EXISTS_ERROR,
@@ -70,13 +69,6 @@ class FileWriteTool(BaseTool):
             return ToolResult(success=False, error=f"File not found: {rel_path}")
         content = params.get("content", "")
         overwrite = params.get(FILE_OVERWRITE_PARAM, False)
-        if content:
-            m = PLACEHOLDER_RE.search(content)
-            if m:
-                return ToolResult(
-                    success=False,
-                    error=f"Content contains placeholder ({m.group(0)}). Write the actual content, not a placeholder.",
-                )
         if resolved.exists() and (not overwrite):
             return ToolResult(
                 success=False,

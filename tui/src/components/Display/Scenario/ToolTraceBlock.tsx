@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { SHELL_TOOL_SET, getToolStepPrimaryParam, getToolVerbLabel } from '../../../constants/toolDisplay';
+import { getToolStepPrimaryParam, getToolVerbLabel, SHELL_TOOL_SET } from '../../../constants/toolDisplay';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolCallEvent, ToolResultEvent } from '../../../types/scenario';
 import { truncateEnd } from '../../../utils/text';

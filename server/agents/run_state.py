@@ -163,6 +163,7 @@ def _activity_label(tool: str, seq: int, detail: str = "") -> str:
         "file_delete": "Deleting files",
         "glob_search": "Searching for files",
         "grep_search": "Searching code",
+        "list_dir": "Exploring directory",
         "bash": "Running commands",
         "terminal": "Running commands",
         "job_start": "Launching background job",

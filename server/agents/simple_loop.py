@@ -428,6 +428,7 @@ class SimpleLoop:
                 response_text, native_tool_calls or None
             )
 
+            current_turn_emitted = False
             if (
                 clean_response
                 and not _is_degenerate_message(clean_response)
@@ -437,6 +438,7 @@ class SimpleLoop:
                     clean_response, session_id, partial=False, iteration=iteration
                 )
                 self._last_emitted_message = clean_response
+                current_turn_emitted = True
 
             if finish_reason == FinishReason.LENGTH:
                 continue
@@ -478,6 +480,7 @@ class SimpleLoop:
             messages.append({"role": "assistant", "content": response_text or ""})
 
             executed_any_call_this_turn = False
+            has_rejected_call_this_turn = False
             for tc in valid_calls:
                 tool_name = tc.get("tool")
                 if not tool_name:
@@ -487,8 +490,8 @@ class SimpleLoop:
 
                 is_dup = sig in executed_calls
                 has_substantive_answer = bool(
-                    self._last_emitted_message
-                    and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
+                    current_turn_emitted
+                    and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
                 if is_dup and has_substantive_answer:
                     continue
@@ -533,6 +536,7 @@ class SimpleLoop:
                 )
                 if reject_msg:
                     consecutive_failures += 1
+                    has_rejected_call_this_turn = True
                     if consecutive_failures >= reflimit:
                         yield r.error(
                             f"Too many errors ({consecutive_failures}).",
@@ -555,6 +559,7 @@ class SimpleLoop:
                     warn_msg = f"File rewrite blocked: '{target}' was already written this turn. Read it first, then use file_edit."
                     yield r.warning(warn_msg, session_id, code="REWRITE_BLOCKED")
                     messages.append({"role": "user", "content": warn_msg})
+                    has_rejected_call_this_turn = True
                     continue
 
                 if not getattr(self.config, "auto_overwrite", True) and tool_name == "file_write" and target:
@@ -563,6 +568,7 @@ class SimpleLoop:
                         warn_msg = f"Tool 'file_write' overwrite denied: '{target}' already exists and auto_overwrite is disabled. To overwrite, specify overwrite=true."
                         yield r.warning(warn_msg, session_id, code="OVERWRITE_DENIED")
                         messages.append({"role": "user", "content": f"[Tool rejected] {warn_msg}"})
+                        has_rejected_call_this_turn = True
                         continue
                 elif getattr(self.config, "auto_overwrite", True) and tool_name == "file_write":
                     tool_params.setdefault("overwrite", True)
@@ -571,6 +577,7 @@ class SimpleLoop:
                     warn_msg = f"Tool 'file_delete' delete denied: '{target}' was not deleted because auto_risky is disabled."
                     yield r.warning(warn_msg, session_id, code="DELETE_DENIED")
                     messages.append({"role": "user", "content": f"[Tool rejected] {warn_msg}"})
+                    has_rejected_call_this_turn = True
                     continue
 
                 detail = _param_detail(tool_params)
@@ -653,9 +660,11 @@ class SimpleLoop:
             if doomed:
                 break
             if not executed_any_call_this_turn:
+                if has_rejected_call_this_turn:
+                    continue
                 has_substantive_answer = bool(
-                    self._last_emitted_message
-                    and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
+                    current_turn_emitted
+                    and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
                 if has_substantive_answer:
                     break

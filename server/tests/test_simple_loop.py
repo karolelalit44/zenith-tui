@@ -9,6 +9,8 @@ Covers the three core design guarantees from
   tool calls emit a DOOM_LOOP ask and end the turn, instead of looping forever.
 """
 
+from pathlib import Path
+
 import pytest
 
 from server.agents.simple_loop import SimpleLoop
@@ -117,3 +119,58 @@ async def test_doom_loop_guard_stops_turn(test_config):
     assert doom, "DOOM_LOOP warning must be emitted after repeated identical calls"
     success = [e for e in events if e.kind == EventKind.SUCCESS]
     assert success, "turn should still end with a SUCCESS event"
+
+
+@pytest.mark.asyncio
+async def test_file_write_with_bracketed_doc_text_succeeds(test_config):
+    """Writing documentation with bracketed phrases like [List Updated] succeeds without rejection."""
+    prd_content = "# School PRD\n\n- [List Updated] Teacher-Class Mapping\n- [File: models.py]\n"
+    provider = _EchoProvider(
+        [
+            f'```tool\n{{"tool": "file_write", "params": {{"path": "prd.md", "content": {prd_content!r}}}}}\n```',
+            "Created PRD document successfully.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Create PRD", "s_prd", []):
+        events.append(event)
+
+    warnings = [e for e in events if e.kind == EventKind.WARNING and e.data.get("code") == "REJECTED"]
+    assert not warnings, f"No tool rejection should occur for normal bracketed text: {warnings}"
+
+    target = Path(test_config.workspace_root) / "prd.md"
+    assert target.is_file(), "file_write should have created prd.md"
+    assert target.read_text(encoding="utf-8").strip() == prd_content.strip()
+
+
+@pytest.mark.asyncio
+async def test_rejected_tool_call_triggers_reflection_retry(test_config):
+    """When a tool call is rejected, the loop must not break early on prior turn text; it must allow reflection."""
+    provider = _EchoProvider(
+        [
+            # Turn 1: Initial greeting and explore call
+            'I will inspect the workspace and create the file.\n\n```tool\n{"tool": "list_dir", "params": {"path": "."}}\n```',
+            # Turn 2: Rejected tool call (file_edit without old_content), no text
+            '```tool\n{"tool": "file_edit", "params": {"path": "test.txt", "old_content": "", "new_content": "fixed"}}\n```',
+            # Turn 3: Correction after receiving tool rejection feedback
+            '```tool\n{"tool": "file_write", "params": {"path": "test.txt", "content": "fixed"}}\n```',
+            # Turn 4: Final completion message
+            "All done! The file has been written.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Write test file", "s_reflect", []):
+        events.append(event)
+
+    rejections = [e for e in events if e.kind == EventKind.WARNING and e.data.get("code") == "REJECTED"]
+    assert rejections, "Rejection warning should be emitted for invalid tool call"
+    assert provider.call_count == 4, f"Expected 4 calls (explore, rejected, corrected, finish), got {provider.call_count}"
+
+    target = Path(test_config.workspace_root) / "test.txt"
+    assert target.is_file(), "file_write in turn 3 should have created test.txt"
+    assert target.read_text(encoding="utf-8") == "fixed"
+

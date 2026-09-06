@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backendScenarioProvider } from '../src/services/transport/BackendScenarioProvider';
-import { type JsonRpcEvent, type WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
+import { type JsonRpcEvent, WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
 
 let rpcIdCounter = 0;
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
@@ -449,5 +449,103 @@ describe('Multi-Iteration Thinking and Tool Call Chronological Sequence', () => 
     expect(iter2Final?.duration).toBe(2500);
 
     runner.abort();
+  });
+});
+
+describe('WebSocketClient connection deduplication', () => {
+  class MockSocket {
+    static instances: MockSocket[] = [];
+    static readonly OPEN = 1;
+    static readonly CLOSED = 3;
+    readonly OPEN = 1;
+    readonly CLOSED = 3;
+
+    readyState = 0;
+    url: string;
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: ((evt: unknown) => void) | null = null;
+    onmessage: ((evt: { data: string }) => void) | null = null;
+
+    constructor(url: string) {
+      this.url = url;
+      MockSocket.instances.push(this);
+    }
+
+    simulateOpen() {
+      this.readyState = MockSocket.OPEN;
+      this.onopen?.();
+    }
+
+    simulateError(msg = 'Connection error') {
+      this.readyState = MockSocket.CLOSED;
+      this.onerror?.({ message: msg });
+    }
+
+    close() {
+      this.readyState = MockSocket.CLOSED;
+    }
+
+    send(_data: string) {}
+  }
+
+  const originalWs = (globalThis as unknown as { WebSocket?: unknown }).WebSocket;
+
+  afterEach(() => {
+    (globalThis as unknown as { WebSocket?: unknown }).WebSocket = originalWs;
+    MockSocket.instances = [];
+  });
+
+  it('deduplicates concurrent connect calls into a single underlying WebSocket', async () => {
+    MockSocket.instances = [];
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = MockSocket;
+
+    const client = new WebSocketClient('ws://127.0.0.1:8765/ws');
+
+    // Launch 4 concurrent connect calls simultaneously (reproducing the startup burst)
+    const p1 = client.connect();
+    const p2 = client.connect();
+    const p3 = client.connect();
+    const p4 = client.connect();
+
+    // Exactly one WebSocket instance should be created
+    expect(MockSocket.instances.length).toBe(1);
+
+    // Simulate connection established
+    MockSocket.instances[0].simulateOpen();
+
+    await Promise.all([p1, p2, p3, p4]);
+
+    expect(client.status).toBe('connected');
+    expect(MockSocket.instances.length).toBe(1);
+
+    // Subsequent connect calls while already OPEN must not create another instance
+    await client.connect();
+    expect(MockSocket.instances.length).toBe(1);
+
+    await client.close();
+  });
+
+  it('allows clean retry after a connection failure', async () => {
+    MockSocket.instances = [];
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = MockSocket;
+
+    const client = new WebSocketClient('ws://127.0.0.1:8765/ws');
+
+    const p1 = client.connect();
+    expect(MockSocket.instances.length).toBe(1);
+
+    MockSocket.instances[0].simulateError('Connection refused');
+    await expect(p1).rejects.toThrow('Connection refused');
+
+    // Next connect call creates a new instance since the previous attempt failed
+    const p2 = client.connect();
+    expect(MockSocket.instances.length).toBe(2);
+
+    MockSocket.instances[1].simulateOpen();
+    await p2;
+    expect(client.status).toBe('connected');
+
+    await client.close();
   });
 });

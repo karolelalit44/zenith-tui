@@ -80,3 +80,32 @@ export function removeMention(input: string, token: MentionToken): { value: stri
   const value = `${input.slice(0, token.start)}${input.slice(token.end)}`;
   return { value, end: token.start };
 }
+
+export type StyledSegmentType = 'mention' | 'paste' | 'text';
+
+export interface StyledSegment {
+  type: StyledSegmentType;
+  text: string;
+  pasteInfo?: string;
+}
+
+/**
+ * Split prompt text into styled segments (mentions, paste markers, normal text).
+ * Single source of truth for styling prompt text consistently across input and user message displays.
+ */
+export function parseStyledSegments(text: string): StyledSegment[] {
+  const parts = text.split(/(\[Pasted (?:(?:\+\d+ lines)|\d+ chars) #\d+\]|@[^\s@]+)/g);
+  const segments: StyledSegment[] = [];
+  for (const part of parts) {
+    if (!part) continue;
+    const pasteMatch = part.match(/\[Pasted ((?:\+\d+ lines)|\d+ chars) #\d+\]/);
+    if (pasteMatch) {
+      segments.push({ type: 'paste', text: part, pasteInfo: pasteMatch[1] });
+    } else if (part.startsWith('@') && part.length > 1) {
+      segments.push({ type: 'mention', text: part });
+    } else {
+      segments.push({ type: 'text', text: part });
+    }
+  }
+  return segments;
+}

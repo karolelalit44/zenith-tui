@@ -257,6 +257,14 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           } as ScenarioEvent,
         ];
       }
+      if (isHistorical) {
+        return result.map((e) => {
+          if (e.kind === 'success' && (!e.elapsedMs || e.elapsedMs <= 0)) {
+            return { ...e, elapsedMs: 1000 };
+          }
+          return e;
+        });
+      }
       return result;
     }, [events, isRunning, isHistorical]);
 

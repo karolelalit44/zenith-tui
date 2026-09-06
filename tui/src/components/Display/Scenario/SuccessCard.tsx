@@ -41,31 +41,67 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   if (isLiveRunning && runStartRef.current === null) {
     runStartRef.current = Date.now();
   }
-  const reportedElapsedMs = event.elapsedMs ?? 0;
+  const reportedElapsedMs = typeof event.elapsedMs === 'number' && event.elapsedMs > 0 ? event.elapsedMs : 0;
   const liveElapsedMs =
     isLiveRunning && runStartRef.current !== null ? Math.max(1000, Date.now() - runStartRef.current) : undefined;
-  const elapsedMs = reportedElapsedMs > 0 ? reportedElapsedMs : liveElapsedMs;
+  let elapsedMs = reportedElapsedMs > 0 ? reportedElapsedMs : liveElapsedMs;
+
+  if (!elapsedMs && !isLiveRunning) {
+    // If completed/historical and no direct elapsedMs was reported, sum durations from events (thinking, tool steps)
+    const eventDurations = turnEvents
+      ? turnEvents.reduce((acc, ev) => {
+          if ('duration' in ev && typeof (ev as { duration?: unknown }).duration === 'number') {
+            const d = (ev as { duration: number }).duration;
+            if (d > 0) return acc + d;
+          }
+          return acc;
+        }, 0)
+      : 0;
+    elapsedMs = eventDurations > 0 ? eventDurations : 1000;
+  }
   const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
 
-  // Used tokens calculation. `tokenInfo.used` is the composed-context occupancy
-  // reported by the backend and is authoritative whenever non-zero; `estimated`
-  // only describes the cumulative *run* usage and must not suppress it. Fall
-  // back to the frontend estimate only when usage is missing or zero.
-  const reportedUsed = event.tokenInfo?.used ?? 0;
-  const usageIsUnknown = reportedUsed <= 0 || event.tokenInfo === undefined;
-  const usedTokens = usageIsUnknown ? (turnEvents ? estimateTokensForEvents(turnEvents) : 0) : reportedUsed;
+  // Used tokens calculation. Authoritative priority:
+  // 1. Provider cumulative runTotal if reported and non-zero
+  // 2. Composed context occupancy (used) if reported and non-zero
+  // 3. Recorded token telemetry in turnEvents (token_usage_recorded / context_updated)
+  // 4. Character-based estimation from turnEvents content
+  const reportedRunTotal =
+    typeof event.tokenInfo?.runTotal === 'number' && event.tokenInfo.runTotal > 0
+      ? event.tokenInfo.runTotal
+      : undefined;
+  const reportedUsed =
+    typeof event.tokenInfo?.used === 'number' && event.tokenInfo.used > 0 ? event.tokenInfo.used : undefined;
+
+  let turnRecordedTokens: number | undefined;
+  if (turnEvents) {
+    for (const te of turnEvents) {
+      if (te.kind === 'token_usage_recorded' && typeof te.totalTokens === 'number' && te.totalTokens > 0) {
+        turnRecordedTokens = te.totalTokens;
+        break;
+      }
+      if (te.kind === 'context_updated' && typeof te.used === 'number' && te.used > 0) {
+        turnRecordedTokens = te.used;
+      }
+    }
+  }
+
+  const finalReportedTokens = reportedRunTotal ?? reportedUsed ?? turnRecordedTokens;
+  const usedTokens =
+    finalReportedTokens !== undefined ? finalReportedTokens : turnEvents ? estimateTokensForEvents(turnEvents) : 0;
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 
   const metricsParts: string[] = [];
-  const iters =
-    event.iterations !== undefined
+  const rawIters =
+    event.iterations !== undefined && event.iterations > 0
       ? event.iterations
       : !isLiveRunning
         ? Math.max(
-          1,
-          turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1,
-        )
+            1,
+            turnEvents ? turnEvents.filter((e) => e.kind === 'tool_step' || e.kind === 'tool_call').length : 1,
+          )
         : undefined;
+  const iters = rawIters !== undefined ? Math.max(1, rawIters) : undefined;
 
   if (iters !== undefined) {
     metricsParts.push(`${iters} iter${iters === 1 ? '' : 's'}`);
@@ -88,7 +124,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
       paddingX={1}
       marginBottom={1}
     >
-      {/* Left Section: Animated Equalizer Wave (Running) / Checkmark (Completed/Interrupted) + Metrics */}
+      {/* Left Section: Animated Equalizer Wave (Running) / Status Glyph (Completed/Interrupted) + Metrics */}
       <Box flexDirection="row" alignItems="center" flexShrink={1}>
         {isLiveRunning ? (
           <Box flexDirection="row" marginRight={1} alignItems="flex-end">
@@ -107,9 +143,11 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
             })}
           </Box>
         ) : (
-          <Text color={theme.colors.status.success} bold>
-            {' '}
-          </Text>
+          <Box marginRight={1}>
+            <Text color={theme.colors.status.success} bold>
+              ●
+            </Text>
+          </Box>
         )}
 
         <Text color={theme.colors.text.muted}>{metricsText}</Text>

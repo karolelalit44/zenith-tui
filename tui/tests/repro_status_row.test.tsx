@@ -121,4 +121,90 @@ describe('repro: completed response status row', () => {
     writeFileSync('repro_frames.txt', `\n=== ESTIMATED ===\n${frame}\n`, { encoding: 'utf-8', flag: 'a' });
     expect(frame).toContain('tokens');
   });
+
+  it('shows status row for pure text turn with thinking, message, and success', () => {
+    const textEvents: ScenarioEvent[] = [
+      {
+        kind: 'thinking',
+        id: 'think_1',
+        thoughts: ['The user is asking about tech stack.'],
+        duration: 2000,
+        partial: false,
+      },
+      {
+        kind: 'message',
+        id: 'msg_1',
+        text: 'The tech stack includes React, Ink, and TypeScript.',
+        partial: false,
+      },
+      {
+        kind: 'success',
+        id: 'evt_success_pure_text',
+        message: 'Request processed successfully',
+        iterations: 1,
+        elapsedMs: 2500,
+        tokenInfo: {
+          used: 12300,
+          remaining: 115700,
+          total: 128000,
+          percent: 0.096,
+          estimated: false,
+        },
+      },
+    ];
+
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={textEvents} isRunning={false} isHistorical thinkingCollapsed={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    console.log(`PURE_TEXT_FRAME>>>\n${frame}\n<<<PURE_TEXT_FRAME`);
+    expect(frame).toContain('1 iter');
+    expect(frame).toContain('2 s');
+    expect(frame).toContain('12.3k tokens');
+  });
+
+  it('shows status row when success event has elapsedMs: 0 and tokenInfo with runTotal but used: 0', () => {
+    const textEvents: ScenarioEvent[] = [
+      {
+        kind: 'thinking',
+        id: 'think_1',
+        thoughts: ['Analyzing...'],
+        duration: 2000,
+        partial: false,
+      },
+      {
+        kind: 'message',
+        id: 'msg_1',
+        text: 'Here is the answer.',
+        partial: false,
+      },
+      {
+        kind: 'success',
+        id: 'evt_success_zero_elapsed',
+        message: 'Completed',
+        iterations: 0,
+        elapsedMs: 0,
+        tokenInfo: {
+          used: 0,
+          runTotal: 12300,
+          remaining: 128000,
+          total: 128000,
+          percent: 0,
+          estimated: false,
+        },
+      },
+    ];
+
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={textEvents} isRunning={false} isHistorical thinkingCollapsed={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    console.log(`ZERO_ELAPSED_FRAME>>>\n${frame}\n<<<ZERO_ELAPSED_FRAME`);
+    expect(frame).toContain('iter');
+    expect(frame).toContain('tokens');
+  });
 });

@@ -334,11 +334,14 @@ export const App: React.FC = () => {
   }, [abort, abortActiveTurn, eventsRef]);
 
   const handleNewChat = useCallback(() => {
+    abort();
+    abortActiveTurn(eventsRef.current);
     setActiveSessionId(null);
     clearTurns();
+    resetScroll();
     setRetryTarget(null);
     setContinueTarget(null);
-  }, [setActiveSessionId, clearTurns]);
+  }, [abort, abortActiveTurn, eventsRef, setActiveSessionId, clearTurns, resetScroll]);
 
   const commandCtx = useMemo<CommandRunContext>(
     () => ({

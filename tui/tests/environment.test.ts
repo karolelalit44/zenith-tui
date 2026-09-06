@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as envModule from '../src/config/environment';
 import {
+  envBool,
+  envFloat,
+  envInt,
+  envStr,
+  readEnvironment,
   ZENITH_BACKEND_URL,
   ZENITH_CONTEXT_ATTENTION,
   ZENITH_CONTEXT_PREPARING,
@@ -16,11 +21,6 @@ import {
   ZENITH_WS_RECONNECT_WAIT_MS,
   ZENITH_WS_RPC_TIMEOUT,
   ZENITH_WS_STALE_TIMEOUT_MS,
-  envBool,
-  envFloat,
-  envInt,
-  envStr,
-  readEnvironment,
 } from '../src/config/environment';
 
 describe('environment configuration', () => {

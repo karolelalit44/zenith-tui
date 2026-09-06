@@ -3,6 +3,7 @@ import {
   activeMentionAtOffset,
   insertMentionAt,
   parseMentions,
+  parseStyledSegments,
   removeMention,
   replaceMention,
   tokenAtOffset,
@@ -81,5 +82,33 @@ describe('tokenAtOffset', () => {
   it('finds the token containing a position', () => {
     const t = tokenAtOffset('fix @a.ts now', 6);
     expect(t?.raw).toBe('@a.ts');
+  });
+});
+
+describe('parseStyledSegments', () => {
+  it('parses plain text without mentions', () => {
+    expect(parseStyledSegments('hello world')).toEqual([{ type: 'text', text: 'hello world' }]);
+  });
+
+  it('parses mentions and surrounding text', () => {
+    expect(parseStyledSegments('@todo.md how many task')).toEqual([
+      { type: 'mention', text: '@todo.md' },
+      { type: 'text', text: ' how many task' },
+    ]);
+  });
+
+  it('parses multiple mentions and paste tokens', () => {
+    expect(parseStyledSegments('check @a.ts and [Pasted +5 lines #1] then @b.ts')).toEqual([
+      { type: 'text', text: 'check ' },
+      { type: 'mention', text: '@a.ts' },
+      { type: 'text', text: ' and ' },
+      { type: 'paste', text: '[Pasted +5 lines #1]', pasteInfo: '+5 lines' },
+      { type: 'text', text: ' then ' },
+      { type: 'mention', text: '@b.ts' },
+    ]);
+  });
+
+  it('treats a solitary @ as plain text', () => {
+    expect(parseStyledSegments('contact @ me')).toEqual([{ type: 'text', text: 'contact @ me' }]);
   });
 });

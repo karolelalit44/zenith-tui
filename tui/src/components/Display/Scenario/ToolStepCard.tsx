@@ -9,6 +9,7 @@ import {
   getToolStepPrimaryParam,
   getToolStepStatusText,
   getToolVerbLabel,
+  LIST_DIR_TOOL_SET,
   SEARCH_TOOL_SET,
   SHELL_TOOL_SET,
   TOOL_META_INTERRUPTED,
@@ -20,6 +21,7 @@ import type { ToolStepEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
 import { getWorkspaceFolderName } from '../../../utils/workspacePath';
 import type { EventRenderContext } from './componentRegistry';
+import { DirectoryListingCard } from './DirectoryListingCard';
 import { formatErrorSummary } from './errorSummary';
 import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
 
@@ -527,6 +529,21 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   if (toolKey === EXPLORE_TOOL) {
     return (
       <ExploreCrewCard
+        event={event}
+        isPending={isPending}
+        state={state}
+        elapsedMs={elapsedMs}
+        context={context}
+        metaPill={metaPill}
+        tick={tick}
+      />
+    );
+  }
+
+  /** Modern interactive card for list_dir / ls / dir results. */
+  if (LIST_DIR_TOOL_SET.has(toolKey)) {
+    return (
+      <DirectoryListingCard
         event={event}
         isPending={isPending}
         state={state}

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
 import type { FileAttachment, ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo } from '../types/scenario';
+import { clearTerminalScreen } from '../utils/terminal';
 
 export interface ConversationTurn {
   id: string;
@@ -209,7 +210,14 @@ export function useConversation(): UseConversationReturn {
 
       const stampedEvents =
         elapsedMs !== undefined
-          ? events.map((e) => (e.kind === 'success' ? { ...e, elapsedMs: e.elapsedMs ?? elapsedMs } : e))
+          ? events.map((e) =>
+              e.kind === 'success'
+                ? {
+                    ...e,
+                    elapsedMs: typeof e.elapsedMs === 'number' && e.elapsedMs > 0 ? e.elapsedMs : elapsedMs,
+                  }
+                : e,
+            )
           : events;
 
       // Ensure a success event always exists so the unified status row renders
@@ -246,7 +254,8 @@ export function useConversation(): UseConversationReturn {
             updated.success = updated.success ?? true;
           }
           if (updated.kind === 'success') {
-            updated.elapsedMs = updated.elapsedMs ?? elapsedMs;
+            updated.elapsedMs =
+              typeof updated.elapsedMs === 'number' && updated.elapsedMs > 0 ? updated.elapsedMs : elapsedMs;
           }
           return updated;
         });
@@ -275,13 +284,13 @@ export function useConversation(): UseConversationReturn {
   const clearTurns = useCallback(() => {
     setTurns([]);
     setStaticKey((k) => k + 1);
-    process.stdout.write('\x1B[2J\x1B[H');
+    clearTerminalScreen();
   }, []);
 
   const loadTurns = useCallback((newTurns: ConversationTurn[]) => {
     setTurns(newTurns);
     setStaticKey((k) => k + 1);
-    process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+    clearTerminalScreen();
   }, []);
 
   return {

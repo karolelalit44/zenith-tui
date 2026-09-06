@@ -252,11 +252,6 @@ def validate_tool_rejection(
 
 
 def check_placeholder_and_edit(tool_name: str, tool_params: dict) -> str | None:
-    from server.agents.validation import detect_placeholders
-
-    placeholder = detect_placeholders(tool_params)
-    if placeholder:
-        return placeholder
     if tool_name == "file_edit" and (not tool_params.get("old_content")):
         return "old_content cannot be empty. Use file_read first to get the current content."
     return None

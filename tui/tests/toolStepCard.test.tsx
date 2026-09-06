@@ -376,4 +376,48 @@ describe('ToolStepCard', () => {
     expect(frame).toContain(' Web search');
     expect(frame).toContain('ink components');
   });
+
+  it('renders a list_dir step with DirectoryListingCard showing folders, files, and tree glyphs', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'list_dir',
+        params: { path: 'src/components' },
+        output: 'Display/\nInput/\nindex.ts\nREADME.md',
+        metadata: {
+          path: 'src/components',
+          dirs: 2,
+          files: 2,
+          duration_ms: 1500,
+        },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('📁');
+    expect(frame).toContain('src/components/');
+    expect(frame).toContain('2 folders');
+    expect(frame).toContain('2 files');
+    expect(frame).toContain('Display/');
+    expect(frame).toContain('Input/');
+    expect(frame).toContain('index.ts');
+    expect(frame).toContain('README.md');
+    expect(frame).toContain('~ 1 s');
+  });
+
+  it('renders an empty directory listing gracefully', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'list_dir',
+        params: { path: 'empty_dir' },
+        output: '',
+        metadata: {
+          path: 'empty_dir',
+          dirs: 0,
+          files: 0,
+        },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('empty_dir/');
+    expect(frame).toContain('(empty directory)');
+  });
 });

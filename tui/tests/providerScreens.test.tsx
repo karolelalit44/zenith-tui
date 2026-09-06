@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FieldForm, type FormField } from '../src/screens/Provider/FieldForm';
 import { ModelPicker } from '../src/screens/Provider/ModelPicker';
 import { ProviderFlow } from '../src/screens/Provider/ProviderFlow';
-import { providerRepository } from '../src/services/providers/ProviderRepository';
 import type { ProviderListResponse, ProviderState } from '../src/services/providers/types';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 
@@ -28,7 +27,7 @@ const pollForFrame = async (
 };
 
 /** Poll a boolean predicate (e.g. a vi.fn() call count) until true or throws. */
-const pollUntil = async (predicate: () => boolean, message: string, timeoutMs = 5000): Promise<void> => {
+const _pollUntil = async (predicate: () => boolean, message: string, timeoutMs = 5000): Promise<void> => {
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start >= timeoutMs) throw new Error(`Timed out waiting for: ${message}`);

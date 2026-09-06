@@ -3,6 +3,7 @@ import React from 'react';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { FileAttachment } from '../../../types/scenario';
+import { parseStyledSegments } from '../../../utils/mentionTokens';
 
 interface UserMessageBlockProps {
   prompt: string;
@@ -17,7 +18,7 @@ interface UserMessageBlockProps {
    * Used when terminal width >= 80 columns.
    */
   timestampLong?: string;
-  /** Files/folders attached to this turn (rendered as chips). */
+  /** Files/folders attached to this turn (unused in UI). */
   attachments?: FileAttachment[];
 }
 
@@ -61,9 +62,29 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
               ❯
             </Text>
           </Box>
-          <Box flexGrow={1} flexShrink={1}>
-            <Text color={theme.colors.text.bright} wrap="wrap" bold>
-              {prompt}
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+            <Text wrap="wrap">
+              {parseStyledSegments(prompt).map((seg, i) => {
+                if (seg.type === 'paste') {
+                  return (
+                    <Text key={i} color={theme.colors.status.info} bold>
+                      [{`Pasted ${seg.pasteInfo}`}]
+                    </Text>
+                  );
+                }
+                if (seg.type === 'mention') {
+                  return (
+                    <Text key={i} italic color={theme.colors.status.accent}>
+                      {seg.text}
+                    </Text>
+                  );
+                }
+                return (
+                  <Text key={i} color={theme.colors.text.bright} bold>
+                    {seg.text}
+                  </Text>
+                );
+              })}
             </Text>
           </Box>
         </Box>

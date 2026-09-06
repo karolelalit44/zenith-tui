@@ -8,6 +8,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import type { ScenarioMode } from '../../types';
 import type { FileAttachment } from '../../types/scenario';
 import { expandPastedMarkers } from '../../utils/pasteTracker';
+import { formatBytes } from '../../utils/text';
 import { ComposerFooter } from './ComposerFooter';
 import { MultiLineTextInput } from './MultiLineTextInput';
 
@@ -52,8 +53,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     disabled = false,
     disabledMessage = 'Input disabled',
     running = false,
-    attachments: _attachments = [],
-    onRemoveAttachment: _onRemoveAttachment,
+    attachments = [],
+    onRemoveAttachment,
     historyUp,
     historyDown,
     mode = 'build',
@@ -111,20 +112,45 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           }
           return true;
         }
-        if (key.escape && running && onCancel) {
+        const isEscape = Boolean(key.escape || char === '\x1b' || char === '\x1B');
+        if (isEscape && running && onCancel) {
           onCancel();
           return true;
         }
-        if (key.escape && !running && value.length > 0) {
+        if (isEscape && !running && value.length > 0) {
           onInputChange('', 0);
           if (onClearInput) {
             onClearInput();
           }
           return true;
         }
+        if (isEscape && !running && value.length === 0 && attachments.length > 0 && onRemoveAttachment) {
+          onRemoveAttachment(attachments.length - 1);
+          return true;
+        }
+        if (
+          (key.backspace || key.delete) &&
+          !running &&
+          value.length === 0 &&
+          attachments.length > 0 &&
+          onRemoveAttachment
+        ) {
+          onRemoveAttachment(attachments.length - 1);
+          return true;
+        }
         return false;
       },
-      [slashMenuOpen, onOpenHelp, onOpenMode, onInputChange, onClearInput, onCancel, running],
+      [
+        slashMenuOpen,
+        onOpenHelp,
+        onOpenMode,
+        onInputChange,
+        onClearInput,
+        onCancel,
+        running,
+        attachments,
+        onRemoveAttachment,
+      ],
     );
 
     const handleSubmit = useCallback(
@@ -147,6 +173,44 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           paddingX={1}
           paddingY={0}
         >
+          {/* Attachment Dock */}
+          {attachments.length > 0 && (
+            <Box flexDirection="row" flexWrap="wrap" marginBottom={1} alignItems="center">
+              {attachments.map((att, idx) => {
+                const isFolder = att.kind === 'folder' || att.mimeType === 'inode/directory';
+                const sizeText = att.size > 0 ? formatBytes(att.size) : '';
+                return (
+                  <Box
+                    key={`${att.path}-${idx}`}
+                    flexDirection="row"
+                    alignItems="center"
+                    marginRight={1}
+                    paddingX={1}
+                    borderStyle="single"
+                    borderColor={theme.colors.border.muted}
+                  >
+                    <Text color={isFolder ? theme.colors.status.info : theme.colors.text.muted}>
+                      {isFolder ? '📁 ' : '📄 '}
+                    </Text>
+                    <Text italic color={theme.colors.status.accent}>
+                      {att.name || att.path}
+                    </Text>
+                    {sizeText ? (
+                      <Box marginLeft={1}>
+                        <Text color={theme.colors.text.dim}>{sizeText}</Text>
+                      </Box>
+                    ) : null}
+                    {onRemoveAttachment && (
+                      <Box marginLeft={1}>
+                        <Text color={theme.colors.status.error}>×</Text>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+
           <Box flexDirection="row" width="100%" alignItems="flex-start">
             <Box flexShrink={0}>
               <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
