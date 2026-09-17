@@ -311,3 +311,56 @@ async def test_plan_mode_with_pending_todos_marked_completed(test_config):
     assert manifest.get("completed") is True
 
 
+@pytest.mark.asyncio
+async def test_prompt_mentioning_tools_auto_escalates_on_turn_1(test_config):
+    """When a prompt mentions non-seed tools (e.g. 'todo', 'explore'), they are pre-escalated on Turn 1."""
+    captured_tools = []
+
+    class _CaptureProvider(_EchoProvider):
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            captured_tools.append([t["function"]["name"] for t in (tools or [])])
+            async for chunk in super().stream(messages, tools, tool_choice, response_format):
+                yield chunk
+
+    provider = _CaptureProvider(["I have finished."])
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
+    events = []
+    async for event in agent.process_prompt(
+        "Use the todo tool to create a checklist and explore the repo.", "s_preseed", [], mode="build"
+    ):
+        events.append(event)
+
+    assert captured_tools, "stream should have been called"
+    turn1_tools = captured_tools[0]
+    assert "todo" in turn1_tools, "todo should be in turn 1 tools when mentioned in prompt"
+    assert "explore" in turn1_tools, "explore should be in turn 1 tools when mentioned in prompt"
+
+
+@pytest.mark.asyncio
+async def test_prompt_without_mentions_leaves_seed_unchanged(test_config):
+    """A prompt that does not mention non-seed tools must not escalate them on Turn 1."""
+    captured_tools = []
+
+    class _CaptureProvider(_EchoProvider):
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            captured_tools.append([t["function"]["name"] for t in (tools or [])])
+            async for chunk in super().stream(messages, tools, tool_choice, response_format):
+                yield chunk
+
+    provider = _CaptureProvider(["I have finished."])
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
+    events = []
+    async for event in agent.process_prompt(
+        "Refactor the CLI entrypoint and add tests.", "s_preseed_quiet", [], mode="build"
+    ):
+        events.append(event)
+
+    assert captured_tools, "stream should have been called"
+    turn1_tools = captured_tools[0]
+    assert "explore" not in turn1_tools, "explore should stay unoffered when not mentioned"
+    assert "websearch" not in turn1_tools, "websearch should stay unoffered when not mentioned"
+    assert "file_read" in turn1_tools, "core seed tools must remain offered"
+
+

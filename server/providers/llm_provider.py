@@ -507,6 +507,28 @@ class _RequestThrottle:
         return 0.0
 
 
+def _sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
+    """Strip internal Zenith metadata (e.g. 'digest', 'is_digested', 'time') before passing to LiteLLM.
+
+    Strict providers (e.g. Groq) reject chat completion messages containing unrecognized properties.
+    """
+    allowed_keys = {
+        "role",
+        "content",
+        "name",
+        "tool_calls",
+        "tool_call_id",
+        "function_call",
+    }
+    clean: list[dict] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            clean.append(m)
+            continue
+        clean.append({k: v for k, v in m.items() if k in allowed_keys})
+    return clean
+
+
 class LLMProvider(BaseProvider):
     def __init__(
         self,
@@ -612,9 +634,10 @@ class LLMProvider(BaseProvider):
         litellm_model = self._litellm_model
         if model_override and model_override != self.model:
             litellm_model = _to_litellm_model(self._litellm_prefix, model_override)
+        clean_messages = _sanitize_messages_for_llm(messages)
         kwargs: dict = {
             "model": litellm_model,
-            "messages": messages,
+            "messages": clean_messages,
             "max_tokens": self.max_tokens,
             "stream": stream and self.streaming_enabled,
             "drop_params": True,

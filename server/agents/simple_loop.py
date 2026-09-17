@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 from server.config.constants import (
     BUILD_MODE,
     DEFAULT_FILE_READ_LINES,
+    MAX_ACTIVE_TOOLS_PER_TURN,
     MAX_STEPS_DEFAULT,
     MAX_STEPS_PROMPT,
     MAX_TOOL_OUTPUT_BASELINE,
@@ -240,6 +242,12 @@ class SimpleLoop:
         system_prompt = "\n\n".join(compose_system_context(sections))
 
         resolver = SchemaResolver(self.tool_registry, seed=build_mode_tool_seed(allowed_tools))
+        if self.tool_registry and prompt:
+            for tool_name in self.tool_registry.list_tools_for_mode(mode):
+                if len(resolver.active_names()) >= MAX_ACTIVE_TOOLS_PER_TURN:
+                    break
+                if re.search(r"\b" + re.escape(tool_name) + r"\b", prompt, re.IGNORECASE):
+                    resolver.request_tool(tool_name)
         registered_tools = set(resolver.active_names())
         openai_tools = resolver.openai_tools(mode)
 
