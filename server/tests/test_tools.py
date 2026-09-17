@@ -412,6 +412,19 @@ class TestBashTool:
         assert "PowerShell" not in schema["properties"]["command"]["description"]
         assert "Shell command" in schema["properties"]["command"]["description"]
 
+    @pytest.mark.asyncio
+    async def test_direct_file_read_refused(self, temp_dir):
+        tool = BashTool()
+        # Direct PowerShell read
+        ps_result = await tool.execute({"command": "Get-Content package.json"}, str(temp_dir))
+        assert not ps_result.success
+        assert "file_read" in ps_result.error
+
+        # Direct cat read
+        cat_result = await tool.execute({"command": "cat server/api/websocket.py"}, str(temp_dir))
+        assert not cat_result.success
+        assert "file_read" in cat_result.error
+
 
 def _python_cmd() -> str:
     if " " in sys.executable:

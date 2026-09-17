@@ -1,7 +1,7 @@
 import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BootLoading } from './components/BootLoading';
-import { ScenarioRenderer } from './components/Display/Scenario';
+import { PinnedTodoCard, ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScrollIndicator } from './components/Display/ScrollIndicator';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
@@ -40,6 +40,7 @@ import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
+import { consolidateTodoBoardEvents } from './utils/todoBoard';
 import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
 import { resolveWorkspaceRoot } from './utils/workspacePath';
 
@@ -259,6 +260,19 @@ export const App: React.FC = () => {
     }
     return map;
   }, [completedTurns]);
+
+  // Derive the active todo board from the live event stream, or fall back to
+  // the latest turn's todo board if live stream has ended.
+  const activeTodoBoard = useMemo(() => {
+    const liveBoard = consolidateTodoBoardEvents(events);
+    if (liveBoard && liveBoard.board && liveBoard.board.length > 0) return liveBoard;
+    if (isRunning) return null;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turnBoard = consolidateTodoBoardEvents(turns[i].events);
+      if (turnBoard && turnBoard.board && turnBoard.board.length > 0) return turnBoard;
+    }
+    return null;
+  }, [events, turns, isRunning]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -730,6 +744,12 @@ export const App: React.FC = () => {
                 onSelect={(value) => (value === 'retry' ? handleRetry() : handleRetryDismiss())}
                 onClose={handleRetryDismiss}
               />
+            )}
+
+            {activeTodoBoard && (
+              <Box marginBottom={1} width="100%">
+                <PinnedTodoCard event={activeTodoBoard} isRunning={isRunning} />
+              </Box>
             )}
 
             <CommandInput

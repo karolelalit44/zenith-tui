@@ -114,10 +114,12 @@ async def _do_startup() -> None:
                 "Active provider '%s' not configured yet", config.active_provider or "(none)"
             )
         registry = ProviderRegistry.from_config(config.providers, config.active_provider)
-        logger.info("Providers registered: %s", registry.list_providers())
         active_provider = registry.get(config.active_provider)
         tool_registry = create_default_registry(
-            timeout=config.tools.max_bash_timeout, provider=active_provider
+            timeout=config.tools.max_bash_timeout,
+            provider=active_provider,
+            hooks=config.hooks,
+            config=config,
         )
         _handler = ZenithHandler(
             config=config, home=home, registry=registry, tool_registry=tool_registry

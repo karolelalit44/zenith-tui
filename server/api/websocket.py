@@ -199,6 +199,7 @@ class ZenithHandler:
             timeout=config.tools.max_bash_timeout,
             provider=registry.get(config.active_provider),
             hooks=config.hooks,
+            config=config,
         )
         from server.sessions.service import DefaultSessionService
 

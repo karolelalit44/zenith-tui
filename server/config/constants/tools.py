@@ -66,18 +66,18 @@ BASH_WORKDIR_PARAM = "workdir"
 AUTO_LINT_FIX_ENABLED = True
 
 BASH_TOOL_DESCRIPTION_WINDOWS = (
-    "Run a PowerShell command in the workspace (PowerShell syntax only; never Unix "
-    "commands like ls -la, grep, mkdir -p). Prefer glob/grep/list_dir for file "
-    "discovery: faster and ignore-safe. Unbounded recursive listings (Get-ChildItem "
-    "-Recurse without -First N, tree, ls -R, find .) are refused; scope and limit "
-    "them. To act in a subfolder, start with 'Set-Location <folder>;'."
+    "Run a PowerShell command in the workspace for process execution (tests, lint, "
+    "build). PowerShell only; never Unix commands like ls -la, mkdir -p. NEVER use "
+    "bash to read, write, or edit files: use file_read, file_write, file_edit. Prefer "
+    "glob/grep/list_dir. Unbounded recursive listings (Get-ChildItem -Recurse, tree) "
+    "are refused; scope them. To act in a subfolder: 'Set-Location <folder>;'."
 )
 BASH_TOOL_DESCRIPTION_UNIX = (
-    "Run a shell command in the workspace (POSIX/bash syntax only: mkdir -p, ls, "
-    "grep, rm; never PowerShell cmdlets). Prefer glob/grep/list_dir for file "
-    "discovery: faster and ignore-safe. Unbounded recursive listings (ls -R, tree, "
-    "find . without -maxdepth) are refused; scope and limit them. To act in a "
-    "subfolder, start with 'cd <folder> &&'."
+    "Run a shell command in the workspace for process execution (tests, lint, build). "
+    "POSIX/bash only: mkdir -p, rm; never PowerShell. NEVER use bash to read, write, "
+    "or edit files: use file_read, file_write, file_edit. Prefer glob/grep/list_dir. "
+    "Unbounded recursive listings (ls -R, tree, find .) are refused; scope them. "
+    "To act in a subfolder: 'cd <folder> &&'."
 )
 
 BASH_TOOL_COMMAND_PARAM_WINDOWS = "PowerShell command to execute (Windows PowerShell syntax only)"

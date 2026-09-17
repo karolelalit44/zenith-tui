@@ -216,9 +216,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
             orchInserted = true;
           }
         } else if (e.kind === 'todo_board') {
-          // Fold every board snapshot into ONE minimal window (checkbox + SN +
-          // name, capped at 10 rows).
-          if (!boardInserted && consolidatedBoard) {
+          // Fold every board snapshot into ONE minimal window in historical/transcript view.
+          // In live interactive mode, tasks are rendered in the pinned modern card above the input box.
+          if (isHistorical && !boardInserted && consolidatedBoard) {
             result.push(consolidatedBoard);
             boardInserted = true;
           }

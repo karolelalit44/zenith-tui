@@ -384,3 +384,19 @@ def test_parallel_fanout_runs_batch_and_merges_duplicates(config, temp_dir):
     # point of fan-out dedupe is avoiding duplicate spend.
     child_missions = [p for p in provider.prompts if "OUTPUT CONTRACT" in p]
     assert len(child_missions) == 2, f"expected 2 crewmate missions, got {len(child_missions)}"
+
+
+def test_explore_tool_registered_in_server_registry(temp_dir):
+    """Ensure ExploreTool is registered when create_default_registry is passed config."""
+    from server.config.settings import AppSettings
+    from server.toolkit import create_default_registry
+
+    config = AppSettings(
+        workspace_root=str(temp_dir),
+        explore_delegation="tool",
+    )
+    registry = create_default_registry(config=config)
+    explore_tool = registry.get("explore")
+    assert explore_tool is not None
+    assert explore_tool.name == "explore"
+

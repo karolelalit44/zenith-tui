@@ -629,15 +629,14 @@ class SimpleLoop:
                                 any_tool_succeeded = True
                                 read_files.add(read_path)
                                 record_read(session_id, read_path)
+                                cached_result = ToolResult(
+                                    success=True, output=cached, metadata=metadata
+                                )
+                                content = format_tool_result(tool_name, cached_result)
                                 messages.append(
                                     {
                                         "role": "user",
-                                        "content": (
-                                             f"[Tool: file_read | Status: SUCCESS] "
-                                             f"(range already read this turn from unchanged "
-                                             f"'{read_path}'; full content is above — do not "
-                                             "read again.)"
-                                        ),
+                                        "content": content,
                                         "digest": "file_read: ok",
                                     }
                                 )

@@ -93,6 +93,21 @@ def _assess_enumeration(command: str, workspace_root: str) -> str | None:
             "scope to a subdirectory, or pipe through 'head'."
         )
 
+_DIRECT_FILE_READ = re.compile(
+    r"^\s*(?:cat|type|Get-Content|gc)\s+['\"]?([^\s|><;]+)['\"]?(?:\s+-(?:TotalCount|First|Head)\s+\d+)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _assess_direct_file_read(command: str) -> str | None:
+    stripped = command.strip()
+    m = _DIRECT_FILE_READ.match(stripped)
+    if m:
+        path = m.group(1)
+        return (
+            f"Refused: Do not use shell commands to read files ('{path}'). "
+            f"Use the dedicated 'file_read' tool with path='{path}'."
+        )
     return None
 
 
@@ -162,6 +177,9 @@ class BashTool(BaseTool):
             except Exception:
                 detail = ""
             return ToolResult(success=False, error=f"{refusal}{detail}")
+        read_refusal = _assess_direct_file_read(command)
+        if read_refusal:
+            return ToolResult(success=False, error=read_refusal)
         if run_in_background:
             return await self._start_background(command, workdir, params.get("description", ""))
         return await self._execute_streamed(command, workdir, timeout)

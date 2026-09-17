@@ -427,5 +427,48 @@ async def test_read_only_tool_re_execution_allowed(test_config):
     assert len(glob_calls) == 2, f"Expected 2 glob executions, got {len(glob_calls)}"
 
 
+@pytest.mark.asyncio
+async def test_cached_file_read_provides_content_to_messages(test_config):
+    """When a file is re-read from cache, the message must contain the file content, not a placeholder."""
+    sample = Path(test_config.workspace_root) / "sample.py"
+    sample.write_text("hello_world = 42\n", encoding="utf-8")
+
+    captured_messages = []
+
+    class _CaptureProvider(_EchoProvider):
+        async def complete(self, messages, tools=None):
+            captured_messages.append(list(messages))
+            return await super().complete(messages, tools)
+
+    provider = _CaptureProvider(
+        [
+            # Turn 1: Initial read
+            '```tool\n{"tool": "file_read", "params": {"path": "sample.py"}}\n```',
+            # Turn 2: Re-read the same file (served from cache)
+            '```tool\n{"tool": "file_read", "params": {"path": "sample.py"}}\n```',
+            # Turn 3: Conclude
+            "Done analyzing sample.py",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Read sample", "s_cached_read", []):
+        events.append(event)
+
+    # In turn 3 (index 2), the LLM receives messages that include the cached read tool result
+    assert len(captured_messages) >= 3
+    final_messages = captured_messages[2]
+    # The tool result for the cached read should contain "hello_world = 42"
+    tool_user_msgs = [m for m in final_messages if m.get("role") == "user" and "hello_world" in m.get("content", "")]
+    assert len(tool_user_msgs) >= 2, f"Both initial and cached reads must include the file content: {tool_user_msgs}"
+
+    # It must never contain the old toxic prompt string
+    for m in final_messages:
+        content = m.get("content", "")
+        assert "do not read again" not in content
+
+
+
 
 
