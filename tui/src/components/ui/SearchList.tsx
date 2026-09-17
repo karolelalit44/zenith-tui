@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
 import { useTheme } from '../../theme/ThemeContext';
 import { fuzzyScore, useTextBuffer } from './textBuffer';
 
@@ -34,10 +35,6 @@ interface SearchListProps<T> {
   pageSize?: number;
 }
 
-function computeVisibleCount(): number {
-  return Math.max(3, (process.stdout.rows ?? 24) - 9);
-}
-
 export function SearchList<T>({
   title,
   options,
@@ -51,19 +48,13 @@ export function SearchList<T>({
   pageSize,
 }: SearchListProps<T>): React.JSX.Element {
   const { theme } = useTheme();
+  const { rows: terminalRows } = useTerminalDimensions();
   const filter = useTextBuffer('');
   const [selected, setSelected] = useState(initialSelectedIndex);
   const [actionIndex, setActionIndex] = useState<number | null>(null);
-  const [visibleCount, setVisibleCount] = useState(computeVisibleCount);
   const [page, setPage] = useState(0);
 
-  useEffect(() => {
-    const onResize = () => setVisibleCount(computeVisibleCount());
-    process.stdout.on('resize', onResize);
-    return () => {
-      process.stdout.off('resize', onResize);
-    };
-  }, []);
+  const visibleCount = Math.max(3, (terminalRows ?? 24) - 9);
 
   const filtered = useMemo(() => {
     const needle = filter.value.trim().toLowerCase();

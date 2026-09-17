@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTerminalDimensions } from './useTerminalDimensions';
 
 export interface ScrollState {
   isUserScrolled: boolean;
@@ -18,6 +19,7 @@ export interface UseScrollStateReturn {
 }
 
 export function useScrollState(initialViewportHeight = 20): UseScrollStateReturn {
+  const { rows } = useTerminalDimensions();
   const [scrollState, setScrollState] = useState<ScrollState>({
     isUserScrolled: false,
     scrollOffset: 0,
@@ -29,17 +31,9 @@ export function useScrollState(initialViewportHeight = 20): UseScrollStateReturn
   const AUTOSCROLL_GRACE_PERIOD = 1500;
 
   useEffect(() => {
-    const updateViewport = () => {
-      const height = process.stdout.rows ? process.stdout.rows - 4 : initialViewportHeight;
-      setScrollState((prev) => ({ ...prev, viewportHeight: height }));
-    };
-
-    updateViewport();
-    process.stdout.on('resize', updateViewport);
-    return () => {
-      process.stdout.off('resize', updateViewport);
-    };
-  }, [initialViewportHeight]);
+    const height = rows ? rows - 4 : initialViewportHeight;
+    setScrollState((prev) => ({ ...prev, viewportHeight: height }));
+  }, [rows, initialViewportHeight]);
 
   const scrollUp = useCallback((lines?: number) => {
     const scrollAmount = lines ?? 5;

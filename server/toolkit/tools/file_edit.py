@@ -69,19 +69,10 @@ class FileEditTool(BaseTool):
         if not old:
             return ToolResult(success=False, error="old_content cannot be empty")
         try:
-            # Read-modify-write is atomic under the per-workspace mutation lock
-            # so concurrent edits cannot both read stale content (opencode's
-            # file-mutation Semaphore). Validation stays outside the critical
-            # section; only the filesystem read/scan-write is serialized.
             async with FILE_MUTATION_QUEUE.mutation(workspace_root):
                 content = resolved.read_text(encoding="utf-8")
-                if old in content:
-                    count = content.count(old)
-                    if count > 1:
-                        return ToolResult(
-                            success=False,
-                            error=f"Ambiguous: found {count} matches. Provide more surrounding context.",
-                        )
+                count = content.count(old)
+                if count == 1:
                     new_content = content.replace(old, new, 1)
                     resolved.write_text(new_content, encoding="utf-8")
                     return ToolResult(
@@ -93,6 +84,11 @@ class FileEditTool(BaseTool):
                             "match": "exact",
                             "diff": _unified_patch(rel_path, content, new_content),
                         },
+                    )
+                if count > 1:
+                    return ToolResult(
+                        success=False,
+                        error=f"Ambiguous: found {count} matches. Provide more surrounding context.",
                     )
                 preview = old[:80] + ("..." if len(old) > 80 else "")
                 return ToolResult(

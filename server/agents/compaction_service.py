@@ -328,6 +328,7 @@ class CompactionService:
         emit: EmittingFn | None = None,
         focus: str | None = None,
     ) -> CompactionOutcome:
+        logger.info("User initiated compaction for session %s", session_id)
         emit = emit or _noop_emit
         model = self._provider.model
         session_lock = _get_session_lock(session_id)
@@ -441,7 +442,9 @@ class CompactionService:
                 return outcome
             if prefix:
                 async with _session_lock_semaphore:
-                    summary = await ConversationSummarizer(self._config, self._provider).summarize(
+                    summary = await ConversationSummarizer(
+                        self._config, self._provider
+                    ).summarize(
                         prefix,
                         model,
                         session_id=session_id,

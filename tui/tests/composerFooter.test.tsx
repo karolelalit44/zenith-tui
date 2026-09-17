@@ -142,6 +142,27 @@ describe('ComposerFooter', () => {
     restore();
   });
 
+  it('renders Calm Mode only once', () => {
+    const restore = stubColumns(120);
+
+    const app = mount(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        effectiveMaxTokens={131072}
+        calmMode={true}
+      />,
+    );
+
+    const frame = app.lastFrame();
+    expect(frame).toContain('⟪CALM⟫');
+    expect(frame.split('⟪CALM⟫').length - 1).toBe(1);
+    restore();
+  });
+
   it('computeFooterLayout never exceeds the available width', () => {
     for (const columns of [60, 80, 100, 120, 160]) {
       const layout = computeFooterLayout({

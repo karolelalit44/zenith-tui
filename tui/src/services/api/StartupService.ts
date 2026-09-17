@@ -95,7 +95,9 @@ export class StartupService extends BaseApiService {
       return this._state;
     }
 
-    this._state = { phase: result.status === 'ready' ? 'ready' : 'setup', result, error: null };
+    // Determine readiness: if any missing config items, force setup phase
+    const phase = result.missing && result.missing.length > 0 ? 'setup' : result.status === 'ready' ? 'ready' : 'setup';
+    this._state = { phase, result, error: null };
     this._notify();
     return this._state;
   }
