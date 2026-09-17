@@ -249,6 +249,14 @@ async def startup_providers_validate(
 def _reload_config_after_validate(provider_id: str) -> None:
     if _handler is None:
         return
+    if hasattr(_handler, "_session_executors"):
+        for exc in _handler._session_executors.values():
+            if getattr(exc, "is_active", False):
+                logger.info(
+                    "Skipping provider '%s' reload after validation: active turn is executing",
+                    provider_id,
+                )
+                return
     try:
         _handler._reload_provider(provider_id)
         logger.info("Provider '%s' reloaded after validation", provider_id)

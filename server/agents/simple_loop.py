@@ -541,7 +541,13 @@ class SimpleLoop:
                 tool_params = normalize_file_params(tc.get("params", {}), tool_name)
                 sig = (tool_name, _json_sig(tool_params))
 
-                is_dup = sig in executed_calls
+                tool_instance = self.tool_registry.get(tool_name) if self.tool_registry else None
+                is_read_only = bool(
+                    (tool_instance and getattr(tool_instance, "read_only", False))
+                    or (tool_name == "todo" and tool_params.get("action") in ("list", "read"))
+                )
+
+                is_dup = (sig in executed_calls) and not is_read_only
                 has_substantive_answer = bool(
                     current_turn_emitted
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
@@ -659,6 +665,7 @@ class SimpleLoop:
                             ),
                         }
                     )
+                    has_rejected_call_this_turn = True
                     continue
 
                 reject_msg = validate_tool_rejection(
@@ -804,6 +811,35 @@ class SimpleLoop:
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
                 if has_substantive_answer:
+                    from server.agents.todo_state import get_todo_state
+
+                    todo = get_todo_state(session_id)
+                    has_active_todos = bool(
+                        mode != PLAN_MODE
+                        and todo
+                        and any(e.status in ("pending", "in_progress") for e in todo.list())
+                    )
+                    if (
+                        has_active_todos
+                        and nudges < 2
+                        and iteration < max_steps - 1
+                    ):
+                        nudges += 1
+                        active_tasks = (
+                            [e for e in todo.list() if e.status in ("pending", "in_progress")]
+                            if todo
+                            else []
+                        )
+                        if active_tasks:
+                            active_summary = ", ".join(f"{t.id}: {t.title}" for t in active_tasks[:3])
+                            nudge_content = (
+                                f"Please proceed with the task checklist (active: {active_summary}). "
+                                "Execute the next step using the available tools."
+                            )
+                        else:
+                            nudge_content = "Please proceed with the next step or task."
+                        messages.append({"role": "user", "content": nudge_content})
+                        continue
                     break
                 stall_count += 1
                 if stall_count >= 2:

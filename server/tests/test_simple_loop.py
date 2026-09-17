@@ -364,3 +364,68 @@ async def test_prompt_without_mentions_leaves_seed_unchanged(test_config):
     assert "file_read" in turn1_tools, "core seed tools must remain offered"
 
 
+@pytest.mark.asyncio
+async def test_substantive_answer_with_duplicate_tool_nudges_when_todos_remain(test_config):
+    """When a turn emits a duplicate tool call and substantive text while todos are active, it must nudge instead of emergent-stopping."""
+    provider = _EchoProvider(
+        [
+            # Turn 1: Write todo list with active task
+            '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "t1", "title": "Clean up files", "status": "in_progress"}]}}\n```',
+            # Turn 2: Model re-emits same todo call with substantive progress sentence (>= 40 chars)
+            'I will create the checklist and execute step 1 of the audit right away.\n```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "t1", "title": "Clean up files", "status": "in_progress"}]}}\n```',
+            # Turn 3: Final response after nudge
+            "Finished execution successfully.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Clean up files", "s_dup_nudge", []):
+        events.append(event)
+
+    # 1: tool call (write todo)
+    # 2: duplicate call + text with active todos -> nudge 1 (prevent early emergent stop)
+    # 3: text response with todos still active -> nudge 2
+    # 4: final text response -> nudges limit reached (2), loop cleanly stops
+    assert provider.call_count == 4, f"Expected 4 calls (tool, dup+nudge 1, nudge 2, exit), got {provider.call_count}"
+    success_events = [e for e in events if e.kind == EventKind.SUCCESS]
+    assert success_events, "Turn should conclude with SUCCESS event"
+    manifest = success_events[-1].data.get("manifest", {})
+    assert manifest.get("completed") is False
+    assert "active tasks remaining" in success_events[-1].data.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_read_only_tool_re_execution_allowed(test_config):
+    """Read-only discovery tools like glob should not be blocked by duplicate call suppression."""
+    provider = _EchoProvider(
+        [
+            # Turn 1: Initial glob
+            '```tool\n{"tool": "glob", "params": {"pattern": "*.txt"}}\n```',
+            # Turn 2: Write a file
+            '```tool\n{"tool": "file_write", "params": {"path": "test.txt", "content": "hello"}}\n```',
+            # Turn 3: Re-run the exact same glob to see the newly created file
+            '```tool\n{"tool": "glob", "params": {"pattern": "*.txt"}}\n```',
+            # Turn 4: Final response
+            "All done.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Find and create files", "s_ro_repeat", []):
+        events.append(event)
+
+    duplicate_warnings = [
+        e for e in events if e.kind == EventKind.WARNING and e.data.get("code") == "DUPLICATE_CALL"
+    ]
+    assert not duplicate_warnings, "Read-only glob should never emit DUPLICATE_CALL warning"
+
+    glob_calls = [
+        e for e in events if e.kind == EventKind.TOOL_CALL and e.data.get("tool") == "glob"
+    ]
+    assert len(glob_calls) == 2, f"Expected 2 glob executions, got {len(glob_calls)}"
+
+
+
+

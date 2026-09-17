@@ -391,6 +391,10 @@ class PromptExecutor:
         self._specialist_registry = SpecialistRegistry.default()
         self._repo_intelligence_cache = RepositoryIntelligenceCache()
 
+    @property
+    def is_active(self) -> bool:
+        return bool(self._active_task and not self._active_task.done())
+
     def cancel_active(self) -> None:
         if self._active_task and (not self._active_task.done()):
             self._active_task.cancel()
