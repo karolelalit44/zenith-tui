@@ -44,6 +44,8 @@ interface CommandInputProps {
   onClearInput?: () => void;
 
   slashMenuOpen?: boolean;
+  /** Whether Calm Mode is active. */
+  calmMode?: boolean;
 }
 
 export const CommandInput: React.FC<CommandInputProps> = React.memo(
@@ -60,6 +62,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     historyUp,
     historyDown,
     mode = 'build',
+    calmMode,
     maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
     runTokens,
     runEstimated,
@@ -275,6 +278,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             runEstimated={runEstimated}
             contextPercent={contextPercent}
             windowEstimated={windowEstimated}
+            calmMode={calmMode}
           />
         </Box>
       </Box>

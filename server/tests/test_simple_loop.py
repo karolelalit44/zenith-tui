@@ -102,6 +102,41 @@ async def test_tool_then_stop_executes_and_ends(test_config):
 
 
 @pytest.mark.asyncio
+async def test_failed_file_edit_duplicate_is_not_re_executed(test_config):
+    """A failed file_edit call must be treated as a duplicate if the model repeats it unchanged."""
+    from pathlib import Path
+
+    root = Path(test_config.workspace_root)
+    (root / "edit.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+
+    provider = _EchoProvider(
+        [
+            '```tool\n{"tool": "file_edit", "params": {"path": "edit.txt", "old_content": "gamma", "new_content": "delta"}}\n```',
+            '```tool\n{"tool": "file_edit", "params": {"path": "edit.txt", "old_content": "gamma", "new_content": "delta"}}\n{"tool": "file_write", "params": {"path": "done.txt", "content": "ok"}}\n```',
+            "Done.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Fix the file", "s_failed_edit", []):
+        events.append(event)
+
+    edit_results = [
+        e for e in events if e.kind == EventKind.TOOL_RESULT and e.data.get("tool") == "file_edit"
+    ]
+    assert len(edit_results) == 1, "the failed edit must not re-execute when repeated verbatim"
+    assert edit_results[0].data.get("success") is False, "the first edit attempt must still run and fail"
+    warnings = [e for e in events if e.kind == EventKind.WARNING]
+    assert any(
+        "file_edit(path=edit.txt) [failed]" in (e.data.get("message") or "")
+        for e in warnings
+    )
+    assert (root / "done.txt").exists(), "new work after the duplicate edit must still run"
+    assert events[-1].kind == EventKind.SUCCESS
+
+
+@pytest.mark.asyncio
 async def test_doom_loop_guard_stops_turn(test_config):
     """Repeated identical tool calls hit DOOM_LOOP_THRESHOLD and end the turn."""
     call = (

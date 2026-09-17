@@ -548,8 +548,41 @@ class TestFileEditTool:
         assert "not found" in result.error
 
     @pytest.mark.asyncio
+    async def test_edit_multiline_exact_match(self, temp_dir):
+        original = (
+            "before\n"
+            '<Text color={theme.colors.text.emerald} wrap="truncate-end">\n'
+            "  {layout.modeLabel}\n"
+            "</Text>\n"
+            "after\n"
+        )
+        old_content = (
+            '<Text color={theme.colors.text.emerald} wrap="truncate-end">\n'
+            "  {layout.modeLabel}\n"
+            "</Text>\n"
+        )
+        new_content = (
+            '<Text color={theme.colors.text.emerald} wrap="truncate-end">\n'
+            "  {layout.modeLabel} updated\n"
+            "</Text>\n"
+        )
+        (temp_dir / "edit.txt").write_text(original, encoding="utf-8")
+        tool = FileEditTool()
+        result = await tool.execute(
+            {
+                "path": "edit.txt",
+                "old_content": old_content,
+                "new_content": new_content,
+            },
+            str(temp_dir),
+        )
+        assert result.success
+        assert result.metadata.get("match") == "exact"
+        assert "updated" in (temp_dir / "edit.txt").read_text()
+
+    @pytest.mark.asyncio
     async def test_edit_ambiguous_match(self, temp_dir):
-        (temp_dir / "edit.txt").write_text("aaa bbb aaa")
+        (temp_dir / "edit.txt").write_text("aaa\nbbb\naaa\n")
         tool = FileEditTool()
         result = await tool.execute(
             {"path": "edit.txt", "old_content": "aaa", "new_content": "ccc"}, str(temp_dir)

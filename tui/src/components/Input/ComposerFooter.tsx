@@ -20,6 +20,8 @@ interface ComposerFooterProps {
   contextPercent?: number;
   /** True when the context-window denominator is a fallback estimate. */
   windowEstimated?: boolean;
+  /** Whether Calm Mode is active. **/
+  calmMode?: boolean;
 }
 
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
@@ -34,6 +36,7 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     runEstimated,
     contextPercent,
     windowEstimated,
+    calmMode,
   }) => {
     const { theme } = useTheme();
     const { columns } = useTerminalDimensions();
@@ -87,6 +90,11 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
             </Text>
           ) : (
             <Text> </Text>
+          )}
+          {calmMode && (
+            <Box marginRight={1}>
+              <Text color={theme.colors.status.accent}>⟪CALM⟫</Text>
+            </Box>
           )}
           <Text color={theme.colors.text.muted} wrap="truncate-end">
             {layout.tokenUsage}

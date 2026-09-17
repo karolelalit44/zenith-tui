@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fuzzyScore, useTextBuffer } from '../../components/ui/textBuffer';
+import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
 import type { SessionSummary } from '../../services/transport/WebSocketClient';
 import { wsClient } from '../../services/transport/WebSocketClient';
 import { useTheme } from '../../theme/ThemeContext';
@@ -34,34 +35,22 @@ function deriveTitle(summary: SessionSummary): string {
   return 'Untitled Session';
 }
 
-function computeVisibleCount(): number {
-  return Math.max(3, (process.stdout.rows ?? 24) - 12);
-}
-
 export const SessionBrowserModal: React.FC<SessionBrowserModalProps> = ({ onClose, onResume }) => {
   const { theme } = useTheme();
+  const { rows } = useTerminalDimensions();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(0);
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const filter = useTextBuffer('');
-  const [visibleCount, setVisibleCount] = useState(computeVisibleCount);
+  const visibleCount = Math.max(3, (rows ?? 24) - 12);
   const mounted = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-    };
-  }, []);
-
-  // Resize handler
-  useEffect(() => {
-    const onResize = () => setVisibleCount(computeVisibleCount());
-    process.stdout.on('resize', onResize);
-    return () => {
-      process.stdout.off('resize', onResize);
     };
   }, []);
 

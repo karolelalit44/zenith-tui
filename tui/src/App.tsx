@@ -701,6 +701,7 @@ export const App: React.FC = () => {
             )}
 
             <CommandInput
+              calmMode={calmMode}
               input={input}
               onInputChange={handleInputChange}
               onSubmit={handleSubmit}

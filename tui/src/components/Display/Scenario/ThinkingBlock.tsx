@@ -28,10 +28,14 @@ function hasRealReasoning(event: ThinkingEvent): boolean {
 
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
+  // Hide the thinking block entirely when Calm Mode is enabled.
+  if (context?.calmMode === true) {
+    return null;
+  }
 
-  // Reasoning is FULLY VISIBLE by default. It only collapses when calm mode
-  // is on, or when the user explicitly toggled it (ctrl+h / /think).
-  const isCollapsed = context?.calmMode === true || context?.thinkingCollapsed === true;
+  // Reasoning is FULLY VISIBLE by default. It only collapses when the user
+  // explicitly toggles it (ctrl+h / /think).
+  const isCollapsed = context?.thinkingCollapsed === true;
 
   if (!hasRealReasoning(event)) {
     return null;
