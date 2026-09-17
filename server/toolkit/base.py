@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
+import json
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -134,12 +135,25 @@ def decode_parameters(parameters: dict[str, Any] | None, params: dict[str, Any])
     back to the model.
     """
     schema = parameters or {}
+    properties = schema.get("properties") or {}
+    for key, spec in properties.items():
+        if key in params and isinstance(params[key], str):
+            expected_type = spec.get("type")
+            if expected_type in ("array", "object"):
+                try:
+                    parsed = json.loads(params[key])
+                    if (expected_type == "array" and isinstance(parsed, list)) or (
+                        expected_type == "object" and isinstance(parsed, dict)
+                    ):
+                        params[key] = parsed
+                except (ValueError, TypeError):
+                    pass
     required = schema.get("required") or []
     for key in required:
         if key not in params:
             raise InvalidToolArgumentsError(f"Missing required argument '{key}'")
     if schema.get("additionalProperties", True) is False:
-        props = set(schema.get("properties") or {})
+        props = set(properties)
         for key in params:
             if key not in props:
                 raise InvalidToolArgumentsError(f"Unexpected argument '{key}' not in schema")

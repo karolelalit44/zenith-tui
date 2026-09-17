@@ -97,3 +97,37 @@ def test_parse_bracket_ignores_tool_result():
     assert "Found 3 files" in clean
 
 
+def test_parse_tool_calls_with_stringified_arguments():
+    text = '```tool\n{"tool": "bash", "arguments": "{\\"command\\": \\"ls -la\\"}"}\n```'
+    calls = parse_tool_calls(text)
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "bash"
+    assert calls[0]["params"]["command"] == "ls -la"
+
+
+def test_parse_tool_calls_with_stringified_params():
+    text = '```tool\n{"tool": "glob", "params": "{\\"pattern\\": \\"*.py\\"}"}\n```'
+    calls = parse_tool_calls(text)
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "glob"
+    assert calls[0]["params"]["pattern"] == "*.py"
+
+
+def test_remap_native_tool_call_stringified_params():
+    tc = {"tool": "file_read", "params": '{"path": "foo.py"}'}
+    remapped = UnifiedResponseFormatter._remap_native_tool_call(tc)
+    assert remapped is not None
+    assert remapped["tool"] == "file_read"
+    assert remapped["params"]["path"] == "foo.py"
+
+
+def test_parse_tool_calls_malformed_string_params_falls_back_to_empty():
+    text = '```tool\n{"tool": "bash", "params": "not valid json"}\n```'
+    calls = parse_tool_calls(text)
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "bash"
+    assert calls[0]["params"] == {}
+
+
+
+
