@@ -24,6 +24,8 @@ interface ScenarioRendererProps {
   historyExpanded?: boolean;
   workspaceName?: string;
   gitBranch?: string;
+  scrollOffset?: number;
+  maxDynamicLines?: number;
 }
 
 class EventErrorBoundary extends Component<
@@ -58,6 +60,8 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     historyExpanded = false,
     workspaceName,
     gitBranch,
+    scrollOffset,
+    maxDynamicLines,
   }) => {
     const { theme } = useTheme();
 
@@ -69,8 +73,10 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         isRunning,
         workspaceName,
         gitBranch,
+        scrollOffset,
+        maxDynamicLines,
       }),
-      [thinkingCollapsed, calmMode, isHistorical, isRunning, workspaceName, gitBranch],
+      [thinkingCollapsed, calmMode, isHistorical, isRunning, workspaceName, gitBranch, scrollOffset, maxDynamicLines],
     );
 
     const rows = process.stdout.rows ?? 24;

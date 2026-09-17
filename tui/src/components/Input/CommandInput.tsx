@@ -43,6 +43,8 @@ interface CommandInputProps {
   onOpenMode?: () => void;
   onClearInput?: () => void;
 
+  scrollUp?: (lines?: number) => void;
+  scrollDown?: (lines?: number) => void;
   slashMenuOpen?: boolean;
   /** Whether Calm Mode is active. */
   calmMode?: boolean;
@@ -74,6 +76,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onOpenHelp,
     onOpenMode,
     onClearInput,
+    scrollUp,
+    scrollDown,
     slashMenuOpen = false,
   }) => {
     const { theme } = useTheme();
@@ -100,6 +104,16 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
           if (key.upArrow || key.downArrow || isEnter || key.tab || key.escape) return true;
           return false;
+        }
+        if (running && !value.trim()) {
+          if (key.upArrow && scrollUp) {
+            scrollUp(3);
+            return true;
+          }
+          if (key.downArrow && scrollDown) {
+            scrollDown(3);
+            return true;
+          }
         }
         if (!value.trim() && char === '?' && onOpenHelp) {
           onOpenHelp();
@@ -169,6 +183,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
         onClearInput,
         onCancel,
         running,
+        scrollUp,
+        scrollDown,
         attachments,
         onRemoveAttachment,
         onClearAttachments,

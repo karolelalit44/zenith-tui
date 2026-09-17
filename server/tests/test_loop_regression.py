@@ -136,6 +136,33 @@ class _ConsecutiveFailureProvider(BaseProvider):
         return ["consec-model"]
 
 
+class _ParallelBatchFailureProvider(BaseProvider):
+    """Emits a single turn with 6 successful writes and 4 failing reads."""
+
+    def __init__(self):
+        super().__init__("parallel-batch", "parallel-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        if self.call_count == 1:
+            calls = []
+            for i in range(6):
+                calls.append(f'{{"tool": "file_write", "params": {{"path": "success_{i}.txt", "content": "ok"}}}}')
+            for i in range(4):
+                calls.append(f'{{"tool": "file_read", "params": {{"path": "missing_{i}.txt"}}}}')
+            return "```tool\n" + "\n".join(calls) + "\n```"
+        return "The task is complete after parallel batch with some missing files."
+
+    stream = _stream_from_complete
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["parallel-model"]
+
+
 class _RateLimitProvider(BaseProvider):
     """Raises a non-recoverable rate limit on the first stream call."""
 
@@ -461,6 +488,46 @@ async def test_consecutive_failures_trigger_reflection_limit(test_config):
     ]
     assert limit_errors, "REFLECTION_LIMIT should fire on a streak of consecutive failures"
     assert limit_errors[0].data.get("recoverable") is True
+
+
+@pytest.mark.asyncio
+async def test_parallel_tool_batch_partial_failures_do_not_abort(test_config):
+    """Parallel tool batches where some tools fail (e.g. missing files) must not trip REFLECTION_LIMIT."""
+    provider = _ParallelBatchFailureProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Do the work", "s1", [], "build"):
+        events.append(event)
+
+    limit_errors = [
+        e
+        for e in events
+        if e.kind == EventKind.ERROR and (e.data.get("code") or "") == "REFLECTION_LIMIT"
+    ]
+    assert not limit_errors, f"REFLECTION_LIMIT fired despite successful writes in batch: {limit_errors}"
+
+    writes = [
+        e
+        for e in events
+        if e.kind == EventKind.TOOL_RESULT
+        and e.data.get("tool") == "file_write"
+        and e.data.get("success")
+    ]
+    assert len(writes) == 6, f"expected 6 successful writes, got {len(writes)}"
+
+    reads = [
+        e
+        for e in events
+        if e.kind == EventKind.TOOL_RESULT
+        and e.data.get("tool") == "file_read"
+        and not e.data.get("success")
+    ]
+    assert len(reads) == 4, f"expected 4 failed read results delivered to context, got {len(reads)}"
+
+    assert any((e.data.get("text") or "").startswith("The task is complete") for e in events), (
+        "final answer never emitted"
+    )
 
 
 @pytest.mark.asyncio

@@ -122,6 +122,7 @@ class ConnectionManager(TransportService):
                 await ws.send_text(payload)
             except Exception as exc:
                 logger.warning("WS SEND FAIL session=%s kind=%s: %s", session_id, event.kind, exc)
+                self.disconnect(session_id)
         else:
             logger.debug(
                 "WS BUFFER session=%s kind=%s buffer_size=%d", session_id, event.kind, len(buf)
@@ -285,8 +286,10 @@ class ZenithHandler:
             ping_task = asyncio.ensure_future(_keepalive_ping())
             while True:
                 raw = await websocket.receive_text()
+                req_id = 0
                 try:
                     data = json.loads(raw)
+                    req_id = data.get("id", 0) if isinstance(data, dict) else 0
                     request = JsonRpcRequest(**data)
                     session_id = await self.handlers.dispatch(
                         websocket, request.method, request.id, request.params, session_id
@@ -294,16 +297,24 @@ class ZenithHandler:
                     if session_id:
                         await self.manager.register(session_id, websocket)
                 except json.JSONDecodeError as e:
-                    await websocket.send_text(make_error_response(0, -32700, f"Parse error: {e}"))
+                    try:
+                        await websocket.send_text(make_error_response(0, -32700, f"Parse error: {e}"))
+                    except Exception:
+                        break
                 except ValidationError as e:
-                    await websocket.send_text(
-                        make_error_response(0, -32600, f"Invalid request: {e}")
-                    )
+                    try:
+                        await websocket.send_text(
+                            make_error_response(req_id, -32600, f"Invalid request: {e}")
+                        )
+                    except Exception:
+                        break
                 except Exception as e:
                     logger.exception("Handler error")
-                    rid_val = getattr(request, "id", 0) if "request" in locals() else 0
-                    await websocket.send_text(make_error_response(rid_val or 0, -32603, str(e)))
-        except WebSocketDisconnect:
+                    try:
+                        await websocket.send_text(make_error_response(req_id, -32603, str(e)))
+                    except Exception:
+                        break
+        except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             if ping_task:

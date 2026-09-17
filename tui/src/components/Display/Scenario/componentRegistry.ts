@@ -24,6 +24,8 @@ export interface EventRenderContext {
   isRunning?: boolean;
   workspaceName?: string;
   gitBranch?: string;
+  maxDynamicLines?: number;
+  scrollOffset?: number;
 }
 
 export type EventComponentType = React.ComponentType<{

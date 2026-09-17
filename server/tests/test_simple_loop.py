@@ -237,3 +237,77 @@ async def test_file_write_with_template_placeholder_rejected_and_reflected(test_
     assert target.is_file(), "config.py should have been written on retry"
     assert "real-secret-123" in target.read_text(encoding="utf-8")
 
+
+@pytest.mark.asyncio
+async def test_transitional_nudge_and_honest_completion(test_config):
+    """If the model emits transitional commentary while tasks are pending, the loop nudges it to continue."""
+    provider = _EchoProvider(
+        [
+            # Turn 1: Write todo list
+            '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "t1", "title": "Audit websocket", "status": "in_progress"}]}}\n```',
+            # Turn 2: Transitional commentary without tool call
+            "Now let me read the code to finish the audit.",
+            # Turn 3: Final response after nudge
+            "Audit findings: 0 unhandled exceptions found.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Audit websocket", "s_nudge", []):
+        events.append(event)
+
+    # Provider is called:
+    # 1: tool call (write todo)
+    # 2: transitional commentary -> nudge 1
+    # 3: first text response with todos still active -> nudge 2
+    # 4: final text response -> nudges limit reached (2), loop cleanly stops
+    assert provider.call_count == 4, f"Expected 4 calls (tool + 2 nudges + exit), got {provider.call_count}"
+    success_events = [e for e in events if e.kind == EventKind.SUCCESS]
+    assert success_events, "Turn should conclude with SUCCESS event"
+    # Because task t1 was never completed in todo, completed should be False
+    manifest = success_events[-1].data.get("manifest", {})
+    assert manifest.get("completed") is False
+    assert "active tasks remaining" in success_events[-1].data.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_conversational_response_no_nudge_without_todos(test_config):
+    """If no active tasks exist, conversational responses starting with 'Let me' or 'I will' must not be nudged."""
+    provider = _EchoProvider(["Let me explain how the architecture works in detail."])
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Explain the architecture", "s_conv", []):
+        events.append(event)
+
+    assert provider.call_count == 1, f"Expected exactly 1 call (no nudges), got {provider.call_count}"
+    success_events = [e for e in events if e.kind == EventKind.SUCCESS]
+    assert success_events, "Turn should conclude with SUCCESS event"
+    manifest = success_events[-1].data.get("manifest", {})
+    assert manifest.get("completed") is True
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_with_pending_todos_marked_completed(test_config):
+    """In PLAN_MODE, generating a todo list with pending tasks is the desired deliverable, so completed must be True."""
+    from server.config.constants.agent import PLAN_MODE
+
+    provider = _EchoProvider(
+        [
+            '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "t1", "title": "Implement feature", "status": "pending"}]}}\n```',
+            "Plan drafted and tasks created.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Plan feature", "s_plan_todo", [], mode=PLAN_MODE):
+        events.append(event)
+
+    success_events = [e for e in events if e.kind == EventKind.SUCCESS]
+    assert success_events
+    manifest = success_events[-1].data.get("manifest", {})
+    assert manifest.get("completed") is True
+
+

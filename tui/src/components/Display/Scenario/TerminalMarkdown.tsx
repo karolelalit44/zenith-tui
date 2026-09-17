@@ -7,6 +7,9 @@ import { truncateEnd } from '../../../utils/text';
 
 interface TerminalMarkdownProps {
   content: string;
+  isRunning?: boolean;
+  maxLines?: number;
+  scrollOffset?: number;
 }
 
 interface InlineToken {
@@ -196,12 +199,63 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   );
 };
 
-export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) => {
+export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
+  content,
+  isRunning = false,
+  maxLines,
+  scrollOffset,
+}) => {
   const { theme } = useTheme();
 
   if (!content) return null;
 
-  const rawLines = content.split('\n');
+  const allRawLines = content.split('\n');
+  const shouldWindow = isRunning && Boolean(maxLines && maxLines > 0 && allRawLines.length > maxLines);
+
+  let rawLines = allRawLines;
+  let hiddenAbove = 0;
+  let hiddenBelow = 0;
+
+  if (shouldWindow && maxLines) {
+    const total = allRawLines.length;
+    const maxOffset = Math.max(0, total - maxLines);
+    const start = scrollOffset !== undefined ? Math.max(0, Math.min(maxOffset, scrollOffset)) : maxOffset;
+    const end = Math.min(total, start + maxLines);
+
+    hiddenAbove = start;
+    hiddenBelow = total - end;
+
+    let inCode = false;
+    let codeLang = '';
+    for (let i = 0; i < start; i++) {
+      const trimmed = allRawLines[i].trim();
+      if (trimmed.startsWith('```')) {
+        if (inCode) {
+          inCode = false;
+          codeLang = '';
+        } else {
+          inCode = true;
+          codeLang = trimmed.replace(/^```/, '');
+        }
+      }
+    }
+
+    const sliced = allRawLines.slice(start, end);
+    if (inCode) {
+      sliced.unshift(`\`\`\`${codeLang}`);
+    }
+    let sliceInCode = inCode;
+    for (const l of sliced) {
+      if (l.trim().startsWith('```')) {
+        sliceInCode = !sliceInCode;
+      }
+    }
+    if (sliceInCode) {
+      sliced.push('```');
+    }
+    rawLines = sliced;
+  }
+
   const blocks: React.ReactNode[] = [];
   let idx = 0;
 
@@ -502,7 +556,21 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
   return (
     <Box flexDirection="column" width="100%">
+      {hiddenAbove > 0 && (
+        <Box paddingLeft={1} marginBottom={0}>
+          <Text color={theme.colors.text.dim} dimColor italic>
+            ▲ {hiddenAbove} earlier lines (PgUp to view)
+          </Text>
+        </Box>
+      )}
       {blocks}
+      {hiddenBelow > 0 && (
+        <Box paddingLeft={1} marginTop={0}>
+          <Text color={theme.colors.text.dim} dimColor italic>
+            ▼ {hiddenBelow} lines below (PgDn to follow)
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 };

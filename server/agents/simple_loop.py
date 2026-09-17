@@ -39,7 +39,7 @@ from ..toolkit.executor import (
     validate_tool_rejection,
 )
 from ..toolkit.base import ToolResult
-from .compaction import compact_tool_output
+from .compaction import compact_tool_output, prune_inflight_messages
 from .context import ContextManager
 from .llm_stream import StreamState, stream_completion
 from .prompts import compose_system_context, default_template_sections
@@ -302,6 +302,7 @@ class SimpleLoop:
         reflimit = int(getattr(self.config, "agent_reflection_limit", 0) or 4)
         progress_steps: list[dict] = []
         max_steps = int(getattr(self.config, "agent_max_steps", 0) or MAX_STEPS_DEFAULT)
+        nudges = 0
 
         def _param_detail(params: dict) -> str:
             if not isinstance(params, dict):
@@ -387,9 +388,10 @@ class SimpleLoop:
             stream_state = StreamState()
             context_exceeded = False
             turn_errored = False
+            dispatch_messages, _ = prune_inflight_messages(messages, keep_latest_tools=2)
             async for event in stream_completion(
                 self.provider,
-                messages,
+                dispatch_messages,
                 openai_tools,
                 session_id,
                 iteration,
@@ -451,6 +453,35 @@ class SimpleLoop:
             if finish_reason == FinishReason.LENGTH:
                 continue
             if not tool_calls:
+                from server.agents.todo_state import get_todo_state
+
+                todo = get_todo_state(session_id)
+                has_active_todos = bool(
+                    todo and any(e.status in ("pending", "in_progress") for e in todo.list())
+                )
+
+                if (
+                    has_active_todos
+                    and nudges < 2
+                    and iteration < max_steps - 1
+                ):
+                    nudges += 1
+                    active_tasks = (
+                        [e for e in todo.list() if e.status in ("pending", "in_progress")]
+                        if todo
+                        else []
+                    )
+                    if active_tasks:
+                        active_summary = ", ".join(f"{t.id}: {t.title}" for t in active_tasks[:3])
+                        nudge_content = (
+                            f"Please proceed with the task checklist (active: {active_summary}). "
+                            "Execute the next step using the available tools."
+                        )
+                    else:
+                        nudge_content = "Please proceed with the next step or task."
+                    messages.append({"role": "assistant", "content": response_text or ""})
+                    messages.append({"role": "user", "content": nudge_content})
+                    continue
                 break  # emergent stop
 
             if self.tool_registry:
@@ -458,7 +489,12 @@ class SimpleLoop:
                     t_name = tc.get("tool")
                     if t_name and self.tool_registry.get(t_name):
                         resolver.request_tool(t_name)
+                    if t_name == "get_tool_definition":
+                        requested = (tc.get("params") or {}).get("tool_name")
+                        if requested and self.tool_registry.get(requested):
+                            resolver.request_tool(requested)
             registered_tools = set(resolver.active_names())
+            openai_tools = resolver.openai_tools(mode)
 
             valid_calls, invalid_calls = validate_tool_calls(tool_calls, registered_tools)
             if invalid_calls:
@@ -489,6 +525,7 @@ class SimpleLoop:
 
             executed_any_call_this_turn = False
             has_rejected_call_this_turn = False
+            turn_had_success = False
             for tc in valid_calls:
                 tool_name = tc.get("tool")
                 if not tool_name:
@@ -501,6 +538,25 @@ class SimpleLoop:
                     current_turn_emitted
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
+
+                if is_dup and has_substantive_answer:
+                    continue
+
+                if sig == last_doom_sig:
+                    doom_run += 1
+                else:
+                    doom_run = 1
+                    last_doom_sig = sig
+                if doom_run >= self._doom_threshold():
+                    yield r.warning(
+                        f"No new tool work for several consecutive iterations: the same tool call "
+                        f"(same name and input) has repeated {doom_run} times in a row. "
+                        "The turn is stopping so a human can approve or end it.",
+                        session_id,
+                        code="DOOM_LOOP",
+                    )
+                    doomed = True
+                    break
 
                 # file_read dedup runs BEFORE the silent is_dup-continue. A read
                 # whose range is already covered this session (exact duplicate or
@@ -555,6 +611,7 @@ class SimpleLoop:
                                 executed_any_call_this_turn = True
                                 stall_count = 0
                                 consecutive_failures = 0
+                                turn_had_success = True
                                 any_tool_succeeded = True
                                 read_files.add(read_path)
                                 record_read(session_id, read_path)
@@ -562,38 +619,20 @@ class SimpleLoop:
                                     {
                                         "role": "user",
                                         "content": (
-                                            f"[Tool: file_read | Status: SUCCESS] "
-                                            f"(range already read this turn from unchanged "
-                                            f"'{read_path}'; full content is above — do not "
-                                            "read again.)"
+                                             f"[Tool: file_read | Status: SUCCESS] "
+                                             f"(range already read this turn from unchanged "
+                                             f"'{read_path}'; full content is above — do not "
+                                             "read again.)"
                                         ),
                                         "digest": "file_read: ok",
                                     }
                                 )
                                 continue
-                        # Cache miss or stale: the file may have changed since the last
-                        # read. Force execution even if is_dup is set — the LLM must be
-                        # able to read files it just edited.
-                        is_dup = False
-
-                if is_dup and has_substantive_answer:
-                    continue
-
-                if sig == last_doom_sig:
-                    doom_run += 1
-                else:
-                    doom_run = 1
-                    last_doom_sig = sig
-                if doom_run >= self._doom_threshold():
-                    yield r.warning(
-                        f"No new tool work for several consecutive iterations: the same tool call "
-                        f"(same name and input) has repeated {doom_run} times in a row. "
-                        "The turn is stopping so a human can approve or end it.",
-                        session_id,
-                        code="DOOM_LOOP",
-                    )
-                    doomed = True
-                    break
+                        if stat is not None:
+                            # Cache miss or stale: the file may have changed since the last
+                            # read. Force execution even if is_dup is set — the LLM must be
+                            # able to read files it just edited.
+                            is_dup = False
 
                 if is_dup:
                     from .loop import _params_label
@@ -618,16 +657,7 @@ class SimpleLoop:
                     tool_name, tool_params, created_files, self.config.workspace_root
                 )
                 if reject_msg:
-                    consecutive_failures += 1
                     has_rejected_call_this_turn = True
-                    if consecutive_failures >= reflimit:
-                        yield r.error(
-                            f"Too many errors ({consecutive_failures}).",
-                            session_id,
-                            code="REFLECTION_LIMIT",
-                            recoverable=True,
-                        )
-                        return
                     yield r.warning(
                         f"Tool '{tool_name}' rejected: {reject_msg}",
                         session_id,
@@ -702,7 +732,7 @@ class SimpleLoop:
                 executed_any_call_this_turn = True
                 stall_count = 0
                 if result.success:
-                    consecutive_failures = 0
+                    turn_had_success = True
                     any_tool_succeeded = True
                     p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
@@ -712,16 +742,6 @@ class SimpleLoop:
                     if tool_name == "file_read" and p:
                         read_files.add(p)
                         record_read(session_id, p)
-                else:
-                    consecutive_failures += 1
-                    if consecutive_failures >= reflimit:
-                        yield r.error(
-                            f"Too many errors ({consecutive_failures}).",
-                            session_id,
-                            code="REFLECTION_LIMIT",
-                            recoverable=True,
-                        )
-                        return
 
                 for ev in await post_execution_hooks(
                     tool_name, tool_params, result, self.config.workspace_root, session_id
@@ -753,6 +773,19 @@ class SimpleLoop:
                         "digest": f"{tool_name}: {'ok' if result.success else 'error'}",
                     }
                 )
+            if executed_any_call_this_turn or has_rejected_call_this_turn:
+                if turn_had_success:
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= reflimit:
+                        yield r.error(
+                            f"Too many errors ({consecutive_failures}).",
+                            session_id,
+                            code="REFLECTION_LIMIT",
+                            recoverable=True,
+                        )
+                        return
             if doomed:
                 break
             if not executed_any_call_this_turn:
@@ -788,17 +821,33 @@ class SimpleLoop:
             salvaged = True
 
         token_info = self.context_manager.get_token_info(messages, model)
-        # A successful tool call (e.g. bash creating files) is real work even
-        # when it isn't a tracked file_write/file_edit — never report "Turn
-        # finished" (implying nothing happened) when a tool actually succeeded.
+        from server.agents.todo_state import get_todo_state
+
+        todo = get_todo_state(session_id)
+        has_pending_todos = bool(
+            mode != PLAN_MODE
+            and todo
+            and any(e.status in ("pending", "in_progress", "blocked") for e in todo.list())
+        )
         has_file_work = bool(created_files or files_edited or any_tool_succeeded)
         substantive_answer = bool(
             self._last_emitted_message
             and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
         )
         is_stalled = bool(stalled or doomed)
-        completed = False if is_stalled else bool(salvaged or has_file_work or iteration > 0 or substantive_answer)
-        message = "Request processed with best-effort summary" if salvaged else ("Request processed successfully" if has_file_work else "Turn finished")
+        completed = (
+            False
+            if (is_stalled or has_pending_todos)
+            else bool(salvaged or has_file_work or substantive_answer)
+        )
+        if salvaged:
+            message = "Request processed with best-effort summary"
+        elif has_pending_todos:
+            message = "Turn finished with active tasks remaining"
+        elif has_file_work:
+            message = "Request processed successfully"
+        else:
+            message = "Turn finished"
 
         _scan = None
         if mode == PLAN_MODE:

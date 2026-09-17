@@ -83,22 +83,38 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         </Box>
       )}
 
-      {!isCollapsed && (
-        <Box flexDirection="column" paddingLeft={2} width="100%">
-          {event.thoughts.map((thought, idx) => (
-            <Box key={idx} flexDirection="row" alignItems="flex-start" width="100%" marginBottom={0}>
-              <Box width={2} flexShrink={0}>
-                <Text color={theme.colors.text.dim}>│</Text>
-              </Box>
-              <Box flexShrink={1}>
-                <Text color={theme.colors.text.muted} wrap="wrap">
-                  {getThoughtText(thought)}
-                </Text>
-              </Box>
+      {!isCollapsed &&
+        (() => {
+          const isLive = Boolean(context?.isRunning && !context?.isHistorical);
+          const maxThoughts = 5;
+          const thoughtsToRender =
+            isLive && event.thoughts.length > maxThoughts ? event.thoughts.slice(-maxThoughts) : event.thoughts;
+          const hiddenCount = event.thoughts.length - thoughtsToRender.length;
+
+          return (
+            <Box flexDirection="column" paddingLeft={2} width="100%">
+              {hiddenCount > 0 && (
+                <Box flexDirection="row" alignItems="center" marginBottom={0}>
+                  <Text color={theme.colors.text.dim} dimColor italic>
+                    … ({hiddenCount} earlier thoughts)
+                  </Text>
+                </Box>
+              )}
+              {thoughtsToRender.map((thought, idx) => (
+                <Box key={idx} flexDirection="row" alignItems="flex-start" width="100%" marginBottom={0}>
+                  <Box width={2} flexShrink={0}>
+                    <Text color={theme.colors.text.dim}>│</Text>
+                  </Box>
+                  <Box flexShrink={1}>
+                    <Text color={theme.colors.text.muted} wrap="wrap">
+                      {getThoughtText(thought)}
+                    </Text>
+                  </Box>
+                </Box>
+              ))}
             </Box>
-          ))}
-        </Box>
-      )}
+          );
+        })()}
     </Box>
   );
 });

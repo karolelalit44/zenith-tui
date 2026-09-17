@@ -282,14 +282,42 @@ export const App: React.FC = () => {
     }
   }, [runTokens, isRunning, events, liveSuccessTokenInfo]);
 
+  const activeMessageText = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].kind === 'message') {
+        return (events[i] as import('./types/scenario').MessageEvent).text || '';
+      }
+    }
+    return '';
+  }, [events]);
+
+  const liveContentHeight = useMemo(() => {
+    if (!isRunning) return completedTurns.length * 15;
+    const msgLines = activeMessageText ? activeMessageText.split('\n').length : 0;
+    const nonMsgCount = events.filter((e) => e.kind !== 'message').length;
+    return Math.max(msgLines, 1) + nonMsgCount * 3;
+  }, [isRunning, completedTurns.length, activeMessageText, events]);
+
+  const localScrollOffset = useMemo(() => {
+    if (!scrollState.isUserScrolled) return undefined;
+    const linesFromBottom = Math.max(
+      0,
+      scrollState.contentHeight - (scrollState.scrollOffset + scrollState.viewportHeight),
+    );
+    const msgLines = activeMessageText ? activeMessageText.split('\n').length : 0;
+    const maxMsgOffset = Math.max(0, msgLines - scrollState.viewportHeight);
+    return Math.max(0, maxMsgOffset - linesFromBottom);
+  }, [
+    scrollState.isUserScrolled,
+    scrollState.contentHeight,
+    scrollState.scrollOffset,
+    scrollState.viewportHeight,
+    activeMessageText,
+  ]);
+
   useEffect(() => {
-    // contentHeight tracks completed turns only; the live running block is
-    // always rendered below the window and is NOT part of the scrollable
-    // region. Counting streamed events here used to make the scroll offset
-    // jump on every incoming event (the jitter during generation).
-    const estimatedHeight = completedTurns.length * 15;
-    updateContentHeight(estimatedHeight);
-  }, [completedTurns.length, updateContentHeight]);
+    updateContentHeight(liveContentHeight);
+  }, [liveContentHeight, updateContentHeight]);
 
   useEffect(() => {
     if (!isRunning && activeTurn?.isComplete) {
@@ -662,11 +690,15 @@ export const App: React.FC = () => {
               historyExpanded={historyExpanded}
               workspaceName={workspace}
               gitBranch={activeGitBranch}
+              scrollOffset={localScrollOffset}
+              maxDynamicLines={scrollState.viewportHeight}
             />
             {scrollState.isUserScrolled && (
               <Box paddingX={1} marginTop={0}>
                 <Text color={theme.colors.text.dim} dimColor>
-                  ▸ PgDn / End to follow live output
+                  ▸ PgDn / End to follow live output (
+                  {Math.max(0, scrollState.contentHeight - (scrollState.scrollOffset + scrollState.viewportHeight))}{' '}
+                  lines below)
                 </Text>
               </Box>
             )}
@@ -715,6 +747,8 @@ export const App: React.FC = () => {
               onClearAttachments={clearAttachments}
               historyUp={historyUp}
               historyDown={historyDown}
+              scrollUp={scrollUp}
+              scrollDown={scrollDown}
               mode={selectedMode}
               maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
               runTokens={liveRunTokens}
