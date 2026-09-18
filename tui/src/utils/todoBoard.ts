@@ -29,100 +29,75 @@ export interface ConsolidatedTodoBoard extends TodoBoardEvent {
  * todo_board events are present.
  */
 export function consolidateTodoBoardEvents(events: ScenarioEvent[]): ConsolidatedTodoBoard | null {
-  const present = events.filter((e): e is TodoBoardEvent => e.kind === TODO_BOARD_KIND);
+  // Find index of the latest explicit todo_board event
+  let lastBoardIdx = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind === TODO_BOARD_KIND) {
+      lastBoardIdx = i;
+      break;
+    }
+  }
 
-  // If no explicit todo_board event yet, check for tool_step or tool_call that executed 'todo'
-  if (present.length === 0) {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const ev = events[i];
-      if (ev.kind === 'tool_step' && ev.tool === 'todo') {
-        const boardData = ev.metadata?.board;
-        if (Array.isArray(boardData) && boardData.length > 0) {
+  // Check for in-flight tool_step or tool_call that executed after the latest todo_board
+  for (let i = events.length - 1; i > lastBoardIdx; i--) {
+    const ev = events[i];
+    if (ev.kind === 'tool_step' && ev.tool === 'todo') {
+      const boardData = ev.metadata?.board;
+      if (Array.isArray(boardData) && boardData.length > 0) {
+        return {
+          kind: 'todo_board',
+          id: ev.id,
+          action: (ev.metadata?.action as any) || 'snapshot',
+          board: boardData as TodoItem[],
+          activity: [{ action: 'snapshot', message: ev.output || 'Tasks updated' }],
+          message: ev.output,
+        };
+      }
+    } else if (ev.kind === 'tool_call' && ev.tool === 'todo') {
+      const rawTasks = ev.params?.tasks;
+      if (Array.isArray(rawTasks) && rawTasks.length > 0) {
+        const items: TodoItem[] = rawTasks.map((t: any, idx: number) => {
+          const rawStatus = String(t.status || 'todo').toLowerCase();
+          const status: TodoStatus =
+            rawStatus === 'completed' || rawStatus === 'done'
+              ? 'done'
+              : rawStatus === 'in_progress' || rawStatus === 'in-progress'
+              ? 'in_progress'
+              : rawStatus === 'blocked'
+              ? 'blocked'
+              : rawStatus === 'cancelled' || rawStatus === 'canceled'
+              ? 'cancelled'
+              : 'todo';
           return {
-            kind: 'todo_board',
-            id: ev.id,
-            action: (ev.metadata?.action as any) || 'snapshot',
-            board: boardData as TodoItem[],
-            activity: [{ action: 'snapshot', message: ev.output || 'Tasks updated' }],
-            message: ev.output,
+            id: String(t.id || `t${idx + 1}`),
+            title: String(t.title || ''),
+            status,
+            priority: (t.priority || 'medium') as any,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            subtasks: [],
+            notes: t.notes ? String(t.notes) : undefined,
+            depends_on: Array.isArray(t.depends_on) ? t.depends_on.map(String) : undefined,
           };
-        }
-      } else if (ev.kind === 'tool_call' && ev.tool === 'todo') {
-        const rawTasks = ev.params?.tasks;
-        if (Array.isArray(rawTasks) && rawTasks.length > 0) {
-          const items: TodoItem[] = rawTasks.map((t: any, idx: number) => {
-            const rawStatus = String(t.status || 'todo').toLowerCase();
-            const status: TodoStatus =
-              rawStatus === 'completed' || rawStatus === 'done'
-                ? 'done'
-                : rawStatus === 'in_progress' || rawStatus === 'in-progress'
-                ? 'in_progress'
-                : rawStatus === 'blocked'
-                ? 'blocked'
-                : rawStatus === 'cancelled' || rawStatus === 'canceled'
-                ? 'cancelled'
-                : 'todo';
-            return {
-              id: String(t.id || `t${idx + 1}`),
-              title: String(t.title || ''),
-              status,
-              priority: (t.priority || 'medium') as any,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              subtasks: [],
-            };
-          });
-          return {
-            kind: 'todo_board',
-            id: ev.id,
-            action: 'snapshot',
-            board: items,
-            activity: [{ action: 'snapshot', message: 'Tasks in progress...' }],
-          };
-        }
+        });
+        return {
+          kind: 'todo_board',
+          id: ev.id,
+          action: 'snapshot',
+          board: items,
+          activity: [{ action: 'snapshot', message: 'Tasks in progress...' }],
+        };
       }
     }
+  }
+
+  if (lastBoardIdx === -1) {
     return null;
   }
 
+  const present = events.filter((e): e is TodoBoardEvent => e.kind === TODO_BOARD_KIND);
   const last = present[present.length - 1];
   const activity: TodoBoardActivityEntry[] = [];
-
-  const byId = new Map<string, TodoItem>();
-  const order: string[] = [];
-  const seen = new Set<string>();
-
-  // Use latest snapshot's order first
-  for (const item of last.board) {
-    if (!seen.has(item.id)) {
-      order.push(item.id);
-      seen.add(item.id);
-    }
-  }
-
-  // Then add any items seen in earlier events that might not be in the latest snapshot
-  for (const evt of present) {
-    for (const item of evt.board) {
-      if (!seen.has(item.id)) {
-        order.push(item.id);
-        seen.add(item.id);
-      }
-    }
-  }
-
-  // Replay all events chronologically so the latest status for each item wins
-  for (const evt of present) {
-    for (const item of evt.board) {
-      byId.set(item.id, { ...(byId.get(item.id) || {}), ...item });
-    }
-  }
-
-  // Ensure last.board items have highest priority
-  for (const item of last.board) {
-    byId.set(item.id, { ...(byId.get(item.id) || {}), ...item });
-  }
-
-  const board = order.map((id) => byId.get(id)).filter((item): item is TodoItem => Boolean(item));
 
   for (const evt of present) {
     const message = evt.message ?? '';
@@ -136,7 +111,7 @@ export function consolidateTodoBoardEvents(events: ScenarioEvent[]): Consolidate
     kind: 'todo_board',
     id: last.id,
     action: last.action,
-    board,
+    board: last.board,
     change: last.change,
     message: last.message,
     activity,

@@ -20,7 +20,17 @@ from ..base import BaseTool, ToolResult
 logger = logging.getLogger(__name__)
 
 _ACTION_ENUM = ["write", "list", "remove"]
-_STATUS_ENUM = ["pending", "todo", "in_progress", "completed", "done", "blocked", "cancelled"]
+_STATUS_ENUM = [
+    "pending",
+    "todo",
+    "open",
+    "in_progress",
+    "active",
+    "completed",
+    "done",
+    "blocked",
+    "cancelled",
+]
 _PRIORITY_ENUM = ["low", "medium", "high"]
 
 

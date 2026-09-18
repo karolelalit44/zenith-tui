@@ -12,6 +12,7 @@ import type {
 import { consolidateCompactionEvents } from '../../../utils/compaction';
 import { foldReadOnlyRepeats, pairToolEvents, progressDuplicatesPendingToolStep } from '../../../utils/pairToolEvents';
 import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
+import { estimateTokensForEvents } from '../../../services/api/tokenEstimationService';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -245,12 +246,24 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
 
       const hasSuccess = result.some((e) => e.kind === 'success');
       if (!hasSuccess) {
+        const estTokens = estimateTokensForEvents(result);
+        const fallbackTokens = estTokens > 0 ? estTokens : result.length > 0 ? 1 : 0;
         return [
           ...result,
           {
             kind: 'success',
             id: isHistorical ? 'evt_historical_status_row' : 'evt_live_status_row',
             elapsedMs: isHistorical ? 1000 : 0,
+            tokenInfo:
+              fallbackTokens > 0
+                ? {
+                    used: fallbackTokens,
+                    total: 0,
+                    remaining: 0,
+                    percent: 0,
+                    estimated: true,
+                  }
+                : undefined,
           } as ScenarioEvent,
         ];
       }

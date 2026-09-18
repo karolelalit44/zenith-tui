@@ -278,20 +278,28 @@ export const App: React.FC = () => {
     if (!isRunning || events.length === 0) return undefined;
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
+      if (e.kind === 'message') {
+        // Active turn is streaming conversational output; no background tool is executing
+        return undefined;
+      }
       if (e.kind === 'progress' && e.label) {
         return { label: e.label, percent: e.percent };
       }
       if (e.kind === 'tool_step' && e.tool) {
-        const p = (e.params?.filepath || e.params?.path || e.params?.command || e.params?.query || '') as string;
-        const out = p ? `${e.tool} (${p})` : e.tool;
-        return { label: out, tool: e.tool };
+        if (e.pending) {
+          const p = (e.params?.filepath || e.params?.path || e.params?.command || e.params?.query || '') as string;
+          const out = p ? `${e.tool} (${p})` : e.tool;
+          return { label: out, tool: e.tool };
+        }
+        // Tool has finished executing; stop search so completed tools do not show active spinners
+        return undefined;
       }
       if (e.kind === 'tool_call' && e.tool) {
         const p = (e.params?.filepath || e.params?.path || e.params?.command || e.params?.query || '') as string;
         const out = p ? `${e.tool} (${p})` : e.tool;
         return { label: out, tool: e.tool };
       }
-      if (e.kind === 'thinking' && !(e as any).partial) {
+      if (e.kind === 'thinking') {
         return { label: 'Reasoning...', isThinking: true };
       }
     }
@@ -700,7 +708,10 @@ export const App: React.FC = () => {
             }
 
             // type === 'response'
-            const turnCost = turnUsageCosts.get(item.turn.id);
+            const turnCost =
+              (item.turn.events && item.turn.events.length > 0
+                ? formatTurnCost(resolveTurnUsage(item.turn.events))
+                : undefined) || turnUsageCosts.get(item.turn.id);
             return (
               <Box key={item.id} flexDirection="column" width={contentWidth}>
                 {turnCost ? (

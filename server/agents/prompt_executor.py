@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 # When a worker turn produced files and its raw last-emitted text is this long, fold it into
 # a weak-model summary so the persisted assistant hand-off stays compact.
-_HANDOFF_SUMMARY_CHARS = 800
+_HANDOFF_SUMMARY_CHARS = 2500
 # Hard ceiling on the persisted assistant message. Guards against repeated
 # tool/reasoning noise ever becoming the canonical message (evidence-aware
 # finalization, QA-3).
@@ -748,11 +748,14 @@ class PromptExecutor:
 
             summarizer = ConversationSummarizer(self._config, self._provider)
             model = str(getattr(self._provider, "model", "") or "")
-            return await summarizer.summarize(
-                _handoff_messages(collected_events, response_text), model, session_id
+            return await asyncio.wait_for(
+                summarizer.summarize(
+                    _handoff_messages(collected_events, response_text), model, session_id
+                ),
+                timeout=12.0,
             )
         except Exception as e:
-            logger.warning("Hand-off summarization failed: %s", e)
+            logger.warning("Hand-off summarization skipped or timed out: %s", e)
             return None
 
     async def _execute(

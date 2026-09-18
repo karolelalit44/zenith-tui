@@ -59,7 +59,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
       : 0;
     elapsedMs = eventDurations > 0 ? eventDurations : 1000;
   }
-  const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
+  const durationStr = formatDuration(elapsedMs || 1000);
 
   // Used tokens calculation. Authoritative priority:
   // 1. Composed context occupancy / turn tokens (used) if reported and non-zero
@@ -87,8 +87,15 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   }
 
   const finalReportedTokens = reportedUsed ?? reportedRunTotal ?? turnRecordedTokens;
+  const rawEstimated = turnEvents ? estimateTokensForEvents(turnEvents) : 0;
   const usedTokens =
-    finalReportedTokens !== undefined ? finalReportedTokens : turnEvents ? estimateTokensForEvents(turnEvents) : 0;
+    finalReportedTokens !== undefined
+      ? finalReportedTokens
+      : rawEstimated > 0
+        ? rawEstimated
+        : turnEvents && turnEvents.length > 0
+          ? 1
+          : 0;
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 
   const metricsParts: string[] = [];

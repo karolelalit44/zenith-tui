@@ -147,4 +147,53 @@ describe('TodoBoardBlock', () => {
     expect(res?.board[0].title).toBe('In-flight task');
     expect(res?.board[0].status).toBe('in_progress');
   });
+
+  it('does not resurrect removed tasks from earlier todo_board snapshots (zombie task prevention)', () => {
+    const ev1: ConsolidatedTodoBoard = {
+      kind: 'todo_board',
+      id: 'tb_1',
+      action: 'snapshot',
+      board: [item('t1', 'Task to remove', 'todo'), item('t2', 'Keep this', 'in_progress')],
+      activity: [],
+    };
+    const ev2: ConsolidatedTodoBoard = {
+      kind: 'todo_board',
+      id: 'tb_2',
+      action: 'snapshot',
+      board: [item('t2', 'Keep this', 'in_progress')],
+      activity: [],
+    };
+    const res = consolidateTodoBoardEvents([ev1 as any, ev2 as any]);
+    expect(res).not.toBeNull();
+    expect(res?.board.length).toBe(1);
+    expect(res?.board[0].id).toBe('t2');
+    expect(res?.board.find((t) => t.id === 't1')).toBeUndefined();
+  });
+
+  it('extracts in-flight tool_call preview even when prior todo_board snapshots exist', () => {
+    const ev1: ConsolidatedTodoBoard = {
+      kind: 'todo_board',
+      id: 'tb_1',
+      action: 'snapshot',
+      board: [item('t1', 'Step 1', 'done')],
+      activity: [],
+    };
+    const toolCallEv = {
+      kind: 'tool_call' as const,
+      id: 'tc_2',
+      tool: 'todo',
+      params: {
+        action: 'write',
+        tasks: [
+          { id: 't1', title: 'Step 1', status: 'done' },
+          { id: 't2', title: 'Step 2', status: 'in_progress' },
+        ],
+      },
+    };
+    const res = consolidateTodoBoardEvents([ev1 as any, toolCallEv as any]);
+    expect(res).not.toBeNull();
+    expect(res?.board.length).toBe(2);
+    expect(res?.board[1].title).toBe('Step 2');
+    expect(res?.board[1].status).toBe('in_progress');
+  });
 });

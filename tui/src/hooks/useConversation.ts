@@ -222,8 +222,24 @@ export function useConversation(): UseConversationReturn {
 
       // Ensure a success event always exists so the unified status row renders
       const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
+      const estTokens = estimateTokensForEvents(stampedEvents);
+      const fallbackTokens = estTokens > 0 ? estTokens : stampedEvents.length > 0 ? 1 : 0;
       const finalEvents = hasSuccess
-        ? stampedEvents
+        ? stampedEvents.map((e) => {
+            if (e.kind === 'success' && !e.tokenInfo && fallbackTokens > 0) {
+              return {
+                ...e,
+                tokenInfo: {
+                  used: fallbackTokens,
+                  total: 0,
+                  remaining: 0,
+                  percent: 0,
+                  estimated: true,
+                },
+              };
+            }
+            return e;
+          })
         : [
             ...stampedEvents,
             {
@@ -231,6 +247,13 @@ export function useConversation(): UseConversationReturn {
               id: `evt_success_complete_${Date.now()}`,
               message: 'done',
               elapsedMs: elapsedMs ?? 1000,
+              tokenInfo: {
+                used: fallbackTokens > 0 ? fallbackTokens : 1,
+                total: 0,
+                remaining: 0,
+                percent: 0,
+                estimated: true,
+              },
             } as ScenarioEvent,
           ];
 
@@ -262,8 +285,24 @@ export function useConversation(): UseConversationReturn {
 
         // Ensure a success metrics event exists so the frozen status row stays visible
         const hasSuccess = stampedEvents.some((e) => e.kind === 'success');
+        const estTokens = estimateTokensForEvents(stampedEvents);
+        const fallbackTokens = estTokens > 0 ? estTokens : stampedEvents.length > 0 ? 1 : 0;
         const finalEvents = hasSuccess
-          ? stampedEvents
+          ? stampedEvents.map((e) => {
+              if (e.kind === 'success' && !e.tokenInfo && fallbackTokens > 0) {
+                return {
+                  ...e,
+                  tokenInfo: {
+                    used: fallbackTokens,
+                    total: 0,
+                    remaining: 0,
+                    percent: 0,
+                    estimated: true,
+                  },
+                };
+              }
+              return e;
+            })
           : [
               ...stampedEvents,
               {
@@ -271,6 +310,13 @@ export function useConversation(): UseConversationReturn {
                 id: `evt_success_abort_${Date.now()}`,
                 message: 'Turn stopped',
                 elapsedMs,
+                tokenInfo: {
+                  used: fallbackTokens > 0 ? fallbackTokens : 1,
+                  total: 0,
+                  remaining: 0,
+                  percent: 0,
+                  estimated: true,
+                },
               } as ScenarioEvent,
             ];
 

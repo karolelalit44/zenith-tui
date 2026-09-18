@@ -843,3 +843,40 @@ class TestDefaultRegistry:
         assert "discover_capabilities" in tools
         assert "get_tool_definition" in tools
         assert len(tools) == 15
+
+
+class TestTodoToolStatusNormalization:
+    @pytest.mark.asyncio
+    async def test_synonyms_normalized_in_todo_write_and_update(self, temp_dir):
+        from server.toolkit.tools.todo import TodoTool
+        from server.toolkit.registry import current_tool_session_id
+        from server.agents.todo_state import get_todo_state
+
+        tool = TodoTool()
+        token = current_tool_session_id.set("test_session_norm")
+        try:
+            res = await tool.execute(
+                {
+                    "action": "write",
+                    "tasks": [
+                        {"id": "t1", "title": "Open task", "status": "open"},
+                        {"id": "t2", "title": "Active task", "status": "active"},
+                        {"id": "t3", "title": "Done task", "status": "done"},
+                    ],
+                },
+                str(temp_dir),
+            )
+            assert res.success
+            state = get_todo_state("test_session_norm")
+            entries = {e.id: e for e in state.list()}
+            assert entries["t1"].status == "pending"
+            assert entries["t2"].status == "in_progress"
+            assert entries["t3"].status == "completed"
+
+            board = res.metadata.get("board", [])
+            b_map = {b["id"]: b["status"] for b in board}
+            assert b_map["t1"] == "todo"
+            assert b_map["t2"] == "in_progress"
+            assert b_map["t3"] == "done"
+        finally:
+            current_tool_session_id.reset(token)
