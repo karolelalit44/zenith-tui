@@ -70,10 +70,32 @@ class TestHelpers:
         assert m is not None
         assert m["created"] == ["second.py"]
 
+    def test_turn_manifest_from_events_supports_direct_payload(self):
+        # r.turn_manifest in runtime emits the payload directly as ev.data
+        direct_manifest = {
+            "completed": True,
+            "stalled": False,
+            "remaining": [],
+            "answered": True,
+            "created": [],
+            "modified": [],
+            "verified": False,
+            "any_tool_succeeded": True,
+        }
+        events = [
+            Event(kind=EventKind.TURN_MANIFEST, data=direct_manifest),
+            Event(kind=EventKind.SUCCESS, data={"message": "ok"}),
+        ]
+        m = _turn_manifest_from_events(events)
+        assert m is not None
+        assert m["any_tool_succeeded"] is True
+        assert _did_work(m) is True
+
     def test_did_work(self):
         assert _did_work(_manifest()) is True
         assert _did_work(_manifest(created=[], modified=["x.py"])) is True
         assert _did_work(_manifest(created=[], modified=[])) is False
+        assert _did_work(_manifest(created=[], modified=[], any_tool_succeeded=True)) is True
         assert _did_work(None) is False
 
 

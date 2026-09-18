@@ -221,11 +221,9 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
 
   if (shouldWindow && maxLines) {
     const total = allRawLines.length;
-    // Reserve vertical space for hiddenAbove/hiddenBelow indicators so total height <= maxLines
-    const effectiveMax = Math.max(1, maxLines - 2);
-    const maxOffset = Math.max(0, total - effectiveMax);
+    const maxOffset = Math.max(0, total - maxLines);
     const start = scrollOffset !== undefined ? Math.max(0, Math.min(maxOffset, scrollOffset)) : maxOffset;
-    const end = Math.min(total, start + effectiveMax);
+    const end = Math.min(total, start + maxLines);
 
     hiddenAbove = start;
     hiddenBelow = total - end;

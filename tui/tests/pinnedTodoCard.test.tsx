@@ -99,4 +99,42 @@ describe('PinnedTodoCard', () => {
     expect(frame).toContain('100%');
     expect(frame).toContain('[██████████]');
   });
+
+  it('renders explicit stage badges and notes/dependencies', () => {
+    const itemWithNotes: TodoItem = {
+      ...makeItem('T1', 'Inspect code', 'in_progress'),
+      notes: 'verified constants match assertion',
+      depends_on: ['T0'],
+    };
+    const frame = renderCard(
+      makeBoard([
+        makeItem('T0', 'Prerequisite', 'done'),
+        itemWithNotes,
+        makeItem('T2', 'Synthesize results', 'todo'),
+      ]),
+      false,
+    );
+
+    expect(frame).toContain('DONE');
+    expect(frame).toContain('ACTIVE');
+    expect(frame).toContain('PENDING');
+    expect(frame).toContain('└ Note: verified constants match assertion');
+    expect(frame).toContain('└ Depends on: T0');
+  });
+
+  it('renders live sub-stage execution line when running with activeActivity', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <PinnedTodoCard
+          event={makeBoard([makeItem('T1', 'Audit task', 'in_progress')])}
+          isRunning={true}
+          activeActivity={{ label: 'file_read (server/config/constants/tools.py)', percent: 50 }}
+        />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('↳');
+    expect(frame).toContain('file_read (server/config/constants/tools.py)');
+    expect(frame).toContain('(50%)');
+  });
 });

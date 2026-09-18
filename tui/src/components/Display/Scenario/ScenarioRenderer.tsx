@@ -205,9 +205,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const result: ScenarioEvent[] = [];
       let orchInserted = false;
       let compactionInserted = false;
-      let boardInserted = false;
       const consolidatedCompaction = consolidateCompactionEvents(events);
-      const consolidatedBoard = consolidateTodoBoardEvents(events);
 
       for (const e of source2) {
         if (e.kind === 'captain_orchestration') {

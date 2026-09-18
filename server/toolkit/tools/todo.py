@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any
 
-from server.agents.todo_state import TodoEntry, get_todo_state
+from server.agents.todo_state import TodoEntry, get_todo_state, normalize_status
 from server.config.constants import (
     BUILD_MODE,
     CONCURRENCY_GROUP_READONLY,
@@ -20,7 +20,7 @@ from ..base import BaseTool, ToolResult
 logger = logging.getLogger(__name__)
 
 _ACTION_ENUM = ["write", "list", "remove"]
-_STATUS_ENUM = ["pending", "in_progress", "completed", "blocked", "cancelled"]
+_STATUS_ENUM = ["pending", "todo", "in_progress", "completed", "done", "blocked", "cancelled"]
 _PRIORITY_ENUM = ["low", "medium", "high"]
 
 
@@ -45,13 +45,14 @@ def _map_status(status: str) -> str:
 
     Frontend: ``todo | in_progress | blocked | done | cancelled``.
     """
+    norm = normalize_status(status)
     return {
         "pending": "todo",
         "in_progress": "in_progress",
         "completed": "done",
         "blocked": "blocked",
         "cancelled": "cancelled",
-    }.get(status, "todo")
+    }.get(norm, "todo")
 
 
 class TodoTool(BaseTool):

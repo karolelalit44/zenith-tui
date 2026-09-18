@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { TodoBoardBlock } from '../src/components/Display/Scenario/TodoBoardBlock';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../src/types/scenario';
-import type { ConsolidatedTodoBoard } from '../src/utils/todoBoard';
+import { consolidateTodoBoardEvents, type ConsolidatedTodoBoard } from '../src/utils/todoBoard';
 
 const item = (id: string, title: string, status: TodoStatus): TodoItem => ({
   id,
@@ -109,5 +109,42 @@ describe('TodoBoardBlock', () => {
     expect(frame).not.toContain(' ALL SCENARIOS PASSED');
     expect(frame).not.toContain('assertions');
     expect(frame).not.toContain('REJECTED EDGE CASES');
+  });
+
+  it('consolidateTodoBoardEvents extracts board from tool_step when todo_board event is absent', () => {
+    const toolStepEv = {
+      kind: 'tool_step' as const,
+      id: 'ts_1',
+      tool: 'todo',
+      params: { action: 'write' },
+      success: true,
+      output: 'Task board updated',
+      error: '',
+      pending: false,
+      metadata: {
+        board: [item('t1', 'Step task', 'in_progress')],
+        action: 'write',
+      },
+    };
+    const res = consolidateTodoBoardEvents([toolStepEv as any]);
+    expect(res).not.toBeNull();
+    expect(res?.board[0].title).toBe('Step task');
+    expect(res?.board[0].status).toBe('in_progress');
+  });
+
+  it('consolidateTodoBoardEvents extracts board preview from tool_call when in-flight', () => {
+    const toolCallEv = {
+      kind: 'tool_call' as const,
+      id: 'tc_1',
+      tool: 'todo',
+      params: {
+        action: 'write',
+        tasks: [{ id: 't1', title: 'In-flight task', status: 'in_progress' }],
+      },
+    };
+    const res = consolidateTodoBoardEvents([toolCallEv as any]);
+    expect(res).not.toBeNull();
+    expect(res?.board[0].title).toBe('In-flight task');
+    expect(res?.board[0].status).toBe('in_progress');
   });
 });

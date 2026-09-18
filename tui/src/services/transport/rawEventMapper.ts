@@ -515,6 +515,8 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
                       }),
                     )
                   : [],
+                notes: item.notes ? String(item.notes) : undefined,
+                depends_on: Array.isArray(item.depends_on) ? item.depends_on.map(String) : undefined,
               }),
             )
           : [],

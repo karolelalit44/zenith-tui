@@ -262,17 +262,41 @@ export const App: React.FC = () => {
   }, [completedTurns]);
 
   // Derive the active todo board from the live event stream, or fall back to
-  // the immediately preceding turn's todo board if live stream has ended.
+  // the latest turn's todo board if live stream has not emitted one yet.
   const activeTodoBoard = useMemo(() => {
     const liveBoard = consolidateTodoBoardEvents(events);
     if (liveBoard?.board && liveBoard.board.length > 0) return liveBoard;
-    if (isRunning || turns.length === 0) return null;
-    const latestTurnBoard = consolidateTodoBoardEvents(turns[turns.length - 1].events);
-    if (latestTurnBoard?.board && latestTurnBoard.board.length > 0) {
-      return latestTurnBoard;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turnBoard = consolidateTodoBoardEvents(turns[i].events);
+      if (turnBoard?.board && turnBoard.board.length > 0) return turnBoard;
     }
     return null;
-  }, [events, turns, isRunning]);
+  }, [events, turns]);
+
+  // Derive the active sub-stage/activity for the running turn to surface in the pinned card
+  const activeTaskActivity = useMemo(() => {
+    if (!isRunning || events.length === 0) return undefined;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.kind === 'progress' && e.label) {
+        return { label: e.label, percent: e.percent };
+      }
+      if (e.kind === 'tool_step' && e.tool) {
+        const p = (e.params?.filepath || e.params?.path || e.params?.command || e.params?.query || '') as string;
+        const out = p ? `${e.tool} (${p})` : e.tool;
+        return { label: out, tool: e.tool };
+      }
+      if (e.kind === 'tool_call' && e.tool) {
+        const p = (e.params?.filepath || e.params?.path || e.params?.command || e.params?.query || '') as string;
+        const out = p ? `${e.tool} (${p})` : e.tool;
+        return { label: out, tool: e.tool };
+      }
+      if (e.kind === 'thinking' && !(e as any).partial) {
+        return { label: 'Reasoning...', isThinking: true };
+      }
+    }
+    return undefined;
+  }, [isRunning, events]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -755,7 +779,11 @@ export const App: React.FC = () => {
 
             {activeTodoBoard && (
               <Box marginBottom={1} width="100%">
-                <PinnedTodoCard event={activeTodoBoard} isRunning={isRunning} />
+                <PinnedTodoCard
+                  event={activeTodoBoard}
+                  isRunning={isRunning}
+                  activeActivity={activeTaskActivity}
+                />
               </Box>
             )}
 

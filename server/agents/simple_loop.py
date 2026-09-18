@@ -753,7 +753,7 @@ class SimpleLoop:
                         files_edited.append(p)
                         executed_calls = {
                             s for s in executed_calls
-                            if s[0] not in ("glob", "grep", "dir_list", "list_dir")
+                            if s[0] not in ("glob", "grep", "dir_list", "list_dir", "bash")
                         }
                     if tool_name == "file_read" and p:
                         read_files.add(p)

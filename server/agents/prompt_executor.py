@@ -205,6 +205,8 @@ def _turn_manifest_from_events(collected_events: list[Event]) -> dict | None:
             m = ev.data.get("manifest")
             if isinstance(m, dict):
                 manifest = m
+            elif "completed" in ev.data or "summary" in ev.data or "any_tool_succeeded" in ev.data:
+                manifest = ev.data
     return manifest
 
 
@@ -983,9 +985,62 @@ class PromptExecutor:
                             logger.warning("Failed to record token usage: %s", e)
                 elif event.kind == EventKind.WARNING:
                     msg = event.data.get("message", "")
-                    logger.info("  WARNING: %s", msg[:200])
+                    logger.info("  WARNING: %s", msg)
+                elif event.kind == EventKind.PROGRESS:
+                    pct = event.data.get("percent", 0)
+                    lbl = event.data.get("label", "")
+                    logger.info("  [PROGRESS]: %s%% %s", pct, lbl)
+                elif event.kind == EventKind.TODO_BOARD:
+                    action = event.data.get("action", "")
+                    tasks = event.data.get("board") or []
+                    logger.info("  [TODO BOARD]: action=%s tasks=%d", action, len(tasks) if isinstance(tasks, list) else 0)
+                elif event.kind == EventKind.TURN_MANIFEST:
+                    m_data = (
+                        event.data.get("manifest")
+                        if isinstance(event.data.get("manifest"), dict)
+                        else event.data
+                    )
+                    completed = m_data.get("completed", False)
+                    answered = m_data.get("answered", False)
+                    created = m_data.get("created", [])
+                    modified = m_data.get("modified", [])
+                    logger.info(
+                        "  [TURN MANIFEST]: completed=%s answered=%s created=%s modified=%s",
+                        completed,
+                        answered,
+                        created,
+                        modified,
+                    )
+                elif event.kind == EventKind.PLAN_READY:
+                    logger.info("  [PLAN READY]: %s", event.data.get("plan_id", ""))
+                elif event.kind in (
+                    EventKind.CONTEXT_COMPACTION_STARTED,
+                    EventKind.CONTEXT_COMPACTION_PHASE,
+                    EventKind.CONTEXT_COMPACTION_ENDED,
+                    EventKind.CONTEXT_COMPACTED,
+                ):
+                    phase = event.data.get("phase", "")
+                    status = event.data.get("status", "")
+                    detail = f"phase={phase}" if phase else (f"status={status}" if status else "")
+                    logger.info("  [COMPACTION]: %s %s", event.kind, detail)
+                elif event.kind in (
+                    EventKind.CAPTAIN_ORCHESTRATION,
+                    EventKind.CREWMATE_SPAWNED,
+                    EventKind.CREWMATE_STATUS,
+                    EventKind.CREWMATE_COMPLETE,
+                    EventKind.CREWMATE_FAILED,
+                ):
+                    logger.info("  [ORCHESTRATION]: %s", event.kind)
+                elif event.kind == EventKind.TOKEN_USAGE_RECORDED:
+                    logger.debug("  [TOKEN USAGE RECORDED]: %s", event.data)
                 else:
-                    logger.info("  OTHER: %s", str(event.data)[:200])
+                    import json
+
+                    try:
+                        data_str = json.dumps(event.data, default=str)
+                    except Exception:
+                        data_str = str(event.data)
+                    logger.info("  [%s]: %s", str(event.kind).upper(), data_str)
                 if manager:
                     if event.kind in (EventKind.SUCCESS, EventKind.ERROR):
                         _pending_terminal.append(event)

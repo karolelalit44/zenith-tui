@@ -28,12 +28,28 @@ _TODO_STATUS_MARKERS = {
 }
 
 
+def normalize_status(status: str | None) -> str:
+    """Normalize user- or model-provided status into canonical TodoStatus."""
+    s = str(status or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if s in ("todo", "pending", "open", "queued", "not_started"):
+        return "pending"
+    if s in ("in_progress", "inprogress", "running", "active", "working"):
+        return "in_progress"
+    if s in ("completed", "done", "success", "finished", "resolved", "closed"):
+        return "completed"
+    if s in ("blocked", "waiting", "paused", "stalled"):
+        return "blocked"
+    if s in ("cancelled", "canceled", "aborted", "failed", "rejected"):
+        return "cancelled"
+    return "pending"
+
+
 def render_todo_markdown(entries: list[dict] | list[TodoEntry]) -> str:
     """Render structured todos into the canonical ``todo.md`` artifact."""
     lines = ["# Todos", ""]
     for entry in entries:
         data = entry.to_dict() if isinstance(entry, TodoEntry) else entry
-        status = str(data.get("status") or "pending")
+        status = normalize_status(str(data.get("status") or "pending"))
         marker = _TODO_STATUS_MARKERS.get(status, "[ ]")
         title = str(data.get("title") or "untitled")
         suffix = ""
@@ -73,7 +89,7 @@ class TodoEntry:
         return TodoEntry(
             id=str(data.get("id") or ""),
             title=str(data.get("title") or ""),
-            status=str(data.get("status") or "pending"),
+            status=normalize_status(str(data.get("status") or "pending")),
             priority=str(data.get("priority") or "medium"),
             order=int(data.get("order") or 0),
             depends_on=[str(x) for x in (data.get("depends_on") or [])],
@@ -101,10 +117,11 @@ class TodoState:
         notes: str = "",
         existing_id: str | None = None,
     ) -> TodoEntry:
+        norm_status = normalize_status(status)
         if existing_id and existing_id in self._entries:
             entry = self._entries[existing_id]
             entry.title = title
-            entry.status = status if status in _TODO_STATUSES else entry.status
+            entry.status = norm_status
             entry.priority = priority if priority in _PRIORITIES else entry.priority
             if depends_on is not None:
                 entry.depends_on = list(depends_on)
@@ -118,7 +135,7 @@ class TodoState:
         entry = TodoEntry(
             id=tid,
             title=title,
-            status=status if status in _TODO_STATUSES else "pending",
+            status=norm_status,
             priority=priority if priority in _PRIORITIES else "medium",
             order=len(self._entries),
             depends_on=list(depends_on or []),
@@ -141,7 +158,7 @@ class TodoState:
         if title is not None:
             entry.title = title
         if status is not None:
-            entry.status = status if status in _TODO_STATUSES else entry.status
+            entry.status = normalize_status(status)
         if priority is not None:
             entry.priority = priority if priority in _PRIORITIES else entry.priority
         if notes is not None:

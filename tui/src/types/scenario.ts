@@ -386,6 +386,8 @@ export interface TodoItem {
   createdAt: number;
   updatedAt: number;
   subtasks: SubtaskItem[];
+  notes?: string;
+  depends_on?: string[];
 }
 
 export type TodoBoardAction = 'created' | 'updated' | 'completed' | 'cancelled' | 'snapshot';
