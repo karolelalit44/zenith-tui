@@ -609,57 +609,63 @@ class MethodHandlers:
         if not provider:
             await ws.send_text(make_error_response(rid, -32602, "No active provider configured"))
             return session_id
-        session = await svc.require(session_id)
-        history = await svc.get_history(session_id)
+        try:
+            session = await svc.require(session_id)
+            history = await svc.get_history(session_id)
 
-        async def _emit(event) -> None:
-            if self.manager:
-                await self.manager.send_event(session_id, event)
+            async def _emit(event) -> None:
+                if self.manager:
+                    await self.manager.send_event(session_id, event)
 
-        from server.agents.compaction_service import CompactionService
-        from server.agents.context import ContextManager
-        from server.domain.events import CompactionTrigger
+            from server.agents.compaction_service import CompactionService
+            from server.agents.context import ContextManager
+            from server.domain.events import CompactionTrigger
 
-        service = CompactionService(
-            self.config,
-            provider,
-            context_manager=ContextManager(self.config),
-            session_repo=self.session_repo,
-            message_repo=self.message_repo,
-        )
-        outcome = await service.compact(
-            session_id=session_id,
-            history=history,
-            messages=None,
-            trigger=CompactionTrigger.MANUAL,
-            reason="manual",
-            previous_summary=((session.metadata or {}).get("summary") or None),
-            emit=_emit,
-            focus=focus,
-        )
-        if outcome.failed:
-            await ws.send_text(
-                make_error_response(rid, -32603, f"Compaction failed: {outcome.error}")
+            service = CompactionService(
+                self.config,
+                provider,
+                context_manager=ContextManager(self.config),
+                session_repo=self.session_repo,
+                message_repo=self.message_repo,
             )
-        elif outcome.skipped:
-            await ws.send_text(
-                make_response(
-                    rid, {"status": "skipped", "summary": "", "cleared": 0, "trigger": "manual"}
-                )
+            outcome = await service.compact(
+                session_id=session_id,
+                history=history,
+                messages=None,
+                trigger=CompactionTrigger.MANUAL,
+                reason="manual",
+                previous_summary=((session.metadata or {}).get("summary") or None),
+                emit=_emit,
+                focus=focus,
             )
-        else:
-            await ws.send_text(
-                make_response(
-                    rid,
-                    {
-                        "summary": outcome.summary,
-                        "cleared": outcome.deleted,
-                        "kept_tail": outcome.kept_tail,
-                        "tokens_saved": outcome.tokens_saved,
-                        "trigger": outcome.trigger.value,
-                        "status": outcome.status.value,
-                    },
+            if outcome.failed:
+                await ws.send_text(
+                    make_error_response(rid, -32603, f"Compaction failed: {outcome.error}")
                 )
+            elif outcome.skipped:
+                await ws.send_text(
+                    make_response(
+                        rid, {"status": "skipped", "summary": "", "cleared": 0, "trigger": "manual"}
+                    )
+                )
+            else:
+                await ws.send_text(
+                    make_response(
+                        rid,
+                        {
+                            "summary": outcome.summary,
+                            "cleared": outcome.deleted,
+                            "kept_tail": outcome.kept_tail,
+                            "tokens_saved": outcome.tokens_saved,
+                            "trigger": outcome.trigger.value,
+                            "status": outcome.status.value,
+                        },
+                    )
+                )
+        except Exception as e:
+            logger.exception("Compaction failed for session %s: %s", session_id, e)
+            await ws.send_text(
+                make_error_response(rid, -32603, f"Compaction failed: {e}")
             )
         return session_id
 

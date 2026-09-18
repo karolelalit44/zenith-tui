@@ -120,10 +120,12 @@ async def test_automatic_compaction_truncates_prefix_and_persists(service, test_
     started = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTION_STARTED]
     ended = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTION_ENDED]
     assert started and started[-1].data.get("trigger") == "automatic"
+    assert started[-1].data.get("used") == outcome.used_before
     assert ended and ended[-1].data.get("status") == "completed"
     assert ended[-1].data.get("trigger") == "automatic"
     assert not ended[-1].data.get("failed")
     assert ended[-1].data.get("tokensSaved", 0) > 0
+    assert ended[-1].data.get("used") == outcome.used_after
 
 
 @pytest.mark.asyncio
@@ -152,6 +154,7 @@ async def test_manual_compaction_is_identical_operation_with_manual_trigger(serv
     assert 0 < len(loaded) < 10
     ended = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTION_ENDED]
     assert ended and ended[-1].data.get("trigger") == "manual"
+    assert ended[-1].data.get("used") == outcome.used_after
 
 
 @pytest.mark.asyncio
@@ -323,12 +326,11 @@ async def test_restart_resume_uses_compacted_state(service, test_config):
         previous_summary=summary,
         emit=lambda ev: asyncio.sleep(0),
     )
-    # The truncated history already fits the budget: nothing summarizable,
-    # so the service must report a skip (never fabricate a summary, never
-    # truncate, and never let the caller rebuild context from an empty tail).
-    assert second.status == CompactionStatus.SKIPPED
-    assert second.cut == 0
-    assert second.deleted == 0
+    # Manual trigger always summarizes regardless of context window fit.
+    # The second compaction should succeed and summarize the remaining tail.
+    assert second.status == CompactionStatus.COMPLETED
+    assert second.summary == "summarized"
+
 
 
 @pytest.mark.asyncio

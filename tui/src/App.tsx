@@ -1,7 +1,12 @@
 import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BootLoading } from './components/BootLoading';
-import { PinnedOrchestrationCard, PinnedTodoCard, ScenarioRenderer } from './components/Display/Scenario';
+import {
+  PinnedOrchestrationCard,
+  PinnedTodoCard,
+  ScenarioRenderer,
+  SuccessCard,
+} from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScrollIndicator } from './components/Display/ScrollIndicator';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
@@ -35,7 +40,7 @@ import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
-import type { ScenarioEvent, ScenarioMode, TokenInfo, TurnManifestEvent } from './types/scenario';
+import type { ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo, TurnManifestEvent } from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
@@ -286,6 +291,40 @@ export const App: React.FC = () => {
     const turnOrch = consolidateOrchestrationEvents(turns[turns.length - 1].events);
     return turnOrch && turnOrch.crewmates && turnOrch.crewmates.length > 0 ? turnOrch : null;
   }, [events, turns]);
+
+  // The live status row event for the actively running turn. Rendered directly
+  // above CommandInput (and below the pinned orchestration and todo panels)
+  // so the execution hierarchy remains truthful:
+  // chat stream -> captain panel -> todo panel -> duration & token status row -> composer.
+  const liveSuccessEvent = useMemo<ScenarioEvent>(() => {
+    const existing = events.find((e) => e.kind === 'success');
+    if (existing) return existing;
+    const estTokens = estimateTokensForEvents(events);
+    const fallbackTokens = estTokens > 0 ? estTokens : events.length > 0 ? 1 : 0;
+    return {
+      kind: 'success',
+      id: 'evt_live_status_row',
+      elapsedMs: 0,
+      tokenInfo:
+        fallbackTokens > 0
+          ? {
+              used: fallbackTokens,
+              total: 0,
+              remaining: 0,
+              percent: 0,
+              estimated: true,
+            }
+          : undefined,
+    } as ScenarioEvent;
+  }, [events]);
+
+  const liveSuccessContext = useMemo(
+    () => ({
+      isRunning: true,
+      isHistorical: false,
+    }),
+    [],
+  );
 
   // Derive the active sub-stage/activity for the running turn to surface in the pinned card
   const activeTaskActivity = useMemo(() => {
@@ -767,6 +806,7 @@ export const App: React.FC = () => {
               gitBranch={activeGitBranch}
               scrollOffset={localScrollOffset}
               maxDynamicLines={scrollState.viewportHeight}
+              showStatusRow={false}
             />
             {scrollState.isUserScrolled && (
               <Box paddingX={1} marginTop={0}>
@@ -822,6 +862,17 @@ export const App: React.FC = () => {
                   event={activeTodoBoard}
                   isRunning={isRunning}
                   activeActivity={activeTaskActivity}
+                />
+              </Box>
+            )}
+
+            {(isRunning || (activeTurn && !activeTurn.isComplete)) && (
+              <Box width="100%">
+                <SuccessCard
+                  event={liveSuccessEvent as SuccessEvent}
+                  context={liveSuccessContext}
+                  manifest={lastManifest?.manifest}
+                  turnEvents={events}
                 />
               </Box>
             )}

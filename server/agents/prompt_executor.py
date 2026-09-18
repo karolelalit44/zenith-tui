@@ -1177,15 +1177,15 @@ class PromptExecutor:
                     },
                 )
                 collected_events.append(summarized_event)
-            await self._persist_assistant_message(
-                session_id, response_text, collected_events, terminal_status=_terminal_status
-            )
             if manager and summarized_event is not None:
                 await manager.send_event(session_id, summarized_event)
             if manager:
                 for terminal in _pending_terminal:
                     await manager.send_event(session_id, terminal)
                 _pending_terminal.clear()
+            await self._persist_assistant_message(
+                session_id, response_text, collected_events, terminal_status=_terminal_status
+            )
             if db_session is not None:
                 db_session.mark_idle()
                 try:

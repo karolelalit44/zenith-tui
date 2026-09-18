@@ -28,6 +28,7 @@ interface ScenarioRendererProps {
   gitBranch?: string;
   scrollOffset?: number;
   maxDynamicLines?: number;
+  showStatusRow?: boolean;
 }
 
 class EventErrorBoundary extends Component<
@@ -64,6 +65,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     gitBranch,
     scrollOffset,
     maxDynamicLines,
+    showStatusRow = true,
   }) => {
     const { theme } = useTheme();
 
@@ -177,6 +179,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
 
       const hasSuccess = result.some((e) => e.kind === 'success');
       if (!hasSuccess) {
+        if (!showStatusRow && !isHistorical) {
+          return result;
+        }
         const estTokens = estimateTokensForEvents(result);
         const fallbackTokens = estTokens > 0 ? estTokens : result.length > 0 ? 1 : 0;
         return [
@@ -206,10 +211,20 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           return e;
         });
       }
+      if (!showStatusRow) {
+        return result.filter((e) => e.kind !== 'success');
+      }
       return result;
-    }, [events, isRunning, isHistorical]);
+    }, [events, isRunning, isHistorical, showStatusRow]);
 
     const displayedEvents = useMemo(() => {
+      if (!showStatusRow && !isHistorical) {
+        const nonSuccess = visibleEvents.filter((e) => e.kind !== 'success');
+        if (!hasOverflow || expanded) {
+          return nonSuccess;
+        }
+        return nonSuccess.slice(-dynamicLimit);
+      }
       if (!hasOverflow || expanded) {
         return visibleEvents;
       }
@@ -218,7 +233,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const successEvents = visibleEvents.filter((e) => e.kind === 'success');
       const otherEvents = visibleEvents.filter((e) => e.kind !== 'success');
       return [...otherEvents.slice(-dynamicLimit), ...successEvents];
-    }, [visibleEvents, hasOverflow, expanded, dynamicLimit]);
+    }, [visibleEvents, hasOverflow, expanded, dynamicLimit, showStatusRow, isHistorical]);
 
     const pinnedEarly = useMemo(() => {
       if (!hasOverflow || expanded) return null;

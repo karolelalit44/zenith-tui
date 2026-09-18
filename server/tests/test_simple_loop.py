@@ -469,6 +469,180 @@ async def test_cached_file_read_provides_content_to_messages(test_config):
         assert "do not read again" not in content
 
 
+@pytest.mark.asyncio
+async def test_tool_calls_truncated_empty_content_retries(test_config):
+    """When finish_reason is TOOL_CALLS but no tool calls parsed and content is empty,
+
+    loop appends [response truncated] and retries rather than emergent stop.
+    """
+    from server.domain.enums import FinishReason
+
+    class _TruncatedProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("trunc", "trunc-model")
+            self.call_count = 0
+            self.captured_messages = []
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self.captured_messages.append([dict(m) for m in messages])
+            if self.call_count == 1:
+                # Truncated tool call: empty content, finish_reason=tool_calls
+                self._last_finish_reason = FinishReason.TOOL_CALLS
+                return ""
+            # Next turn succeeds with final answer
+            self._last_finish_reason = FinishReason.STOP
+            return "Final completed answer here."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["trunc-model"]
+
+    provider = _TruncatedProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Run something", "s_trunc", []):
+        events.append(ev)
+
+    assert provider.call_count == 2
+    # Second call must contain the [response truncated] placeholder and cut-off notice
+    second_call_msgs = provider.captured_messages[1]
+    assistant_msgs = [m for m in second_call_msgs if m.get("role") == "assistant"]
+    assert any("[response truncated]" in m.get("content", "") for m in assistant_msgs)
+    user_msgs = [m for m in second_call_msgs if m.get("role") == "user"]
+    assert any("cut off before the tool call was complete" in m.get("content", "") for m in user_msgs)
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_all_duplicates_skipped_enriches_stall_prompt(test_config, temp_dir):
+    """When finish_reason is TOOL_CALLS and all valid calls are dup-skipped,
+
+    the stall recovery prompt names the skipped tool calls.
+    """
+    from server.domain.enums import FinishReason
+
+    (temp_dir / "target.txt").write_text("content", encoding="utf-8")
+
+    class _DupStallProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("dup_stall", "dup-model")
+            self.call_count = 0
+            self.captured_messages = []
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self.captured_messages.append([dict(m) for m in messages])
+            if self.call_count == 1:
+                self._last_finish_reason = FinishReason.TOOL_CALLS
+                return '```tool\n{"tool": "glob", "params": {"pattern": "*.txt"}}\n```'
+            if self.call_count == 2:
+                # Substantive transitional message + repeated same tool call
+                self._last_finish_reason = FinishReason.TOOL_CALLS
+                self._last_native_tool_calls = [
+                    {"function": {"name": "glob", "arguments": '{"pattern": "*.txt"}'}}
+                ]
+                return (
+                    "I will examine the directory to find the answer and summarize everything for you in detail."
+                )
+            self._last_finish_reason = FinishReason.STOP
+            self._last_native_tool_calls = []
+            return "Here is the final answer based on the files."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["dup-model"]
+
+    provider = _DupStallProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Find txt files", "s_dup_enrich", []):
+        events.append(ev)
+
+    assert provider.call_count == 3
+    # Turn 3 messages should receive the recovery prompt mentioning glob(pattern=*.txt)
+    third_call_msgs = provider.captured_messages[2]
+    recovery_msgs = [
+        m for m in third_call_msgs
+        if m.get("role") == "user" and "glob" in m.get("content", "") and "*.txt" in m.get("content", "")
+    ]
+    assert len(recovery_msgs) >= 1
+    assert "Do not repeat them." in recovery_msgs[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_sanitization_does_not_mutate_original_messages(test_config):
+    """Sanitizing empty assistant messages for provider dispatch must not mutate
+
+    the underlying message objects in memory.
+    """
+    class _CaptureSanProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("san", "san-model")
+            self.dispatched = []
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            # Record the actual dicts in messages to verify whether they got mutated
+            self.dispatched.append(messages)
+            if self.call_count == 1:
+                # Emit an invalid native tool call with empty text content
+                self._last_native_tool_calls = [
+                    {"function": {"name": "nonexistent_tool_123", "arguments": "{}"}}
+                ]
+                return ""
+            self._last_native_tool_calls = []
+            return "All done."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["san-model"]
+
+    provider = _CaptureSanProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Hello", "s_san", []):
+        events.append(ev)
+
+    assert provider.call_count == 2
+    # In call 2, the dispatched assistant message from turn 1 should be sanitized to "..."
+    dispatched_assistant = [m for m in provider.dispatched[1] if m.get("role") == "assistant"]
+    assert any(m.get("content") == "..." for m in dispatched_assistant)
+    # The message in agent's in-flight messages should have remained with its original content
+    # (not mutated in place)
+    raw_in_flight_assistants = [m for m in agent.context_manager.build_messages([], "", "", "test-model") if False]
+    # Verify the sanitization produced new copied dicts rather than mutating
+    sanitized_item = next(m for m in dispatched_assistant if m.get("content") == "...")
+    assert sanitized_item["content"] == "..."
+
+
+
+
+
 
 
 

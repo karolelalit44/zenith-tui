@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -149,6 +150,11 @@ def _iter_source_files(root: Path, base: Path, matcher: ZenithIgnoreMatcher):
         stack.extend(reversed(dirs))
 
 
+@lru_cache(maxsize=256)
+def _cached_regex(pattern: str) -> re.Pattern[str]:
+    return re.compile(pattern, re.IGNORECASE)
+
+
 def _matches_glob(path: Path, pattern: str) -> bool:
     """Return True when *path* matches a shell glob pattern."""
     for candidate in _expand_braces(pattern):
@@ -216,7 +222,7 @@ class GrepTool(BaseTool):
             return ToolResult(success=False, error=f"Search path not found: {search_path}")
 
         try:
-            regex = re.compile(pattern, re.IGNORECASE)
+            regex = _cached_regex(pattern)
         except re.error as e:
             return ToolResult(success=False, error=f"Invalid regex: {e}")
 

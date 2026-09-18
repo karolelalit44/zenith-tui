@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections import deque
 from typing import Any
@@ -65,6 +66,14 @@ logger = logging.getLogger(__name__)
 # at 15s it always lost and the parent got a content-free "no result" instead of
 # a timed-out report.
 _EXPLORE_SALVAGE_GRACE_SECONDS = int(ZENITH_SALVAGE_TIMEOUT) + 30
+# Additional slack folded into the TTFT-derived budget floor: two LLM legs
+# (enrichment + crewmate turns) on the provider's measured latency, plus
+# tool-execution time, must fit inside the mission wall clock.
+_EXPLORE_TTFT_SLACK_S = 30
+# Hard ceiling on the TTFT-derived floor so an anomalous measurement cannot
+# stretch missions without bound.  Must exceed the highest static budget
+# (deep=360s) so the floor is meaningful on slow providers.
+_EXPLORE_TTFT_FLOOR_MAX_S = 420
 
 
 class ExploreSpendLedger:
@@ -230,7 +239,27 @@ class ExploreTool(BaseTool):
             return ToolResult(success=False, error="No objective provided")
 
         thoroughness = self._resolve_thoroughness(params.get("thoroughness"))
-        budget = EXPLORE_BUDGETS.get(thoroughness, EXPLORE_BUDGETS["standard"])
+        budget = dict(EXPLORE_BUDGETS.get(thoroughness, EXPLORE_BUDGETS["standard"]))
+        # Fit the mission wall clock to the provider's measured latency: on a slow
+        # provider (TTFT 38-75s observed) the static quick=150s window let one
+        # hung leg burn the whole mission before the first tool turn. Floor the
+        # budget at 2 round trips + tool slack on the latest measured TTFT. This
+        # stays bounded because FIX A ceilings the stream legs it is derived from.
+        ttft_ms = getattr(self._provider, "_last_ttft_ms", None)
+        if ttft_ms:
+            floor_s = min(
+                math.ceil(2 * (ttft_ms / 1000.0)) + _EXPLORE_TTFT_SLACK_S,
+                _EXPLORE_TTFT_FLOOR_MAX_S,
+            )
+            if budget["timeout_s"] < floor_s:
+                logger.info(
+                    "Explore budget floor applied thoroughness=%s base=%ds floor=%ds ttft_ms=%d",
+                    thoroughness,
+                    budget["timeout_s"],
+                    floor_s,
+                    ttft_ms,
+                )
+                budget["timeout_s"] = floor_s
 
         # Cheap guards precede ANY spend — enrichment is a provider call, so it
         # only happens after the budget window accepts a new mission.

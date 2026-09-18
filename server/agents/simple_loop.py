@@ -52,6 +52,7 @@ from .session_workspace import (
     is_identical_replay,
     is_range_covered,
     record_read,
+    slice_served_count,
 )
 
 logger = logging.getLogger(__name__)
@@ -401,6 +402,25 @@ class SimpleLoop:
             context_exceeded = False
             turn_errored = False
             dispatch_messages, _ = prune_inflight_messages(messages, keep_latest_tools=6)
+            # Sanitize assistant messages that have empty content and no tool_calls.
+            # Providers (OpenRouter, OpenAI) reject requests containing such turns
+            # with "model output must contain either output text or tool calls".
+            # These arise from reasoning-only turns, rate-limit retry truncations,
+            # or iterations where the assistant turn was dup-skipped. Replace with
+            # a minimal placeholder that preserves the conversation structure.
+            sanitized_dispatch = []
+            for _msg in dispatch_messages:
+                if (
+                    _msg.get("role") == "assistant"
+                    and not (_msg.get("content") or "").strip()
+                    and not _msg.get("tool_calls")
+                ):
+                    m_copy = dict(_msg)
+                    m_copy["content"] = "..."
+                    sanitized_dispatch.append(m_copy)
+                else:
+                    sanitized_dispatch.append(_msg)
+            dispatch_messages = sanitized_dispatch
             async for event in stream_completion(
                 self.provider,
                 dispatch_messages,
@@ -465,6 +485,36 @@ class SimpleLoop:
             if finish_reason == FinishReason.LENGTH:
                 continue
             if not tool_calls:
+                # When the provider explicitly signals tool_calls as the stop
+                # reason but the parser extracted nothing (e.g. streaming race,
+                # malformed argument JSON, or a placeholder tool name), the model
+                # intended to use a tool. Stopping here would silently swallow the
+                # intent and produce a half-answer. Instead, append what we have
+                # and continue so the model gets another chance to emit the call.
+                if finish_reason == FinishReason.TOOL_CALLS:
+                    logger.warning(
+                        "finish_reason=tool_calls but no tool calls parsed for session %s "
+                        "(iteration %d); continuing to let model retry",
+                        session_id,
+                        iteration,
+                    )
+                    content_to_append = (
+                        response_text.strip()
+                        if (response_text and response_text.strip())
+                        else "[response truncated]"
+                    )
+                    messages.append({"role": "assistant", "content": content_to_append})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your response was cut off before the tool call was complete. "
+                                "Please emit the tool call now."
+                            ),
+                        }
+                    )
+                    continue
+
                 from server.agents.todo_state import get_todo_state
 
                 todo = get_todo_state(session_id)
@@ -538,6 +588,7 @@ class SimpleLoop:
             executed_any_call_this_turn = False
             has_rejected_call_this_turn = False
             turn_had_success = False
+            skipped_dup_calls: list[str] = []
             for tc in valid_calls:
                 tool_name = tc.get("tool")
                 if not tool_name:
@@ -552,6 +603,11 @@ class SimpleLoop:
                 )
 
                 if is_dup and has_substantive_answer:
+                    from .loop import _params_label
+
+                    label = _params_label(tool_params, tool_name)
+                    tag = f"{tool_name}({label})" if label else tool_name
+                    skipped_dup_calls.append(tag)
                     continue
 
                 if sig == last_doom_sig:
@@ -595,6 +651,14 @@ class SimpleLoop:
                             session_id, abs_path, read_offset, read_limit,
                             mtime_ns=stat.st_mtime_ns, size=stat.st_size,
                         ):
+                            already_read = slice_served_count(
+                                session_id,
+                                abs_path,
+                                read_offset,
+                                read_limit,
+                                stat.st_mtime_ns,
+                                stat.st_size,
+                            ) > 0
                             cached = get_cached_read(
                                 session_id,
                                 abs_path,
@@ -630,7 +694,26 @@ class SimpleLoop:
                                 cached_result = ToolResult(
                                     success=True, output=cached, metadata=metadata
                                 )
-                                content = format_tool_result(tool_name, cached_result)
+                                if already_read:
+                                    # True repeat read of an unchanged slice: its full
+                                    # content is already embedded in this transcript. Shrink
+                                    # the fresh copy to a compact receipt so repeat reads
+                                    # stop re-costing context tokens (observed 11k→17k/turn).
+                                    # The tool_result event above still carries the full
+                                    # output, so the user/TUI are unaffected.
+                                    receipt_output = (
+                                        f"[File already in context: {read_path} "
+                                        f"lines {read_offset + 1}-{read_offset + read_limit} "
+                                        f"unchanged — full content was embedded on an earlier "
+                                        f"read; re-read only ranges not yet read if you need "
+                                        f"different lines]"
+                                    )
+                                    transcript_result = ToolResult(
+                                        success=True, output=receipt_output, metadata={}
+                                    )
+                                else:
+                                    transcript_result = cached_result
+                                content = format_tool_result(tool_name, transcript_result)
                                 messages.append(
                                     {
                                         "role": "user",
@@ -809,6 +892,49 @@ class SimpleLoop:
                 break
             if not executed_any_call_this_turn:
                 if has_rejected_call_this_turn:
+                    continue
+                # When the provider signals finish_reason=TOOL_CALLS, valid calls
+                # were parsed, but every one was silently skipped as a duplicate,
+                # the model is stuck re-deriving work already in the history. A
+                # short transitional message ("I'll investigate…") must not be
+                # treated as a final answer in this case — count it as a stall and
+                # let the model try again with a reminder.
+                # Note: this does NOT apply when finish_reason=STOP (text-parsed
+                # tool calls), which is the AC-1 case where a real answer + a stray
+                # dup should still produce a clean emergent stop.
+                if finish_reason == FinishReason.TOOL_CALLS and valid_calls:
+                    logger.info(
+                        "All %d valid tool call(s) silently dup-skipped with "
+                        "finish_reason=TOOL_CALLS for session %s (iteration %d); "
+                        "counting as stall to prevent false emergent stop",
+                        len(valid_calls),
+                        session_id,
+                        iteration,
+                    )
+                    stall_count += 1
+                    if stall_count >= 2:
+                        yield r.warning(
+                            "No new tool work for several consecutive iterations; finalizing turn.",
+                            session_id,
+                            code="STALL",
+                        )
+                        stalled = True
+                        break
+                    dup_desc = (
+                        f"the tool call(s): {', '.join(skipped_dup_calls)}"
+                        if skipped_dup_calls
+                        else "those tool calls"
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Those actions ({dup_desc}) are already complete. "
+                                "Do not repeat them. Synthesize and provide your final answer now "
+                                "based on the information gathered."
+                            ),
+                        }
+                    )
                     continue
                 has_substantive_answer = bool(
                     current_turn_emitted

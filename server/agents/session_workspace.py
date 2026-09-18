@@ -178,6 +178,34 @@ def get_cached_read(
         return slice_entry.get("output")
 
 
+def slice_served_count(
+    session_id: str, path: str, offset: int, limit: int, mtime_ns: int | None = None, size: int | None = None
+) -> int:
+    """Times this exact (``path``, ``offset``, ``limit``) slice has been served.
+
+    Returns the count BEFORE the next ``get_cached_read`` call increments it, so
+    callers can tell a true repeat read (content already embedded in context)
+    from the first read of a range. Stale fingerprints (changed mtime/size) are
+    evicted and count as 0, mirroring ``get_cached_read``.
+
+    ``path`` must be an absolute, resolved path (same key space as ``get_cached_read``).
+    """
+    with _LOCK:
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        if entry is None:
+            return 0
+        if mtime_ns is not None and entry.get("mtime_ns") != mtime_ns:
+            _cache_evict(session_id, path)
+            return 0
+        if size is not None and entry.get("size") != size:
+            _cache_evict(session_id, path)
+            return 0
+        slice_entry = entry.get("slices", {}).get((offset, limit))
+        if slice_entry is None:
+            return 0
+        return slice_entry.get("count", 0)
+
+
 def get_read_history(session_id: str, path: str) -> list[tuple[int, int]]:
     """Return all distinct ``(offset, limit)`` ranges read for ``path`` this session.
 

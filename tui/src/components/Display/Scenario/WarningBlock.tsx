@@ -26,6 +26,8 @@ const LOOP_DIAGNOSTIC_CODES = new Set([
   'CONTEXT',
   'CONTEXT_EXHAUSTED',
   'LENGTH_EXCEEDED',
+  'DUPLICATE_CALL',
+  'DOOM_LOOP',
 ]);
 
 export function isLoopDiagnostic(code?: string): boolean {

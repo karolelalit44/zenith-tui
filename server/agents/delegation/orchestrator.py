@@ -553,7 +553,15 @@ class CaptainOrchestrator:
             async with asyncio.timeout(ZENITH_SALVAGE_TIMEOUT):
                 raw = await provider.complete([{"role": "user", "content": prompt}])
         except Exception as e:
-            logger.warning("Timeout salvage completion failed: %s", e)
+            # %r, not %s: asyncio.TimeoutError stringifies to "" and the old
+            # "%s" form emitted a context-free "failed: " line (seen in prod
+            # logs). Keep objective + evidence size so the line is actionable.
+            logger.warning(
+                "Timeout salvage completion failed objective=%.80s evidence_events=%d error=%r",
+                objective,
+                len(child_events),
+                e,
+            )
             return ""
         text = (raw or "").strip()
         return text if len(text) >= 40 else ""

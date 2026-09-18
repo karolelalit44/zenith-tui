@@ -68,15 +68,15 @@ AUTO_LINT_FIX_ENABLED = True
 BASH_TOOL_DESCRIPTION_WINDOWS = (
     "Run a PowerShell command in the workspace for process execution (tests, lint, "
     "build). PowerShell only; never Unix commands like ls -la, mkdir -p. NEVER use "
-    "bash to read, write, or edit files: use file_read, file_write, file_edit. Prefer "
-    "glob/grep/list_dir. Unbounded recursive listings (Get-ChildItem -Recurse, tree) "
-    "are refused; scope them. To act in a subfolder: 'Set-Location <folder>;'."
+    "bash to list, search, read, write, or edit files: use list_dir, glob, grep, "
+    "file_read, file_write, file_edit. All shell listings (dir, ls, Get-ChildItem) "
+    "are refused. To act in a subfolder: 'Set-Location <folder>;'."
 )
 BASH_TOOL_DESCRIPTION_UNIX = (
     "Run a shell command in the workspace for process execution (tests, lint, build). "
-    "POSIX/bash only: mkdir -p, rm; never PowerShell. NEVER use bash to read, write, "
-    "or edit files: use file_read, file_write, file_edit. Prefer glob/grep/list_dir. "
-    "Unbounded recursive listings (ls -R, tree, find .) are refused; scope them. "
+    "POSIX/bash only: mkdir -p, rm; never PowerShell. NEVER use bash to list, search, "
+    "read, write, or edit files: use list_dir, glob, grep, file_read, file_write, "
+    "file_edit. All shell listings (ls, dir, find) are refused. "
     "To act in a subfolder: 'cd <folder> &&'."
 )
 

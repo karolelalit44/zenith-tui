@@ -66,6 +66,17 @@ def redact_pii(text: str) -> str:
     return text
 
 
+# Near-miss tool names observed in prod logs ("Hallucinated tools ignored:
+# read"). Each maps a 100%-invalid-today name to its read-only canonical
+# tool so one wasted error round-trip becomes a served call. Additions here
+# must stay read-only -> read-only; never alias toward a mutating tool.
+# Deliberately a literal table, not fuzzy matching: fuzzy would risk
+# executing a tool the model did not intend.
+_TOOL_NAME_ALIASES: dict[str, str] = {
+    "read": FILE_READ_TOOL,
+}
+
+
 def validate_tool_calls(
     tool_calls: list[dict], registered_tools: set[str]
 ) -> tuple[list[dict], list[dict]]:
@@ -73,6 +84,12 @@ def validate_tool_calls(
     invalid: list[dict] = []
     for tc in tool_calls:
         name = tc.get("tool", "")
+        if name not in registered_tools and name in _TOOL_NAME_ALIASES:
+            canonical = _TOOL_NAME_ALIASES[name]
+            if canonical in registered_tools:
+                logger.info("Tool alias applied: '%s' -> '%s'", name, canonical)
+                tc["tool"] = canonical
+                name = canonical
         (valid if name in registered_tools else invalid).append(tc)
     return (valid, invalid)
 

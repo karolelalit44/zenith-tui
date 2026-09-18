@@ -11,6 +11,8 @@ Covers:
 - parent todo lifecycle is untouched by child missions.
 """
 
+import logging
+
 import pytest
 
 from server.agents.delegation.agent_definition import build_custom_definition
@@ -124,6 +126,61 @@ def test_explore_returns_structured_summary_within_cap(config, temp_dir):
     assert meta["proposed_count"] == 1
     assert meta["crewmate_name"] == "Apogee"
     assert meta["tokens_used"] > 0
+
+
+def test_explore_budget_floored_by_measured_ttft(config, temp_dir, caplog):
+    """A slow provider's measured TTFT floors the mission wall clock so one
+    hung leg cannot burn the whole (static) quick budget before the first tool
+    turn.
+    """
+    provider = _CrewmateScriptedProvider()
+    provider._last_ttft_ms = 90_000
+    with caplog.at_level(logging.INFO, logger="server.toolkit.tools.explore_tool"):
+        result = _run(
+            _tool(config, provider).execute(
+                {"objective": "where does compaction gate", "thoroughness": "quick"},
+                str(temp_dir),
+            )
+        )
+    assert result.success is True
+    assert (
+        "Explore budget floor applied thoroughness=quick base=150s floor=210s ttft_ms=90000"
+        in caplog.text
+    )
+
+
+def test_explore_budget_unchanged_without_ttft_measurement(config, temp_dir, caplog):
+    """No measured TTFT (cold provider or non-latency-tracking base) → static
+    budget stands; getattr guard must not crash a mission on the first read.
+    """
+    provider = _CrewmateScriptedProvider()
+    assert not hasattr(provider, "_last_ttft_ms")
+    with caplog.at_level(logging.INFO, logger="server.toolkit.tools.explore_tool"):
+        result = _run(
+            _tool(config, provider).execute(
+                {"objective": "where does compaction gate", "thoroughness": "quick"},
+                str(temp_dir),
+            )
+        )
+    assert result.success is True
+    assert "Explore budget floor applied" not in caplog.text
+
+
+def test_explore_budget_floor_capped_by_ceiling(config, temp_dir, caplog):
+    """An extreme TTFT measurement is clamped by the hard ceiling so the
+    mission wall clock does not stretch without bound."""
+    provider = _CrewmateScriptedProvider()
+    provider._last_ttft_ms = 900_000  # 900s — would produce floor=1830 without cap
+    with caplog.at_level(logging.INFO, logger="server.toolkit.tools.explore_tool"):
+        result = _run(
+            _tool(config, provider).execute(
+                {"objective": "where does compaction gate", "thoroughness": "quick"},
+                str(temp_dir),
+            )
+        )
+    assert result.success is True
+    assert "Explore budget floor applied" in caplog.text
+    assert "floor=420s" in caplog.text
 
 
 def test_child_transcript_stays_out_of_parent_context(config, temp_dir):

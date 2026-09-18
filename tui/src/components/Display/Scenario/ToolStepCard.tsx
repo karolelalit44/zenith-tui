@@ -20,7 +20,7 @@ import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
-import { getWorkspaceFolderName } from '../../../utils/workspacePath';
+import { getWorkspaceFolderName, toWorkspaceRelative } from '../../../utils/workspacePath';
 import type { EventRenderContext } from './componentRegistry';
 import { DirectoryListingCard } from './DirectoryListingCard';
 import { formatErrorSummary } from './errorSummary';
@@ -391,6 +391,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const isShellCommand = SHELL_TOOL_SET.has(toolKey);
   const isGrepSearch = SEARCH_TOOL_SET.has(toolKey);
   const isFileRead = FILE_READ_TOOL_SET.has(toolKey);
+  const isGrep = toolKey === 'grep' || toolKey === 'grep_search';
+  const isGlob = toolKey === 'glob';
   const isFileMutation = FILE_MUTATION_TOOL_SET.has(toolKey);
 
   const cmdString = primary?.value ?? (event.params.command as string) ?? '';
@@ -431,6 +433,25 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   if (isShellCommand) {
     const meta = event.metadata ?? {};
     const exitCode = typeof meta.exit_code === 'number' ? meta.exit_code : undefined;
+
+    // Dedicated-tool bypass refusals are not real failures — render as compact
+    // inline hint instead of a full terminal error card to avoid noisy `✗ Refused` blocks.
+    const isDedicatedBypassRefusal =
+      !isPending && !isSuccess && typeof event.error === 'string' && event.error.includes('Refused: Do not use shell');
+    if (isDedicatedBypassRefusal) {
+      return (
+        <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+          <Box flexDirection="row" alignItems="center">
+            <Text color={theme.colors.status.warning} bold>
+              ⚠{' '}
+            </Text>
+            <Text color={theme.colors.text.dim} wrap="truncate-end">
+              {formatErrorSummary(event.error)}
+            </Text>
+          </Box>
+        </Box>
+      );
+    }
 
     // Border colour carries the execution state: info while pending, warning if cancelled, neutral muted when completed.
     const borderColor = isPending
@@ -571,6 +592,88 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     );
   }
 
+  /** Modern capabilities dossier — grouped, color-coded, professional. */
+  if (toolKey === 'discover_capabilities') {
+    const raw = event.output || '';
+    const lines = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('- '));
+    const parsed = lines
+      .map((l) => {
+        const m = l.match(/^-\s+(\S+)\s+\[(read-only|mutating)\]:\s+tools:\s+(.*)$/);
+        if (!m) return null;
+        return { id: m[1], flag: m[2] as 'read-only' | 'mutating', tools: m[3].split(',').map((s) => s.trim()).filter(Boolean) };
+      })
+      .filter(Boolean) as { id: string; flag: 'read-only' | 'mutating'; tools: string[] }[];
+    const caps = parsed.length > 0 ? parsed : (event.metadata?.capabilities as string[] | undefined)?.map((id) => ({ id, flag: 'read-only' as const, tools: [] })) ?? [];
+    const totalCaps = caps.length;
+    const totalTools = caps.reduce((a, c) => a + c.tools.length, 0);
+    const isGrouped = parsed.length > 0;
+    return (
+      <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+        <Box
+          flexDirection="column"
+          backgroundColor={theme.colors.code.background}
+          borderStyle="round"
+          borderColor={theme.colors.border.muted}
+          paddingX={1}
+          paddingY={0}
+        >
+          <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap" justifyContent="space-between">
+            <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
+              <Text color={theme.colors.status.accent} bold>
+                ◆{' '}
+              </Text>
+              <Text color={theme.colors.text.bright} bold>
+                Discovered {totalCaps} {totalCaps === 1 ? 'capability' : 'capabilities'}
+              </Text>
+              <Text color={theme.colors.text.dim}> · {totalTools} tools</Text>
+            </Box>
+            {metaPill}
+          </Box>
+          {!isPending && isGrouped ? (
+            <Box flexDirection="column" paddingLeft={1} marginTop={0}>
+              {caps.slice(0, 12).map((cap) => (
+                <Box key={cap.id} flexDirection="row" alignItems="center" flexWrap="wrap">
+                  <Text color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning} bold>
+                    {cap.flag === 'read-only' ? '● ' : '◐ '}
+                  </Text>
+                  <Text color={theme.colors.text.bright} bold>
+                    {cap.id}
+                  </Text>
+                  <Text color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning}> [{cap.flag}]</Text>
+                  {cap.tools.length > 0 && (
+                    <Text color={theme.colors.text.dim} wrap="truncate-end">
+                      {' '}
+                      — {cap.tools.join(' · ')}
+                    </Text>
+                  )}
+                </Box>
+              ))}
+              {caps.length > 12 && (
+                <Text color={theme.colors.text.dim} italic>
+                  +{caps.length - 12} more capabilities
+                </Text>
+              )}
+              <Box marginTop={0}>
+                <Text color={theme.colors.text.dim} italic wrap="truncate-end">
+                  Call get_tool_definition('tool_name') to load schema
+                </Text>
+              </Box>
+            </Box>
+          ) : (
+            <Box paddingLeft={1}>
+              <Text color={theme.colors.text.dim} wrap="truncate-end">
+                {formatCommandOutput(raw, 8)}
+              </Text>
+            </Box>
+          )}
+        </Box>
+      </Box>
+    );
+  }
+
   const isFileDelete = FILE_DELETE_TOOL_SET.has(toolKey);
 
   const outputText =
@@ -595,33 +698,78 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         {!isFileDelete ? statusGlyph : null}
         <Box flexGrow={1} flexShrink={1} overflow="hidden">
           {isFileDelete ? (
-            <Text
-              color={
-                state === 'cancelled'
-                  ? theme.colors.status.warning
-                  : isSuccess
-                    ? theme.colors.status.warning
-                    : theme.colors.status.error
-              }
-              bold
-              wrap="truncate-end"
-            >
-              {statusText || `${headerText} removed`}
-            </Text>
+            hasTextHeader ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : isSuccess ? (
+              <Text color={theme.colors.status.warning} bold wrap="truncate-end">
+                {`✗ Delete ${toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText.replace(/^Delete\s+/i, '').replace(/ removed$/i, ''), context?.workspaceName)} (removed from workspace)`}
+              </Text>
+            ) : (
+              <Text color={theme.colors.status.error} bold wrap="truncate-end">
+                {statusText || `${headerText} failed`}
+              </Text>
+            )
           ) : isFileRead ? (
-            <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright} wrap="truncate-end">
-              {hasTextHeader ? event.text : `Read ${primary?.value ?? (event.metadata?.path as string) ?? headerText}`}
-              {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
-            </Text>
-          ) : isGrepSearch ? (
-            <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright} wrap="truncate-end">
-              {hasTextHeader
-                ? event.text
-                : `${event.tool === 'glob' ? 'Glob' : 'Grep'} "${
-                    primary?.value ?? (event.metadata?.pattern as string) ?? ''
-                  }"`}
-              {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
-            </Text>
+            hasTextHeader && !isSuccess ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright}>📄 Read </Text>
+                <Text color={theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader
+                    ? toWorkspaceRelative((event.text ?? '').replace(/^Read\s+/i, ''), context?.workspaceName)
+                    : toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText, context?.workspaceName)}
+                </Text>
+                {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
+              </Text>
+            )
+          ) : isGrep ? (
+            hasTextHeader && !isSuccess ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={isSuccess ? theme.colors.status.warning : theme.colors.text.bright}>⌕ Grep </Text>
+                <Text color={theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader ? (event.text ?? '').replace(/^(Grep|Search)\s+/i, '') : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
+                </Text>
+                {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
+              </Text>
+            )
+          ) : isGlob ? (
+            hasTextHeader && !isSuccess ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={isSuccess ? theme.colors.status.accent : theme.colors.text.bright}>⬢ Glob </Text>
+                <Text color={theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader ? (event.text ?? '').replace(/^Glob\s+/i, '') : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
+                </Text>
+                {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
+              </Text>
+            )
+          ) : isFileMutation && isSuccess ? (
+            hasTextHeader ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={theme.colors.status.success}>
+                  {toolKey === 'file_write' || toolKey === 'write_file' || toolKey === 'create_file' ? '● Create ' : '● Update '}
+                </Text>
+                <Text color={theme.colors.text.bright} wrap="truncate-end">
+                  {toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText, context?.workspaceName)}
+                </Text>
+              </Text>
+            )
           ) : (
             <Text
               color={
@@ -657,7 +805,10 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       ) : null}
       {/* Unified Git Native Diff / Plain Code Box (file_write, file_edit, multi_edit) */}
       {isFileMutation && !isPending && isSuccess && diffOrContent ? (
-        <FileDiffBlock diffOrContent={diffOrContent} title={primary?.value || undefined} />
+        <FileDiffBlock
+          diffOrContent={diffOrContent}
+          title={primary?.value ? toWorkspaceRelative(primary.value, context?.workspaceName) : undefined}
+        />
       ) : null}
       {/* Non-shell informational tools keep a small capped output excerpt */}
       {!isFileMutation && !isPending && isSuccess && !isFileRead && !isGrepSearch && toolKey !== TODO_TOOL && outputText.trim().length > 0 ? (

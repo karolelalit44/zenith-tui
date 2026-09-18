@@ -169,6 +169,30 @@ class TestRangeCoverage:
         assert sw.get_read_history(sid, "/abs/i.py") == []
 
 
+class TestSliceServedCount:
+    def test_increments_after_each_serve(self):
+        """slice_served_count reports PRIOR serves; get_cached_read increments."""
+        sid = "test-session"
+        sw.cache_file_read(sid, "r.py", 0, 250, "content", mtime_ns=1, size=7, total_lines=300)
+        assert sw.slice_served_count(sid, "r.py", 0, 250, mtime_ns=1, size=7) == 0
+        assert sw.get_cached_read(sid, "r.py", 0, 250, mtime_ns=1, size=7) == "content"
+        assert sw.slice_served_count(sid, "r.py", 0, 250, mtime_ns=1, size=7) == 1
+        assert sw.get_cached_read(sid, "r.py", 0, 250, mtime_ns=1, size=7) == "content"
+        assert sw.slice_served_count(sid, "r.py", 0, 250, mtime_ns=1, size=7) == 2
+
+    def test_zero_for_never_read_slice(self):
+        sid = "test-session"
+        sw.cache_file_read(sid, "s.py", 0, 250, "content", mtime_ns=1, size=7, total_lines=300)
+        assert sw.slice_served_count(sid, "s.py", 250, 250, mtime_ns=1, size=7) == 0
+
+    def test_zero_for_stale_fingerprint(self):
+        sid = "test-session"
+        sw.cache_file_read(sid, "t.py", 0, 250, "content", mtime_ns=1, size=7, total_lines=300)
+        sw.get_cached_read(sid, "t.py", 0, 250, mtime_ns=1, size=7)
+        assert sw.slice_served_count(sid, "t.py", 0, 250, mtime_ns=999, size=7) == 0
+        assert sw.get_read_history(sid, "t.py") == []
+
+
 class TestUpperBoundEviction:
     def test_cache_bounded_per_session(self):
         sid = "test-session"
