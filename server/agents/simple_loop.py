@@ -101,7 +101,11 @@ class SimpleLoop:
 
     @staticmethod
     def _salvage_digest(messages: list[dict]) -> str:
-        digs = [str(m.get("digest")) for m in messages if isinstance(m, dict) and m.get("digest")]
+        digs = [
+            str(m.get("salvage_digest") or m.get("digest"))
+            for m in messages
+            if isinstance(m, dict) and (m.get("salvage_digest") or m.get("digest"))
+        ]
         if not digs:
             return ""
         shown = digs[-SALVAGE_DIGEST_MAX_ITEMS:]
@@ -396,7 +400,7 @@ class SimpleLoop:
             stream_state = StreamState()
             context_exceeded = False
             turn_errored = False
-            dispatch_messages, _ = prune_inflight_messages(messages, keep_latest_tools=2)
+            dispatch_messages, _ = prune_inflight_messages(messages, keep_latest_tools=6)
             async for event in stream_completion(
                 self.provider,
                 dispatch_messages,
@@ -541,13 +545,7 @@ class SimpleLoop:
                 tool_params = normalize_file_params(tc.get("params", {}), tool_name)
                 sig = (tool_name, _json_sig(tool_params))
 
-                tool_instance = self.tool_registry.get(tool_name) if self.tool_registry else None
-                is_read_only = bool(
-                    (tool_instance and getattr(tool_instance, "read_only", False))
-                    or (tool_name == "todo" and tool_params.get("action") in ("list", "read"))
-                )
-
-                is_dup = (sig in executed_calls) and not is_read_only
+                is_dup = sig in executed_calls
                 has_substantive_answer = bool(
                     current_turn_emitted
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
@@ -637,7 +635,7 @@ class SimpleLoop:
                                     {
                                         "role": "user",
                                         "content": content,
-                                        "digest": "file_read: ok",
+                                        "salvage_digest": "file_read: ok",
                                     }
                                 )
                                 continue
@@ -751,8 +749,12 @@ class SimpleLoop:
                     p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
                         created_files.add(p)
-                    if tool_name in ("file_write", "file_edit") and p:
+                    if tool_name in ("file_write", "file_edit", "file_delete") and p:
                         files_edited.append(p)
+                        executed_calls = {
+                            s for s in executed_calls
+                            if s[0] not in ("glob", "grep", "dir_list", "list_dir")
+                        }
                     if tool_name == "file_read" and p:
                         read_files.add(p)
                         record_read(session_id, p)
@@ -780,13 +782,16 @@ class SimpleLoop:
                             f"\n[read receipt: '{p}' lines in context: {ranges}"
                             f" / {total} total. Re-read only unlisted ranges.]"
                         )
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": content,
-                        "digest": f"{tool_name}: {'ok' if result.success else 'error'}",
-                    }
-                )
+                msg_entry: dict[str, Any] = {
+                    "role": "user",
+                    "content": content,
+                    "salvage_digest": f"{tool_name}: {'ok' if result.success else 'error'}",
+                }
+                if tool_name in ("glob", "grep") and result.success:
+                    from server.toolkit.digest import format_tool_digest
+
+                    msg_entry["digest"] = format_tool_digest(tool_name, tool_params, result)
+                messages.append(msg_entry)
             if executed_any_call_this_turn or has_rejected_call_this_turn:
                 if turn_had_success:
                     consecutive_failures = 0

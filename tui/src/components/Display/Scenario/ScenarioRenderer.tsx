@@ -216,12 +216,11 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
             orchInserted = true;
           }
         } else if (e.kind === 'todo_board') {
-          // Fold every board snapshot into ONE minimal window in historical/transcript view.
-          // In live interactive mode, tasks are rendered in the pinned modern card above the input box.
-          if (isHistorical && !boardInserted && consolidatedBoard) {
-            result.push(consolidatedBoard);
-            boardInserted = true;
-          }
+          // Todo board snapshots are rendered exclusively in the pinned card above
+          // the composer input, keeping the chat stream clean and non-redundant.
+        } else if (e.kind === 'tool_step' && e.tool === 'todo' && e.success) {
+          // Successful todo state transitions update the pinned card; do not clutter
+          // the chat scrollback with repetitive "Track task" rows.
         } else if (
           e.kind === 'crewmate_spawned' ||
           e.kind === 'crewmate_status' ||

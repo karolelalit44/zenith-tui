@@ -93,7 +93,11 @@ def _assess_enumeration(command: str, workspace_root: str) -> str | None:
             "scope to a subdirectory, or pipe through 'head'."
         )
 
-_DIRECT_FILE_READ = re.compile(
+_DIRECT_FILE_READ_POSIX = re.compile(
+    r"^\s*cat\s+['\"]?([^\s|><;]+)['\"]?\s*$",
+    re.IGNORECASE,
+)
+_DIRECT_FILE_READ_WINDOWS = re.compile(
     r"^\s*(?:cat|type|Get-Content|gc)\s+['\"]?([^\s|><;]+)['\"]?(?:\s+-(?:TotalCount|First|Head)\s+\d+)?\s*$",
     re.IGNORECASE,
 )
@@ -101,7 +105,8 @@ _DIRECT_FILE_READ = re.compile(
 
 def _assess_direct_file_read(command: str) -> str | None:
     stripped = command.strip()
-    m = _DIRECT_FILE_READ.match(stripped)
+    pattern = _DIRECT_FILE_READ_WINDOWS if _is_windows() else _DIRECT_FILE_READ_POSIX
+    m = pattern.match(stripped)
     if m:
         path = m.group(1)
         return (

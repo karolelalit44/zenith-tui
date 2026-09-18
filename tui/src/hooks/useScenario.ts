@@ -247,7 +247,7 @@ export function useScenario(): UseScenarioReturn {
           batchTimerRef.current = setTimeout(() => {
             batchTimerRef.current = null;
             flushBatch();
-          }, 50);
+          }, 75);
         }
       } else {
         flushBatch();

@@ -10,6 +10,11 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
 const MAX_PINNED_TODOS = 5;
 const PROGRESS_BAR_WIDTH = 10;
 
+const LiveSpinner: React.FC = () => {
+  const tick = useAnimationTick();
+  return <>{SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}</>;
+};
+
 interface PinnedTodoCardProps {
   event: ConsolidatedTodoBoard;
   isRunning?: boolean;
@@ -18,7 +23,6 @@ interface PinnedTodoCardProps {
 export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(({ event, isRunning = false }) => {
   const { theme } = useTheme();
   const colors = theme.colors;
-  const tick = useAnimationTick();
   const { columns } = useTerminalDimensions();
   const termCols = columns || process.stdout.columns || 80;
   const contentWidth = Math.max(30, termCols - 2);
@@ -31,7 +35,9 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(({ event
   const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
   // Build progress bar: e.g. [██████░░░░]
-  const filledWidth = Math.round((percent / 100) * PROGRESS_BAR_WIDTH);
+  const clampedPercent = Math.max(0, Math.min(100, percent));
+  const rawFilled = Math.round((clampedPercent / 100) * PROGRESS_BAR_WIDTH);
+  const filledWidth = Math.max(0, Math.min(PROGRESS_BAR_WIDTH, rawFilled));
   const emptyWidth = PROGRESS_BAR_WIDTH - filledWidth;
   const progressBarStr = `[${'█'.repeat(filledWidth)}${'░'.repeat(emptyWidth)}]`;
 
@@ -49,7 +55,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(({ event
       case 'in_progress':
         return (
           <Text color={colors.status.info} bold>
-            {isRunning ? SPINNER_FRAMES[tick % SPINNER_FRAMES.length] : '◐'}
+            {isRunning ? <LiveSpinner /> : '◐'}
           </Text>
         );
       case 'blocked':
@@ -100,7 +106,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(({ event
         {activeTask ? (
           <Box flexDirection="row" alignItems="center" flexShrink={1} marginLeft={1}>
             <Text color={colors.status.info} bold>
-              {isRunning ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} ` : '◐ '}
+              {isRunning ? <LiveSpinner /> : '◐'}{' '}
             </Text>
             <Text color={colors.text.bright} wrap="truncate-end">
               {activeTask.title}
@@ -135,9 +141,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(({ event
             </Box>
             {item.priority && item.priority !== 'medium' && (
               <Box marginLeft={1} flexShrink={0}>
-                <Text color={item.priority === 'high' ? colors.status.accent : colors.text.dim}>
-                  [{item.priority}]
-                </Text>
+                <Text color={item.priority === 'high' ? colors.status.accent : colors.text.dim}>[{item.priority}]</Text>
               </Box>
             )}
           </Box>

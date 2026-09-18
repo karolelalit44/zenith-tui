@@ -262,14 +262,14 @@ export const App: React.FC = () => {
   }, [completedTurns]);
 
   // Derive the active todo board from the live event stream, or fall back to
-  // the latest turn's todo board if live stream has ended.
+  // the immediately preceding turn's todo board if live stream has ended.
   const activeTodoBoard = useMemo(() => {
     const liveBoard = consolidateTodoBoardEvents(events);
-    if (liveBoard && liveBoard.board && liveBoard.board.length > 0) return liveBoard;
-    if (isRunning) return null;
-    for (let i = turns.length - 1; i >= 0; i--) {
-      const turnBoard = consolidateTodoBoardEvents(turns[i].events);
-      if (turnBoard && turnBoard.board && turnBoard.board.length > 0) return turnBoard;
+    if (liveBoard?.board && liveBoard.board.length > 0) return liveBoard;
+    if (isRunning || turns.length === 0) return null;
+    const latestTurnBoard = consolidateTodoBoardEvents(turns[turns.length - 1].events);
+    if (latestTurnBoard?.board && latestTurnBoard.board.length > 0) {
+      return latestTurnBoard;
     }
     return null;
   }, [events, turns, isRunning]);
@@ -330,8 +330,15 @@ export const App: React.FC = () => {
   ]);
 
   useEffect(() => {
-    updateContentHeight(liveContentHeight);
-  }, [liveContentHeight, updateContentHeight]);
+    if (!isRunning || scrollState.isUserScrolled) {
+      updateContentHeight(liveContentHeight);
+    } else {
+      const timer = setTimeout(() => {
+        updateContentHeight(liveContentHeight);
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [liveContentHeight, updateContentHeight, isRunning, scrollState.isUserScrolled]);
 
   useEffect(() => {
     if (!isRunning && activeTurn?.isComplete) {

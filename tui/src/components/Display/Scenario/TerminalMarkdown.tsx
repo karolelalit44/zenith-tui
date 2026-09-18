@@ -20,6 +20,9 @@ interface InlineToken {
 }
 
 function parseInlineTokens(text: string): InlineToken[] {
+  if (!text.includes('*') && !text.includes('`')) {
+    return [{ text }];
+  }
   const tokens: InlineToken[] = [];
   const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
   let lastIdx = 0;
@@ -218,9 +221,11 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
 
   if (shouldWindow && maxLines) {
     const total = allRawLines.length;
-    const maxOffset = Math.max(0, total - maxLines);
+    // Reserve vertical space for hiddenAbove/hiddenBelow indicators so total height <= maxLines
+    const effectiveMax = Math.max(1, maxLines - 2);
+    const maxOffset = Math.max(0, total - effectiveMax);
     const start = scrollOffset !== undefined ? Math.max(0, Math.min(maxOffset, scrollOffset)) : maxOffset;
-    const end = Math.min(total, start + maxLines);
+    const end = Math.min(total, start + effectiveMax);
 
     hiddenAbove = start;
     hiddenBelow = total - end;

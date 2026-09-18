@@ -12,6 +12,7 @@ import {
   LIST_DIR_TOOL_SET,
   SEARCH_TOOL_SET,
   SHELL_TOOL_SET,
+  TODO_TOOL,
   TOOL_META_INTERRUPTED,
   TOOL_META_REPEAT_COUNT,
 } from '../../../constants/toolDisplay';
@@ -644,7 +645,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         <FileDiffBlock diffOrContent={diffOrContent} title={primary?.value || undefined} />
       ) : null}
       {/* Non-shell informational tools keep a small capped output excerpt */}
-      {!isFileMutation && !isPending && isSuccess && !isFileRead && !isGrepSearch && outputText.trim().length > 0 ? (
+      {!isFileMutation && !isPending && isSuccess && !isFileRead && !isGrepSearch && toolKey !== TODO_TOOL && outputText.trim().length > 0 ? (
         <Box flexDirection="column" paddingLeft={2} marginTop={0}>
           <Text color={theme.colors.text.dim} wrap="truncate-end">
             {formatCommandOutput(outputText, GENERIC_OUTPUT_PREVIEW_LINES)}

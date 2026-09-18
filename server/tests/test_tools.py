@@ -425,6 +425,17 @@ class TestBashTool:
         assert not cat_result.success
         assert "file_read" in cat_result.error
 
+    def test_direct_file_read_posix_type_not_refused(self, monkeypatch):
+        from server.toolkit.tools.bash import _assess_direct_file_read
+        # On POSIX, 'type python' is command inspection, not a file read
+        monkeypatch.setattr("server.toolkit.tools.bash._is_windows", lambda: False)
+        assert _assess_direct_file_read("type python") is None
+        assert _assess_direct_file_read("cat foo.txt") is not None
+
+        # On Windows, 'type foo.txt' is a file read
+        monkeypatch.setattr("server.toolkit.tools.bash._is_windows", lambda: True)
+        assert _assess_direct_file_read("type foo.txt") is not None
+
 
 def _python_cmd() -> str:
     if " " in sys.executable:

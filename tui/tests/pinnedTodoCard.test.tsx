@@ -1,5 +1,4 @@
 import { render } from 'ink-testing-library';
-import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { PinnedTodoCard } from '../src/components/Display/Scenario/PinnedTodoCard';
 import { ThemeProvider } from '../src/theme/ThemeContext';
@@ -59,12 +58,7 @@ describe('PinnedTodoCard', () => {
   });
 
   it('renders all complete banner when 100% finished', () => {
-    const frame = renderCard(
-      makeBoard([
-        makeItem('T1', 'Task one', 'done'),
-        makeItem('T2', 'Task two', 'done'),
-      ]),
-    );
+    const frame = renderCard(makeBoard([makeItem('T1', 'Task one', 'done'), makeItem('T2', 'Task two', 'done')]));
 
     expect(frame).toContain('(2/2)');
     expect(frame).toContain('100%');
@@ -72,9 +66,7 @@ describe('PinnedTodoCard', () => {
   });
 
   it('caps visible items at 5 and displays overflow count', () => {
-    const items = Array.from({ length: 8 }, (_, i) =>
-      makeItem(`T${i + 1}`, `Item ${i + 1}`, i < 2 ? 'done' : 'todo'),
-    );
+    const items = Array.from({ length: 8 }, (_, i) => makeItem(`T${i + 1}`, `Item ${i + 1}`, i < 2 ? 'done' : 'todo'));
     const frame = renderCard(makeBoard(items));
 
     expect(frame).toContain('(2/8)');
@@ -85,12 +77,26 @@ describe('PinnedTodoCard', () => {
   });
 
   it('renders priority tag for high priority items', () => {
-    const frame = renderCard(
-      makeBoard([
-        makeItem('T1', 'High priority item', 'todo', 'high'),
-      ]),
-    );
+    const frame = renderCard(makeBoard([makeItem('T1', 'High priority item', 'todo', 'high')]));
 
     expect(frame).toContain('[high]');
+  });
+
+  it('renders static half-circle icon for in_progress items when isRunning is false', () => {
+    const frame = renderCard(makeBoard([makeItem('T1', 'Work in progress', 'in_progress')]), false);
+
+    expect(frame).toContain('◐');
+    expect(frame).toContain('Work in progress');
+  });
+
+  it('safely handles progress bar clamping without RangeError', () => {
+    // 0 items
+    expect(renderCard(makeBoard([]))).toBe('');
+
+    // 100% complete with custom high counts
+    const items = Array.from({ length: 12 }, (_, i) => makeItem(`T${i + 1}`, `Item ${i + 1}`, 'done'));
+    const frame = renderCard(makeBoard(items));
+    expect(frame).toContain('100%');
+    expect(frame).toContain('[██████████]');
   });
 });

@@ -106,7 +106,7 @@ def _find_compaction_cut_budgeted(history, keep_tokens: int, count_fn) -> int:
 
 def prune_inflight_messages(
     messages: list[dict],
-    keep_latest_tools: int = 2,
+    keep_latest_tools: int = 6,
     max_output: int = 1000,
 ) -> tuple[list[dict], CompactionStats]:
     """Prune in-flight tool results in active conversation memory.
@@ -138,7 +138,8 @@ def prune_inflight_messages(
             orig_len = len(content)
             stats.original_chars += orig_len
 
-            if "digest" in m:
+            # Never reduce file_read or todo to hollow digests; preserve their content via head_tail_trim
+            if "digest" in m and not content.startswith(("[Tool: file_read", "[Tool: todo")):
                 m["content"] = m["digest"]
                 m["time"] = "compacted"
                 m["is_digested"] = True

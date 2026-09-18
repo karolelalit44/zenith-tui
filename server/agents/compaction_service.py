@@ -177,7 +177,7 @@ def prune_tool_outputs(
         if msg.get("time") == "compacted":
             continue
         orig_len = len(content)
-        if "digest" in msg:
+        if "digest" in msg and not content.startswith(("[Tool: file_read", "[Tool: todo")):
             msg["content"] = msg["digest"]
             msg["time"] = "compacted"
             msg["is_digested"] = True
@@ -205,7 +205,7 @@ def compact_live_tail(messages: list[dict]) -> None:
     for msg in messages:
         content = msg.get("content", "")
         if msg.get("role") == "user" and isinstance(content, str) and content.startswith("[Tool:"):
-            if "digest" in msg:
+            if "digest" in msg and not content.startswith(("[Tool: file_read", "[Tool: todo")):
                 msg["content"] = msg["digest"]
                 msg["time"] = "compacted"
             elif len(content) > TAIL_TRIM_MAX_CHARS:
