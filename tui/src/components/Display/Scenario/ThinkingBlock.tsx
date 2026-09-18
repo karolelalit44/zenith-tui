@@ -1,5 +1,7 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { isZenithBright, isZenithDim, ZENITH_PULSE_FRAMES, ZENITH_RETICLE } from '../../../constants/animation';
+import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ThinkingEvent, ThinkingThought } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
@@ -26,38 +28,86 @@ function hasRealReasoning(event: ThinkingEvent): boolean {
   });
 }
 
+/**
+ * Static bright Zenith core for completed telemetry. No animation
+ * subscription, so historical/completed blocks never re-render on tick.
+ */
+const ZenithStaticGlyph: React.FC<{ suffix: string }> = React.memo(({ suffix }) => {
+  const { theme } = useTheme();
+  return (
+    <Text color={theme.colors.status.info} bold>
+      {ZENITH_RETICLE}
+      {suffix}
+    </Text>
+  );
+});
+
+ZenithStaticGlyph.displayName = 'ZenithStaticGlyph';
+
+/**
+ * Breathing pulse reticle for live deliberation only:
+ *   ✣ (dim) → ✳ (normal) → ⨳ (BRIGHT core) → ✳ (normal), repeat.
+ * Isolating useAnimationTick() here keeps the 100ms re-render storm to the
+ * single live block instead of every historical ThinkingBlock.
+ */
+const ZenithPulseGlyph: React.FC<{ suffix: string }> = ({ suffix }) => {
+  const { theme } = useTheme();
+  const tick = useAnimationTick();
+  const glyph = ZENITH_PULSE_FRAMES[tick % ZENITH_PULSE_FRAMES.length];
+  return (
+    <Text color={theme.colors.status.info} dimColor={isZenithDim(glyph)} bold={isZenithBright(glyph)}>
+      {glyph}
+      {suffix}
+    </Text>
+  );
+};
+
+ZenithPulseGlyph.displayName = 'ZenithPulseGlyph';
+
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
-  // Hide the thinking block entirely when Calm Mode is enabled.
-  if (context?.calmMode === true) {
-    return null;
-  }
+  const isCalm = context?.calmMode === true;
 
-  // Reasoning is FULLY VISIBLE by default. It only collapses when the user
-  // explicitly toggles it (ctrl+h / /think).
-  const isCollapsed = context?.thinkingCollapsed === true;
+  // In Calm Mode or when explicitly toggled via ctrl+h / /think,
+  // reasoning renders as a compact, single-line telemetry chip.
+  const isCollapsed = isCalm || context?.thinkingCollapsed === true;
 
   if (!hasRealReasoning(event)) {
     return null;
   }
 
-  const isStreaming = event.partial === true && context?.isRunning !== false;
+  // Historical turns never pulse: a stuck partial:true must render as static
+  // completed telemetry instead of Deliberating forever.
+  const isStreaming = event.partial === true && context?.isRunning !== false && context?.isHistorical !== true;
   const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
   const firstRealThought = event.thoughts
     .map((thought) => getThoughtText(thought).trim())
     .find((text) => text.length > 0 && !isStatusPlaceholder(text));
-  const preview =
-    firstRealThought && firstRealThought.length >= 72 ? `${firstRealThought.slice(0, 71)}…` : firstRealThought;
+  const firstLine = firstRealThought ? firstRealThought.split('\n')[0].trim() : '';
+  const preview = firstLine && firstLine.length >= 72 ? `${firstLine.slice(0, 71)}…` : firstLine;
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
       {isCollapsed ? (
         <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
-          <Text color={theme.colors.status.info}>✻ </Text>
-          {durationStr ? (
-            <Text color={theme.colors.text.muted}>Thought for {durationStr}</Text>
+          {isStreaming ? <ZenithPulseGlyph suffix=" " /> : <ZenithStaticGlyph suffix=" " />}
+          {isStreaming ? (
+            <>
+              <Text color={theme.colors.status.info} bold>
+                Deliberating
+              </Text>
+              {durationStr ? (
+                <Text color={theme.colors.text.muted}> · {durationStr}</Text>
+              ) : (
+                <Text color={theme.colors.text.dim}> …</Text>
+              )}
+            </>
+          ) : durationStr ? (
+            <Text color={theme.colors.text.muted}>
+              {isCalm ? `Deliberated ${durationStr}` : `Thought for ${durationStr}`}
+            </Text>
           ) : (
-            <Text color={theme.colors.text.muted}>Thought</Text>
+            <Text color={theme.colors.text.muted}>{isCalm ? 'Deliberated' : 'Thought'}</Text>
           )}
           {preview ? (
             <>
@@ -72,9 +122,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         </Box>
       ) : (
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
-          <Text color={theme.colors.status.info} bold>
-            ✻ Thinking
-          </Text>
+          {isStreaming ? <ZenithPulseGlyph suffix=" Thinking" /> : <ZenithStaticGlyph suffix=" Thinking" />}
           {isStreaming && !durationStr ? (
             <Text color={theme.colors.text.dim}> …</Text>
           ) : durationStr ? (
@@ -100,18 +148,26 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
                   </Text>
                 </Box>
               )}
-              {thoughtsToRender.map((thought, idx) => (
-                <Box key={idx} flexDirection="row" alignItems="flex-start" width="100%" marginBottom={0}>
-                  <Box width={2} flexShrink={0}>
-                    <Text color={theme.colors.text.dim}>│</Text>
+              {thoughtsToRender.map((thought, idx) => {
+                const thoughtText = getThoughtText(thought);
+                const lines = thoughtText.split('\n');
+                return (
+                  <Box key={idx} flexDirection="column" width="100%" marginBottom={0}>
+                    {lines.map((line, lineIdx) => (
+                      <Box key={lineIdx} flexDirection="row" alignItems="flex-start" width="100%" marginBottom={0}>
+                        <Box width={2} flexShrink={0}>
+                          <Text color={theme.colors.text.dim}>│</Text>
+                        </Box>
+                        <Box flexShrink={1}>
+                          <Text color={theme.colors.text.muted} italic wrap="wrap">
+                            {line || ' '}
+                          </Text>
+                        </Box>
+                      </Box>
+                    ))}
                   </Box>
-                  <Box flexShrink={1}>
-                    <Text color={theme.colors.text.muted} wrap="wrap">
-                      {getThoughtText(thought)}
-                    </Text>
-                  </Box>
-                </Box>
-              ))}
+                );
+              })}
             </Box>
           );
         })()}

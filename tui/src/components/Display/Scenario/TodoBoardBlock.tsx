@@ -7,20 +7,19 @@ import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
 
 export const MAX_VISIBLE_TODOS = 10;
 
-const SN_WIDTH = 7;
-const STATUS_WIDTH = 12;
+const SN_WIDTH = 4;
+const STATUS_WIDTH = 3;
 
 /**
- * A three-column table: serial number | todo title | status. The title is the
- * main, wider column and truncates to whatever space the terminal width allows;
- * status is one of success / failure / in progress (open items stay "todo").
+ * Strict three-column table: serial (1,2,3) | title (middle, bigger) |
+ * status symbol only. No IDs, no status words, no extra per-row metadata.
  */
-const STATUS_LABEL: Record<TodoStatus, string> = {
-  todo: 'todo',
-  in_progress: 'in progress',
-  done: 'success',
-  blocked: 'failure',
-  cancelled: 'failure',
+const STATUS_SYMBOL: Record<TodoStatus, string> = {
+  todo: '○',
+  in_progress: '◐',
+  done: '✔',
+  blocked: '✖',
+  cancelled: '✖',
 };
 
 interface TodoBoardBlockProps {
@@ -72,19 +71,19 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
         {items.length === 0 ? (
           <Text color={colors.text.dim}>(no todos yet)</Text>
         ) : (
-          items.map((item) => (
+          items.map((item, idx) => (
             <Box key={item.id} flexDirection="row" width="100%">
               <Box width={SN_WIDTH} flexShrink={0}>
-                <Text color={colors.text.dim}>{item.id}</Text>
+                <Text color={colors.text.dim}>{String(idx + 1)}</Text>
               </Box>
               <Box flexGrow={1} flexShrink={1}>
                 <Text color={titleColor(item.status)} wrap="truncate-end">
                   {item.title}
                 </Text>
               </Box>
-              <Box width={STATUS_WIDTH} flexShrink={0} paddingLeft={1} alignItems="flex-end">
+              <Box width={STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
                 <Text color={statusColor(item.status)} bold>
-                  {STATUS_LABEL[item.status]}
+                  {STATUS_SYMBOL[item.status]}
                 </Text>
               </Box>
             </Box>

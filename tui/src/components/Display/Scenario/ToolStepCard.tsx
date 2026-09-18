@@ -209,16 +209,31 @@ const ExploreCrewCard: React.FC<{
           </Box>
         ) : null}
 
-        {/* Failure context */}
-        {!isPending && !ok && event.error ? (
-          <Box paddingLeft={2}>
-            <Text
-              color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
-              wrap="truncate-end"
-            >
-              {formatErrorSummary(event.error)}
-            </Text>
-          </Box>
+        {/* Failure context. Cancelled missions show only an explicit error; a failed
+        mission whose error is empty falls back to its (actionable) output —
+        e.g. a "[explore] timed_out" report that previously rendered as nothing. */}
+        {!isPending && !ok ? (
+          (() => {
+            const failureText =
+              event.error ||
+              (state === 'failed' && event.output
+                ? stripAnsi(event.output)
+                    .replace(/^\[explore\][^\n]*\n?/, '')
+                    .trim()
+                : '') ||
+              '';
+            if (!failureText) return null;
+            return (
+              <Box paddingLeft={2}>
+                <Text
+                  color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
+                  wrap="truncate-end"
+                >
+                  {formatErrorSummary(failureText)}
+                </Text>
+              </Box>
+            );
+          })()
         ) : null}
       </Box>
     </Box>

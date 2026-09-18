@@ -46,14 +46,22 @@ from server.config.constants import (
     RISK_MEDIUM,
     TOOL_DOMAIN_CREWMATE,
 )
-from server.config.environment import ZENITH_ENRICH_TIMEOUT
+from server.config.environment import ZENITH_ENRICH_TIMEOUT, ZENITH_SALVAGE_TIMEOUT
 from server.config.settings import AppSettings
+from server.domain.events import EventKind
+from server.toolkit.registry import current_tool_session_id
 
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
-_EXPLORE_DEBOUNCE_GRACE_SECONDS = 15
+# Outer hard-cap sits at mission timeout + a salvage allowance. Once the
+# crewmate's inner mission budget fires (orchestrator.investigate), a final
+# provider completion (_salvage_child_summary, capped by ZENITH_SALVAGE_TIMEOUT)
+# turns the gathered evidence into a report. The grace MUST cover that call —
+# at 15s it always lost and the parent got a content-free "no result" instead of
+# a timed-out report.
+_EXPLORE_SALVAGE_GRACE_SECONDS = int(ZENITH_SALVAGE_TIMEOUT) + 30
 
 
 class ExploreSpendLedger:
@@ -178,8 +186,8 @@ class ExploreTool(BaseTool):
                     "enum": list(EXPLORE_THOROUGHNESS_LEVELS),
                     "default": DEFAULT_EXPLORE_THOROUGHNESS,
                     "description": (
-                        "quick=45s targeted lookup, standard=90s balanced, "
-                        "deep=150s multi-subsystem sweep"
+                        "quick=150s targeted lookup, standard=240s balanced, "
+                        "deep=360s multi-subsystem sweep"
                     ),
                 },
                 "crewmate": crewmate_schema,
@@ -231,19 +239,29 @@ class ExploreTool(BaseTool):
             self._tool_registry,
             cache=None,
         )
+        logger.info(
+            "Explore mission start thoroughness=%s budget=%ds crewmate=%s model=%s objective_chars=%d",
+            thoroughness,
+            budget["timeout_s"],
+            definition.name,
+            definition.model_override or getattr(self._provider, "model", "?"),
+            len(mission_objective),
+        )
         started = time.monotonic()
+        active_session_id = current_tool_session_id.get() or f"explore:{workspace_root}"
+        last_orch_data: dict[str, Any] | None = None
         try:
-            async with asyncio.timeout(budget["timeout_s"] + _EXPLORE_DEBOUNCE_GRACE_SECONDS):
+            async with asyncio.timeout(budget["timeout_s"] + _EXPLORE_SALVAGE_GRACE_SECONDS):
                 async with _spawn_semaphore:
                     async for _event in orchestrator.investigate(
                         mission_objective,
                         definition,
-                        parent_session_id=f"explore:{workspace_root}",
+                        parent_session_id=active_session_id,
                         timeout_seconds=budget["timeout_s"],
                         max_context_tokens=budget["context_tokens"],
                     ):
-                        # Child lifecycle events never enter the parent
-                        # context (D5); terminal state comes from last_result.
+                        if _event.kind == EventKind.CAPTAIN_ORCHESTRATION and isinstance(_event.data, dict):
+                            last_orch_data = _event.data
                         continue
         except TimeoutError:
             logger.warning("Explore mission hard-timeout (thoroughness=%s)", thoroughness)
@@ -269,8 +287,15 @@ class ExploreTool(BaseTool):
         if result is None:
             return ToolResult(
                 success=False,
-                error="Explore mission produced no result.",
-                metadata=self._metadata(thoroughness, crewmate_name=definition.name),
+                error=(
+                    "Explore mission produced no result: the crewmate exhausted "
+                    f"its {budget['timeout_s']}s {thoroughness} budget and no "
+                    "AgentResult was assembled (salvage likely cancelled by the "
+                    "outer hard-cap). See the server log for the child trace."
+                ),
+                metadata=self._metadata(
+                    thoroughness, status="failed", crewmate_name=definition.name
+                ),
             )
         _ledger.record(result.metrics.tokens_used)
 
@@ -285,6 +310,8 @@ class ExploreTool(BaseTool):
             cached=cached,
             elapsed_ms=elapsed_ms or result.metrics.elapsed_ms,
         )
+        if last_orch_data:
+            meta["orchestration_event"] = last_orch_data
         return ToolResult(success=ok, output=self._render(result), metadata=meta)
 
     # ------------------------------------------------------------------ #

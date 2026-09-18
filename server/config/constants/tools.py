@@ -172,10 +172,16 @@ APPOGEE_AGENT_NAME = "Apogee"
 APPOGEE_AGENT_ROLE = "Codebase Cartographer"
 # Thoroughness -> mission budget. Timeout bounds wall clock; context_tokens
 # bounds the child's own window; max_turns is advisory steering for deep runs.
+#
+# Values are provider-latency-aware: a crewmate needs >=2 LLM round trips
+# (plan -> tools -> synthesize) plus a possible salvage call. On slow providers
+# (TTFT 38-75s, full stream 27-100s on NVIDIA/deepseek-v4-flash) the old
+# quick=45s / standard=90s budgets made 4/4 missions time out deterministically
+# with a content-free "no result". Widths below fit 2 round trips + tools.
 EXPLORE_BUDGETS: dict[str, dict[str, int]] = {
-    "quick": {"timeout_s": 45, "context_tokens": 32_000},
-    "standard": {"timeout_s": 90, "context_tokens": 64_000},
-    "deep": {"timeout_s": 150, "context_tokens": 96_000},
+    "quick": {"timeout_s": 150, "context_tokens": 32_000},
+    "standard": {"timeout_s": 240, "context_tokens": 64_000},
+    "deep": {"timeout_s": 360, "context_tokens": 96_000},
 }
 EXPLORE_THOROUGHNESS_LEVELS = ("quick", "standard", "deep")
 DEFAULT_EXPLORE_THOROUGHNESS = "standard"

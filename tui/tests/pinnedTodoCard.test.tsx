@@ -70,23 +70,43 @@ describe('PinnedTodoCard', () => {
     const frame = renderCard(makeBoard(items));
 
     expect(frame).toContain('(2/8)');
-    expect(frame).toContain('T1');
-    expect(frame).toContain('T5');
+    expect(frame).toContain('Item 1');
+    expect(frame).toContain('Item 5');
     expect(frame).not.toContain('Item 6');
     expect(frame).toContain('+3 more tasks…');
+    // Rows use positional serials, never backend ids.
+    expect(frame).not.toContain('T1');
+    expect(frame).not.toContain('T5');
   });
 
-  it('renders priority tag for high priority items', () => {
+  it('renders positional serials regardless of backend ids', () => {
+    const frame = renderCard(
+      makeBoard([makeItem('XYZ-99', 'First task', 'todo'), makeItem('ABC-01', 'Second task', 'done')]),
+    );
+
+    expect(frame).toMatch(/1\s+First task\s+○/);
+    expect(frame).toMatch(/2\s+Second task\s+✔/);
+    expect(frame).not.toContain('XYZ-99');
+    expect(frame).not.toContain('ABC-01');
+  });
+
+  it('shows status symbols only with no priority, notes, or dependency columns', () => {
     const frame = renderCard(makeBoard([makeItem('T1', 'High priority item', 'todo', 'high')]));
 
-    expect(frame).toContain('[high]');
+    expect(frame).toContain('High priority item');
+    expect(frame).toContain('○');
+    expect(frame).not.toContain('[high]');
+    expect(frame).not.toContain('PENDING');
+    expect(frame).not.toContain('└ Note:');
+    expect(frame).not.toContain('└ Depends on:');
   });
 
-  it('renders static half-circle icon for in_progress items when isRunning is false', () => {
+  it('renders static half-circle symbol for in_progress items when isRunning is false', () => {
     const frame = renderCard(makeBoard([makeItem('T1', 'Work in progress', 'in_progress')]), false);
 
     expect(frame).toContain('◐');
     expect(frame).toContain('Work in progress');
+    expect(frame).not.toContain('ACTIVE');
   });
 
   it('safely handles progress bar clamping without RangeError', () => {
@@ -100,26 +120,25 @@ describe('PinnedTodoCard', () => {
     expect(frame).toContain('[██████████]');
   });
 
-  it('renders explicit stage badges and notes/dependencies', () => {
+  it('renders symbol-only stage column with no badge words or sub-rows', () => {
     const itemWithNotes: TodoItem = {
       ...makeItem('T1', 'Inspect code', 'in_progress'),
       notes: 'verified constants match assertion',
       depends_on: ['T0'],
     };
     const frame = renderCard(
-      makeBoard([
-        makeItem('T0', 'Prerequisite', 'done'),
-        itemWithNotes,
-        makeItem('T2', 'Synthesize results', 'todo'),
-      ]),
+      makeBoard([makeItem('T0', 'Prerequisite', 'done'), itemWithNotes, makeItem('T2', 'Synthesize results', 'todo')]),
       false,
     );
 
-    expect(frame).toContain('DONE');
-    expect(frame).toContain('ACTIVE');
-    expect(frame).toContain('PENDING');
-    expect(frame).toContain('└ Note: verified constants match assertion');
-    expect(frame).toContain('└ Depends on: T0');
+    expect(frame).toContain('✔');
+    expect(frame).toContain('◐');
+    expect(frame).toContain('○');
+    expect(frame).not.toContain('DONE');
+    expect(frame).not.toContain('ACTIVE');
+    expect(frame).not.toContain('PENDING');
+    expect(frame).not.toContain('└ Note: verified constants match assertion');
+    expect(frame).not.toContain('└ Depends on: T0');
   });
 
   it('renders live sub-stage execution line when running with activeActivity', () => {

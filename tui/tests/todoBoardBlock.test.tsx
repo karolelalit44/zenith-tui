@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { TodoBoardBlock } from '../src/components/Display/Scenario/TodoBoardBlock';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../src/types/scenario';
-import { consolidateTodoBoardEvents, type ConsolidatedTodoBoard } from '../src/utils/todoBoard';
+import { type ConsolidatedTodoBoard, consolidateTodoBoardEvents } from '../src/utils/todoBoard';
 
 const item = (id: string, title: string, status: TodoStatus): TodoItem => ({
   id,
@@ -42,15 +42,18 @@ function frameFor(event: ConsolidatedTodoBoard, columns?: number): string {
 }
 
 describe('TodoBoardBlock', () => {
-  it('renders the todo table rows without a column header', () => {
+  it('renders strict three columns: serial | title | status symbol only', () => {
     const frame = frameFor(boardEvent([item('T1', 'Add CI pipeline to the repo', 'done')]));
     expect(frame).toContain('TODO');
     expect(frame).not.toContain('TODO TITLE');
     expect(frame).not.toContain('STATUS');
-    expect(frame).toMatch(/T1\s+Add CI pipeline to the repo\s+success/);
+    expect(frame).toMatch(/1\s+Add CI pipeline to the repo\s+✔/);
+    // Serial is positional (1), never the backend id; status is symbol-only.
+    expect(frame).not.toContain('T1');
+    expect(frame).not.toContain('success');
   });
 
-  it('labels done as success and blocked/cancelled as failure', () => {
+  it('maps every status to its symbol only', () => {
     const frame = frameFor(
       boardEvent([
         item('T1', 'Done task', 'done'),
@@ -58,15 +61,18 @@ describe('TodoBoardBlock', () => {
         item('T3', 'Blocked task', 'blocked'),
       ]),
     );
-    expect(frame).toMatch(/T1\s+Done task\s+success/);
-    expect(frame).toMatch(/T2\s+Cancelled task\s+failure/);
-    expect(frame).toMatch(/T3\s+Blocked task\s+failure/);
+    expect(frame).toMatch(/1\s+Done task\s+✔/);
+    expect(frame).toMatch(/2\s+Cancelled task\s+✖/);
+    expect(frame).toMatch(/3\s+Blocked task\s+✖/);
+    expect(frame).not.toContain('success');
+    expect(frame).not.toContain('failure');
   });
 
-  it('labels in-progress and open items distinctly', () => {
+  it('labels in-progress and open items with symbols only', () => {
     const frame = frameFor(boardEvent([item('T1', 'Running task', 'in_progress'), item('T2', 'Open task', 'todo')]));
-    expect(frame).toMatch(/T1\s+Running task\s+in progress/);
-    expect(frame).toMatch(/T2\s+Open task\s+todo/);
+    expect(frame).toMatch(/1\s+Running task\s+◐/);
+    expect(frame).toMatch(/2\s+Open task\s+○/);
+    expect(frame).not.toContain('in progress');
   });
 
   it('shows top-level todos only, not subtasks', () => {
@@ -76,7 +82,7 @@ describe('TodoBoardBlock', () => {
       { id: 'T1-S2', title: 'Another hidden subtask', status: 'done' },
     ];
     const frame = frameFor(boardEvent([withSubtasks]));
-    expect(frame).toMatch(/T1\s+Parent task\s+todo/);
+    expect(frame).toMatch(/1\s+Parent task\s+○/);
     expect(frame).not.toContain('Hidden subtask');
     expect(frame).not.toContain('T1-S1');
   });
@@ -96,8 +102,8 @@ describe('TodoBoardBlock', () => {
     const frame = frameFor(boardEvent([item('T1', longTitle, 'done')]), 40);
     expect(frame).toContain('…');
     expect(frame).not.toContain(longTitle);
-    expect(frame).toMatch(/T1\s+Build the HRMS/);
-    expect(frame).toContain('success');
+    expect(frame).toMatch(/1\s+Build the HRMS/);
+    expect(frame).toContain('✔');
   });
 
   it('shows an empty state when the board has no items', () => {

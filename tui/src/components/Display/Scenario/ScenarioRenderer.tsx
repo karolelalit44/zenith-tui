@@ -10,6 +10,7 @@ import type {
   TurnManifestEvent,
 } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
+import { consolidateOrchestrationEvents } from '../../../utils/orchestration';
 import { foldReadOnlyRepeats, pairToolEvents, progressDuplicatesPendingToolStep } from '../../../utils/pairToolEvents';
 import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
 import { estimateTokensForEvents } from '../../../services/api/tokenEstimationService';
@@ -129,79 +130,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         grouped.push(ev);
       }
       const source2 = grouped;
-      const orchEvents = source2.filter((e): e is CaptainOrchestrationEvent => e.kind === 'captain_orchestration');
-      let consolidatedOrch: CaptainOrchestrationEvent | null = null;
-      if (orchEvents.length > 0) {
-        const latest = orchEvents[orchEvents.length - 1];
-        const crewmatesMap = new Map<string, CrewmateAgent>();
-        const timelineEntries: TimelineEntry[] = [];
-
-        // Fold raw crewmate lifecycle kinds into the card timeline so the
-        // crewmate story stays in one place (no standalone rows).
-        const rawAgentEntries: TimelineEntry[] = [];
-        for (const e of source2) {
-          if (e.kind === 'crewmate_spawned') {
-            rawAgentEntries.push({
-              timestamp: e.id,
-              message: `Spawned ${e.name} (${e.role})`,
-              type: 'info',
-            });
-          } else if (e.kind === 'crewmate_status') {
-            if (e.activity) {
-              rawAgentEntries.push({ timestamp: e.id, message: e.activity, type: 'info' });
-            }
-          } else if (e.kind === 'crewmate_complete') {
-            rawAgentEntries.push({
-              timestamp: e.id,
-              message: e.resultSummary || `${e.crewmateId} completed`,
-              type: 'success',
-            });
-          } else if (e.kind === 'crewmate_failed') {
-            rawAgentEntries.push({
-              timestamp: e.id,
-              message: e.error || `${e.crewmateId} failed`,
-              type: 'error',
-            });
-          }
-        }
-
-        for (const oe of orchEvents) {
-          if (oe.crewmates) {
-            for (const cm of oe.crewmates) {
-              crewmatesMap.set(cm.id, cm);
-            }
-          }
-          if (oe.timeline) {
-            for (const tl of oe.timeline) {
-              if (
-                !timelineEntries.some(
-                  (existing) => existing.timestamp === tl.timestamp && existing.message === tl.message,
-                )
-              ) {
-                timelineEntries.push(tl);
-              }
-            }
-          }
-        }
-        for (const tl of rawAgentEntries) {
-          if (
-            !timelineEntries.some((existing) => existing.timestamp === tl.timestamp && existing.message === tl.message)
-          ) {
-            timelineEntries.push(tl);
-          }
-        }
-
-        consolidatedOrch = {
-          kind: 'captain_orchestration',
-          id: orchEvents[0].id,
-          stage: latest.stage,
-          captainMessage: latest.captainMessage,
-          plan: latest.plan,
-          crewmates: crewmatesMap.size > 0 ? Array.from(crewmatesMap.values()) : undefined,
-          timeline: timelineEntries.length > 0 ? timelineEntries : undefined,
-          activeStep: latest.activeStep,
-        };
-      }
+      const consolidatedOrch = consolidateOrchestrationEvents(source2);
 
       const result: ScenarioEvent[] = [];
       let orchInserted = false;
@@ -210,10 +139,12 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
 
       for (const e of source2) {
         if (e.kind === 'captain_orchestration') {
-          if (!orchInserted && consolidatedOrch) {
+          if (isHistorical && !orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
             orchInserted = true;
           }
+          // In live active turns, captain orchestration is rendered exclusively in the pinned card above
+          // the composer input, keeping the chat stream fixed and non-jumping.
         } else if (e.kind === 'todo_board') {
           // Todo board snapshots are rendered exclusively in the pinned card above
           // the composer input, keeping the chat stream clean and non-redundant.

@@ -36,6 +36,7 @@ from server.config.constants import (
     TERMINAL_STATUS_COMPLETED,
     TERMINAL_STATUS_ERROR,
 )
+from server.config.environment import ZENITH_SALVAGE_TIMEOUT
 from server.config.settings import AGENT_MODES
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
@@ -748,11 +749,15 @@ class PromptExecutor:
 
             summarizer = ConversationSummarizer(self._config, self._provider)
             model = str(getattr(self._provider, "model", "") or "")
+            # The timeout is bounded by a full provider completion (12s was far
+            # below p95 latency, so the hand-off ALWAYS failed and silently
+            # burned a paid request). ZENITH_SALVAGE_TIMEOUT is the "one
+            # provider call for evidence -> summary" budget used elsewhere.
             return await asyncio.wait_for(
                 summarizer.summarize(
                     _handoff_messages(collected_events, response_text), model, session_id
                 ),
-                timeout=12.0,
+                timeout=ZENITH_SALVAGE_TIMEOUT,
             )
         except Exception as e:
             logger.warning("Hand-off summarization skipped or timed out: %s", e)
@@ -1026,14 +1031,50 @@ class PromptExecutor:
                     status = event.data.get("status", "")
                     detail = f"phase={phase}" if phase else (f"status={status}" if status else "")
                     logger.info("  [COMPACTION]: %s %s", event.kind, detail)
-                elif event.kind in (
-                    EventKind.CAPTAIN_ORCHESTRATION,
-                    EventKind.CREWMATE_SPAWNED,
-                    EventKind.CREWMATE_STATUS,
-                    EventKind.CREWMATE_COMPLETE,
-                    EventKind.CREWMATE_FAILED,
-                ):
-                    logger.info("  [ORCHESTRATION]: %s", event.kind)
+                elif event.kind == EventKind.CAPTAIN_ORCHESTRATION:
+                    stage = event.data.get("stage", "")
+                    msg = event.data.get("captainMessage", "")
+                    crew_cnt = len(event.data.get("crewmates") or [])
+                    step = event.data.get("activeStep", "")
+                    logger.info(
+                        "  [CAPTAIN ORCHESTRATION]: stage=%s crewmates=%d active_step=%s msg=%s",
+                        stage,
+                        crew_cnt,
+                        step,
+                        msg,
+                    )
+                elif event.kind == EventKind.CREWMATE_SPAWNED:
+                    logger.info(
+                        "  [CREWMATE SPAWNED]: id=%s name=%s role=%s task_id=%s model=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("name"),
+                        event.data.get("role"),
+                        event.data.get("task_id"),
+                        event.data.get("model"),
+                    )
+                elif event.kind == EventKind.CREWMATE_STATUS:
+                    logger.info(
+                        "  [CREWMATE STATUS]: id=%s status=%s activity=%s progress=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("status"),
+                        event.data.get("activity"),
+                        event.data.get("progress"),
+                    )
+                elif event.kind == EventKind.CREWMATE_COMPLETE:
+                    logger.info(
+                        "  [CREWMATE COMPLETE]: id=%s task_id=%s status=%s result_summary=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("task_id"),
+                        event.data.get("status"),
+                        event.data.get("result_summary"),
+                    )
+                elif event.kind == EventKind.CREWMATE_FAILED:
+                    logger.warning(
+                        "  [CREWMATE FAILED]: id=%s task_id=%s error=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("task_id"),
+                        event.data.get("error"),
+                    )
                 elif event.kind == EventKind.TOKEN_USAGE_RECORDED:
                     logger.debug("  [TOKEN USAGE RECORDED]: %s", event.data)
                 else:

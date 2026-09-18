@@ -353,6 +353,18 @@ async def post_execution_hooks(
                     },
                 )
             )
+    if tool_name == "explore" and result.success:
+        orch_evt = (result.metadata or {}).get("orchestration_event")
+        if isinstance(orch_evt, dict):
+            from server.domain.events import Event, EventKind
+
+            events.append(
+                Event(
+                    kind=EventKind.CAPTAIN_ORCHESTRATION,
+                    session_id=session_id,
+                    data=orch_evt,
+                )
+            )
     edited_path = tool_params.get("filepath") or tool_params.get("path") or ""
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:

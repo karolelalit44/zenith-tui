@@ -209,7 +209,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
           {/* ── Completion banner: trigger + token transition ── */}
           <Box paddingLeft={2} marginTop={0}>
             <Text color={theme.colors.status.success} bold wrap="truncate-end">
-              ✻ Context compacted ({triggerLabel}) · {[transitionStr, savedStr].filter(Boolean).join(' · ')} ✻
+              ⨳ Context compacted ({triggerLabel}) · {[transitionStr, savedStr].filter(Boolean).join(' · ')} ⨳
             </Text>
           </Box>
 

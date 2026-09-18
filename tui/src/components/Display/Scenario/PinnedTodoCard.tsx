@@ -9,6 +9,21 @@ import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const MAX_PINNED_TODOS = 5;
 const PROGRESS_BAR_WIDTH = 10;
+const SN_WIDTH = 4;
+const STATUS_WIDTH = 3;
+
+/**
+ * Strict three-column rows: serial (1,2,3) | title (middle, bigger) |
+ * status symbol only (○ pending · ◐ active · ✔ done · ✖ blocked/cancelled).
+ */
+
+const STATUS_SYMBOL: Record<TodoStatus, string> = {
+  todo: '○',
+  in_progress: '◐',
+  done: '✔',
+  blocked: '✖',
+  cancelled: '✖',
+};
 
 const LiveSpinner: React.FC = () => {
   const tick = useAnimationTick();
@@ -40,9 +55,6 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     if (all.length === 0) return null;
 
     const doneCount = all.filter((t) => t.status === 'done').length;
-    const inProgressCount = all.filter((t) => t.status === 'in_progress').length;
-    const blockedCount = all.filter((t) => t.status === 'blocked' || t.status === 'cancelled').length;
-    const todoCount = all.filter((t) => t.status === 'todo').length;
     const totalCount = all.length;
     const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
@@ -53,47 +65,37 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const emptyWidth = PROGRESS_BAR_WIDTH - filledWidth;
     const progressBarStr = `[${'█'.repeat(filledWidth)}${'░'.repeat(emptyWidth)}]`;
 
-    // Determine active in-progress task or next pending task for stage indicator
-    const activeTask = all.find((t) => t.status === 'in_progress');
-    const nextTask = !activeTask ? all.find((t) => t.status === 'todo') : undefined;
-
     // Limit visible items to MAX_PINNED_TODOS
     const items = all.slice(0, MAX_PINNED_TODOS);
     const hiddenCount = all.length - items.length;
 
-    const renderStatusBadge = (status: TodoStatus) => {
+    const statusColor = (status: TodoStatus): string => {
       switch (status) {
         case 'done':
-          return (
-            <Text color={colors.status.success} bold>
-              ✔ DONE   
-            </Text>
-          );
+          return colors.status.success;
         case 'in_progress':
-          return (
-            <Text color={colors.status.info} bold>
-              {isRunning ? <LiveSpinner /> : '◐'} ACTIVE 
-            </Text>
-          );
+          return colors.status.info;
         case 'blocked':
-          return (
-            <Text color={colors.status.error} bold>
-              ✖ BLOCKED
-            </Text>
-          );
         case 'cancelled':
-          return (
-            <Text color={colors.status.error}>
-              ✖ CANCEL 
-            </Text>
-          );
+          return colors.status.error;
         default:
-          return (
-            <Text color={colors.text.dim}>
-              ○ PENDING
-            </Text>
-          );
+          return colors.text.dim;
       }
+    };
+
+    const renderStatusSymbol = (status: TodoStatus) => {
+      if (status === 'in_progress' && isRunning) {
+        return (
+          <Text color={colors.status.info} bold>
+            <LiveSpinner />
+          </Text>
+        );
+      }
+      return (
+        <Text color={statusColor(status)} bold={status !== 'todo'}>
+          {STATUS_SYMBOL[status]}
+        </Text>
+      );
     };
 
     const getTitleColor = (status: TodoStatus): string => {
@@ -120,7 +122,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
         paddingX={1}
         paddingY={0}
       >
-        {/* Header row: Title + Stage Breakdown + Progress Bar + Active Stage Ticker */}
+        {/* Header row: title + progress */}
         <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center">
           <Box flexDirection="row" alignItems="center">
             <Text color={colors.text.bright} bold>
@@ -129,47 +131,11 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
             <Text color={colors.text.dim}>
               ({doneCount}/{totalCount}){' '}
             </Text>
-            <Text color={colors.status.success} bold>
-              ✔ {doneCount}{' '}
-            </Text>
-            {inProgressCount > 0 && (
-              <Text color={colors.status.info} bold>
-                ◐ {inProgressCount}{' '}
-              </Text>
-            )}
-            {todoCount > 0 && (
-              <Text color={colors.text.dim}>
-                ○ {todoCount}{' '}
-              </Text>
-            )}
-            {blockedCount > 0 && (
-              <Text color={colors.status.error} bold>
-                ✖ {blockedCount}{' '}
-              </Text>
-            )}
             <Text color={percent === 100 ? colors.status.success : colors.status.info}>{progressBarStr} </Text>
             <Text color={colors.text.muted}>{percent}%</Text>
           </Box>
 
-          {activeTask ? (
-            <Box flexDirection="row" alignItems="center" flexShrink={1} marginLeft={1}>
-              <Text color={colors.status.info} bold>
-                {isRunning ? <LiveSpinner /> : '◐'} [CURRENT]{' '}
-              </Text>
-              <Text color={colors.text.bright} bold wrap="truncate-end">
-                {activeTask.id}: {activeTask.title}
-              </Text>
-            </Box>
-          ) : nextTask ? (
-            <Box flexDirection="row" alignItems="center" flexShrink={1} marginLeft={1}>
-              <Text color={colors.text.muted}>
-                ○ [NEXT]{' '}
-              </Text>
-              <Text color={colors.text.muted} wrap="truncate-end">
-                {nextTask.id}: {nextTask.title}
-              </Text>
-            </Box>
-          ) : percent === 100 ? (
+          {percent === 100 ? (
             <Text color={colors.status.success} bold>
               ✔ All complete
             </Text>
@@ -194,56 +160,26 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
           </Box>
         )}
 
-        {/* Task items */}
+        {/* Task rows: serial | title | status symbol only */}
         <Box flexDirection="column" marginTop={0}>
-          {items.map((item: TodoItem) => (
-            <Box key={item.id} flexDirection="column" width="100%">
-              <Box flexDirection="row" width="100%" alignItems="center">
-                <Box width={10} flexShrink={0}>
-                  {renderStatusBadge(item.status)}
-                </Box>
-                <Box width={4} flexShrink={0}>
-                  <Text color={colors.text.dim}>{item.id}</Text>
-                </Box>
-                <Box flexGrow={1} flexShrink={1}>
-                  <Text
-                    color={getTitleColor(item.status)}
-                    strikethrough={item.status === 'done'}
-                    bold={item.status === 'in_progress'}
-                    wrap="truncate-end"
-                  >
-                    {item.title}
-                  </Text>
-                </Box>
-                {item.subtasks && item.subtasks.length > 0 && (
-                  <Box marginLeft={1} flexShrink={0}>
-                    <Text color={colors.text.dim}>
-                      ({item.subtasks.filter((st) => st.status === 'done').length}/{item.subtasks.length})
-                    </Text>
-                  </Box>
-                )}
-                {item.priority && item.priority !== 'medium' && (
-                  <Box marginLeft={1} flexShrink={0}>
-                    <Text color={item.priority === 'high' ? colors.status.accent : colors.text.dim}>
-                      [{item.priority}]
-                    </Text>
-                  </Box>
-                )}
+          {items.map((item: TodoItem, idx: number) => (
+            <Box key={item.id} flexDirection="row" width="100%" alignItems="center">
+              <Box width={SN_WIDTH} flexShrink={0}>
+                <Text color={colors.text.dim}>{String(idx + 1)}</Text>
               </Box>
-              {item.status === 'in_progress' && item.notes && (
-                <Box marginLeft={14}>
-                  <Text color={colors.text.dim} wrap="truncate-end">
-                    └ Note: {item.notes}
-                  </Text>
-                </Box>
-              )}
-              {item.depends_on && item.depends_on.length > 0 && (
-                <Box marginLeft={14}>
-                  <Text color={colors.text.dim} wrap="truncate-end">
-                    └ Depends on: {item.depends_on.join(', ')}
-                  </Text>
-                </Box>
-              )}
+              <Box flexGrow={1} flexShrink={1}>
+                <Text
+                  color={getTitleColor(item.status)}
+                  strikethrough={item.status === 'done'}
+                  bold={item.status === 'in_progress'}
+                  wrap="truncate-end"
+                >
+                  {item.title}
+                </Text>
+              </Box>
+              <Box width={STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
+                {renderStatusSymbol(item.status)}
+              </Box>
             </Box>
           ))}
         </Box>
