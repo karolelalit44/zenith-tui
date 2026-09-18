@@ -110,6 +110,20 @@ describe('TodoBoardBlock', () => {
     expect(frameFor(boardEvent([]))).toContain('(no todos yet)');
   });
 
+  it('falls back to pending ○ for unknown wire statuses instead of a blank cell', () => {
+    const frame = frameFor(boardEvent([item('T9', 'Mystery task', 'pending' as unknown as TodoStatus)]));
+    expect(frame).toContain('Mystery task');
+    expect(frame).toMatch(/1\s+Mystery task\s+○/);
+  });
+
+  it('shares one symbol map with the pinned card (no drift)', async () => {
+    const { todoStatusSymbol } = await import('../src/components/Display/Scenario/todoStatus');
+    expect(todoStatusSymbol('done')).toBe('✔');
+    expect(todoStatusSymbol('todo')).toBe('○');
+    expect(todoStatusSymbol('in_progress')).toBe('◐');
+    expect(todoStatusSymbol('pending' as unknown as TodoStatus)).toBe('○');
+  });
+
   it('never renders the underlying assertion report', () => {
     const frame = frameFor(boardEvent([item('T1', 'Done task', 'done')]));
     expect(frame).not.toContain(' ALL SCENARIOS PASSED');

@@ -56,7 +56,6 @@ FORWARDABLE_KINDS = frozenset(
 )
 
 MESSAGE_FORWARD_MAX_CHARS = 2_000
-THINKING_FORWARD_MAX_CHARS = 500
 ACTIVITY_MAX_CHARS = 200
 
 # Read tools plus the dynamic-escalation discovery pair: a crewmate may ask for
@@ -304,6 +303,12 @@ async def run_crewmate(
             if kind == EventKind.ERROR:
                 run.last_error = str(event.data.get("message") or "unknown crewmate error")
                 continue
+            # Enforce the documented forwarding contract: only FORWARDABLE_KINDS
+            # cross the parent boundary. THINKING in particular is deliberately
+            # dropped (2026-08-26 incident) — per-turn reasoning re-rendered in
+            # the parent produced walls of near-identical blocks.
+            if kind not in FORWARDABLE_KINDS:
+                continue
             if kind == EventKind.MESSAGE:
                 text = event.data.get("text") or ""
                 if not event.data.get("partial"):
@@ -316,9 +321,6 @@ async def run_crewmate(
                 continue
             if kind == EventKind.TOOL_RESULT:
                 yield event
-                continue
-            if kind == EventKind.THINKING:
-                yield _truncate_event(event, "text", THINKING_FORWARD_MAX_CHARS)
                 continue
             if kind == EventKind.WARNING:
                 yield event

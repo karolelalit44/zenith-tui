@@ -4,23 +4,14 @@ import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoStatus } from '../../../types/scenario';
 import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
+import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, todoStatusColor, todoStatusSymbol } from './todoStatus';
 
 export const MAX_VISIBLE_TODOS = 10;
-
-const SN_WIDTH = 4;
-const STATUS_WIDTH = 3;
 
 /**
  * Strict three-column table: serial (1,2,3) | title (middle, bigger) |
  * status symbol only. No IDs, no status words, no extra per-row metadata.
  */
-const STATUS_SYMBOL: Record<TodoStatus, string> = {
-  todo: '○',
-  in_progress: '◐',
-  done: '✔',
-  blocked: '✖',
-  cancelled: '✖',
-};
 
 interface TodoBoardBlockProps {
   event: ConsolidatedTodoBoard;
@@ -41,20 +32,6 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
   const titleColor = (status: TodoStatus): string =>
     status === 'done' || status === 'in_progress' ? colors.text.bright : colors.text.muted;
 
-  const statusColor = (status: TodoStatus): string => {
-    switch (status) {
-      case 'done':
-        return colors.status.success;
-      case 'blocked':
-      case 'cancelled':
-        return colors.status.error;
-      case 'in_progress':
-        return colors.status.info;
-      default:
-        return colors.text.muted;
-    }
-  };
-
   return (
     <Box flexDirection="column" width={contentWidth} marginTop={1} marginBottom={1}>
       <Box
@@ -73,7 +50,7 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
         ) : (
           items.map((item, idx) => (
             <Box key={item.id} flexDirection="row" width="100%">
-              <Box width={SN_WIDTH} flexShrink={0}>
+              <Box width={TODO_SN_WIDTH} flexShrink={0}>
                 <Text color={colors.text.dim}>{String(idx + 1)}</Text>
               </Box>
               <Box flexGrow={1} flexShrink={1}>
@@ -81,9 +58,9 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
                   {item.title}
                 </Text>
               </Box>
-              <Box width={STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
-                <Text color={statusColor(item.status)} bold>
-                  {STATUS_SYMBOL[item.status]}
+              <Box width={TODO_STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
+                <Text color={todoStatusColor(item.status, colors)} bold>
+                  {todoStatusSymbol(item.status)}
                 </Text>
               </Box>
             </Box>

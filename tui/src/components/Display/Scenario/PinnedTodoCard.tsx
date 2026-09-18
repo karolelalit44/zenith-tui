@@ -5,25 +5,11 @@ import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../../../types/scenario';
 import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
+import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, todoStatusColor, todoStatusSymbol } from './todoStatus';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const MAX_PINNED_TODOS = 5;
 const PROGRESS_BAR_WIDTH = 10;
-const SN_WIDTH = 4;
-const STATUS_WIDTH = 3;
-
-/**
- * Strict three-column rows: serial (1,2,3) | title (middle, bigger) |
- * status symbol only (○ pending · ◐ active · ✔ done · ✖ blocked/cancelled).
- */
-
-const STATUS_SYMBOL: Record<TodoStatus, string> = {
-  todo: '○',
-  in_progress: '◐',
-  done: '✔',
-  blocked: '✖',
-  cancelled: '✖',
-};
 
 const LiveSpinner: React.FC = () => {
   const tick = useAnimationTick();
@@ -69,20 +55,6 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const items = all.slice(0, MAX_PINNED_TODOS);
     const hiddenCount = all.length - items.length;
 
-    const statusColor = (status: TodoStatus): string => {
-      switch (status) {
-        case 'done':
-          return colors.status.success;
-        case 'in_progress':
-          return colors.status.info;
-        case 'blocked':
-        case 'cancelled':
-          return colors.status.error;
-        default:
-          return colors.text.dim;
-      }
-    };
-
     const renderStatusSymbol = (status: TodoStatus) => {
       if (status === 'in_progress' && isRunning) {
         return (
@@ -92,8 +64,8 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
         );
       }
       return (
-        <Text color={statusColor(status)} bold={status !== 'todo'}>
-          {STATUS_SYMBOL[status]}
+        <Text color={todoStatusColor(status, colors)} bold={status !== 'todo'}>
+          {todoStatusSymbol(status)}
         </Text>
       );
     };
@@ -164,7 +136,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
         <Box flexDirection="column" marginTop={0}>
           {items.map((item: TodoItem, idx: number) => (
             <Box key={item.id} flexDirection="row" width="100%" alignItems="center">
-              <Box width={SN_WIDTH} flexShrink={0}>
+              <Box width={TODO_SN_WIDTH} flexShrink={0}>
                 <Text color={colors.text.dim}>{String(idx + 1)}</Text>
               </Box>
               <Box flexGrow={1} flexShrink={1}>
@@ -177,7 +149,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
                   {item.title}
                 </Text>
               </Box>
-              <Box width={STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
+              <Box width={TODO_STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
                 {renderStatusSymbol(item.status)}
               </Box>
             </Box>

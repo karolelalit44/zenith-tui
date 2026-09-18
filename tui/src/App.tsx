@@ -1,7 +1,7 @@
 import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BootLoading } from './components/BootLoading';
-import { PinnedTodoCard, ScenarioRenderer } from './components/Display/Scenario';
+import { PinnedOrchestrationCard, PinnedTodoCard, ScenarioRenderer } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScrollIndicator } from './components/Display/ScrollIndicator';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
@@ -39,6 +39,7 @@ import type { ScenarioEvent, ScenarioMode, TokenInfo, TurnManifestEvent } from '
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
+import { consolidateOrchestrationEvents } from './utils/orchestration';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 import { consolidateTodoBoardEvents } from './utils/todoBoard';
 import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
@@ -271,6 +272,18 @@ export const App: React.FC = () => {
       if (turnBoard?.board && turnBoard.board.length > 0) return turnBoard;
     }
     return null;
+  }, [events, turns]);
+
+  // Derive the active orchestration from the live event stream, or fall back to
+  // the latest turn's orchestration if live stream has not emitted one yet.
+  // Only the most recent turn may recap: an older mission's card must not stay
+  // pinned across unrelated turns.
+  const activeOrchestration = useMemo(() => {
+    const liveOrch = consolidateOrchestrationEvents(events);
+    if (liveOrch && liveOrch.crewmates && liveOrch.crewmates.length > 0) return liveOrch;
+    if (turns.length === 0) return null;
+    const turnOrch = consolidateOrchestrationEvents(turns[turns.length - 1].events);
+    return turnOrch && turnOrch.crewmates && turnOrch.crewmates.length > 0 ? turnOrch : null;
   }, [events, turns]);
 
   // Derive the active sub-stage/activity for the running turn to surface in the pinned card
@@ -786,6 +799,15 @@ export const App: React.FC = () => {
                 onSelect={(value) => (value === 'retry' ? handleRetry() : handleRetryDismiss())}
                 onClose={handleRetryDismiss}
               />
+            )}
+
+            {activeOrchestration && (
+              <Box marginBottom={1} width="100%">
+                <PinnedOrchestrationCard
+                  event={activeOrchestration}
+                  isRunning={isRunning}
+                />
+              </Box>
             )}
 
             {activeTodoBoard && (

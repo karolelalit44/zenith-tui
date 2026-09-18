@@ -22,6 +22,7 @@ import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
+from server.config.environment import ZENITH_SALVAGE_TIMEOUT
 from server.config.settings import AppSettings
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
@@ -178,7 +179,10 @@ class CaptainOrchestrator:
         return Event(
             kind=EventKind.CREWMATE_SPAWNED,
             data={
-                "crewmate_id": definition.id,
+                # Same composite crewmate id as _crewmate(): lifecycle events and
+                # the captain_orchestration crewmates list must key on one id or
+                # the frontend folds them into duplicate phantom rows.
+                "crewmate_id": f"{definition.id}:{task.task_id[:8]}",
                 "name": definition.name,
                 "role": definition.role,
                 "task_id": task.task_id,
@@ -190,11 +194,11 @@ class CaptainOrchestrator:
         )
 
     @staticmethod
-    def _status_event(agent_id: str, status: str, activity: str, progress: int) -> Event:
+    def _status_event(crewmate_id: str, status: str, activity: str, progress: int) -> Event:
         return Event(
             kind=EventKind.CREWMATE_STATUS,
             data={
-                "crewmate_id": agent_id,
+                "crewmate_id": crewmate_id,
                 "status": status,
                 "activity": activity[:ACTIVITY_MAX_CHARS],
                 "progress": progress,
@@ -289,7 +293,7 @@ class CaptainOrchestrator:
             yield Event(
                 kind=EventKind.CREWMATE_COMPLETE,
                 data={
-                    "crewmate_id": definition.id,
+                    "crewmate_id": crewmate_id,
                     "task_id": task.task_id,
                     "result_summary": result.summary[:ACTIVITY_MAX_CHARS],
                     "status": result.status,
@@ -380,7 +384,7 @@ class CaptainOrchestrator:
                             progress=50,
                         )
                         timeline.append(_timeline_entry(activity))
-                        yield self._status_event(definition.id, "working", activity, 50)
+                        yield self._status_event(crewmate_id, "working", activity, 50)
                         yield self._orchestration_event(
                             parent_session_id,
                             "working",
@@ -414,10 +418,13 @@ class CaptainOrchestrator:
                     status="timed_out",
                     error=f"Investigation exceeded {resolved_timeout}s timeout.",
                 )
-                # Timeout salvage (WP6 hotfix): the outer cancel kills the
-                # child before its own salvage can fire, which used to leave
-                # the parent with an empty summary. One tools-free call turns
-                # the gathered evidence into a real answer.
+                # Publish the fallback result BEFORE the salvage call: the outer
+                # explore hard-cap can cancel the salvage completion mid-flight
+                # (provider completions run ~40-75s), and if last_result is still
+                # None the tool reports a content-free "no result". Setting it
+                # first guarantees the parent always gets an actionable
+                # timed-out report even if salvage is interrupted.
+                self.last_result = result
                 salvaged = await self._salvage_child_summary(
                     provider=self._provider,
                     child_events=child_events,
@@ -469,20 +476,20 @@ class CaptainOrchestrator:
             )
             if ok:
                 yield Event(
-                    kind=EventKind.CREWMATE_COMPLETE,
-                    data={
-                        "crewmate_id": definition.id,
-                        "task_id": task.task_id,
-                        "result_summary": result.summary[:ACTIVITY_MAX_CHARS],
-                        "status": result.status,
-                    },
-                    session_id=parent_session_id,
-                )
+                kind=EventKind.CREWMATE_COMPLETE,
+                data={
+                    "crewmate_id": crewmate_id,
+                    "task_id": task.task_id,
+                    "result_summary": result.summary[:ACTIVITY_MAX_CHARS],
+                    "status": result.status,
+                },
+                session_id=parent_session_id,
+            )
             else:
                 yield Event(
                     kind=EventKind.CREWMATE_FAILED,
                     data={
-                        "crewmate_id": definition.id,
+                        "crewmate_id": crewmate_id,
                         "task_id": task.task_id,
                         "error": (result.error or result.summary)[:ACTIVITY_MAX_CHARS],
                     },
@@ -543,7 +550,7 @@ class CaptainOrchestrator:
             + "\n".join(evidence)
         )
         try:
-            async with asyncio.timeout(25):
+            async with asyncio.timeout(ZENITH_SALVAGE_TIMEOUT):
                 raw = await provider.complete([{"role": "user", "content": prompt}])
         except Exception as e:
             logger.warning("Timeout salvage completion failed: %s", e)
