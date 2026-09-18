@@ -120,8 +120,8 @@ describe('ThinkingBlock', () => {
     tickSpy.mockRestore();
   });
 
-  it('advances the pulse to the bright core ⨳ on tick 2', () => {
-    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(2);
+  it('advances the pulse to the bright core ⨳ on tick 4', () => {
+    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(4);
     const event: ThinkingEvent = {
       kind: 'thinking',
       id: 't-pulse-bright',
@@ -141,7 +141,7 @@ describe('ThinkingBlock', () => {
     tickSpy.mockRestore();
   });
 
-  it('renders normal ✳ frames on ticks 1 and 3', () => {
+  it('renders normal ✳ frames on ticks 2 and 6', () => {
     const event: ThinkingEvent = {
       kind: 'thinking',
       id: 't-pulse-mid',
@@ -149,7 +149,7 @@ describe('ThinkingBlock', () => {
       duration: 0,
       partial: true,
     };
-    for (const tick of [1, 3]) {
+    for (const tick of [2, 6]) {
       const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(tick);
       const { lastFrame, unmount } = render(
         <ThemeProvider>
@@ -164,7 +164,7 @@ describe('ThinkingBlock', () => {
   });
 
   it('defines an even 4-frame breath with no consecutive duplicates', async () => {
-    const { ZENITH_PULSE_FRAMES, ZENITH_RETICLE, isZenithBright, isZenithDim } = await import(
+    const { ZENITH_PULSE_FRAMES, ZENITH_RETICLE, isZenithBright, isZenithDim, zenithPulseGlyphForTick } = await import(
       '../src/constants/animation'
     );
     expect(ZENITH_PULSE_FRAMES).toEqual(['✣', '✳', '⨳', '✳']);
@@ -172,10 +172,101 @@ describe('ThinkingBlock', () => {
     for (let i = 0; i < ZENITH_PULSE_FRAMES.length; i += 1) {
       expect(ZENITH_PULSE_FRAMES[i]).not.toBe(ZENITH_PULSE_FRAMES[(i + 1) % ZENITH_PULSE_FRAMES.length]);
     }
+    // Each frame holds 2 ticks (200ms) so the transformation reads as a breath, not flicker.
+    expect([zenithPulseGlyphForTick(0), zenithPulseGlyphForTick(1)]).toEqual(['✣', '✣']);
+    expect([zenithPulseGlyphForTick(2), zenithPulseGlyphForTick(3)]).toEqual(['✳', '✳']);
+    expect([zenithPulseGlyphForTick(4), zenithPulseGlyphForTick(5)]).toEqual(['⨳', '⨳']);
+    expect([zenithPulseGlyphForTick(6), zenithPulseGlyphForTick(7)]).toEqual(['✳', '✳']);
+    expect(zenithPulseGlyphForTick(8)).toBe('✣');
     expect(isZenithDim('✣')).toBe(true);
     expect(isZenithDim('✳')).toBe(false);
     expect(isZenithBright('⨳')).toBe(true);
     expect(isZenithBright('✳')).toBe(false);
+  });
+
+  it('pulses only the latest thinking block; earlier ones hold static ⨳', () => {
+    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(0);
+    const earlier: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't-early',
+      thoughts: ['First pass'],
+      duration: 4000,
+      partial: false,
+    };
+    const latest: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't-late',
+      thoughts: ['Second pass'],
+      duration: 1000,
+      partial: false,
+    };
+    const turnEvents: ScenarioEvent[] = [earlier, latest];
+    const ctx = { calmMode: true, isRunning: true, isHistorical: false };
+    const earlyRender = render(
+      <ThemeProvider>
+        <ThinkingBlock event={earlier} context={ctx} turnEvents={turnEvents} />
+      </ThemeProvider>,
+    );
+    const earlyFrame = earlyRender.lastFrame() || '';
+    expect(earlyFrame).toContain('⨳');
+    expect(earlyFrame).not.toContain('✣');
+    earlyRender.unmount();
+    const lateRender = render(
+      <ThemeProvider>
+        <ThinkingBlock event={latest} context={ctx} turnEvents={turnEvents} />
+      </ThemeProvider>,
+    );
+    const lateFrame = lateRender.lastFrame() || '';
+    expect(lateFrame).toContain('✣');
+    lateRender.unmount();
+    tickSpy.mockRestore();
+  });
+
+  it('pulses live finalized thinking too, so the breath is visible beyond the partial window', () => {
+    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(0);
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't-live-done',
+      thoughts: ['Finished audit'],
+      duration: 52000,
+      partial: false,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ThinkingBlock
+          event={event}
+          context={{ calmMode: true, isRunning: true, isHistorical: false }}
+          turnEvents={[event]}
+        />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('✣');
+    expect(frame).toContain('Deliberated 52 s');
+    expect(frame).not.toContain('Deliberating');
+    tickSpy.mockRestore();
+  });
+
+  it('does not pulse list-less finalized thinking: without turnEvents only streaming breathes', () => {
+    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(0);
+    const event: ThinkingEvent = {
+      kind: 'thinking',
+      id: 't-live-done-nolist',
+      thoughts: ['Finished audit'],
+      duration: 52000,
+      partial: false,
+    };
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ThinkingBlock event={event} context={{ calmMode: true, isRunning: true, isHistorical: false }} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    // Static bright core proves no animation subscription leaked: with no
+    // turn list this block cannot prove it is latest, so it must not pulse.
+    expect(frame).toContain('⨳');
+    expect(frame).not.toContain('✣');
+    tickSpy.mockRestore();
   });
 
   it('holds the static bright core ⨳ once deliberation completes (no pulse leak)', () => {

@@ -216,4 +216,23 @@ describe('TodoBoardBlock', () => {
     expect(res?.board[1].title).toBe('Step 2');
     expect(res?.board[1].status).toBe('in_progress');
   });
+
+  it('marks pending tool_step previews as pending and fabricates no timestamps', () => {
+    const pendingStep = {
+      kind: 'tool_step' as const,
+      id: 'ts_p',
+      tool: 'todo',
+      params: { action: 'write', tasks: [{ id: 't1', title: 'Draft report', status: 'todo' }] },
+      success: true,
+      output: 'Running…',
+      error: '',
+      pending: true,
+    };
+    const res = consolidateTodoBoardEvents([pendingStep as any]);
+    expect(res).not.toBeNull();
+    expect(res?.pending).toBe(true);
+    expect(res?.activity[0].message).toBe('Awaiting tool result…');
+    expect(res?.board[0].createdAt).toBe(0);
+    expect(res?.board[0].updatedAt).toBe(0);
+  });
 });

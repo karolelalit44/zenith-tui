@@ -37,10 +37,14 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const termCols = columns || process.stdout.columns || 80;
     const contentWidth = Math.max(30, termCols - 2);
 
+    const pending = event.pending === true;
+
     const all = event.board ?? [];
     if (all.length === 0) return null;
 
-    const doneCount = all.filter((t) => t.status === 'done').length;
+    // When pending, no items are truly confirmed — show 0% to avoid
+    // false-completeness (the requested statuses are NOT tool-verified).
+    const doneCount = pending ? 0 : all.filter((t) => t.status === 'done').length;
     const totalCount = all.length;
     const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
@@ -56,6 +60,14 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const hiddenCount = all.length - items.length;
 
     const renderStatusSymbol = (status: TodoStatus) => {
+      if (pending) {
+        // Pending: static symbol, never a spinner, never strikethrough.
+        return (
+          <Text color={colors.text.muted} bold={false}>
+            {todoStatusSymbol(status)}
+          </Text>
+        );
+      }
       if (status === 'in_progress' && isRunning) {
         return (
           <Text color={colors.status.info} bold>
@@ -71,6 +83,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     };
 
     const getTitleColor = (status: TodoStatus): string => {
+      if (pending) return colors.text.muted;
       switch (status) {
         case 'done':
           return colors.text.muted;
@@ -105,6 +118,9 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
             </Text>
             <Text color={percent === 100 ? colors.status.success : colors.status.info}>{progressBarStr} </Text>
             <Text color={colors.text.muted}>{percent}%</Text>
+            {pending && (
+              <Text color={colors.text.dim}> · awaiting tool result</Text>
+            )}
           </Box>
 
           {percent === 100 ? (
@@ -114,8 +130,8 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
           ) : null}
         </Box>
 
-        {/* Live sub-stage execution line when running */}
-        {isRunning && activeActivity && (
+        {/* Live sub-stage execution line when running (hidden while pending) */}
+        {isRunning && activeActivity && !pending && (
           <Box flexDirection="row" alignItems="center" marginTop={0} paddingLeft={1}>
             <Text color={colors.status.accent} bold>
               ↳{' '}
@@ -142,8 +158,8 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
               <Box flexGrow={1} flexShrink={1}>
                 <Text
                   color={getTitleColor(item.status)}
-                  strikethrough={item.status === 'done'}
-                  bold={item.status === 'in_progress'}
+                  strikethrough={item.status === 'done' && !pending}
+                  bold={item.status === 'in_progress' && !pending}
                   wrap="truncate-end"
                 >
                   {item.title}

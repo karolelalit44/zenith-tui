@@ -14,6 +14,45 @@ export interface ConsolidatedTodoBoard extends TodoBoardEvent {
   activity: TodoBoardActivityEntry[];
   lastChange?: TodoBoardChange;
   lastMessage?: string;
+  pending?: boolean;
+}
+
+function buildPendingBoard(
+  ev: ScenarioEvent & { params?: Record<string, unknown> },
+  rawTasks: unknown[],
+): ConsolidatedTodoBoard {
+  const items: TodoItem[] = rawTasks.map((t: any, idx: number) => {
+    const rawStatus = String(t.status || 'todo').toLowerCase();
+    const status: TodoStatus =
+      rawStatus === 'completed' || rawStatus === 'done'
+        ? 'done'
+        : rawStatus === 'in_progress' || rawStatus === 'in-progress'
+        ? 'in_progress'
+        : rawStatus === 'blocked'
+        ? 'blocked'
+        : rawStatus === 'cancelled' || rawStatus === 'canceled'
+        ? 'cancelled'
+        : 'todo';
+    return {
+      id: String(t.id || `t${idx + 1}`),
+      title: String(t.title || ''),
+      status,
+      priority: (t.priority || 'medium') as any,
+      createdAt: 0,
+      updatedAt: 0,
+      subtasks: [],
+      notes: t.notes ? String(t.notes) : undefined,
+      depends_on: Array.isArray(t.depends_on) ? t.depends_on.map(String) : undefined,
+    };
+  });
+  return {
+    kind: 'todo_board',
+    id: ev.id,
+    action: 'snapshot',
+    board: items,
+    activity: [{ action: 'snapshot', message: 'Awaiting tool result…' }],
+    pending: true,
+  };
 }
 
 /**
@@ -38,7 +77,10 @@ export function consolidateTodoBoardEvents(events: ScenarioEvent[]): Consolidate
     }
   }
 
-  // Check for in-flight tool_step or tool_call that executed after the latest todo_board
+  // Check for in-flight tool_step or tool_call that executed after the latest
+  // todo_board. A resolved tool_step carries the real board in metadata.board.
+  // A pending tool_step or raw tool_call only carries the MODEL-REQUESTED
+  // board; surface it as pending (unconfirmed) to avoid false-completeness.
   for (let i = events.length - 1; i > lastBoardIdx; i--) {
     const ev = events[i];
     if (ev.kind === 'tool_step' && ev.tool === 'todo') {
@@ -53,40 +95,14 @@ export function consolidateTodoBoardEvents(events: ScenarioEvent[]): Consolidate
           message: ev.output,
         };
       }
+      const rawTasks = (ev as any).params?.tasks;
+      if ((ev as any).pending === true && Array.isArray(rawTasks) && rawTasks.length > 0) {
+        return buildPendingBoard(ev, rawTasks);
+      }
     } else if (ev.kind === 'tool_call' && ev.tool === 'todo') {
       const rawTasks = ev.params?.tasks;
       if (Array.isArray(rawTasks) && rawTasks.length > 0) {
-        const items: TodoItem[] = rawTasks.map((t: any, idx: number) => {
-          const rawStatus = String(t.status || 'todo').toLowerCase();
-          const status: TodoStatus =
-            rawStatus === 'completed' || rawStatus === 'done'
-              ? 'done'
-              : rawStatus === 'in_progress' || rawStatus === 'in-progress'
-              ? 'in_progress'
-              : rawStatus === 'blocked'
-              ? 'blocked'
-              : rawStatus === 'cancelled' || rawStatus === 'canceled'
-              ? 'cancelled'
-              : 'todo';
-          return {
-            id: String(t.id || `t${idx + 1}`),
-            title: String(t.title || ''),
-            status,
-            priority: (t.priority || 'medium') as any,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            subtasks: [],
-            notes: t.notes ? String(t.notes) : undefined,
-            depends_on: Array.isArray(t.depends_on) ? t.depends_on.map(String) : undefined,
-          };
-        });
-        return {
-          kind: 'todo_board',
-          id: ev.id,
-          action: 'snapshot',
-          board: items,
-          activity: [{ action: 'snapshot', message: 'Tasks in progress...' }],
-        };
+        return buildPendingBoard(ev, rawTasks);
       }
     }
   }

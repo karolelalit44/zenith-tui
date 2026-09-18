@@ -182,4 +182,22 @@ describe('PinnedTodoCard', () => {
     expect(frame).toContain('file_read (server/config/constants/tools.py)');
     expect(frame).toContain('(50%)');
   });
+
+  it('renders a pending board as awaiting-result, never fabricated progress', () => {
+    const pendingBoard: ConsolidatedTodoBoard = {
+      ...makeBoard([makeItem('T1', 'Draft design doc', 'todo'), makeItem('T2', 'Review PR', 'todo')]),
+      pending: true,
+      activity: [{ action: 'snapshot', message: 'Awaiting tool result…' }],
+    };
+    const frame = renderCard(pendingBoard, true);
+
+    expect(frame).toContain('(0/2)');
+    expect(frame).toContain('0%');
+    expect(frame).toContain('awaiting tool result');
+    expect(frame).toContain('Draft design doc');
+    expect(frame).not.toContain('All complete');
+    expect(frame).not.toContain('◐');
+    expect(frame).not.toContain('✔');
+    expect(frame).not.toContain('↳');
+  });
 });

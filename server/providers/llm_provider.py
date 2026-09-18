@@ -848,12 +848,6 @@ class LLMProvider(BaseProvider):
         # Each call is a fresh turn: never let a prior turn's tool calls leak
         # forward and be replayed as if the model asked for them again.
         self._last_native_tool_calls = []
-        stream = await litellm.acompletion(**kwargs)
-        logger.info(
-            "API STREAM OPENED model=%s latency=%.0fms",
-            self._litellm_model,
-            (time.monotonic() - t0) * 1000,
-        )
         accumulated_tool_calls: dict[int, dict] = {}
         chunk_count = 0
         content_chars = 0
@@ -861,60 +855,90 @@ class LLMProvider(BaseProvider):
         first_chunk_time: float | None = None
         stream_usage: dict | None = None
         streamed_finish: str | None = None
-        async for chunk in stream:
-            if first_chunk_time is None:
-                first_chunk_time = time.monotonic()
-                self._last_ttft_ms = round((first_chunk_time - t0) * 1000)
+        attempt = 0
+        while True:
+            try:
+                stream = await litellm.acompletion(**kwargs)
                 logger.info(
-                    "API FIRST CHUNK model=%s time_to_first_chunk=%.0fms",
+                    "API STREAM OPENED model=%s latency=%.0fms",
                     self._litellm_model,
-                    self._last_ttft_ms,
+                    (time.monotonic() - t0) * 1000,
                 )
-            chunk_count += 1
-            # Capture the streamed finish reason (P3.1): the last non-null
-            # chunk-level reason is the true terminal condition of the stream.
-            if chunk.choices:
-                raw_chunk_finish = getattr(chunk.choices[0], "finish_reason", None)
-                if raw_chunk_finish:
-                    streamed_finish = str(raw_chunk_finish)
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if hasattr(chunk, "usage") and chunk.usage:
-                u = chunk.usage
-                stream_usage = {
-                    "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(u, "total_tokens", 0) or 0,
-                }
-                stream_usage["cached_tokens"] = _extract_cached_tokens(u)
-                cc = getattr(u, "cache_creation_input_tokens", None) or 0
-                if cc:
-                    stream_usage["cache_creation_tokens"] = cc
-            if not delta:
-                continue
-            if delta.content:
-                content_chars += len(delta.content)
-                yield (delta.content, None)
-            reasoning = getattr(delta, "reasoning_content", None)
-            if reasoning:
-                reasoning_chars += len(reasoning)
-                yield ("", reasoning)
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in accumulated_tool_calls:
-                        accumulated_tool_calls[idx] = {
-                            "id": tc_delta.id or "",
-                            "type": "function",
-                            "function": {"name": "", "arguments": ""},
+                async for chunk in stream:
+                    if first_chunk_time is None:
+                        first_chunk_time = time.monotonic()
+                        self._last_ttft_ms = round((first_chunk_time - t0) * 1000)
+                        logger.info(
+                            "API FIRST CHUNK model=%s time_to_first_chunk=%.0fms",
+                            self._litellm_model,
+                            self._last_ttft_ms,
+                        )
+                    chunk_count += 1
+                    # Capture the streamed finish reason (P3.1): the last non-null
+                    # chunk-level reason is the true terminal condition of the stream.
+                    if chunk.choices:
+                        raw_chunk_finish = getattr(chunk.choices[0], "finish_reason", None)
+                        if raw_chunk_finish:
+                            streamed_finish = str(raw_chunk_finish)
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        u = chunk.usage
+                        stream_usage = {
+                            "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
+                            "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
+                            "total_tokens": getattr(u, "total_tokens", 0) or 0,
                         }
-                    tc = accumulated_tool_calls[idx]
-                    if tc_delta.id:
-                        tc["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            tc["function"]["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            tc["function"]["arguments"] += tc_delta.function.arguments
+                        stream_usage["cached_tokens"] = _extract_cached_tokens(u)
+                        cc = getattr(u, "cache_creation_input_tokens", None) or 0
+                        if cc:
+                            stream_usage["cache_creation_tokens"] = cc
+                    if not delta:
+                        continue
+                    if delta.content:
+                        content_chars += len(delta.content)
+                        yield (delta.content, None)
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if reasoning:
+                        reasoning_chars += len(reasoning)
+                        yield ("", reasoning)
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in accumulated_tool_calls:
+                                accumulated_tool_calls[idx] = {
+                                    "id": tc_delta.id or "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            tc = accumulated_tool_calls[idx]
+                            if tc_delta.id:
+                                tc["id"] = tc_delta.id
+                            if tc_delta.function:
+                                if tc_delta.function.name:
+                                    tc["function"]["name"] = tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    tc["function"]["arguments"] += tc_delta.function.arguments
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # One retry, and only when nothing deliverable reached the
+                # caller yet: re-issuing after content, reasoning, or tool
+                # calls streamed would duplicate visible text/reasoning or
+                # re-run requested tools.
+                if attempt > 0 or content_chars > 0 or reasoning_chars > 0 or accumulated_tool_calls:
+                    raise
+                attempt += 1
+                chunk_count = 0
+                content_chars = 0
+                reasoning_chars = 0
+                first_chunk_time = None
+                stream_usage = None
+                streamed_finish = None
+                logger.warning(
+                    "API STREAM RETRY model=%s attempt=%d", self._litellm_model, attempt
+                )
+                continue
+            break
         elapsed = (time.monotonic() - t0) * 1000
         finish = None
         if accumulated_tool_calls:

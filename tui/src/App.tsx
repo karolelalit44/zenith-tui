@@ -178,6 +178,7 @@ export const App: React.FC = () => {
     startScenario,
     abort,
     startCompaction,
+    resetEvents,
     eventsRef,
     lastSessionId,
     setActiveSessionId,
@@ -444,7 +445,11 @@ export const App: React.FC = () => {
 
   const handleSessionResume = useCallback(
     (sessionId: string, _summary: SessionSummary, messages?: Record<string, unknown>[]) => {
+      // Stop any in-flight turn first: without abort, stale WS events from the
+      // previous session repopulate the array right after resetEvents clears it.
+      abort();
       setActiveSessionId(sessionId);
+      resetEvents();
       const turns = convertHistoryToTurns(messages ?? [], selectedMode);
       if (turns.length > 0) {
         loadTurns(turns);
@@ -452,7 +457,7 @@ export const App: React.FC = () => {
         clearTurns();
       }
     },
-    [setActiveSessionId, clearTurns, loadTurns, selectedMode],
+    [abort, setActiveSessionId, resetEvents, clearTurns, loadTurns, selectedMode],
   );
 
   const handleCancel = useCallback(() => {
@@ -466,10 +471,11 @@ export const App: React.FC = () => {
     abortActiveTurn(eventsRef.current);
     setActiveSessionId(null);
     clearTurns();
+    resetEvents();
     resetScroll();
     setRetryTarget(null);
     setContinueTarget(null);
-  }, [abort, abortActiveTurn, eventsRef, setActiveSessionId, clearTurns, resetScroll]);
+  }, [abort, abortActiveTurn, eventsRef, setActiveSessionId, clearTurns, resetEvents, resetScroll]);
 
   const commandCtx = useMemo<CommandRunContext>(
     () => ({

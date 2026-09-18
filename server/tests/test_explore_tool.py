@@ -400,3 +400,97 @@ def test_explore_tool_registered_in_server_registry(temp_dir):
     assert explore_tool is not None
     assert explore_tool.name == "explore"
 
+
+def test_mission_lifecycle_forwarded_ordered_child_transcript_excluded(config, temp_dir):
+    """The captain-level delegation lifecycle crosses the boundary in order,
+    while the child's raw transcript stays isolated (S2/D5)."""
+    provider = _CrewmateScriptedProvider()
+    result = _run(_tool(config, provider).execute({"objective": "trace state"}, str(temp_dir)))
+
+    from server.domain.events import EventKind
+
+    lifecycle = result.metadata.get("orchestration_events")
+    assert isinstance(lifecycle, list) and lifecycle, "orchestration_events must be populated"
+    kinds = [entry["kind"] for entry in lifecycle]
+
+    allowed = {str(EventKind.CAPTAIN_ORCHESTRATION)}
+    for kind in (EventKind.CREWMATE_SPAWNED, EventKind.CREWMATE_STATUS, EventKind.CREWMATE_COMPLETE, EventKind.CREWMATE_FAILED):
+        allowed.add(str(kind))
+    assert set(kinds) <= allowed, f"child transcript leaked: {set(kinds) - allowed}"
+
+    assert lifecycle[0]["kind"] == str(EventKind.CAPTAIN_ORCHESTRATION)
+    assert str(EventKind.CREWMATE_SPAWNED) in kinds
+    assert str(EventKind.CREWMATE_COMPLETE) in kinds
+    complete_idx = kinds.index(str(EventKind.CREWMATE_COMPLETE))
+    assert complete_idx + 1 < len(kinds)
+    assert kinds[complete_idx + 1] == str(EventKind.CAPTAIN_ORCHESTRATION)
+    assert kinds[-1] == str(EventKind.CAPTAIN_ORCHESTRATION)
+
+
+def test_post_execution_hooks_replay_ordered_lifecycle(config, temp_dir):
+    """post_execution_hooks replays the captured lifecycle in exact order, not
+    just the last snapshot."""
+    import asyncio
+
+    from server.domain.events import EventKind
+    from server.toolkit.base import ToolResult
+    from server.toolkit.executor import post_execution_hooks
+
+    meta = {
+        "orchestration_events": [
+            {"kind": str(EventKind.CAPTAIN_ORCHESTRATION), "data": {"stage": "thinking", "message": "t"}},
+            {"kind": str(EventKind.CREWMATE_SPAWNED), "data": {"crewmate_id": "apogee:abc", "name": "Apogee"}},
+            {"kind": str(EventKind.CAPTAIN_ORCHESTRATION), "data": {"stage": "complete", "message": "c"}},
+        ]
+    }
+    result = ToolResult(success=True, output="ok", metadata=meta, error="")
+
+    async def collect():
+        return await post_execution_hooks("explore", {}, result, str(temp_dir), "s1")
+
+    events = asyncio.run(collect())
+    assert [e.kind for e in events] == [
+        EventKind.CAPTAIN_ORCHESTRATION,
+        EventKind.CREWMATE_SPAWNED,
+        EventKind.CAPTAIN_ORCHESTRATION,
+    ]
+    assert [e.data.get("stage") for e in events if e.kind == EventKind.CAPTAIN_ORCHESTRATION] == [
+        "thinking",
+        "complete",
+    ]
+
+
+def test_post_execution_hooks_replay_lifecycle_on_failed_mission(config, temp_dir):
+    """Failed explore missions still replay the captured lifecycle in order.
+
+    The success guard was deliberately removed so the pinned orchestration
+    card can show the failure narrative (spawn → fail) instead of going
+    silently blank. The frontend already handles this: PinnedOrchestrationCard
+    renders hasFailedCrew / FAILED badges and error lines.
+    """
+    import asyncio
+
+    from server.domain.events import EventKind
+    from server.toolkit.base import ToolResult
+    from server.toolkit.executor import post_execution_hooks
+
+    meta = {
+        "orchestration_events": [
+            {"kind": str(EventKind.CAPTAIN_ORCHESTRATION), "data": {"stage": "thinking", "message": "t"}},
+            {"kind": str(EventKind.CREWMATE_SPAWNED), "data": {"crewmate_id": "apogee:abc", "name": "Apogee"}},
+            {"kind": str(EventKind.CREWMATE_FAILED), "data": {"crewmate_id": "apogee:abc", "error": "boom"}},
+        ]
+    }
+    result = ToolResult(success=False, output="failed", metadata=meta, error="boom")
+
+    async def collect():
+        return await post_execution_hooks("explore", {}, result, str(temp_dir), "s1")
+
+    events = asyncio.run(collect())
+    assert [e.kind for e in events] == [
+        EventKind.CAPTAIN_ORCHESTRATION,
+        EventKind.CREWMATE_SPAWNED,
+        EventKind.CREWMATE_FAILED,
+    ]
+    assert events[-1].data.get("crewmate_id") == "apogee:abc"
+

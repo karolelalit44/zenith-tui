@@ -1,9 +1,9 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { isZenithBright, isZenithDim, ZENITH_PULSE_FRAMES, ZENITH_RETICLE } from '../../../constants/animation';
+import { isZenithBright, isZenithDim, ZENITH_RETICLE, zenithPulseGlyphForTick } from '../../../constants/animation';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
-import type { ThinkingEvent, ThinkingThought } from '../../../types/scenario';
+import type { ScenarioEvent, ThinkingEvent, ThinkingThought } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
 
 import type { EventRenderContext } from './componentRegistry';
@@ -11,6 +11,7 @@ import type { EventRenderContext } from './componentRegistry';
 interface ThinkingBlockProps {
   event: ThinkingEvent;
   context?: EventRenderContext;
+  turnEvents?: ScenarioEvent[];
 }
 
 const getThoughtText = (thought: string | ThinkingThought): string =>
@@ -45,15 +46,15 @@ const ZenithStaticGlyph: React.FC<{ suffix: string }> = React.memo(({ suffix }) 
 ZenithStaticGlyph.displayName = 'ZenithStaticGlyph';
 
 /**
- * Breathing pulse reticle for live deliberation only:
+ * Breathing pulse reticle for live deliberation:
  *   ✣ (dim) → ✳ (normal) → ⨳ (BRIGHT core) → ✳ (normal), repeat.
  * Isolating useAnimationTick() here keeps the 100ms re-render storm to the
- * single live block instead of every historical ThinkingBlock.
+ * live blocks instead of every historical ThinkingBlock.
  */
 const ZenithPulseGlyph: React.FC<{ suffix: string }> = ({ suffix }) => {
   const { theme } = useTheme();
   const tick = useAnimationTick();
-  const glyph = ZENITH_PULSE_FRAMES[tick % ZENITH_PULSE_FRAMES.length];
+  const glyph = zenithPulseGlyphForTick(tick);
   return (
     <Text color={theme.colors.status.info} dimColor={isZenithDim(glyph)} bold={isZenithBright(glyph)}>
       {glyph}
@@ -64,7 +65,7 @@ const ZenithPulseGlyph: React.FC<{ suffix: string }> = ({ suffix }) => {
 
 ZenithPulseGlyph.displayName = 'ZenithPulseGlyph';
 
-export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
+export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context, turnEvents }) => {
   const { theme } = useTheme();
   const isCalm = context?.calmMode === true;
 
@@ -76,9 +77,26 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     return null;
   }
 
-  // Historical turns never pulse: a stuck partial:true must render as static
-  // completed telemetry instead of Deliberating forever.
-  const isStreaming = event.partial === true && context?.isRunning !== false && context?.isHistorical !== true;
+  // Live turns breathe: the reticle pulses for the live turn so the
+  // ✣→✳→⨳ transformation is actually visible — partial streaming alone is
+  // too brief to ever see. Only the latest thinking block animates; already
+  // reasoned blocks hold the static bright core ⨳ like history does.
+  // The Deliberating/Deliberated text still follows the partial flag.
+  const isLive = context?.isRunning === true && context?.isHistorical !== true;
+  const isStreaming = event.partial === true && isLive;
+  const isLatestThinking = (() => {
+    // Without the turn list we cannot prove this is the latest block: pulse
+    // only while streaming (at most one block streams at a time). Callers
+    // must pass turnEvents (ScenarioRenderer does) for the live breath to
+    // extend beyond the partial window on exactly the latest block.
+    if (!turnEvents) return event.partial === true;
+    if (turnEvents.length === 0) return true;
+    for (let i = turnEvents.length - 1; i >= 0; i -= 1) {
+      if (turnEvents[i].kind === 'thinking') return turnEvents[i].id === event.id;
+    }
+    return true;
+  })();
+  const pulses = isLive && isLatestThinking;
   const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
   const firstRealThought = event.thoughts
     .map((thought) => getThoughtText(thought).trim())
@@ -90,7 +108,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
       {isCollapsed ? (
         <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
-          {isStreaming ? <ZenithPulseGlyph suffix=" " /> : <ZenithStaticGlyph suffix=" " />}
+          {pulses ? <ZenithPulseGlyph suffix=" " /> : <ZenithStaticGlyph suffix=" " />}
           {isStreaming ? (
             <>
               <Text color={theme.colors.status.info} bold>
@@ -122,7 +140,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         </Box>
       ) : (
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
-          {isStreaming ? <ZenithPulseGlyph suffix=" Thinking" /> : <ZenithStaticGlyph suffix=" Thinking" />}
+          {pulses ? <ZenithPulseGlyph suffix=" Thinking" /> : <ZenithStaticGlyph suffix=" Thinking" />}
           {isStreaming && !durationStr ? (
             <Text color={theme.colors.text.dim}> …</Text>
           ) : durationStr ? (

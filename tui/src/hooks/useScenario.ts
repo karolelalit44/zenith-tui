@@ -34,6 +34,7 @@ export interface UseScenarioReturn {
   ) => void;
   abort: () => void;
   startCompaction: () => void;
+  resetEvents: () => void;
   lastSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
   lastManifest: { manifest: TurnManifestEvent; originalPrompt: string } | null;
@@ -415,6 +416,20 @@ export function useScenario(): UseScenarioReturn {
     setLastSessionId(id);
   }, []);
 
+  const resetEvents = useCallback(() => {
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+    batchQueueRef.current = [];
+    pendingToolSteps.current = new Map();
+    lastWarningRef.current = null;
+    abortRequestedRef.current = false;
+    eventsRef.current = [];
+    setEvents([]);
+    setLastManifest(null);
+  }, []);
+
   const continueFromManifest = useCallback(
     async (
       prompt: string,
@@ -475,6 +490,7 @@ export function useScenario(): UseScenarioReturn {
     continueFromManifest,
     abort,
     startCompaction,
+    resetEvents,
     lastSessionId,
     setActiveSessionId,
     lastManifest,

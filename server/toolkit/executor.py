@@ -353,18 +353,48 @@ async def post_execution_hooks(
                     },
                 )
             )
-    if tool_name == "explore" and result.success:
-        orch_evt = (result.metadata or {}).get("orchestration_event")
-        if isinstance(orch_evt, dict):
-            from server.domain.events import Event, EventKind
+    if tool_name == "explore":
+        from server.domain.events import Event, EventKind
 
-            events.append(
-                Event(
-                    kind=EventKind.CAPTAIN_ORCHESTRATION,
-                    session_id=session_id,
-                    data=orch_evt,
+        orch_events = (result.metadata or {}).get("orchestration_events")
+        emitted = 0
+        if isinstance(orch_events, list) and orch_events:
+            # Ordered captain-level lifecycle captured during the mission:
+            # captain_orchestration stages + crewmate spawned/status/complete/
+            # failed. Replayed in the exact order the orchestrator emitted them
+            # so the frontend's pinned orchestration card can stream the real
+            # narrative (think → delegate → work → complete) instead of a
+            # single after-the-fact snapshot.
+            for entry in orch_events:
+                if not isinstance(entry, dict):
+                    continue
+                kind_str = entry.get("kind")
+                try:
+                    kind = EventKind(kind_str)
+                except (ValueError, TypeError):
+                    continue
+                data = entry.get("data")
+                events.append(
+                    Event(
+                        kind=kind,
+                        session_id=session_id,
+                        data=data if isinstance(data, dict) else {},
+                    )
                 )
-            )
+                emitted += 1
+        if emitted == 0:
+            # Legacy fallback: a lone last-snapshot still yields one event.
+            # Also covers a corrupt orchestration_events list where every
+            # entry was skipped above — never drop the card silently.
+            orch_evt = (result.metadata or {}).get("orchestration_event")
+            if isinstance(orch_evt, dict):
+                events.append(
+                    Event(
+                        kind=EventKind.CAPTAIN_ORCHESTRATION,
+                        session_id=session_id,
+                        data=orch_evt,
+                    )
+                )
     edited_path = tool_params.get("filepath") or tool_params.get("path") or ""
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:

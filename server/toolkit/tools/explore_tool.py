@@ -9,8 +9,11 @@ Contract highlights:
 - Governance: ``config.explore_delegation`` gates availability (D3).
 - Budgets: per-mission timeout/context tokens by thoroughness (Phase 2) plus
   a rolling-window aggregate token ledger across children (D6).
-- Isolation: only the rendered structured report crosses the boundary
-  (S2); child transcript events are consumed, never forwarded.
+- Isolation: only the rendered structured report crosses the boundary (S2);
+  child transcript events are consumed, never forwarded. The captain-level
+  delegation lifecycle (captain_orchestration stages + crewmate_spawned /
+  status / complete / failed) IS forwarded in order — it is the operationally
+  meaningful story of the mission and feeds the TUI's orchestration card.
 """
 
 from __future__ import annotations
@@ -97,6 +100,25 @@ class ExploreSpendLedger:
 _ledger = ExploreSpendLedger()
 # Width guard for environments that execute tools outside the parent loop.
 _spawn_semaphore = asyncio.Semaphore(EXPLORE_PARALLEL_DEFAULT)
+
+# Captain-level lifecycle kinds forwarded to the parent wire stream in order.
+# Deliberately excludes the child transcript (thinking/message/tool_*/progress
+# from the crewmate) — S2 isolation keeps the parent context clean.
+_LIFECYCLE_KINDS = frozenset(
+    {
+        EventKind.CAPTAIN_ORCHESTRATION,
+        EventKind.CREWMATE_SPAWNED,
+        EventKind.CREWMATE_STATUS,
+        EventKind.CREWMATE_COMPLETE,
+        EventKind.CREWMATE_FAILED,
+    }
+)
+
+# Bound on forwarded lifecycle entries: CREWMATE_STATUS can tick at high
+# frequency; cap the list so ToolResult metadata / WS replay stays bounded.
+# Terminal kinds (spawn/complete/failed + orchestration stages) are always
+# kept — only the oldest STATUS entries are evicted when full.
+_LIFECYCLE_MAX_EVENTS = 200
 
 
 class ExploreTool(BaseTool):
@@ -250,6 +272,7 @@ class ExploreTool(BaseTool):
         started = time.monotonic()
         active_session_id = current_tool_session_id.get() or f"explore:{workspace_root}"
         last_orch_data: dict[str, Any] | None = None
+        lifecycle: list[tuple[str, dict[str, Any]]] = []
         try:
             async with asyncio.timeout(budget["timeout_s"] + _EXPLORE_SALVAGE_GRACE_SECONDS):
                 async with _spawn_semaphore:
@@ -260,8 +283,22 @@ class ExploreTool(BaseTool):
                         timeout_seconds=budget["timeout_s"],
                         max_context_tokens=budget["context_tokens"],
                     ):
+                        if _event.kind in _LIFECYCLE_KINDS:
+                            data = _event.data
+                            snapshot = dict(data) if isinstance(data, dict) else {}
+                            if len(lifecycle) >= _LIFECYCLE_MAX_EVENTS:
+                                # Evict the oldest STATUS tick to make room; if
+                                # none exists, drop the oldest entry so terminal
+                                # kinds (spawn/complete/failed) are preserved.
+                                for i, (k, _) in enumerate(lifecycle):
+                                    if k == str(EventKind.CREWMATE_STATUS):
+                                        del lifecycle[i]
+                                        break
+                                else:
+                                    del lifecycle[0]
+                            lifecycle.append((str(_event.kind), snapshot))
                         if _event.kind == EventKind.CAPTAIN_ORCHESTRATION and isinstance(_event.data, dict):
-                            last_orch_data = _event.data
+                            last_orch_data = dict(_event.data)
                         continue
         except TimeoutError:
             logger.warning("Explore mission hard-timeout (thoroughness=%s)", thoroughness)
@@ -274,11 +311,15 @@ class ExploreTool(BaseTool):
                 # Even a crashed mission reports actionably — mirrors WP2/WP3
                 # philosophy: never an empty, context-free failure.
                 output=f"[explore] failed\nError: {e}",
-                metadata=self._metadata(
-                    thoroughness,
-                    status="failed",
-                    crewmate_name=definition.name,
-                    crewmate_role=definition.role,
+                metadata=self._with_orchestration(
+                    self._metadata(
+                        thoroughness,
+                        status="failed",
+                        crewmate_name=definition.name,
+                        crewmate_role=definition.role,
+                    ),
+                    lifecycle,
+                    last_orch_data,
                 ),
             )
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -293,8 +334,12 @@ class ExploreTool(BaseTool):
                     "AgentResult was assembled (salvage likely cancelled by the "
                     "outer hard-cap). See the server log for the child trace."
                 ),
-                metadata=self._metadata(
-                    thoroughness, status="failed", crewmate_name=definition.name
+                metadata=self._with_orchestration(
+                    self._metadata(
+                        thoroughness, status="failed", crewmate_name=definition.name
+                    ),
+                    lifecycle,
+                    last_orch_data,
                 ),
             )
         _ledger.record(result.metrics.tokens_used)
@@ -310,8 +355,7 @@ class ExploreTool(BaseTool):
             cached=cached,
             elapsed_ms=elapsed_ms or result.metrics.elapsed_ms,
         )
-        if last_orch_data:
-            meta["orchestration_event"] = last_orch_data
+        meta = self._with_orchestration(meta, lifecycle, last_orch_data)
         return ToolResult(success=ok, output=self._render(result), metadata=meta)
 
     # ------------------------------------------------------------------ #
@@ -383,6 +427,26 @@ class ExploreTool(BaseTool):
                 model_override=str(custom.get("model")) if custom.get("model") else routed_model,
             )
         return build_apogee_definition(model_override=routed_model), ""
+
+    @staticmethod
+    def _with_orchestration(
+        meta: dict,
+        lifecycle: list[tuple[str, dict[str, Any]]],
+        last_orch_data: dict[str, Any] | None,
+    ) -> dict:
+        """Attach the mission's captain-level lifecycle to tool metadata.
+
+        ``orchestration_events`` carries the FULL ordered lifecycle so the
+        executor can replay it on the wire; ``orchestration_event`` preserves
+        the legacy single-last-snapshot key for any consumer that reads it.
+        """
+        if lifecycle:
+            meta["orchestration_events"] = [
+                {"kind": kind, "data": dict(data)} for kind, data in lifecycle
+            ]
+        if last_orch_data:
+            meta["orchestration_event"] = dict(last_orch_data)
+        return meta
 
     @staticmethod
     def _metadata(

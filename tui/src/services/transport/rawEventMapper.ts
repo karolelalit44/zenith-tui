@@ -374,11 +374,41 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
       return {
         kind: 'captain_orchestration',
         id,
-        stage: (d.stage as any) || 'working',
+        stage: (d.stage as CaptainOrchestrationEvent['stage']) || 'thinking',
         captainMessage: String(d.captainMessage || d.message || ''),
-        plan: Array.isArray(d.plan) ? (d.plan as any) : undefined,
-        crewmates: Array.isArray(d.crewmates) ? (d.crewmates as any) : undefined,
-        timeline: Array.isArray(d.timeline) ? (d.timeline as any) : undefined,
+        plan: Array.isArray(d.plan)
+          ? d.plan.map((item: Record<string, unknown>): PlanItem => ({
+              id: String(item.id || ''),
+              title: String(item.title || ''),
+              assignedCrewmate: item.assignedCrewmate
+                ? String(item.assignedCrewmate)
+                : item.assignedAgent
+                ? String(item.assignedAgent)
+                : undefined,
+              status: (item.status as PlanItem['status']) || 'queued',
+              details: item.details ? String(item.details) : undefined,
+            }))
+          : undefined,
+        crewmates: Array.isArray(d.crewmates)
+          ? d.crewmates.map((cm: Record<string, unknown>): CrewmateAgent => ({
+              id: String(cm.id || ''),
+              name: String(cm.name || ''),
+              role: String(cm.role || ''),
+              task: String(cm.task || ''),
+              activity: cm.activity ? String(cm.activity) : undefined,
+              status: (cm.status as CrewmateAgent['status']) || 'assigned',
+              progress: typeof cm.progress === 'number' ? cm.progress : undefined,
+              resultSummary: cm.resultSummary ? String(cm.resultSummary) : undefined,
+              error: cm.error ? String(cm.error) : undefined,
+            }))
+          : undefined,
+        timeline: Array.isArray(d.timeline)
+          ? d.timeline.map((tl: Record<string, unknown>): TimelineEntry => ({
+              timestamp: String(tl.timestamp || ''),
+              message: String(tl.message || ''),
+              type: (tl.type as TimelineEntry['type']) || 'info',
+            }))
+          : undefined,
         activeStep: d.activeStep ? String(d.activeStep) : undefined,
       };
 
@@ -546,98 +576,6 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
       if (sum) return sum;
       return UnknownEvent(kind, id);
     }
-
-    case 'captain_orchestration':
-      return {
-        kind: 'captain_orchestration',
-        id,
-        stage: (d.stage as CaptainOrchestrationEvent['stage']) || 'thinking',
-        captainMessage: String(d.captainMessage || d.message || ''),
-        plan: Array.isArray(d.plan)
-          ? d.plan.map((item: Record<string, unknown>): PlanItem => ({
-              id: String(item.id || ''),
-              title: String(item.title || ''),
-              assignedCrewmate: item.assignedCrewmate
-                ? String(item.assignedCrewmate)
-                : item.assignedAgent
-                ? String(item.assignedAgent)
-                : undefined,
-              status: (item.status as PlanItem['status']) || 'queued',
-              details: item.details ? String(item.details) : undefined,
-            }))
-          : undefined,
-        crewmates: Array.isArray(d.crewmates)
-          ? d.crewmates.map((cm: Record<string, unknown>): CrewmateAgent => ({
-              id: String(cm.id || ''),
-              name: String(cm.name || ''),
-              role: String(cm.role || ''),
-              task: String(cm.task || ''),
-              activity: cm.activity ? String(cm.activity) : undefined,
-              status: (cm.status as CrewmateAgent['status']) || 'assigned',
-              progress: typeof cm.progress === 'number' ? cm.progress : undefined,
-              resultSummary: cm.resultSummary ? String(cm.resultSummary) : undefined,
-              error: cm.error ? String(cm.error) : undefined,
-            }))
-          : undefined,
-        timeline: Array.isArray(d.timeline)
-          ? d.timeline.map((tl: Record<string, unknown>): TimelineEntry => ({
-              timestamp: String(tl.timestamp || ''),
-              message: String(tl.message || ''),
-              type: (tl.type as TimelineEntry['type']) || 'info',
-            }))
-          : undefined,
-        activeStep: d.activeStep ? String(d.activeStep) : undefined,
-      };
-
-    case 'crewmate_spawned':
-      return {
-        kind: 'crewmate_spawned',
-        id,
-        crewmateId: String(d.crewmateId || d.crewmate_id || ''),
-        name: String(d.name || ''),
-        role: String(d.role || ''),
-        taskId: String(d.taskId || d.task_id || ''),
-        capability: String(d.capability || ''),
-        parentSessionId: d.parentSessionId
-          ? String(d.parentSessionId)
-          : d.parent_session_id
-          ? String(d.parent_session_id)
-          : undefined,
-        model: d.model ? String(d.model) : undefined,
-      };
-
-    case 'crewmate_status':
-      return {
-        kind: 'crewmate_status',
-        id,
-        crewmateId: String(d.crewmateId || d.crewmate_id || ''),
-        status: String(d.status || 'working'),
-        activity: d.activity ? String(d.activity) : undefined,
-        progress: typeof d.progress === 'number' ? d.progress : undefined,
-      };
-
-    case 'crewmate_complete':
-      return {
-        kind: 'crewmate_complete',
-        id,
-        crewmateId: String(d.crewmateId || d.crewmate_id || ''),
-        taskId: String(d.taskId || d.task_id || ''),
-        resultSummary: d.resultSummary
-          ? String(d.resultSummary)
-          : d.result_summary
-          ? String(d.result_summary)
-          : undefined,
-        status: d.status ? String(d.status) : undefined,
-      };
-
-    case 'crewmate_failed':
-      return {
-        kind: 'crewmate_failed',
-        id,
-        crewmateId: String(d.crewmateId || d.crewmate_id || ''),
-        taskId: String(d.taskId || d.task_id || ''),
-        error: d.error ? String(d.error) : undefined,
-      };
 
     default:
       return UnknownEvent(kind, id);
