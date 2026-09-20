@@ -1,30 +1,28 @@
+import { Text } from 'ink';
+import React from 'react';
 import type { Theme } from '../../../theme/types';
 import type { TodoStatus } from '../../../types/scenario';
 
 /** Serial column width for the positional 1,2,3 numbers. */
 export const TODO_SN_WIDTH = 4;
 
-/** Status column width for the single symbol glyph. */
-export const TODO_STATUS_WIDTH = 3;
+/** Status column width for the bracketed status glyph (e.g. [✓], [ ], [◐]). */
+export const TODO_STATUS_WIDTH = 4;
 
 const TODO_STATUS_SYMBOL: Record<TodoStatus, string> = {
-  todo: '○',
-  in_progress: '◐',
-  done: '✔',
-  blocked: '✖',
-  cancelled: '✖',
+  todo: '[ ]',
+  in_progress: '[◐]',
+  done: '[✓]',
+  blocked: '[✗]',
+  cancelled: '[✗]',
 };
 
 /**
  * Symbol for the status column. Unknown wire values (the transport casts
- * without an allowlist) fall back to pending ○ so the cell never blanks.
- *
- * Font note: ○ U+25CB · ◐ U+25D0 · ✔ U+2714 · ✖ U+2716 need a patched or
- * recent Windows Terminal / Ghostty / Alacritty font; missing glyphs show
- * tofu, so verify on targets before swapping symbols.
+ * without an allowlist) fall back to pending [ ] so the cell never blanks.
  */
 export function todoStatusSymbol(status: TodoStatus): string {
-  return TODO_STATUS_SYMBOL[status] ?? '○';
+  return TODO_STATUS_SYMBOL[status] ?? '[ ]';
 }
 
 /** Color for the status symbol; unknown wire values fall back to dim. */
@@ -41,3 +39,42 @@ export function todoStatusColor(status: TodoStatus, colors: Theme['colors']): st
       return colors.text.dim;
   }
 }
+
+export interface TodoStatusGlyphProps {
+  status: TodoStatus;
+  colors: Theme['colors'];
+  bracketColor?: string;
+  spinner?: React.ReactNode;
+}
+
+export const TodoStatusGlyph: React.FC<TodoStatusGlyphProps> = ({ status, colors, bracketColor, spinner }) => {
+  const bColor = bracketColor ?? colors.text.dim;
+  if (spinner) {
+    return React.createElement(
+      Text,
+      null,
+      React.createElement(Text, { color: bColor }, '['),
+      React.createElement(Text, { color: colors.status.info, bold: true }, spinner),
+      React.createElement(Text, { color: bColor }, ']'),
+    );
+  }
+
+  const char =
+    status === 'done'
+      ? '✓'
+      : status === 'in_progress'
+        ? '◐'
+        : status === 'blocked' || status === 'cancelled'
+          ? '✗'
+          : ' ';
+
+  const charColor = todoStatusColor(status, colors);
+
+  return React.createElement(
+    Text,
+    null,
+    React.createElement(Text, { color: bColor }, '['),
+    React.createElement(Text, { color: charColor, bold: status !== 'todo' }, char),
+    React.createElement(Text, { color: bColor }, ']'),
+  );
+};

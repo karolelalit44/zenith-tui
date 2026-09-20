@@ -392,7 +392,8 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('📁');
+    expect(frame).toContain('◧');
+    expect(frame).toContain('▤');
     expect(frame).toContain('src/components/');
     expect(frame).toContain('2 folders');
     expect(frame).toContain('2 files');

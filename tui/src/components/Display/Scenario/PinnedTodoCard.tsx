@@ -5,28 +5,24 @@ import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../../../types/scenario';
 import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
-import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, todoStatusColor, todoStatusSymbol } from './todoStatus';
+import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, TodoStatusGlyph } from './todoStatus';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const MAX_PINNED_TODOS = 5;
-const PROGRESS_BAR_WIDTH = 10;
+const PROGRESS_BAR_WIDTH = 8;
 
 const LiveSpinner: React.FC = () => {
   const tick = useAnimationTick();
-  return <>{SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}</>;
+  return <Text>{SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}</Text>;
 };
 
-export interface ActiveActivityInfo {
-  label: string;
-  percent?: number;
-  tool?: string;
-  isThinking?: boolean;
-}
-
-interface PinnedTodoCardProps {
+export interface PinnedTodoCardProps {
   event: ConsolidatedTodoBoard;
   isRunning?: boolean;
-  activeActivity?: ActiveActivityInfo;
+  activeActivity?: {
+    label: string;
+    percent?: number;
+  };
 }
 
 export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
@@ -53,130 +49,126 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const rawFilled = Math.round((clampedPercent / 100) * PROGRESS_BAR_WIDTH);
     const filledWidth = Math.max(0, Math.min(PROGRESS_BAR_WIDTH, rawFilled));
     const emptyWidth = PROGRESS_BAR_WIDTH - filledWidth;
-    const progressBarStr = `[${'█'.repeat(filledWidth)}${'░'.repeat(emptyWidth)}]`;
 
     // Limit visible items to MAX_PINNED_TODOS
     const items = all.slice(0, MAX_PINNED_TODOS);
     const hiddenCount = all.length - items.length;
 
-    const renderStatusSymbol = (status: TodoStatus) => {
-      if (pending) {
-        // Pending: static symbol, never a spinner, never strikethrough.
-        return (
-          <Text color={colors.text.muted} bold={false}>
-            {todoStatusSymbol(status)}
-          </Text>
-        );
-      }
-      if (status === 'in_progress' && isRunning) {
-        return (
-          <Text color={colors.status.info} bold>
-            <LiveSpinner />
-          </Text>
-        );
-      }
-      return (
-        <Text color={todoStatusColor(status, colors)} bold={status !== 'todo'}>
-          {todoStatusSymbol(status)}
-        </Text>
-      );
-    };
+    const borderColor = isRunning ? colors.border.active : colors.border.muted;
+    const bracketColor = colors.status.warning;
+
+    const countStr = `(${doneCount}/${totalCount})`;
+    const fullSuffix = pending ? ' · awaiting tool result' : '';
+    // Only show full suffix when terminal has enough room (>= 60 cols) to prevent wrapping
+    const statusSuffix = contentWidth >= 60 ? fullSuffix : '';
+    const percentStr = `${percent}%${statusSuffix}`;
+
+    const leftWidth = 10 + countStr.length; // '╭─ ' (3) + 'Tasks ' (6) + countStr + ' ' (1)
+    const rightWidth = 7 + PROGRESS_BAR_WIDTH + percentStr.length; // ' [' (2) + bar (PROGRESS_BAR_WIDTH) + '] ' (2) + percentStr + ' ─╮' (3)
+    const ruleWidth = Math.max(0, contentWidth - leftWidth - rightWidth);
 
     const getTitleColor = (status: TodoStatus): string => {
       if (pending) return colors.text.muted;
       switch (status) {
-        case 'done':
-          return colors.text.muted;
-        case 'in_progress':
-          return colors.text.bright;
         case 'blocked':
         case 'cancelled':
           return colors.status.error;
         default:
-          return colors.text.muted;
+          return colors.text.bright;
       }
     };
 
     return (
-      <Box
-        flexDirection="column"
-        width={contentWidth}
-        backgroundColor={colors.code.background}
-        borderStyle="round"
-        borderColor={isRunning ? colors.border.active : colors.border.muted}
-        paddingX={1}
-        paddingY={0}
-      >
-        {/* Header row: title + progress */}
-        <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center">
-          <Box flexDirection="row" alignItems="center">
+      <Box flexDirection="column" width={contentWidth}>
+        {/* Top border with embedded title, ratio, horizontal rule, progress bar, and percentage */}
+        <Box flexDirection="row" width={contentWidth} backgroundColor={colors.code.background}>
+          <Box flexShrink={0}>
+            <Text color={borderColor}>╭─ </Text>
             <Text color={colors.text.bright} bold>
               Tasks{' '}
             </Text>
-            <Text color={colors.text.dim}>
-              ({doneCount}/{totalCount}){' '}
+            <Text color={bracketColor} bold>
+              {countStr}
             </Text>
-            <Text color={percent === 100 ? colors.status.success : colors.status.info}>{progressBarStr} </Text>
-            <Text color={colors.text.muted}>{percent}%</Text>
-            {pending && (
-              <Text color={colors.text.dim}> · awaiting tool result</Text>
-            )}
+            <Text color={borderColor}> </Text>
           </Box>
-
-          {percent === 100 ? (
-            <Text color={colors.status.success} bold>
-              ✔ All complete
-            </Text>
-          ) : null}
+          <Box flexGrow={1} flexShrink={1} overflow="hidden">
+            <Text color={borderColor} wrap="truncate-end">{'─'.repeat(ruleWidth)}</Text>
+          </Box>
+          <Box flexShrink={0}>
+            <Text color={borderColor}> </Text>
+            <Text color={bracketColor}>[</Text>
+            <Text color={colors.text.bright}>{'█'.repeat(filledWidth)}</Text>
+            <Text color={colors.text.dim}>{'░'.repeat(emptyWidth)}</Text>
+            <Text color={bracketColor}>] </Text>
+            <Text color={colors.text.bright}>{percentStr}</Text>
+            <Text color={borderColor}> ─╮</Text>
+          </Box>
         </Box>
 
-        {/* Live sub-stage execution line when running (hidden while pending) */}
-        {isRunning && activeActivity && !pending && (
-          <Box flexDirection="row" alignItems="center" marginTop={0} paddingLeft={1}>
-            <Text color={colors.status.accent} bold>
-              ↳{' '}
-            </Text>
-            <Text color={colors.status.info}>
-              <LiveSpinner />{' '}
-            </Text>
-            <Text color={colors.text.bright} wrap="truncate-end">
-              {activeActivity.label}
-            </Text>
-            {typeof activeActivity.percent === 'number' && (
-              <Text color={colors.text.dim}> ({activeActivity.percent}%)</Text>
-            )}
-          </Box>
-        )}
-
-        {/* Task rows: serial | title | status symbol only */}
-        <Box flexDirection="column" marginTop={0}>
-          {items.map((item: TodoItem, idx: number) => (
-            <Box key={item.id} flexDirection="row" width="100%" alignItems="center">
-              <Box width={TODO_SN_WIDTH} flexShrink={0}>
-                <Text color={colors.text.dim}>{String(idx + 1)}</Text>
-              </Box>
-              <Box flexGrow={1} flexShrink={1}>
-                <Text
-                  color={getTitleColor(item.status)}
-                  strikethrough={item.status === 'done' && !pending}
-                  bold={item.status === 'in_progress' && !pending}
-                  wrap="truncate-end"
-                >
-                  {item.title}
-                </Text>
-              </Box>
-              <Box width={TODO_STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
-                {renderStatusSymbol(item.status)}
-              </Box>
+        {/* Box body: left & right borders, bottom border with rounded corners */}
+        <Box
+          flexDirection="column"
+          width={contentWidth}
+          backgroundColor={colors.code.background}
+          borderStyle="round"
+          borderTop={false}
+          borderColor={borderColor}
+          paddingX={1}
+          paddingY={0}
+        >
+          {/* Live sub-stage execution line when running (hidden while pending) */}
+          {isRunning && activeActivity && !pending && (
+            <Box flexDirection="row" alignItems="center" marginTop={0} paddingLeft={1}>
+              <Text color={colors.status.accent} bold>
+                ↳{' '}
+              </Text>
+              <Text color={colors.status.info}>
+                <LiveSpinner />{' '}
+              </Text>
+              <Text color={colors.text.bright} wrap="truncate-end">
+                {activeActivity.label}
+              </Text>
+              {typeof activeActivity.percent === 'number' && (
+                <Text color={colors.text.dim}> ({activeActivity.percent}%)</Text>
+              )}
             </Box>
-          ))}
-        </Box>
+          )}
 
-        {hiddenCount > 0 && (
-          <Box marginTop={0}>
-            <Text color={colors.text.dim}>+{hiddenCount} more tasks…</Text>
+          {/* Task rows: serial | title | status symbol only */}
+          <Box flexDirection="column" marginTop={0}>
+            {items.map((item: TodoItem, idx: number) => (
+              <Box key={item.id} flexDirection="row" width="100%" alignItems="center">
+                <Box width={TODO_SN_WIDTH} flexShrink={0}>
+                  <Text color={colors.text.bright}>{String(idx + 1)}</Text>
+                </Box>
+                <Box flexGrow={1} flexShrink={1}>
+                  <Text
+                    color={getTitleColor(item.status)}
+                    bold={item.status === 'in_progress' && !pending}
+                    wrap="truncate-end"
+                  >
+                    {item.title}
+                  </Text>
+                </Box>
+                <Box width={TODO_STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
+                  <TodoStatusGlyph
+                    status={pending ? 'todo' : item.status}
+                    colors={colors}
+                    bracketColor={bracketColor}
+                    spinner={!pending && item.status === 'in_progress' && isRunning ? <LiveSpinner /> : undefined}
+                  />
+                </Box>
+              </Box>
+            ))}
           </Box>
-        )}
+
+          {hiddenCount > 0 && (
+            <Box marginTop={0}>
+              <Text color={colors.text.dim}>+{hiddenCount} more tasks…</Text>
+            </Box>
+          )}
+        </Box>
       </Box>
     );
   },

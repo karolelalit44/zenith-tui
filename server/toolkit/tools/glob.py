@@ -43,10 +43,10 @@ def _build_directory_summary(file_rel_paths: list[Path]) -> str:
         f"Directory structure overview ({len(file_rel_paths)} files across {len(dir_counts)} directories):"
     ]
     for d, count in sorted(dir_counts.items()):
-        lines.append(f"  📁 {d} ({count} files)")
+        lines.append(f"  ◧ {d} ({count} files)")
     if root_files:
         lines.append(
-            f"  📄 Root files ({len(root_files)} files): {', '.join(sorted(root_files)[:8])}"
+            f"  ▤ Root files ({len(root_files)} files): {', '.join(sorted(root_files)[:8])}"
         )
         if len(root_files) > 8:
             lines[-1] += f", ... (+{len(root_files) - 8} more)"

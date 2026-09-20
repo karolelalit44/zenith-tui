@@ -210,7 +210,7 @@ function formatBashStatus(source: StatusSource): string {
 
 function formatBackgroundStatus(source: StatusSource): string {
   const job = jobIdFrom(source.metadata);
-  return `⚡ Launch background task${job ? ` #${job}` : ''}`;
+  return `Launch background task${job ? ` #${job}` : ''}`;
 }
 
 function formatJobOutputStatus(source: StatusSource): string {

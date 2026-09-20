@@ -68,12 +68,19 @@ describe('PinnedTodoCard', () => {
     expect(frame).toContain('Second task');
   });
 
-  it('renders all complete banner when 100% finished', () => {
+  it('renders 100% finished progress state when all tasks are complete', () => {
     const frame = renderCard(makeBoard([makeItem('T1', 'Task one', 'done'), makeItem('T2', 'Task two', 'done')]));
 
     expect(frame).toContain('(2/2)');
     expect(frame).toContain('100%');
-    expect(frame).toContain('All complete');
+    expect(frame).not.toContain('All complete');
+  });
+
+  it('renders top border on a single line without wrapping', () => {
+    const frame = renderCard(makeBoard([makeItem('T1', 'Task one', 'done')]));
+    const firstLine = frame.split('\n')[0] || '';
+    expect(firstLine).toContain('╭─ Tasks');
+    expect(firstLine).toContain('─╮');
   });
 
   it('caps visible items at 5 and displays overflow count', () => {
@@ -95,8 +102,8 @@ describe('PinnedTodoCard', () => {
       makeBoard([makeItem('XYZ-99', 'First task', 'todo'), makeItem('ABC-01', 'Second task', 'done')]),
     );
 
-    expect(frame).toMatch(/1\s+First task\s+○/);
-    expect(frame).toMatch(/2\s+Second task\s+✔/);
+    expect(frame).toMatch(/1\s+First task\s+\[ \]/);
+    expect(frame).toMatch(/2\s+Second task\s+\[✓\]/);
     expect(frame).not.toContain('XYZ-99');
     expect(frame).not.toContain('ABC-01');
   });
@@ -105,7 +112,7 @@ describe('PinnedTodoCard', () => {
     const frame = renderCard(makeBoard([makeItem('T1', 'High priority item', 'todo', 'high')]));
 
     expect(frame).toContain('High priority item');
-    expect(frame).toContain('○');
+    expect(frame).toContain('[ ]');
     expect(frame).not.toContain('[high]');
     expect(frame).not.toContain('PENDING');
     expect(frame).not.toContain('└ Note:');
@@ -115,7 +122,7 @@ describe('PinnedTodoCard', () => {
   it('renders static half-circle symbol for in_progress items when isRunning is false', () => {
     const frame = renderCard(makeBoard([makeItem('T1', 'Work in progress', 'in_progress')]), false);
 
-    expect(frame).toContain('◐');
+    expect(frame).toContain('[◐]');
     expect(frame).toContain('Work in progress');
     expect(frame).not.toContain('ACTIVE');
   });
@@ -128,7 +135,7 @@ describe('PinnedTodoCard', () => {
     const items = Array.from({ length: 12 }, (_, i) => makeItem(`T${i + 1}`, `Item ${i + 1}`, 'done'));
     const frame = renderCard(makeBoard(items));
     expect(frame).toContain('100%');
-    expect(frame).toContain('[██████████]');
+    expect(frame).toContain('[████████]');
   });
 
   it('renders symbol-only stage column with no badge words or sub-rows', () => {
@@ -142,9 +149,9 @@ describe('PinnedTodoCard', () => {
       false,
     );
 
-    expect(frame).toContain('✔');
-    expect(frame).toContain('◐');
-    expect(frame).toContain('○');
+    expect(frame).toContain('[✓]');
+    expect(frame).toContain('[◐]');
+    expect(frame).toContain('[ ]');
     expect(frame).not.toContain('DONE');
     expect(frame).not.toContain('ACTIVE');
     expect(frame).not.toContain('PENDING');
@@ -155,7 +162,7 @@ describe('PinnedTodoCard', () => {
   it('falls back to pending ○ for unknown wire statuses instead of a blank cell', () => {
     const frame = renderCard(makeBoard([makeItem('T9', 'Mystery task', 'pending' as unknown as TodoStatus)]));
     expect(frame).toContain('Mystery task');
-    expect(frame).toMatch(/1\s+Mystery task\s+○/);
+    expect(frame).toMatch(/1\s+Mystery task\s+\[ \]/);
   });
 
   it('keeps the status symbol visible on narrow terminals when the title truncates', () => {
@@ -163,7 +170,7 @@ describe('PinnedTodoCard', () => {
     const frame = frameForNarrow(makeBoard([makeItem('T1', longTitle, 'done')]), 40);
     expect(frame).toContain('…');
     expect(frame).not.toContain(longTitle);
-    expect(frame).toContain('✔');
+    expect(frame).toContain('[✓]');
     expect(frame).toMatch(/1\s+Build the HRMS/);
   });
 

@@ -50,6 +50,7 @@ CORE_PLAN_TOOLS = [
     "grep",
     "websearch",
     "webfetch",
+    "todo",
 ]
 
 
@@ -71,7 +72,7 @@ PLAN_MODE_CONFIG = AgentModeConfig(
 # Always-offered schemas. Web research tools stay registered and are promoted on
 # demand (get_tool_definition or a direct call auto-escalates), so a pure code
 # task never pays for their (large) schemas on every turn.
-CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep"]
+CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep", "todo"]
 BUILD_MODE_CONFIG = AgentModeConfig(
     name=BUILD_MODE,
     allowed_tools=CORE_BUILD_TOOLS,

@@ -82,7 +82,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
   // too brief to ever see. Only the latest thinking block animates; already
   // reasoned blocks hold the static bright core ⨳ like history does.
   // The Deliberating/Deliberated text still follows the partial flag.
-  const isLive = context?.isRunning === true && context?.isHistorical !== true;
+  const isLive = context?.isRunning !== false && context?.isHistorical !== true;
   const isStreaming = event.partial === true && isLive;
   const isLatestThinking = (() => {
     // Without the turn list we cannot prove this is the latest block: pulse
@@ -101,36 +101,37 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
   const firstRealThought = event.thoughts
     .map((thought) => getThoughtText(thought).trim())
     .find((text) => text.length > 0 && !isStatusPlaceholder(text));
-  const firstLine = firstRealThought ? firstRealThought.split('\n')[0].trim() : '';
-  const preview = firstLine && firstLine.length >= 72 ? `${firstLine.slice(0, 71)}…` : firstLine;
+  const preview = firstRealThought ? firstRealThought.replace(/\s+/g, ' ').trim() : '';
+
+  const headerContent = (
+    <Box flexDirection="row" alignItems="center">
+      {pulses ? <ZenithPulseGlyph suffix=" " /> : <ZenithStaticGlyph suffix=" " />}
+      {isStreaming ? (
+        <>
+          <Text color={theme.colors.status.info} bold>
+            Thinking
+          </Text>
+          {durationStr ? (
+            <Text color={theme.colors.text.muted}> · {durationStr}</Text>
+          ) : (
+            <Text color={theme.colors.text.dim}> …</Text>
+          )}
+        </>
+      ) : (
+        <Text color={theme.colors.text.muted}>{durationStr ? `Thought for ${durationStr}` : 'Thought'}</Text>
+      )}
+    </Box>
+  );
 
   return (
     <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
       {isCollapsed ? (
         <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
-          {pulses ? <ZenithPulseGlyph suffix=" " /> : <ZenithStaticGlyph suffix=" " />}
-          {isStreaming ? (
-            <>
-              <Text color={theme.colors.status.info} bold>
-                Deliberating
-              </Text>
-              {durationStr ? (
-                <Text color={theme.colors.text.muted}> · {durationStr}</Text>
-              ) : (
-                <Text color={theme.colors.text.dim}> …</Text>
-              )}
-            </>
-          ) : durationStr ? (
-            <Text color={theme.colors.text.muted}>
-              {isCalm ? `Deliberated ${durationStr}` : `Thought for ${durationStr}`}
-            </Text>
-          ) : (
-            <Text color={theme.colors.text.muted}>{isCalm ? 'Deliberated' : 'Thought'}</Text>
-          )}
+          <Box flexShrink={0}>{headerContent}</Box>
           {preview ? (
             <>
               <Text color={theme.colors.text.dim}> · </Text>
-              <Box flexShrink={1}>
+              <Box flexShrink={1} flexGrow={1} overflow="hidden">
                 <Text color={theme.colors.text.dim} italic wrap="truncate-end">
                   {preview}
                 </Text>
@@ -140,12 +141,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
         </Box>
       ) : (
         <Box flexDirection="row" alignItems="center" marginBottom={1}>
-          {pulses ? <ZenithPulseGlyph suffix=" Thinking" /> : <ZenithStaticGlyph suffix=" Thinking" />}
-          {isStreaming && !durationStr ? (
-            <Text color={theme.colors.text.dim}> …</Text>
-          ) : durationStr ? (
-            <Text color={theme.colors.text.muted}> · {durationStr}</Text>
-          ) : null}
+          {headerContent}
         </Box>
       )}
 

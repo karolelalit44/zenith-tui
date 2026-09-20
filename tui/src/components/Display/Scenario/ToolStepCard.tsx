@@ -212,29 +212,29 @@ const ExploreCrewCard: React.FC<{
         {/* Failure context. Cancelled missions show only an explicit error; a failed
         mission whose error is empty falls back to its (actionable) output —
         e.g. a "[explore] timed_out" report that previously rendered as nothing. */}
-        {!isPending && !ok ? (
-          (() => {
-            const failureText =
-              event.error ||
-              (state === 'failed' && event.output
-                ? stripAnsi(event.output)
-                    .replace(/^\[explore\][^\n]*\n?/, '')
-                    .trim()
-                : '') ||
-              '';
-            if (!failureText) return null;
-            return (
-              <Box paddingLeft={2}>
-                <Text
-                  color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
-                  wrap="truncate-end"
-                >
-                  {formatErrorSummary(failureText)}
-                </Text>
-              </Box>
-            );
-          })()
-        ) : null}
+        {!isPending && !ok
+          ? (() => {
+              const failureText =
+                event.error ||
+                (state === 'failed' && event.output
+                  ? stripAnsi(event.output)
+                      .replace(/^\[explore\][^\n]*\n?/, '')
+                      .trim()
+                  : '') ||
+                '';
+              if (!failureText) return null;
+              return (
+                <Box paddingLeft={2}>
+                  <Text
+                    color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
+                    wrap="truncate-end"
+                  >
+                    {formatErrorSummary(failureText)}
+                  </Text>
+                </Box>
+              );
+            })()
+          : null}
       </Box>
     </Box>
   );
@@ -603,10 +603,24 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       .map((l) => {
         const m = l.match(/^-\s+(\S+)\s+\[(read-only|mutating)\]:\s+tools:\s+(.*)$/);
         if (!m) return null;
-        return { id: m[1], flag: m[2] as 'read-only' | 'mutating', tools: m[3].split(',').map((s) => s.trim()).filter(Boolean) };
+        return {
+          id: m[1],
+          flag: m[2] as 'read-only' | 'mutating',
+          tools: m[3]
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        };
       })
       .filter(Boolean) as { id: string; flag: 'read-only' | 'mutating'; tools: string[] }[];
-    const caps = parsed.length > 0 ? parsed : (event.metadata?.capabilities as string[] | undefined)?.map((id) => ({ id, flag: 'read-only' as const, tools: [] })) ?? [];
+    const caps =
+      parsed.length > 0
+        ? parsed
+        : ((event.metadata?.capabilities as string[] | undefined)?.map((id) => ({
+            id,
+            flag: 'read-only' as const,
+            tools: [],
+          })) ?? []);
     const totalCaps = caps.length;
     const totalTools = caps.reduce((a, c) => a + c.tools.length, 0);
     const isGrouped = parsed.length > 0;
@@ -636,13 +650,19 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
             <Box flexDirection="column" paddingLeft={1} marginTop={0}>
               {caps.slice(0, 12).map((cap) => (
                 <Box key={cap.id} flexDirection="row" alignItems="center" flexWrap="wrap">
-                  <Text color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning} bold>
+                  <Text
+                    color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning}
+                    bold
+                  >
                     {cap.flag === 'read-only' ? '● ' : '◐ '}
                   </Text>
                   <Text color={theme.colors.text.bright} bold>
                     {cap.id}
                   </Text>
-                  <Text color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning}> [{cap.flag}]</Text>
+                  <Text color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning}>
+                    {' '}
+                    [{cap.flag}]
+                  </Text>
                   {cap.tools.length > 0 && (
                     <Text color={theme.colors.text.dim} wrap="truncate-end">
                       {' '}
@@ -718,11 +738,14 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
               </Text>
             ) : (
               <Text wrap="truncate-end">
-                <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright}>📄 Read </Text>
-                <Text color={theme.colors.text.bright} wrap="truncate-end">
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright}>▤ Read </Text>
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright} wrap="truncate-end">
                   {hasTextHeader
                     ? toWorkspaceRelative((event.text ?? '').replace(/^Read\s+/i, ''), context?.workspaceName)
-                    : toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText, context?.workspaceName)}
+                    : toWorkspaceRelative(
+                        primary?.value ?? (event.metadata?.path as string) ?? headerText,
+                        context?.workspaceName,
+                      )}
                 </Text>
                 {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
               </Text>
@@ -734,9 +757,11 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
               </Text>
             ) : (
               <Text wrap="truncate-end">
-                <Text color={isSuccess ? theme.colors.status.warning : theme.colors.text.bright}>⌕ Grep </Text>
-                <Text color={theme.colors.text.bright} wrap="truncate-end">
-                  {hasTextHeader ? (event.text ?? '').replace(/^(Grep|Search)\s+/i, '') : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright}>⌕ Grep </Text>
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader
+                    ? (event.text ?? '').replace(/^(Grep|Search)\s+/i, '')
+                    : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
                 </Text>
                 {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
               </Text>
@@ -748,25 +773,32 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
               </Text>
             ) : (
               <Text wrap="truncate-end">
-                <Text color={isSuccess ? theme.colors.status.accent : theme.colors.text.bright}>⬢ Glob </Text>
-                <Text color={theme.colors.text.bright} wrap="truncate-end">
-                  {hasTextHeader ? (event.text ?? '').replace(/^Glob\s+/i, '') : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright}>⬢ Glob </Text>
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader
+                    ? (event.text ?? '').replace(/^Glob\s+/i, '')
+                    : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
                 </Text>
                 {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
               </Text>
             )
           ) : isFileMutation && isSuccess ? (
             hasTextHeader ? (
-              <Text color={theme.colors.text.bright} wrap="truncate-end">
+              <Text color={theme.colors.text.muted} wrap="truncate-end">
                 {headerText}
               </Text>
             ) : (
               <Text wrap="truncate-end">
                 <Text color={theme.colors.status.success}>
-                  {toolKey === 'file_write' || toolKey === 'write_file' || toolKey === 'create_file' ? '● Create ' : '● Update '}
+                  {toolKey === 'file_write' || toolKey === 'write_file' || toolKey === 'create_file'
+                    ? '● Create '
+                    : '● Update '}
                 </Text>
-                <Text color={theme.colors.text.bright} wrap="truncate-end">
-                  {toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText, context?.workspaceName)}
+                <Text color={theme.colors.text.muted} wrap="truncate-end">
+                  {toWorkspaceRelative(
+                    primary?.value ?? (event.metadata?.path as string) ?? headerText,
+                    context?.workspaceName,
+                  )}
                 </Text>
               </Text>
             )
@@ -776,7 +808,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                 state === 'cancelled'
                   ? theme.colors.status.warning
                   : isSuccess
-                    ? theme.colors.text.bright
+                    ? theme.colors.text.muted
                     : theme.colors.status.error
               }
               bold={!isSuccess}
@@ -811,7 +843,13 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         />
       ) : null}
       {/* Non-shell informational tools keep a small capped output excerpt */}
-      {!isFileMutation && !isPending && isSuccess && !isFileRead && !isGrepSearch && toolKey !== TODO_TOOL && outputText.trim().length > 0 ? (
+      {!isFileMutation &&
+      !isPending &&
+      isSuccess &&
+      !isFileRead &&
+      !isGrepSearch &&
+      toolKey !== TODO_TOOL &&
+      outputText.trim().length > 0 ? (
         <Box flexDirection="column" paddingLeft={2} marginTop={0}>
           <Text color={theme.colors.text.dim} wrap="truncate-end">
             {formatCommandOutput(outputText, GENERIC_OUTPUT_PREVIEW_LINES)}

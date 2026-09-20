@@ -223,7 +223,6 @@ class TestSchemaMinimality:
             "websearch",
             "webfetch",
             "file_delete",
-            "todo",
             "agent",
             "job_kill",
         ):

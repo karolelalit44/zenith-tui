@@ -97,7 +97,8 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
 
     const relPath = toWorkspaceRelative(rawPath, context?.workspaceName);
     const normalizedFinal = relPath.replace(/\\/g, '/');
-    const displayPath = normalizedFinal === '.' ? './' : normalizedFinal.endsWith('/') ? normalizedFinal : `${normalizedFinal}/`;
+    const displayPath =
+      normalizedFinal === '.' ? './' : normalizedFinal.endsWith('/') ? normalizedFinal : `${normalizedFinal}/`;
 
     const rawOutput = event.output || (typeof event.metadata?.output === 'string' ? event.metadata.output : '') || '';
 
@@ -167,7 +168,7 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
                 </Text>
               ) : (
                 <Text color={theme.colors.status.accent} bold>
-                  📁{' '}
+                  ◧{' '}
                 </Text>
               )}
 
@@ -249,14 +250,14 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
                         <Text color={theme.colors.border.muted}>{branchGlyph}</Text>
                         {entry.isDir ? (
                           <>
-                            <Text color={theme.colors.status.info}>📁 </Text>
+                            <Text color={theme.colors.status.info}>◧ </Text>
                             <Text color={theme.colors.status.info} bold wrap="truncate-end">
                               {entry.name}
                             </Text>
                           </>
                         ) : (
                           <>
-                            <Text color={theme.colors.text.muted}>📄 </Text>
+                            <Text color={theme.colors.text.muted}>▤ </Text>
                             <Text color={getFileColor(entry.extension)} wrap="truncate-end">
                               {entry.name}
                             </Text>

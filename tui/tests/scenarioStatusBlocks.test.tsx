@@ -79,7 +79,7 @@ describe('ThinkingBlock', () => {
     expect(lastFrame()).not.toContain('third');
   });
 
-  it('renders single-line telemetry chip in calm mode with ⨳ and Deliberated duration', () => {
+  it('renders single-line telemetry chip in calm mode with ⨳ and Thought duration', () => {
     const event: ThinkingEvent = {
       kind: 'thinking',
       id: 't-calm-1',
@@ -93,11 +93,11 @@ describe('ThinkingBlock', () => {
     );
     const frame = lastFrame() || '';
     expect(frame).toContain('⨳');
-    expect(frame).toContain('Deliberated 52 s');
+    expect(frame).toContain('Thought for 52 s');
     expect(frame).toContain('Investigating description length in tools.py');
   });
 
-  it('renders live streaming in calm mode with pulse reticle and Deliberating marker', () => {
+  it('renders live streaming in calm mode with pulse reticle and Thinking marker', () => {
     const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(0);
     const event: ThinkingEvent = {
       kind: 'thinking',
@@ -115,7 +115,7 @@ describe('ThinkingBlock', () => {
     // Tick 0 is the dim outer frame — proves the live block is wired to the pulse, not static ⨳.
     expect(frame).toContain('✣');
     expect(frame).not.toContain('⨳');
-    expect(frame).toContain('Deliberating');
+    expect(frame).toContain('Thinking');
     expect(frame).toContain('Scanning registry_validation imports');
     tickSpy.mockRestore();
   });
@@ -137,7 +137,7 @@ describe('ThinkingBlock', () => {
     const frame = lastFrame() || '';
     expect(frame).toContain('⨳');
     expect(frame).not.toContain('✣');
-    expect(frame).toContain('Deliberating');
+    expect(frame).toContain('Thinking');
     tickSpy.mockRestore();
   });
 
@@ -242,8 +242,8 @@ describe('ThinkingBlock', () => {
     );
     const frame = lastFrame() || '';
     expect(frame).toContain('✣');
-    expect(frame).toContain('Deliberated 52 s');
-    expect(frame).not.toContain('Deliberating');
+    expect(frame).toContain('Thought for 52 s');
+    expect(frame).not.toContain('Thinking …');
     tickSpy.mockRestore();
   });
 
@@ -287,8 +287,7 @@ describe('ThinkingBlock', () => {
     const frame = lastFrame() || '';
     expect(frame).toContain('⨳');
     expect(frame).not.toContain('✣');
-    expect(frame).toContain('Deliberated');
-    expect(frame).not.toContain('Deliberating');
+    expect(frame).toContain('Thought for 52 s');
     tickSpy.mockRestore();
   });
 
@@ -308,8 +307,7 @@ describe('ThinkingBlock', () => {
     );
     const frame = lastFrame() || '';
     expect(frame).toContain('⨳');
-    expect(frame).not.toContain('Deliberating');
-    expect(frame).toContain('Deliberated');
+    expect(frame).toContain('Thought for 18 s');
     tickSpy.mockRestore();
   });
 });
@@ -349,7 +347,7 @@ describe('ThinkingBlock live streaming', () => {
       </ThemeProvider>,
     );
     const frame = lastFrame() || '';
-    expect(frame).toContain('Thinking');
+    expect(frame).toContain('Thought for 4 s');
     expect(frame).toContain('4 s');
   });
 });

@@ -228,7 +228,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
                     borderColor={theme.colors.border.muted}
                   >
                     <Text color={isFolder ? theme.colors.status.info : theme.colors.text.muted}>
-                      {isFolder ? '📁 ' : '📄 '}
+                      {isFolder ? '◧ ' : '▤ '}
                     </Text>
                     <Text italic color={theme.colors.status.accent}>
                       {att.name || att.path}

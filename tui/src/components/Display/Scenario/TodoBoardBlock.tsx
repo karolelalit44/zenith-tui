@@ -4,7 +4,7 @@ import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoStatus } from '../../../types/scenario';
 import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
-import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, todoStatusColor, todoStatusSymbol } from './todoStatus';
+import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, TodoStatusGlyph } from './todoStatus';
 
 export const MAX_VISIBLE_TODOS = 10;
 
@@ -59,9 +59,7 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
                 </Text>
               </Box>
               <Box width={TODO_STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
-                <Text color={todoStatusColor(item.status, colors)} bold>
-                  {todoStatusSymbol(item.status)}
-                </Text>
+                <TodoStatusGlyph status={item.status} colors={colors} />
               </Box>
             </Box>
           ))
