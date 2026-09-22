@@ -640,6 +640,252 @@ async def test_dispatch_sanitization_does_not_mutate_original_messages(test_conf
     assert sanitized_item["content"] == "..."
 
 
+@pytest.mark.asyncio
+async def test_length_finish_reason_auto_continues_text(test_config):
+    """When finish_reason is LENGTH on text, SimpleLoop auto-continues and emits combined response."""
+    from server.domain.enums import FinishReason
+
+    class _LengthTruncatedProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("trunc_len", "trunc-model")
+            self.call_count = 0
+            self.captured_messages = []
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self.captured_messages.append([dict(m) for m in messages])
+            if self.call_count == 1:
+                self._last_finish_reason = FinishReason.LENGTH
+                return "Part 1 of the answer: Here is the first half of the explanation."
+            self._last_finish_reason = FinishReason.STOP
+            return " Part 2 of the answer: Here is the second half concluding the explanation."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["trunc-model"]
+
+    provider = _LengthTruncatedProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Explain everything in detail", "s_len", []):
+        events.append(ev)
+
+    assert provider.call_count == 2
+    # Verify user continuation instruction was sent in call 2
+    second_msgs = provider.captured_messages[1]
+    user_msgs = [m for m in second_msgs if m.get("role") == "user"]
+    assert any("reached the token limit and was cut off" in m.get("content", "") for m in user_msgs)
+
+    # Verify message event contains the combined text
+    message_events = [e for e in events if e.kind == EventKind.MESSAGE and not e.data.get("partial")]
+    assert len(message_events) >= 1
+    final_text = message_events[-1].data.get("text", "")
+    assert "Part 1 of the answer" in final_text
+    assert "Part 2 of the answer" in final_text
+
+
+@pytest.mark.asyncio
+async def test_length_finish_reason_auto_continues_truncated_tool(test_config):
+    """When finish_reason is LENGTH on a truncated tool call, SimpleLoop prompts the model to re-emit."""
+    from server.domain.enums import FinishReason
+
+    class _ToolTruncatedProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("trunc_tool", "trunc-model")
+            self.call_count = 0
+            self.captured_messages = []
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self.captured_messages.append([dict(m) for m in messages])
+            if self.call_count == 1:
+                self._last_finish_reason = FinishReason.LENGTH
+                return '```tool\n{"tool": "glob", "params": {"pattern":'
+            self._last_finish_reason = FinishReason.STOP
+            return "No tool needed, here is the answer."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["trunc-model"]
+
+    provider = _ToolTruncatedProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Find files", "s_tool_len", []):
+        events.append(ev)
+
+    assert provider.call_count == 2
+    second_msgs = provider.captured_messages[1]
+    user_msgs = [m for m in second_msgs if m.get("role") == "user"]
+    assert any("cut off before the tool call was complete" in m.get("content", "") for m in user_msgs)
+
+
+@pytest.mark.asyncio
+async def test_nudges_reset_on_successful_tool_execution(test_config, temp_dir):
+    """Successful tool execution resets nudges, preventing premature termination on multi-step tasks."""
+    (temp_dir / "step1.txt").write_text("done1", encoding="utf-8")
+    (temp_dir / "step2.txt").write_text("done2", encoding="utf-8")
+
+    class _MultiStepNudgeProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("multi_nudge", "nudge-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                # Setup 2 tasks
+                return '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "1", "title": "First", "status": "in_progress"}, {"id": "2", "title": "Second", "status": "pending"}]}}\n```'
+            if self.call_count == 2:
+                # Chat transition (nudge 1)
+                return "I will now read step 1."
+            if self.call_count == 3:
+                # Tool 1 succeeds -> should reset nudges!
+                return '```tool\n{"tool": "file_read", "params": {"path": "step1.txt"}}\n```'
+            if self.call_count == 4:
+                # Chat transition (would fail if nudges wasn't reset, because nudges would be 2!)
+                return "Finished step 1, now reading step 2."
+            if self.call_count == 5:
+                # Tool 2 succeeds and completes tasks
+                return '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "1", "title": "First", "status": "completed"}, {"id": "2", "title": "Second", "status": "completed"}]}}\n```'
+            return "Both steps completed successfully."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["nudge-model"]
+
+    provider = _MultiStepNudgeProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Execute multi-step task", "s_multi_nudge", []):
+        events.append(ev)
+
+    # Provider should reach all 6 calls because nudges was reset after each successful tool!
+    assert provider.call_count == 6, f"Expected 6 calls, got {provider.call_count}"
+
+
+@pytest.mark.asyncio
+async def test_length_finish_reason_capped_sets_completed_false(test_config):
+    """When a response continuously hits LENGTH and reaches continuation cap, completed MUST be False."""
+    from server.domain.enums import FinishReason
+
+    class _AlwaysLengthProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("always_length", "len-model")
+            self.call_count = 0
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self._last_finish_reason = FinishReason.LENGTH
+            return f"This is continuous long output part {self.call_count} that gets cut off."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            resp = await self.complete(messages, tools)
+            for c in resp:
+                yield (c, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["len-model"]
+
+    provider = _AlwaysLengthProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Write a huge essay", "s_len_cap", []):
+        events.append(ev)
+
+    # Initial call + 5 continuations = 6 total calls
+    assert provider.call_count == 6, f"Expected 6 calls, got {provider.call_count}"
+
+    success_events = [e for e in events if e.kind == EventKind.SUCCESS]
+    assert success_events, "Turn should conclude with terminal event"
+    term = success_events[-1]
+    assert term.data.get("completed") is False, "Truncated turn must NEVER have completed=True"
+    assert term.data.get("truncated") is True
+    assert term.data.get("finish_reason") == "length"
+    assert "token limit" in term.data.get("message", "")
+
+    manifest = term.data.get("manifest", {})
+    assert manifest.get("completed") is False
+    assert any("token limit" in r for r in manifest.get("remaining", []))
+
+
+@pytest.mark.asyncio
+async def test_native_tool_call_truncated_by_length_prompts_reemission(test_config):
+    """When native tool call is cut off by LENGTH, loop prompts model to re-emit rather than running truncated call."""
+    from server.domain.enums import FinishReason
+
+    class _NativeTruncatedToolProvider(BaseProvider):
+        def __init__(self):
+            super().__init__("native_trunc", "native-model")
+            self.call_count = 0
+            self.captured_messages = []
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self.captured_messages.append([dict(m) for m in messages])
+            if self.call_count == 1:
+                self._last_finish_reason = FinishReason.LENGTH
+                self._last_native_tool_calls = [{"id": "call_1", "function": {"name": "file_write", "arguments": '{"filepath": "test.txt", "content": "half'}}]
+                return ""
+            self._last_finish_reason = FinishReason.STOP
+            self._last_native_tool_calls = []
+            return "Retried without tool call, finished cleanly."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            resp = await self.complete(messages, tools)
+            for c in resp:
+                yield (c, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["native-model"]
+
+    provider = _NativeTruncatedToolProvider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt("Write a test file", "s_native_trunc", []):
+        events.append(ev)
+
+    assert provider.call_count == 2
+    # Verify the user continuation prompt told the model it was cut off before the tool call was complete
+    second_msgs = provider.captured_messages[1]
+    user_msgs = [m for m in second_msgs if m.get("role") == "user"]
+    assert any("cut off before the tool call was complete" in m.get("content", "") for m in user_msgs)
+
+
+
+
 
 
 

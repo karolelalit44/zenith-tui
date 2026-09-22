@@ -92,6 +92,10 @@ export interface SuccessEvent {
   iterations?: number;
   tokenInfo?: TokenInfo;
   elapsedMs?: number;
+  completed?: boolean;
+  finishReason?: string;
+  truncated?: boolean;
+  manifest?: TurnManifestEvent;
 }
 
 export interface MessageEvent {

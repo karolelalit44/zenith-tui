@@ -63,7 +63,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const statusSuffix = contentWidth >= 60 ? fullSuffix : '';
     const percentStr = `${percent}%${statusSuffix}`;
 
-    const leftWidth = 10 + countStr.length; // '╭─ ' (3) + 'Tasks ' (6) + countStr + ' ' (1)
+    const leftWidth = 9 + countStr.length; // '╭─ ' (3) + 'Todo ' (5) + countStr + ' ' (1)
     const rightWidth = 7 + PROGRESS_BAR_WIDTH + percentStr.length; // ' [' (2) + bar (PROGRESS_BAR_WIDTH) + '] ' (2) + percentStr + ' ─╮' (3)
     const ruleWidth = Math.max(0, contentWidth - leftWidth - rightWidth);
 
@@ -85,7 +85,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
           <Box flexShrink={0}>
             <Text color={borderColor}>╭─ </Text>
             <Text color={colors.text.bright} bold>
-              Tasks{' '}
+              Todo{' '}
             </Text>
             <Text color={bracketColor} bold>
               {countStr}
@@ -93,7 +93,9 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
             <Text color={borderColor}> </Text>
           </Box>
           <Box flexGrow={1} flexShrink={1} overflow="hidden">
-            <Text color={borderColor} wrap="truncate-end">{'─'.repeat(ruleWidth)}</Text>
+            <Text color={borderColor} wrap="truncate-end">
+              {'─'.repeat(ruleWidth)}
+            </Text>
           </Box>
           <Box flexShrink={0}>
             <Text color={borderColor}> </Text>
@@ -165,7 +167,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
 
           {hiddenCount > 0 && (
             <Box marginTop={0}>
-              <Text color={colors.text.dim}>+{hiddenCount} more tasks…</Text>
+              <Text color={colors.text.dim}>+{hiddenCount} more todos…</Text>
             </Box>
           )}
         </Box>

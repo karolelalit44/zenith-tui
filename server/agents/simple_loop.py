@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -68,6 +69,19 @@ def _is_degenerate_message(text: str | None) -> bool:
     if not text or not str(text).strip():
         return True
     return str(text).strip().lower() in _DEGENERATE_TOKENS
+
+
+def _merge_continuation(prefix: str, continuation: str) -> str:
+    """Merge a continuation string into a prefix, trimming any overlapping boundary repetition."""
+    if not prefix:
+        return continuation
+    if not continuation:
+        return prefix
+    max_k = min(len(prefix), len(continuation), 200)
+    for k in range(max_k, 15, -1):
+        if prefix.endswith(continuation[:k]):
+            return prefix + continuation[k:]
+    return prefix + continuation
 
 
 class SimpleLoop:
@@ -316,6 +330,10 @@ class SimpleLoop:
         progress_steps: list[dict] = []
         max_steps = int(getattr(self.config, "agent_max_steps", 0) or MAX_STEPS_DEFAULT)
         nudges = 0
+        length_continuations = 0
+        pending_continuation_text = ""
+        length_truncated = False
+        last_finish_reason: FinishReason = FinishReason.STOP
 
         def _param_detail(params: dict) -> str:
             if not isinstance(params, dict):
@@ -464,11 +482,91 @@ class SimpleLoop:
                 continue
 
             finish_reason = getattr(self.provider, "_last_finish_reason", FinishReason.STOP)
+            last_finish_reason = finish_reason
             response_text = stream_state.response_text
             native_tool_calls = getattr(self.provider, "_last_native_tool_calls", [])
             clean_response, tool_calls = UnifiedResponseFormatter.process_response(
                 response_text, native_tool_calls or None
             )
+
+            if finish_reason == FinishReason.LENGTH:
+                has_partial_tool = bool(
+                    (native_tool_calls and len(native_tool_calls) > 0)
+                    or (
+                        not tool_calls
+                        and response_text
+                        and any(
+                            marker in response_text
+                            for marker in ("```tool", '{"tool"', "<tool_call>")
+                        )
+                    )
+                )
+                # Complete text-parsed tool calls are not partial — execute them
+                # normally instead of discarding and re-prompting.
+                if tool_calls and not has_partial_tool:
+                    pass
+                elif length_continuations < 5:
+                    length_continuations += 1
+                    logger.info(
+                        "LLM output truncated (finish_reason=LENGTH) on iteration %d; continuing emission (continuation %d/5)",
+                        iteration,
+                        length_continuations,
+                    )
+                    if has_partial_tool:
+                        content_to_append = (
+                            response_text.strip()
+                            if (response_text and response_text.strip())
+                            else "[tool call truncated]"
+                        )
+                        messages.append({"role": "assistant", "content": content_to_append})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your response was cut off before the tool call was complete. "
+                                    "Please emit the tool call now."
+                                ),
+                            }
+                        )
+                    else:
+                        pending_continuation_text = _merge_continuation(
+                            pending_continuation_text, clean_response or response_text or ""
+                        )
+                        content_to_append = (
+                            response_text.strip()
+                            if (response_text and response_text.strip())
+                            else "[response truncated]"
+                        )
+                        messages.append({"role": "assistant", "content": content_to_append})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your response reached the token limit and was cut off. "
+                                    "Please continue directly from where you left off without repeating any prior text."
+                                ),
+                            }
+                        )
+                    await asyncio.sleep(0)
+                    continue
+                else:
+                    logger.warning(
+                        "Reached maximum length continuations (%d) on iteration %d",
+                        length_continuations,
+                        iteration,
+                    )
+                    length_truncated = True
+                    yield r.warning(
+                        "Response reached output token limit and continuation cap was reached.",
+                        session_id,
+                        code="LENGTH_LIMIT",
+                    )
+
+            if pending_continuation_text:
+                clean_response = _merge_continuation(pending_continuation_text, clean_response or "")
+                pending_continuation_text = ""
+                if finish_reason == FinishReason.STOP:
+                    length_continuations = 0
 
             current_turn_emitted = False
             if (
@@ -481,9 +579,6 @@ class SimpleLoop:
                 )
                 self._last_emitted_message = clean_response
                 current_turn_emitted = True
-
-            if finish_reason == FinishReason.LENGTH:
-                continue
             if not tool_calls:
                 # When the provider explicitly signals tool_calls as the stop
                 # reason but the parser extracted nothing (e.g. streaming race,
@@ -878,6 +973,7 @@ class SimpleLoop:
             if executed_any_call_this_turn or has_rejected_call_this_turn:
                 if turn_had_success:
                     consecutive_failures = 0
+                    nudges = 0
                 else:
                     consecutive_failures += 1
                     if consecutive_failures >= reflimit:
@@ -981,6 +1077,11 @@ class SimpleLoop:
                     stalled = True
                     break
 
+        if pending_continuation_text:
+            if not self._last_emitted_message or len(pending_continuation_text) > len(self._last_emitted_message):
+                self._last_emitted_message = pending_continuation_text
+            pending_continuation_text = ""
+
         salvaged = False
         if (stalled or doomed or iteration >= max_steps) and len(
             (self._last_emitted_message or "").strip()
@@ -1009,15 +1110,29 @@ class SimpleLoop:
             and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
         )
         is_stalled = bool(stalled or doomed)
-        completed = (
-            False
-            if (is_stalled or has_pending_todos)
-            else bool(salvaged or has_file_work or substantive_answer)
-        )
-        if salvaged:
+        is_length_truncated = bool(last_finish_reason == FinishReason.LENGTH or length_truncated)
+        is_step_limited = bool(iteration >= max_steps)
+
+        # Honest turn completion: A turn can NEVER be marked completed if:
+        # 1. Output was truncated by token limit (finish_reason=length)
+        # 2. Turn stalled or entered repetition limit (doomed)
+        # 3. Active tasks remain on the checklist
+        # 4. Maximum loop step limit was reached before settling
+        if is_length_truncated or is_stalled or has_pending_todos or (is_step_limited and not substantive_answer):
+            completed = False
+        else:
+            completed = bool(salvaged or has_file_work or substantive_answer)
+
+        if is_length_truncated:
+            message = "Response truncated by token limit (finish_reason=length)"
+        elif salvaged:
             message = "Request processed with best-effort summary"
         elif has_pending_todos:
             message = "Turn finished with active tasks remaining"
+        elif is_stalled:
+            message = "Turn stalled without progress"
+        elif is_step_limited and not completed:
+            message = "Turn reached maximum step limit"
         elif has_file_work:
             message = "Request processed successfully"
         else:
@@ -1058,20 +1173,27 @@ class SimpleLoop:
         written = set(created_files) | set(files_edited)
         verified = bool(written and any(f in read_files for f in written))
 
+        remaining_reasons = []
+        if _scan and "plan.md" in _scan.get("missing", []):
+            remaining_reasons.append("Plan artifacts not written: " + ", ".join(_scan["missing"]) + ".")
+        if is_length_truncated:
+            remaining_reasons.append("Response truncated by token limit.")
+        if has_pending_todos:
+            remaining_reasons.append("Active tasks remain on checklist.")
+
         manifest_data = {
             "completed": completed,
             "stalled": is_stalled,
-            "remaining": (
-                ["Plan artifacts not written: " + ", ".join(_scan["missing"]) + "."]
-                if _scan and "plan.md" in _scan.get("missing", [])
-                else []
-            ),
+            "remaining": remaining_reasons,
             "answered": substantive_answer or salvaged,
             "created": sorted(created_files),
             "modified": files_edited,
             "verified": verified,
             "any_tool_succeeded": any_tool_succeeded,
             "summary": self._last_emitted_message or "",
+            "finish_reason": (
+                last_finish_reason.value if hasattr(last_finish_reason, "value") else str(last_finish_reason)
+            ),
         }
         if _scan:
             manifest_data["plan_artifacts"] = _scan
@@ -1104,6 +1226,11 @@ class SimpleLoop:
             elapsed_ms=elapsed_ms,
         )
         success_event.data["manifest"] = manifest_data
+        success_event.data["completed"] = completed
+        success_event.data["finish_reason"] = (
+            last_finish_reason.value if hasattr(last_finish_reason, "value") else str(last_finish_reason)
+        )
+        success_event.data["truncated"] = is_length_truncated
         yield success_event
 
     def _doom_threshold(self) -> int:

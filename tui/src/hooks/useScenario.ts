@@ -137,6 +137,14 @@ export function useScenario(): UseScenarioReturn {
         return;
       }
 
+      if (event.kind === 'success') {
+        const successEvt = event as import('../types/scenario').SuccessEvent;
+        if (successEvt.manifest) {
+          const originalPrompt = eventsRef.current.find((e) => e.kind === 'message')?.text ?? '';
+          setLastManifest({ manifest: successEvt.manifest, originalPrompt });
+        }
+      }
+
       if (event.kind === 'tool_call') {
         flushBatch();
         const toolStep: ToolStepEvent = {

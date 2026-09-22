@@ -17,7 +17,7 @@ interface SuccessCardProps {
 /** Waveform bar characters for animated equalizer. */
 const WAVE_FRAMES = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂'] as const;
 
-export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, context, turnEvents }) => {
+export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, context, manifest, turnEvents }) => {
   const { theme } = useTheme();
   const tick = useAnimationTick();
 
@@ -98,6 +98,16 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
           : 0;
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 
+  const effectiveManifest = manifest ?? event.manifest;
+  const isTruncated =
+    event.truncated === true ||
+    event.finishReason === 'length' ||
+    Boolean(effectiveManifest?.remaining && effectiveManifest.remaining.some((r) => r.toLowerCase().includes('token limit')));
+  const isComplete =
+    !isTruncated &&
+    event.completed !== false &&
+    (!effectiveManifest || effectiveManifest.completed !== false);
+
   const metricsParts: string[] = [];
   const rawIters =
     event.iterations !== undefined && event.iterations > 0
@@ -114,8 +124,17 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   if (tokenStr) {
     metricsParts.push(tokenStr);
   }
+  if (!isComplete) {
+    if (isTruncated) {
+      metricsParts.push('truncated · token limit');
+    } else if (effectiveManifest?.remaining && effectiveManifest.remaining.length > 0) {
+      metricsParts.push(`${effectiveManifest.remaining.length} remaining`);
+    } else {
+      metricsParts.push('tasks remaining');
+    }
+  }
 
-  const metricsText = metricsParts.length > 0 ? metricsParts.join(' · ') : 'done';
+  const metricsText = metricsParts.length > 0 ? metricsParts.join(' · ') : isComplete ? 'done' : isTruncated ? 'truncated' : 'incomplete';
 
   return (
     <Box
@@ -143,6 +162,12 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
                 </Box>
               );
             })}
+          </Box>
+        ) : !isComplete ? (
+          <Box marginRight={1}>
+            <Text color={theme.colors.status.warning} bold>
+              ▲
+            </Text>
           </Box>
         ) : (
           <Box marginRight={1}>

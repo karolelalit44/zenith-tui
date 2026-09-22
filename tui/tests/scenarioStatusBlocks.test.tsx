@@ -574,4 +574,75 @@ describe('thinking positional fidelity', () => {
     expect(frame).toContain('5 s');
     expect(frame).toContain('2.8k tokens');
   });
+
+  it('renders warning glyph and tasks remaining when success carries completed=false', () => {
+    const events: ScenarioEvent[] = [
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'Working on task list...',
+        partial: false,
+      },
+      {
+        kind: 'success',
+        id: 'succ1',
+        message: 'Turn finished',
+        iterations: 2,
+        elapsedMs: 3000,
+        completed: false,
+        manifest: {
+          kind: 'turn_manifest',
+          id: 'tm1',
+          completed: false,
+          created: [],
+          modified: [],
+          remaining: ['Step 2', 'Step 3'],
+          stalled: false,
+          files: [],
+        },
+      },
+    ];
+
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={events} isRunning={false} isHistorical={true} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('▲');
+    expect(frame).toContain('2 remaining');
+    expect(frame).not.toContain('●');
+  });
+
+  it('renders warning glyph and truncated token limit indicator when response hits token limit', () => {
+    const events: ScenarioEvent[] = [
+      {
+        kind: 'message',
+        id: 'm1',
+        text: 'Long response cut off mid-way...',
+        partial: false,
+      },
+      {
+        kind: 'success',
+        id: 'succ1',
+        message: 'Response truncated by token limit',
+        iterations: 3,
+        elapsedMs: 4000,
+        completed: false,
+        truncated: true,
+        finishReason: 'length',
+        tokenInfo: { used: 8192, remaining: 0, total: 8192, percent: 1.0 },
+      },
+    ];
+
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={events} isRunning={false} isHistorical={true} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('▲');
+    expect(frame).toContain('truncated · token limit');
+    expect(frame).not.toContain('●');
+  });
 });

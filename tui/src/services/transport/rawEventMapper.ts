@@ -23,6 +23,7 @@ import type {
   TodoStatus,
   TokenInfo,
   TokenUsageRecordedEvent,
+  TurnManifestEvent,
 } from '../../types/scenario';
 
 /**
@@ -64,6 +65,25 @@ function mapTokenInfo(value: unknown): TokenInfo | undefined {
     ...(runTotal !== undefined ? { runTotal } : {}),
     ...(runPrompt !== undefined ? { runPrompt } : {}),
     ...(runCompletion !== undefined ? { runCompletion } : {}),
+  };
+}
+
+export function mapTurnManifest(id: string, d: Record<string, unknown>): TurnManifestEvent {
+  return {
+    kind: 'turn_manifest',
+    id,
+    created: Array.isArray(d.created) ? d.created.map(String) : [],
+    modified: Array.isArray(d.modified) ? d.modified.map(String) : [],
+    remaining: Array.isArray(d.remaining) ? d.remaining.map(String) : [],
+    completed: d.completed === true,
+    stalled: d.stalled === true,
+    files: Array.isArray(d.files)
+      ? d.files.map((f: Record<string, unknown>) => ({
+          path: String(f.path || ''),
+          exists: f.exists === true,
+          size: typeof f.size === 'number' ? f.size : 0,
+        }))
+      : [],
   };
 }
 
@@ -348,6 +368,13 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         elapsedMs:
           typeof d.elapsedMs === 'number' ? d.elapsedMs : typeof d.duration === 'number' ? d.duration : undefined,
         tokenInfo: mapTokenInfo(d.tokenInfo),
+        completed: typeof d.completed === 'boolean' ? d.completed : undefined,
+        finishReason: typeof d.finish_reason === 'string' ? d.finish_reason : undefined,
+        truncated: typeof d.truncated === 'boolean' ? d.truncated : undefined,
+        manifest:
+          d.manifest && typeof d.manifest === 'object'
+            ? mapTurnManifest(id, d.manifest as Record<string, unknown>)
+            : undefined,
       };
 
     case 'progress':
@@ -504,22 +531,7 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
       };
 
     case 'turn_manifest':
-      return {
-        kind: 'turn_manifest',
-        id,
-        created: Array.isArray(d.created) ? d.created.map(String) : [],
-        modified: Array.isArray(d.modified) ? d.modified.map(String) : [],
-        remaining: Array.isArray(d.remaining) ? d.remaining.map(String) : [],
-        completed: d.completed === true,
-        stalled: d.stalled === true,
-        files: Array.isArray(d.files)
-          ? d.files.map((f: Record<string, unknown>) => ({
-              path: String(f.path || ''),
-              exists: f.exists === true,
-              size: typeof f.size === 'number' ? f.size : 0,
-            }))
-          : [],
-      };
+      return mapTurnManifest(id, d);
 
     case 'todo_board':
       return {

@@ -58,7 +58,7 @@ describe('PinnedTodoCard', () => {
       ]),
     );
 
-    expect(frame).toContain('Tasks');
+    expect(frame).toContain('Todo');
     expect(frame).toContain('(1/3)');
     expect(frame).toContain('33%');
     expect(frame).toContain('First task');
@@ -79,7 +79,7 @@ describe('PinnedTodoCard', () => {
   it('renders top border on a single line without wrapping', () => {
     const frame = renderCard(makeBoard([makeItem('T1', 'Task one', 'done')]));
     const firstLine = frame.split('\n')[0] || '';
-    expect(firstLine).toContain('╭─ Tasks');
+    expect(firstLine).toContain('╭─ Todo');
     expect(firstLine).toContain('─╮');
   });
 
@@ -91,7 +91,7 @@ describe('PinnedTodoCard', () => {
     expect(frame).toContain('Item 1');
     expect(frame).toContain('Item 5');
     expect(frame).not.toContain('Item 6');
-    expect(frame).toContain('+3 more tasks…');
+    expect(frame).toContain('+3 more todos…');
     // Rows use positional serials, never backend ids.
     expect(frame).not.toContain('T1');
     expect(frame).not.toContain('T5');

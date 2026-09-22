@@ -610,11 +610,29 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
       const hadRecoverableError = eventsRef.current.some((e) => e.kind === 'error' && e.recoverable);
+      const successEvt = eventsRef.current.find((e) => e.kind === 'success') as SuccessEvent | undefined;
+      const manifestEvt =
+        lastManifest?.manifest ||
+        (eventsRef.current.find((e) => e.kind === 'turn_manifest') as TurnManifestEvent | undefined) ||
+        successEvt?.manifest;
+      const isTruncated =
+        successEvt?.truncated === true ||
+        successEvt?.finishReason === 'length' ||
+        Boolean(manifestEvt?.remaining?.some((r) => r.toLowerCase().includes('token limit')));
+      const hasPendingViaManifest = (manifestEvt?.remaining?.length ?? 0) > 0;
+      const isStalled = manifestEvt?.stalled === true;
+      const isNonTruncatedIncomplete =
+        !isTruncated &&
+        !isStalled &&
+        hasPendingViaManifest &&
+        ((successEvt && successEvt.completed === false) || (manifestEvt && manifestEvt.completed === false));
+      const isIncomplete = isTruncated || isNonTruncatedIncomplete;
+
       if (hadRecoverableError) {
-        if (lastManifest) {
+        if (manifestEvt) {
           setContinueTarget({
             prompt: activeTurn.prompt,
-            manifest: lastManifest.manifest,
+            manifest: manifestEvt,
           });
         } else {
           setRetryTarget({
@@ -623,6 +641,24 @@ export const App: React.FC = () => {
             model: activeTurn.model,
           });
         }
+      } else if (isIncomplete) {
+        const effectiveManifest: TurnManifestEvent = manifestEvt || {
+          kind: 'turn_manifest',
+          id: `manifest_${Date.now()}`,
+          created: [],
+          modified: [],
+          remaining: isTruncated ? ['Response truncated by token limit.'] : [],
+          completed: false,
+          stalled: false,
+          files: [],
+        };
+        const continuePrompt = isTruncated
+          ? 'Your response was cut off by the token limit. Please continue directly from where you left off without repeating any prior text.'
+          : activeTurn.prompt;
+        setContinueTarget({
+          prompt: continuePrompt,
+          manifest: effectiveManifest,
+        });
       }
       const finalTurnEvents = eventsRef.current.length >= events.length ? eventsRef.current : events;
       completeActiveTurn(finalTurnEvents);
@@ -824,7 +860,11 @@ export const App: React.FC = () => {
           <Box flexDirection="column" width="100%">
             {continueTarget && (
               <OptionBanner
-                title="Continue where you left off"
+                title={
+                  continueTarget.manifest.remaining?.some((r) => r.toLowerCase().includes('token limit'))
+                    ? 'Output truncated by token limit'
+                    : 'Continue where you left off'
+                }
                 message={`Resume: ${truncateEnd(sanitizeSingleLine(continueTarget.prompt), 90)}`}
                 options={[
                   { label: 'Continue', value: 'continue' },

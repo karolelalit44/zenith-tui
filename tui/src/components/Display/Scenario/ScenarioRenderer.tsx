@@ -249,7 +249,10 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       let lastManifest: TurnManifestEvent | null = null;
       for (const e of visibleEvents) {
         if (e.kind === 'turn_manifest') lastManifest = e;
-        else if (e.kind === 'success' && lastManifest) map.set(e.id, lastManifest);
+        else if (e.kind === 'success') {
+          const m = (e as import('../../../types/scenario').SuccessEvent).manifest || lastManifest;
+          if (m) map.set(e.id, m);
+        }
       }
       return map;
     }, [visibleEvents]);
