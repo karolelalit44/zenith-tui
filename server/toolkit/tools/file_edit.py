@@ -57,6 +57,11 @@ class FileEditTool(BaseTool):
                     "description": "If true, replaces all occurrences of old_content instead of requiring a unique match",
                     "default": False,
                 },
+                "fuzzyMatch": {
+                    "type": "boolean",
+                    "description": "Opt-in to whitespace-normalized matching (ignores leading indentation) when exact and trailing-whitespace matches fail. Default false — fail closed.",
+                    "default": False,
+                },
             },
             "required": ["path", "old_content", "new_content"],
         }
@@ -73,6 +78,9 @@ class FileEditTool(BaseTool):
         if not old:
             return ToolResult(success=False, error="old_content cannot be empty")
         replace_all = bool(params.get("replaceAll") or params.get("replace_all") or False)
+        fuzzy = bool(
+            params.get("fuzzyMatch") or params.get("fuzzy_match") or params.get("fuzzy") or False
+        )
 
         try:
             async with FILE_MUTATION_QUEUE.mutation(workspace_root):
@@ -136,6 +144,12 @@ class FileEditTool(BaseTool):
                             error=f"Ambiguous: found {len(matches)} line-trimmed matches. Provide more surrounding context or set replaceAll: true.",
                         )
                     else:
+                        if not fuzzy:
+                            preview = old[:80] + ("..." if len(old) > 80 else "")
+                            return ToolResult(
+                                success=False,
+                                error=f"Content not found in file (exact match only): {preview}. Read the file first and copy old_content exactly, add more surrounding context, or set fuzzyMatch: true to allow whitespace-normalized matching.",
+                            )
                         stripped_old = [l.strip() for l in old_lines]
                         norm_matches: list[int] = []
                         if old_len <= len(lines):

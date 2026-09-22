@@ -26,24 +26,19 @@ class ReadOnlyModeGuard(ToolMiddleware):
     def __init__(self, registry: ToolRegistry) -> None:
         self._registry = registry
         self.blocked_calls = 0
-        self._allowed_cache: frozenset[str] | None = None
-        self._cache_ttl = 60
-        self._cache_time = 0.0
 
     @property
     def allowed(self) -> frozenset[str]:
-        if self._allowed_cache is None:
-            self._allowed_cache = frozenset(
-                name for name in self._registry.list_tools()
-                if getattr(self._registry.get(name), "read_only", False)
-            ) | {
-                DISCOVER_CAPABILITIES_TOOL,
-                GET_TOOL_DEFINITION_TOOL,
-            }
-        return self._allowed_cache
+        return frozenset(
+            name for name in self._registry.list_tools()
+            if getattr(self._registry.get(name), "read_only", False)
+        ) | {
+            DISCOVER_CAPABILITIES_TOOL,
+            GET_TOOL_DEFINITION_TOOL,
+        }
 
     def clear_cache(self) -> None:
-        self._allowed_cache = None
+        pass
 
     async def before_execute(
         self, name: str, params: dict[str, Any], ctx: ToolContext

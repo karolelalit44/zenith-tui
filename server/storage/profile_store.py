@@ -41,7 +41,7 @@ _ALLOWED_PREFERENCE_TYPES: dict[str, type] = {
     "theme": str,
     "thinkingCollapsed": bool,
     "calmMode": bool,
-    "autoApproveTools": bool,
+    "permissionPolicy": dict,
     "defaultMode": str,
 }
 
@@ -62,6 +62,17 @@ def validate_preferences(updates: dict) -> dict:
                 raise ValueError("preference theme must be non-empty")
         elif expected is bool and not isinstance(value, bool):
             raise ValueError(f"preference {key!r} must be a boolean")
+        elif expected is dict:
+            if not isinstance(value, dict):
+                raise ValueError(f"preference {key!r} must be an object")
+            from server.config.constants import PERMISSION_SCOPES
+
+            allowed_levels = {"ask", "allow", "deny"}
+            for scope, level in value.items():
+                if scope not in PERMISSION_SCOPES or level not in allowed_levels:
+                    raise ValueError(
+                        f"preference permissionPolicy has invalid entry {scope!r}={level!r}"
+                    )
         elif expected is list:
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise ValueError(f"preference {key!r} must be a list of strings")

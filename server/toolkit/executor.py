@@ -19,6 +19,10 @@ from server.config.constants import (
     MAX_TOOL_METADATA_PREVIEW_CHARS,
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
+    PERMISSION_COMMAND,
+    PERMISSION_NETWORK,
+    PERMISSION_READ,
+    PERMISSION_WRITE,
     TERMINAL_TOOL,
     TOOL_MAX_OUTPUT_CHARS,
 )
@@ -30,6 +34,7 @@ from server.toolkit.base import (
     decode_parameters,
     truncate_output,
 )
+from server.toolkit.command_safety import assess_command
 from server.toolkit.registry import ToolRegistry
 from server.workspace.git import GitOps
 
@@ -195,8 +200,8 @@ def build_tool_metadata(
     else:
         meta = {}
 
-    # Tool-reported metadata (e.g. resolved path, edit count, difflib patch)
-    # is merged on top of the params-derived view so nothing is lost.
+    # Params-derived view (lengths only, no bodies) wins over tool-reported
+    # metadata so full file bodies never persist in events.
     # Full file bodies must never persist in events: strip any raw content
     # fields that a tool may have reported, keeping lengths only.
     if result.metadata:
@@ -300,6 +305,71 @@ def check_self_delete(tool_name: str, tool_params: dict, created_files: set[str]
     return None
 
 
+def _permission_scope_for_tool(
+    tool_name: str, tool_params: dict, tool_registry: ToolRegistry
+) -> tuple[str | None, str | None]:
+    """Resolve the permission scope an execution should be gated on.
+
+    Returns ``(scope, label)`` where ``scope`` of None means "no gate" — the
+    request must be left to the other safeguards (destructive/high-risk shell
+    commands are blocked by the SafetyCheckMiddleware). Bash/terminal calls are
+    assessed from the actual command text; every other tool uses the
+    ``permission_scope`` declared on its tool definition.
+    """
+    if tool_name in (BASH_TOOL, TERMINAL_TOOL):
+        command = str(tool_params.get("command", "") or "")
+        assessment = assess_command(command)
+        label = f"bash: {command.strip()[:80]}" if command.strip() else tool_name
+        if assessment.risk_level == "high" or assessment.tier == "destructive":
+            return None, label
+        if assessment.requires_approval:
+            if assessment.tier == "network":
+                return PERMISSION_NETWORK, label
+            return PERMISSION_WRITE, label
+        if assessment.tier == "read_only":
+            return PERMISSION_READ, None
+        return PERMISSION_COMMAND, label
+    tool = tool_registry.get(tool_name)
+    if tool is None:
+        return None, None
+    return tool.permission_scope, None
+
+
+async def _check_permission_gate(
+    tool_name: str,
+    tool_params: dict,
+    session_id: str | None,
+    registry: ToolRegistry,
+) -> bool:
+    """Return True when execution may proceed.
+
+    With no registered permission service (e.g. backend tests driving the loop
+    directly) the gate is an unconditional pass. When a service is registered,
+    the resolved scope is approved by policy where possible; anything in the
+    ``ask`` tier suspends until the TUI answers — a denial blocks execution.
+    """
+    if session_id is None:
+        return True
+    from server.agents.permission_service import get_permission_service
+
+    service = get_permission_service(session_id)
+    if service is None:
+        return True
+    scope, label = _permission_scope_for_tool(tool_name, tool_params, registry)
+    if scope is None:
+        return True
+    granted = await service.request(
+        scope,
+        tool=tool_name,
+        reason=None,
+        label=label or tool_name,
+        params=redact_tool_params(tool_params),
+    )
+    if not granted:
+        logger.info("Tool execution denied by user: tool=%s scope=%s", tool_name, scope)
+    return granted
+
+
 async def execute_tool(
     tool_registry: ToolRegistry,
     tool_name: str,
@@ -323,6 +393,17 @@ async def execute_tool(
         tool_params = decode_parameters(definition.parameters, tool_params)
     except InvalidToolArgumentsError as exc:
         return ToolResult(success=False, error=str(exc)), 0
+
+    if not await _check_permission_gate(tool_name, tool_params, session_id, tool_registry):
+        scope, _ = _permission_scope_for_tool(tool_name, tool_params, tool_registry)
+        return (
+            ToolResult(
+                success=False,
+                error=f"Execution denied by user: {tool_name} requires approval.",
+                metadata={"permission_scope": scope, "denied": True},
+            ),
+            0,
+        )
 
     result = await tool_registry.execute(
         tool_name, tool_params, workspace_root, mode, session_id=session_id

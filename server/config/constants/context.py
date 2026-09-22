@@ -50,7 +50,7 @@ ANSI_RE = re.compile(
 # bounds are one advisory step nudge and one safety guard against a repetitive
 # tool loop.
 DOOM_LOOP_THRESHOLD = (
-    3  # consecutive identical (name + input) tool calls → ask permission before continuing
+    3  # consecutive identical (name + input) tool calls → warn and stop the turn for human review
 )
 MAX_STEPS_DEFAULT = (
     25  # safety net iteration cap for a single turn; triggers salvage if budget exhausted

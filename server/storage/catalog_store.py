@@ -191,6 +191,8 @@ def _model_runtime_shape(entry: dict) -> dict:
             "isDefault",
             "maxOutputTokens",
         ):
+            if str(_k).lower() in {"apikey", "apikeyvalue", "api_key", "secret", "token"}:
+                continue
             shape.setdefault("extra_" + str(_k), _v)
     return shape
 

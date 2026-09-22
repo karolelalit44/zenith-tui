@@ -34,7 +34,19 @@ class JobOutputTool(BaseTool):
     def get_schema(self) -> dict:
         return {
             "type": "object",
-            "properties": {"job_id": {"type": "string", "description": "Background job ID"}},
+            "properties": {
+                "job_id": {"type": "string", "description": "Background job ID"},
+                "offset": {
+                    "type": "integer",
+                    "description": "Char offset to page from (default 0 = latest tail when truncated)",
+                    "default": 0,
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Max chars to return per poll (default 15000, max 50000)",
+                    "default": 15000,
+                },
+            },
             "required": ["job_id"],
         }
 
@@ -47,23 +59,48 @@ class JobOutputTool(BaseTool):
         if job is None:
             return ToolResult(success=False, error=f"Job {job_id} not found")
         full = manager.get_output(job_id) or ""
-        output = full
-        _max = 15000
-        if len(full) > _max:
-            output = (
-                full[:_max]
-                + f"\n\n... [output truncated at {_max} chars of {len(full)} total. Poll job_output again with job_id='{job_id}' for the latest tail.]"
+        try:
+            offset = max(0, int(params.get("offset") or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        try:
+            _max = int(params.get("max_chars") or 15000)
+        except (TypeError, ValueError):
+            _max = 15000
+        _max = max(1000, min(_max, 50000))
+        total = len(full)
+        truncated = total > _max
+        if not truncated:
+            output = full[offset:] if offset else full
+            next_offset = total
+        elif offset > 0:
+            output = full[offset : offset + _max]
+            next_offset = min(total, offset + len(output))
+            output += (
+                f"\n\n... [showing chars {offset}-{next_offset} of {total}. "
+                f"Poll again with offset={next_offset} job_id='{job_id}'.]"
             )
+        else:
+            output = full[-_max:]
+            next_offset = total
+            output += (
+                f"\n\n... [output truncated: showing latest {_max} chars of {total} total. "
+                f"Poll with offset=0 for tail, or offset<N max_chars<M to page.]"
+            )
+        base_meta = {
+            "job_id": job_id,
+            "completed": bool(job.done),
+            "total_chars": total,
+            "truncated": truncated,
+            "offset": offset,
+            "next_offset": next_offset,
+        }
         if not job.done:
-            return ToolResult(
-                success=True,
-                output=output,
-                metadata={"job_id": job_id, "completed": False},
-            )
+            return ToolResult(success=True, output=output, metadata=base_meta)
         ok = job.exit_code == 0
         return ToolResult(
             success=ok,
             output=output,
             error="" if ok else output,
-            metadata={"job_id": job_id, "completed": True, "exit_code": job.exit_code},
+            metadata={**base_meta, "exit_code": job.exit_code},
         )
