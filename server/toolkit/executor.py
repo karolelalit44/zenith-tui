@@ -7,6 +7,7 @@ import time as _time
 from pathlib import Path
 
 from server.config.constants import (
+    APPLY_PATCH_TOOL,
     AUTO_LINT_FIX_ENABLED,
     BASH_TOOL,
     BASH_WORKDIR_PARAM,
@@ -123,7 +124,7 @@ def format_tool_result(
     return "\n".join(lines)
 
 
-MUTATION_DIFF_TOOLS = (FILE_WRITE_TOOL, FILE_EDIT_TOOL, FILE_DELETE_TOOL)
+MUTATION_DIFF_TOOLS = (FILE_WRITE_TOOL, FILE_EDIT_TOOL, FILE_DELETE_TOOL, APPLY_PATCH_TOOL)
 MAX_DIFF_CAPTURE_CHARS = 50_000
 
 
@@ -139,10 +140,10 @@ def capture_mutation_diff(workspace_root: str, tool_params: dict, result: ToolRe
         return ""
     target = str(tool_params.get("filepath") or tool_params.get("path") or "")
     if not target:
-        return ""
+        return str((result.metadata or {}).get("diff") or "")
     resolved = _resolve_workdir(workspace_root, target)
     if resolved is None or not resolved.is_file():
-        return ""
+        return str((result.metadata or {}).get("diff") or "")
     diff = ""
     try:
         git = GitOps(workspace_root)
@@ -176,9 +177,10 @@ def build_tool_metadata(
     elif tool_name == FILE_WRITE_TOOL:
         meta: dict = {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
-            "content": tool_params.get("content", ""),
             "match": "exact",
         }
+        if tool_params.get("show_content") or tool_params.get("render_code"):
+            meta["content"] = tool_params.get("content", "")
     elif tool_name == FILE_EDIT_TOOL:
         meta = {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",

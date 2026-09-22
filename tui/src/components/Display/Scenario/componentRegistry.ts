@@ -71,6 +71,9 @@ class ComponentRegistry {
   }
 
   public register(kind: string, component: EventComponentType): void {
+    if (this.registry.has(kind)) {
+      console.warn(`[componentRegistry] Overwriting existing component for event kind "${kind}"`);
+    }
     this.registry.set(kind, component);
   }
 

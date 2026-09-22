@@ -52,6 +52,8 @@ class PlanWriteGuard(ToolMiddleware):
                     targets.append(line_s[len("*** Update File:") :].strip())
                 elif line_s.startswith("*** Delete File:"):
                     targets.append(line_s[len("*** Delete File:") :].strip())
+                elif line_s.startswith("*** Move to:"):
+                    targets.append(line_s[len("*** Move to:") :].strip())
             for t in targets:
                 if not is_plan_write_allowed(ctx.workspace_root, t):
                     return ToolResult(

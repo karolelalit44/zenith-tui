@@ -49,6 +49,8 @@ export const FILE_MUTATION_TOOL_SET: ReadonlySet<string> = new Set([
   FILE_EDIT_TOOL,
   EDIT_FILE_ALIAS,
   'multi_edit',
+  'apply_patch',
+  'patch',
 ]);
 
 export const FILE_DELETE_TOOL_SET: ReadonlySet<string> = new Set([FILE_DELETE_TOOL, DELETE_FILE_ALIAS]);
@@ -76,6 +78,8 @@ export const TOOL_VERB_LABELS: Record<string, string> = {
   [FILE_EDIT_TOOL]: 'Update',
   edit_file: 'Update',
   multi_edit: 'Update',
+  apply_patch: 'Patch',
+  patch: 'Patch',
   [FILE_DELETE_TOOL]: 'Delete',
   delete_file: 'Delete',
   [FILE_READ_TOOL]: 'Read',

@@ -253,6 +253,73 @@ class TestReadOnlyModeGating:
             assert not result.success
             assert "not available" in result.error
 
+    @pytest.mark.asyncio
+    async def test_read_only_guard_blocks_text_fenced_mutation_calls(self, temp_dir):
+        """G1: file_write/file_edit/apply_patch are requires_mode=None, so a
+        text-fenced tool call smuggled past tool_choice='none' used to execute
+        in read_only. The ReadOnlyModeGuard is the structural backstop."""
+        reg = create_default_registry()
+        target = temp_dir / "hacked.txt"
+        for call in (
+            ("file_write", {"path": "hacked.txt", "content": "nope"}),
+            ("file_edit", {"path": "hacked.txt", "content": "x"}),
+            ("apply_patch", {"filepath": "x"}),
+        ):
+            result = await reg.execute(call[0], call[1], str(temp_dir), mode="read_only")
+            assert not result.success, call[0]
+            assert "read-only" in result.error.lower(), result.error
+            assert "blocked" in result.error.lower(), result.error
+        assert not target.exists()
+
+    @pytest.mark.asyncio
+    async def test_read_only_mode_excludes_mode_gated_mutators_before_guard(self):
+        """file_delete/bash/todo/job_kill are mode-gated: they fail in
+        _is_available_in_mode before middleware ever runs."""
+        reg = create_default_registry()
+        for name in ("file_delete", "bash", "todo", "job_kill"):
+            result = await reg.execute(name, {}, ".", mode="read_only")
+            assert not result.success
+            assert "not available" in result.error, name
+
+    @pytest.mark.asyncio
+    async def test_read_only_guard_allows_pure_read_tools(self, temp_dir):
+        reg = create_default_registry()
+        probe = temp_dir / "probe.txt"
+        probe.write_text("hello", encoding="utf-8")
+        for name, params in (
+            ("file_read", {"path": "probe.txt"}),
+            ("glob", {"pattern": "*.txt"}),
+            ("list_dir", {}),
+            ("discover_capabilities", {}),
+            ("get_tool_definition", {"tool_name": "file_read"}),
+        ):
+            result = await reg.execute(name, params, str(temp_dir), mode="read_only")
+            assert result.success, f"{name}: {result.error}"
+
+    @pytest.mark.asyncio
+    async def test_read_only_guard_passes_in_non_read_only_modes(self, temp_dir):
+        reg = create_default_registry()
+        result = await reg.execute(
+            "file_delete",
+            {"path": "does_not_matter.txt"},
+            str(temp_dir),
+            mode="build",
+        )
+        # Guard must not interfere outside read_only; failure here would be
+        # from the missing file, not the guard.
+        assert "read-only" not in result.error.lower()
+
+    def test_read_only_guard_allowlist_derived_from_metadata(self):
+        from server.toolkit.middleware.read_only import ReadOnlyModeGuard
+
+        reg = create_default_registry()
+        guard = ReadOnlyModeGuard(reg)
+        assert "file_write" not in guard.allowed
+        assert "file_edit" not in guard.allowed
+        assert "apply_patch" not in guard.allowed
+        assert "file_read" in guard.allowed
+        assert "glob" in guard.allowed
+
     def test_read_only_openai_tools_match_seed(self):
         from server.agents.validation import schemas_to_openai_tools
         from server.config.settings import READ_ONLY_MODE_CONFIG
@@ -435,6 +502,28 @@ class TestBashTool:
         # On Windows, 'type foo.txt' is a file read
         monkeypatch.setattr("server.toolkit.tools.bash._is_windows", lambda: True)
         assert _assess_direct_file_read("type foo.txt") is not None
+
+    def test_stream_truncation_not_treated_as_file_view(self):
+        """'curl ... | head -200' truncates a stream — it is not a file read."""
+        from server.toolkit.tools.bash import _assess_dedicated_tool_bypass
+
+        assert (
+            _assess_dedicated_tool_bypass(
+                'curl -s "https://api.duckduckgo.com/?q=peer" | head -200'
+            )
+            is None
+        )
+        assert _assess_dedicated_tool_bypass("Get-Content app.log -Tail 5") is None
+
+    def test_file_view_with_path_still_refused(self):
+        from server.toolkit.tools.bash import _assess_dedicated_tool_bypass
+
+        refusal = _assess_dedicated_tool_bypass("head -n 20 main.py")
+        assert refusal is not None
+        assert "file_read" in refusal
+        assert "main.py" in refusal
+        assert _assess_dedicated_tool_bypass("tail -f app.log") is not None
+        assert "--200" not in (_assess_dedicated_tool_bypass("head -200") or "")
 
 
 def _python_cmd() -> str:

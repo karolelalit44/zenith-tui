@@ -54,10 +54,10 @@ export const RoundedBox: React.FC<RoundedBoxProps> = ({
 
         {hasShadow && (
           <Box flexDirection="column" width={1} paddingTop={1}>
-            <Text color={theme.colors.shadow.ascii}>█</Text>
-            <Text color={theme.colors.shadow.ascii}>█</Text>
-            <Text color={theme.colors.shadow.ascii}>█</Text>
-            <Text color={theme.colors.shadow.ascii}>▀</Text>
+            <Text color={theme.colors.shadow.ascii}>#</Text>
+            <Text color={theme.colors.shadow.ascii}>#</Text>
+            <Text color={theme.colors.shadow.ascii}>#</Text>
+            <Text color={theme.colors.shadow.ascii}>.</Text>
           </Box>
         )}
       </Box>

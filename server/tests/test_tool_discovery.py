@@ -43,16 +43,17 @@ class TestDiscoveryTools:
         props = get_definition.get_schema()["properties"]
         assert "tool_name" in props
 
-    def test_build_seed_is_lean_and_web_tools_still_escalate(self):
-        """T1: heavy web schemas are not in the always-sent seed but stay reachable."""
-        assert "websearch" not in CORE_BUILD_TOOLS
-        assert "webfetch" not in CORE_BUILD_TOOLS
+    def test_build_seed_ships_web_tools_and_deferred_tools_still_escalate(self):
+        """T1: web schemas are core build tools now (web research is first-class),
+        while heavier deferred tools stay reachable via on-demand promotion."""
+        assert "websearch" in CORE_BUILD_TOOLS
+        assert "webfetch" in CORE_BUILD_TOOLS
         registry = create_default_registry()
         resolver = SchemaResolver(registry, seed=build_mode_tool_seed(CORE_BUILD_TOOLS))
-        assert "websearch" not in resolver.active_names()
-        # On-demand promotion still works for the trimmed tools.
-        assert resolver.request_tool("websearch") is True
         assert "websearch" in resolver.active_names()
+        # On-demand promotion still works for non-seed tools.
+        assert resolver.request_tool("file_delete") is True
+        assert "file_delete" in resolver.active_names()
 
     @pytest.mark.asyncio
     async def test_discover_lists_capabilities(self):
@@ -163,14 +164,62 @@ class TestSchemaResolver:
         """
         registry = create_default_registry()
         resolver = SchemaResolver(registry, seed=build_mode_tool_seed(CORE_BUILD_TOOLS))
-        # Derive the core set from the config so the trim (web tools no longer
-        # seeded, T1) is tracked automatically instead of a hard-coded list.
+        # Derive the core set from the config so seed changes are tracked
+        # automatically instead of a hard-coded list.
         core = set(CORE_BUILD_TOOLS)
         for name in ("file_delete", "todo", "job_kill", "websearch"):
             assert resolver.request_tool(name) is True
         active = set(resolver.active_names())
         assert len(active) <= MAX_ACTIVE_TOOLS_PER_TURN
         assert core.issubset(active), f"core seed tools evicted: {sorted(core - active)}"
+
+    def test_batch_escalation_never_strands_a_member(self):
+        """G3: a multi-call turn escalating several on-demand tools must not
+        lose the first of them to FIFO eviction while the others are added."""
+        registry = create_default_registry()
+        resolver = SchemaResolver(
+            registry,
+            seed=[DISCOVER_CAPABILITIES_TOOL, GET_TOOL_DEFINITION_TOOL, "file_read"],
+            max_tools=3,
+        )
+        # Two escalated tools plus a full seed: batch must keep both rather
+        # than dropping the first as the second is admitted. The cap is a soft
+        # growth bound, so a protected batch member may push total above it.
+        survivors = resolver.request_tools(["grep", "list_dir"])
+        assert {"grep", "list_dir"} <= set(survivors)
+        active = set(resolver.active_names())
+        assert {"grep", "list_dir"} <= active
+
+    def test_batch_escalation_evicts_prior_turn_before_batch_member(self):
+        """When the combined batch pushes past the cap, a tool escalated in a
+        PREVIOUS turn must be evicted before any tool of the current batch."""
+        registry = create_default_registry()
+        resolver = SchemaResolver(
+            registry,
+            seed=[DISCOVER_CAPABILITIES_TOOL, GET_TOOL_DEFINITION_TOOL, "file_read"],
+            max_tools=4,
+        )
+        # Previous turn escalated 'grep'.
+        assert resolver.request_tool("grep") is True
+        assert len(resolver.active_names()) == 4
+        # This turn calls list_dir + glob at once -> 6 total, cap 4.
+        survivors = set(resolver.request_tools(["list_dir", "glob"]))
+        active = set(resolver.active_names())
+        assert {"list_dir", "glob"} <= survivors
+        assert {"list_dir", "glob"} <= active
+        assert len(active) <= 5  # only the single non-batch escalated tool dropped
+        assert "grep" not in active  # prior-turn escalation was the eviction victim
+
+    def test_batch_escalation_ignores_unknown_names(self):
+        registry = create_default_registry()
+        resolver = SchemaResolver(
+            registry,
+            seed=[DISCOVER_CAPABILITIES_TOOL, GET_TOOL_DEFINITION_TOOL, "file_read"],
+            max_tools=4,
+        )
+        survivors = resolver.request_tools(["no_such_tool", "file_read"])
+        assert "no_such_tool" not in survivors
+        assert "file_read" in survivors
 
     def test_schema_tokens_positive(self):
         registry = create_default_registry()
@@ -220,8 +269,6 @@ class TestSchemaMinimality:
         tools = self._build_openai_tools(CORE_BUILD_TOOLS, BUILD_MODE)
         names = {t["function"]["name"] for t in tools}
         for name in (
-            "websearch",
-            "webfetch",
             "file_delete",
             "agent",
             "job_kill",
@@ -235,12 +282,13 @@ class TestSchemaMinimality:
 
         before = schemas_to_openai_tools(resolver.schemas(BUILD_MODE))
         before_names = {t["function"]["name"] for t in before}
-        assert "websearch" not in before_names
+        assert "websearch" in before_names
+        assert "file_delete" not in before_names
 
-        resolver.request_tool("websearch")
+        resolver.request_tool("file_delete")
         after = schemas_to_openai_tools(resolver.schemas(BUILD_MODE))
         after_names = {t["function"]["name"] for t in after}
-        assert "websearch" in after_names
+        assert "file_delete" in after_names
 
     def test_escalation_never_exceeds_max_active_cap(self):
         registry = create_default_registry()

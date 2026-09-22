@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from difflib import unified_diff
+import os
 import re
 from typing import Any
 
@@ -370,7 +371,7 @@ class ApplyPatchTool(BaseTool):
                     unified_diff(
                         [],
                         content.splitlines(keepends=True),
-                        fromfile="/dev/null",
+                        fromfile=os.devnull,
                         tofile=f"b/{hunk.path}",
                     )
                 )
@@ -401,7 +402,7 @@ class ApplyPatchTool(BaseTool):
                         old_content.splitlines(keepends=True),
                         [],
                         fromfile=f"a/{hunk.path}",
-                        tofile="/dev/null",
+                        tofile=os.devnull,
                     )
                 )
                 combined_diffs.append(diff)

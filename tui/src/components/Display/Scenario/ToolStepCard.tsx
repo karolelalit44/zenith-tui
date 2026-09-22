@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import React, { useRef } from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
+import { stripAnsi } from '../../../utils/ansi';
 import {
   EXPLORE_TOOL,
   FILE_DELETE_TOOL_SET,
@@ -271,11 +272,6 @@ function resolveExecutionState(event: ToolStepEvent, isPending: boolean): Execut
   return 'failed';
 }
 
-/** Strip ANSI escape sequences from command output strings to prevent Ink rendering glitches. */
-function stripAnsi(text: string): string {
-  return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-}
-
 function isToolStatusBoilerplate(line: string): boolean {
   const trimmed = line.trim();
   return trimmed.startsWith('[Tool:') && trimmed.includes('| Status:') && trimmed.endsWith(']');
@@ -398,24 +394,42 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
   const cmdString = primary?.value ?? (event.params.command as string) ?? '';
 
+  const isCreateFile =
+    toolKey === 'file_write' ||
+    toolKey === 'write_file' ||
+    toolKey === 'create_file';
+
+  const explicitlyRequested = Boolean(
+    event.params?.show_content ||
+    event.params?.render_code ||
+    event.params?.show_diff ||
+    event.metadata?.show_content ||
+    event.metadata?.render_code
+  );
+
   // Resolve the diff/content to render underneath the header. Prefer a
-  // server-captured unified diff (params.diff or metadata.diff), then raw file
-  // content for brand-new files, and finally build a hunk-only diff on the
-  // client for legacy file_edit events that carry no server-side diff.
+  // server-captured unified diff (params.diff or metadata.diff), then client-computed
+  // hunk diff for edits. For file creations (file_write), never render file code/content
+  // or whole-file diffs unless explicitly requested.
   const diffOrContent = (() => {
-    const fromParams =
-      (event.params.diff as string) ||
-      (event.params.content as string) ||
-      (event.params.code as string) ||
-      (event.params.patch as string) ||
+    if (isCreateFile && !explicitlyRequested) {
+      return '';
+    }
+
+    const explicitDiff =
+      (typeof event.metadata?.diff === 'string' && event.metadata.diff ? event.metadata.diff : '') ||
+      (event.params?.diff as string) ||
+      (event.params?.patch as string) ||
       '';
-    if (fromParams) return fromParams;
-    if (typeof event.metadata?.diff === 'string' && event.metadata.diff) return event.metadata.diff;
+    if (explicitDiff) return explicitDiff;
+
     const lower = event.tool.toLowerCase();
-    if (
-      ('file_edit' === lower || 'multi_edit' === lower || 'edit_file' === lower || 'replace_file_content' === lower) &&
-      event.params
-    ) {
+    const isEditTool =
+      lower === 'file_edit' ||
+      lower === 'multi_edit' ||
+      lower === 'edit_file' ||
+      lower === 'replace_file_content';
+    if (isEditTool && event.params) {
       const oldContent =
         (event.params.old_content as string) ??
         (event.params.target_content as string) ??
@@ -428,6 +442,11 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         '';
       if (oldContent || newContent) return buildUnifiedDiff(oldContent, newContent);
     }
+
+    if (explicitlyRequested) {
+      return (event.params?.content as string) || (event.params?.code as string) || '';
+    }
+
     return '';
   })();
 
@@ -798,7 +817,9 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                 <Text color={theme.colors.status.success}>
                   {toolKey === 'file_write' || toolKey === 'write_file' || toolKey === 'create_file'
                     ? '● Create '
-                    : '● Update '}
+                    : toolKey === 'apply_patch' || toolKey === 'patch'
+                      ? '● Patch '
+                      : '● Update '}
                 </Text>
                 <Text color={theme.colors.text.muted} wrap="truncate-end">
                   {toWorkspaceRelative(
@@ -852,7 +873,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       {!isFileMutation &&
       !isPending &&
       isSuccess &&
-      !isFileRead &&
+      (!isFileRead || explicitlyRequested) &&
       !isGrepSearch &&
       toolKey !== TODO_TOOL &&
       outputText.trim().length > 0 ? (

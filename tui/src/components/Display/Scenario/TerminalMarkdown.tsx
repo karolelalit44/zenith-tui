@@ -395,7 +395,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
       }
     }
     if (sliceInCode) {
-      sliced.push('```');
+      sliced.push(`${'`'.repeat(3)} ⋯ (continued below)`);
     }
     rawLines = sliced;
   }

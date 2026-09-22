@@ -87,7 +87,9 @@ describe('ComposerFooter', () => {
 
     const frame = app.lastFrame();
     // The footer count is cumulative run/API usage and context percent...
-    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).toContain('12.4K · 39.0%');
+    expect(frame).not.toContain('tok');
+    expect(frame).not.toContain('ctx');
     expect(frame).not.toContain('78.8K');
     expect(frame).not.toContain('RUN');
     expect(frame).not.toContain('CTX');
@@ -114,7 +116,7 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).toContain('12.4K · 39.0%');
     expect(frame).not.toContain('~');
     expect(frame).not.toContain('░');
     restore();
@@ -255,7 +257,7 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).toContain('12.4K · 39.0%');
     expect(frame).not.toContain('+168');
     expect(frame).not.toContain('(23 s)');
     restore();

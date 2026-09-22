@@ -132,6 +132,11 @@ _FILE_VIEW_BYPASS = re.compile(
     r"^\s*(?:head|tail|less|more|bat|Get-Content|gc)\b",
     re.IGNORECASE,
 )
+# Numeric-only flag tail e.g. `head -200` / `-n 10` truncates a piped or inline
+# stream — that is not viewing a file. Only a non-flag, non-numeric operand
+# (a real path) merits a file_read redirect.
+_FILE_VIEW_OPERAND = re.compile(r"[^\s|;<>]+")
+_FILE_VIEW_NUMERIC = re.compile(r"^\d+(?:\.\d+)?$")
 # code search bypass via shell grep
 _GREP_BYPASS = re.compile(
     r"^\s*(?:grep|egrep|fgrep|rg|ag|ack|Select-String|findstr)\b",
@@ -171,10 +176,17 @@ def _assess_dedicated_tool_bypass(command: str) -> str | None:
                 "Example: list_dir(path='server') or glob(pattern='**/*.py', path='server')."
             )
         if _FILE_VIEW_BYPASS.match(seg):
-            tok = seg.split()[-1].strip("'\"") if len(seg.split()) > 1 else "path/to/file"
+            # Only a bare `head file.txt` / `tail -n 5 log` (path operand)
+            # bypasses the dedicated file_read tool. `head -N` truncates a
+            # stream and is legitimate (e.g. `curl ... | head -200`), so it
+            # must NOT be redirected to file_read.
+            operands = [t for t in _FILE_VIEW_OPERAND.findall(seg)[1:] if not t.startswith("-")]
+            path = operands[-1] if operands else None
+            if path is None or _FILE_VIEW_NUMERIC.match(path):
+                continue
             return (
                 f"Refused: Do not use shell file viewers for reading. "
-                f"Use dedicated 'file_read' tool. Example: file_read(path='{tok}')."
+                f"Use dedicated 'file_read' tool. Example: file_read(path='{path}')."
             )
         if _GREP_BYPASS.match(seg):
             return (

@@ -17,6 +17,7 @@ from server.agents.simple_loop import SimpleLoop
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
+from server.domain.message import Message, ToolCall
 from server.providers.base import BaseProvider
 from server.toolkit import create_default_registry
 
@@ -95,10 +96,9 @@ async def test_tool_then_stop_executes_and_ends(test_config):
     assert tool_results, "a tool_result event must be emitted"
     assert provider.call_count == 2, "two stream calls: tool turn + final stop"
 
-    target = test_config.workspace_root + "/hello.txt"
-    import os
+    target = Path(test_config.workspace_root) / "hello.txt"
 
-    assert os.path.exists(target), "file_write should have created the file"
+    assert target.exists(), "file_write should have created the file"
 
 
 @pytest.mark.asyncio
@@ -360,7 +360,7 @@ async def test_prompt_without_mentions_leaves_seed_unchanged(test_config):
     assert captured_tools, "stream should have been called"
     turn1_tools = captured_tools[0]
     assert "explore" not in turn1_tools, "explore should stay unoffered when not mentioned"
-    assert "websearch" not in turn1_tools, "websearch should stay unoffered when not mentioned"
+    assert "websearch" in turn1_tools, "websearch is a core build seed tool"
     assert "file_read" in turn1_tools, "core seed tools must remain offered"
 
 
@@ -882,6 +882,147 @@ async def test_native_tool_call_truncated_by_length_prompts_reemission(test_conf
     second_msgs = provider.captured_messages[1]
     user_msgs = [m for m in second_msgs if m.get("role") == "user"]
     assert any("cut off before the tool call was complete" in m.get("content", "") for m in user_msgs)
+
+
+@pytest.mark.asyncio
+async def test_mode_restricted_native_call_omitted_and_first(test_config):
+    """G2: a registered-but-mode-restricted tool call (bash in read_only) must
+    be omitted with a MODE_RESTRICTED warning and a feedback message that
+    names the available tools — never passed through to execution."""
+    from server.config.constants import READ_ONLY_MODE
+    from server.domain.enums import FinishReason
+
+    class _G2Provider(BaseProvider):
+        def __init__(self):
+            super().__init__("g2", "g2-model")
+            self.call_count = 0
+            self.captured_messages = []
+
+        async def complete(self, messages, tools=None):
+            self.call_count += 1
+            self.captured_messages.append([dict(m) for m in messages])
+            if self.call_count == 1:
+                self._last_finish_reason = FinishReason.TOOL_CALLS
+                self._last_native_tool_calls = [
+                    {"function": {"name": "bash", "arguments": '{"command": "ls"}'}}
+                ]
+                return "Let me inspect the environment."
+            self._last_finish_reason = FinishReason.STOP
+            self._last_native_tool_calls = []
+            return "Final answer for read-only mode."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["g2-model"]
+
+    provider = _G2Provider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for ev in agent.process_prompt(
+        "Inspect the environment", "s_g2_mode", [], mode=READ_ONLY_MODE
+    ):
+        events.append(ev)
+
+    # The bash call must never execute.
+    bash_execs = [e for e in events if e.kind == EventKind.TOOL_CALL and e.data.get("tool") == "bash"]
+    assert not bash_execs, "mode-restricted bash must not execute"
+
+    # A MODE_RESTRICTED warning surfaces the omission.
+    warnings = [
+        e for e in events if e.kind == EventKind.WARNING and e.data.get("code") == "MODE_RESTRICTED"
+    ]
+    assert len(warnings) >= 1
+    assert "bash" in warnings[0].data.get("message", "")
+
+    # The second provider call receives the rejection + available-tools notice
+    # in the correct order: assistant content first, then the [Tool rejected]
+    # user message, so the model knows bash is unusable and what it can use.
+    second_msgs = provider.captured_messages[1]
+    assert len(second_msgs) >= 2
+    roles = [m.get("role") for m in second_msgs]
+    assert roles.count("assistant") >= 1
+    rejected = [m for m in second_msgs if m.get("role") == "user" and "[Tool rejected]" in m.get("content", "")]
+    assert rejected, "model must be told the restricted call was omitted"
+    assert "Available tools" in rejected[0]["content"]
+    # The assistant content precedes the rejection notice.
+    assert roles.index("assistant") < second_msgs.index(rejected[0])
+
+    # Turn completes.
+    assert provider.call_count == 2
+    manifests = [e for e in events if e.kind == EventKind.TURN_MANIFEST]
+    assert manifests and manifests[-1].data.get("completed")
+
+
+@pytest.mark.asyncio
+async def test_history_native_tool_call_escalates_registered_tool_before_provider(test_config):
+    """G5: when dispatch history already contains a tool_calls reference to a
+    registered-but-unseeded tool (persisted {name} shape), the resolver must
+    escalate it BEFORE the provider call so a strict provider isn't handed a
+    history that calls a function absent from the offered list."""
+    from server.domain.enums import FinishReason
+    from server.domain.message import Message
+
+    class _G5Provider(BaseProvider):
+        def __init__(self):
+            super().__init__("g5", "g5-model")
+            self.call_count = 0
+            self.first_tools = None
+
+        async def complete(self, messages, tools=None):
+            if self.call_count == 0:
+                self.first_tools = list(tools or [])
+            self.call_count += 1
+            self._last_finish_reason = FinishReason.STOP
+            self._last_native_tool_calls = []
+            return "Inspected via job_output already; all clear."
+
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            response = await self.complete(messages, tools)
+            for char in response:
+                yield (char, None)
+
+        async def validate(self) -> bool:
+            return True
+
+        async def list_models(self) -> list[str]:
+            return ["g5-model"]
+
+    provider = _G5Provider()
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    history = [
+        Message(
+            session_id="s_g5",
+            role="assistant",
+            content="Running job output tool.",
+            tool_calls=[ToolCall(name="job_output", arguments={"job_id": "1"})],
+        ),
+        Message(
+            session_id="s_g5",
+            role="user",
+            content="[Tool: job_output] id=1 exit=0 output=...",
+        ),
+    ]
+    events = []
+    async for ev in agent.process_prompt(
+        "Summarize the earlier inspection", "s_g5", history
+    ):
+        events.append(ev)
+
+    # job_output is registered but not in the READ_ONLY_BUILD seed: without the
+    # G5 pre-scan the provider would see a history call it can't satisfy.
+    first_names = {t["function"]["name"] for t in provider.first_tools}
+    assert "job_output" in first_names, (
+        "registered history tool must be offered to the provider before the call"
+    )
 
 
 

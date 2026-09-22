@@ -158,7 +158,12 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       resetStaleTimer();
 
-      const { kind, data, id: rpcId, sequence } = rpcEvent.params as {
+      const {
+        kind,
+        data,
+        id: rpcId,
+        sequence,
+      } = rpcEvent.params as {
         kind: string;
         data: Record<string, unknown> | undefined;
         id?: string;
@@ -232,6 +237,47 @@ export class BackendScenarioProvider implements ScenarioProvider {
           partialMessageIndex,
         );
         partialMessageIndex = null;
+        partialMessageId = null;
+        accumulatedText = '';
+      }
+
+      // A structural boundary event (tool call/result, manifest, success,
+      // error) means the model's message stream for the current iteration is
+      // finished. When the server moves on without a closing non-partial
+      // MESSAGE event (a degenerate/whitespace partial, or a reasoning-only
+      // trailer before a tool call), the late final answer would otherwise
+      // reuse the SAME partialMessageIndex/id and upsert into the stale early
+      // slot — the final summary would render BEFORE the tool steps. Flush any
+      // accumulated real text as an intermediate block; drop empty/degenerate
+      // leftovers.
+      //
+      // Thinking and progress events are excluded: thinking arrives mid-turn
+      // and can arrive while a message is still logically in progress —
+      // flushing there would split one logical message into two rendered
+      // blocks. Progress is a status snapshot that doesn't mark a message
+      // boundary.
+      if (
+        partialMessageIndex !== null &&
+        (kind === 'tool_call' ||
+          kind === 'tool_result' ||
+          kind === 'turn_manifest' ||
+          kind === 'success' ||
+          kind === 'error')
+      ) {
+        const pendingText = accumulatedText;
+        if (pendingText && pendingText.trim().length > 0) {
+          onEvent(
+            {
+              kind: 'message',
+              id: partialMessageId ?? uid(),
+              text: pendingText,
+              partial: false,
+            },
+            partialMessageIndex,
+          );
+        }
+        partialMessageIndex = null;
+        lastPartialMessageIndex = null;
         partialMessageId = null;
         accumulatedText = '';
       }

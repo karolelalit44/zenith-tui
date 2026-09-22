@@ -51,7 +51,11 @@ TOOL_DOMAIN_DISCOVERY = "discovery"
 CAPABILITY_TOOL_DISCOVERY = "tool_discovery"
 DISCOVER_CAPABILITIES_TOOL = "discover_capabilities"
 GET_TOOL_DEFINITION_TOOL = "get_tool_definition"
-MAX_ACTIVE_TOOLS_PER_TURN = 12
+# Active-set ceiling per turn. Must stay strictly above the largest seed
+# (build seed = 12 incl. the always-on discovery pair) so on-demand escalation
+# always has free slots; a cap that exactly equals the seed would evict every
+# escalated tool back out of the active set the moment it's added.
+MAX_ACTIVE_TOOLS_PER_TURN = 16
 
 FILE_WRITE_TOOL = "file_write"
 FILE_EDIT_TOOL = "file_edit"

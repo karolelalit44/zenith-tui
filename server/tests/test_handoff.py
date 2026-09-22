@@ -118,9 +118,12 @@ class _Stub:
 
 @pytest.fixture
 def config():
+    import tempfile
+
     from server.config.settings import AppSettings
 
-    return AppSettings(home_dir="/tmp/handoff_test.db", workspace_root="/tmp")
+    tmp = tempfile.gettempdir()
+    return AppSettings(home_dir=f"{tmp}/handoff_test.db", workspace_root=tmp)
 
 
 class TestPersistAssistantMessage:

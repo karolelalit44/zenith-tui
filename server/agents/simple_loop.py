@@ -443,6 +443,30 @@ class SimpleLoop:
                 else:
                     sanitized_dispatch.append(_msg)
             dispatch_messages = sanitized_dispatch
+            # G5: pre-scan the dispatch history for native tool_calls that
+            # reference a registered-but-not-yet-active tool and escalate those
+            # BEFORE the provider call. Strict providers validate the request
+            # against the offered function list, so a history that calls an
+            # unseeded tool (e.g. file_delete from a prior session) would be
+            # rejected before our post-parse escalation could ever run.
+            if self.tool_registry and resolver:
+                mode_available = set(self.tool_registry.list_tools_for_mode(mode))
+                history_hits: list[str] = []
+                for _msg in dispatch_messages:
+                    for _tc in _msg.get("tool_calls") or []:
+                        # Live native calls use OpenAI's {function:{name}}
+                        # shape; persisted history uses the domain ToolCall
+                        # {name} shape. Accept both.
+                        if isinstance(_tc, dict):
+                            _fname = (_tc.get("function") or {}).get("name") or _tc.get("name")
+                        else:
+                            _fname = getattr(_tc, "function", {}).get("name")
+                        if _fname and _fname in mode_available:
+                            history_hits.append(_fname)
+                if history_hits:
+                    promoted = resolver.request_tools(history_hits)
+                    if promoted:
+                        openai_tools = resolver.openai_tools(mode)
             async for event in stream_completion(
                 self.provider,
                 dispatch_messages,
@@ -677,14 +701,57 @@ class SimpleLoop:
                 break  # emergent stop — purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
 
             if self.tool_registry:
+                mode_available = set(self.tool_registry.list_tools_for_mode(mode))
+                escalate: list[str] = []
+                blocked: list[str] = []
+                kept_calls: list[dict] = []
                 for tc in tool_calls:
                     t_name = tc.get("tool")
-                    if t_name and self.tool_registry.get(t_name):
-                        resolver.request_tool(t_name)
+                    if not t_name:
+                        continue
+                    if t_name not in mode_available:
+                        if self.tool_registry.get(t_name) is not None:
+                            # Registered, but not usable in the current mode.
+                            # Surface it instead of silently promoting a schema
+                            # that can never execute.
+                            blocked.append(t_name)
+                            continue
+                    kept_calls.append(tc)
+                    escalate.append(t_name)
                     if t_name == "get_tool_definition":
                         requested = (tc.get("params") or {}).get("tool_name")
-                        if requested and self.tool_registry.get(requested):
-                            resolver.request_tool(requested)
+                        # Only auto-promote tools the current mode actually
+                        # permits; a mode-restricted schema would be filtered out
+                        # of the delivered schemas anyway (G2).
+                        if requested and requested in mode_available:
+                            escalate.append(requested)
+                tool_calls = kept_calls
+                if blocked:
+                    yield r.warning(
+                        f"Tools not available in '{mode}' mode: {', '.join(sorted(set(blocked)))} "
+                        "(registered but mode-restricted; call omitted).",
+                        session_id,
+                        code="MODE_RESTRICTED",
+                    )
+                if not tool_calls:
+                    # Every call this turn was mode-blocked (or empty): record
+                    # the assistant content, feed the rejection notice back so
+                    # the model knows why nothing ran, then continue.
+                    messages.append({"role": "assistant", "content": response_text or ""})
+                    if blocked:
+                        messages.append({"role": "user", "content": (
+                            f"[Tool rejected] {', '.join(sorted(set(blocked)))} is not available in "
+                            f"'{mode}' mode. Available tools for {mode}: "
+                            f"{', '.join(sorted(mode_available))}."
+                        )})
+                    stall_count += 1
+                    if stall_count >= 2:
+                        stalled = True
+                        break
+                    continue
+                # Batch-escalate every legitimate call at once so FIFO eviction
+                # can never strand one tool of a multi-call turn (G3).
+                resolver.request_tools(escalate)
             registered_tools = set(resolver.active_names())
             openai_tools = resolver.openai_tools(mode)
 
@@ -714,6 +781,14 @@ class SimpleLoop:
                 continue
 
             messages.append({"role": "assistant", "content": response_text or ""})
+            # Surface mode-restricted calls now that the assistant content has
+            # been recorded, preserving assistant -> user ordering.
+            if blocked:
+                messages.append({"role": "user", "content": (
+                    f"[Tool rejected] {', '.join(sorted(set(blocked)))} is not available in "
+                    f"'{mode}' mode. Available tools for {mode}: "
+                    f"{', '.join(sorted(mode_available))}."
+                )})
 
             executed_any_call_this_turn = False
             has_rejected_call_this_turn = False
@@ -875,10 +950,17 @@ class SimpleLoop:
 
                 target = tool_params.get("filepath") or tool_params.get("path") or ""
 
-                if tool_name == "file_write" and target and self._replay_write(session_id, tool_params):
-                    warn_msg = f"Duplicate file write: '{target}' already contains this exact content."
-                    yield r.warning(warn_msg, session_id, code="IDENTICAL_REPLAY")
-                    messages.append({"role": "user", "content": f"[Tool notice] {warn_msg}"})
+                # Normalize both the check target and created_files keys to
+                # resolved absolute paths so "./src/foo.py" and "src/foo.py"
+                # cannot bypass the in-turn rewrite block.
+                if target:
+                    target_abs = str((Path(self.config.workspace_root) / target).resolve())
+                else:
+                    target_abs = target
+                if tool_name == "file_write" and target and (target_abs in created_files or target in created_files or self._replay_write(session_id, tool_params)):
+                    warn_msg = f"File rewrite blocked: '{target}' was already written this turn. Read it first, then use file_edit."
+                    yield r.warning(warn_msg, session_id, code="REWRITE_BLOCKED")
+                    messages.append({"role": "user", "content": warn_msg})
                     has_rejected_call_this_turn = True
                     continue
 
@@ -943,15 +1025,19 @@ class SimpleLoop:
                     any_tool_succeeded = True
                     p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
+                        created_files.add(str((Path(self.config.workspace_root) / p).resolve()))
                         created_files.add(p)
-                        record_write(session_id, p, tool_params.get("content", ""))
                     if tool_name in ("file_write", "file_edit", "file_delete", "apply_patch"):
                         if p:
                             files_edited.append(p)
+                            abs_p = str((Path(self.config.workspace_root) / p).resolve())
+                            evict_file_cache(session_id, abs_p)
                             evict_file_cache(session_id, p)
                         if tool_name == "apply_patch" and result.metadata and "files" in result.metadata:
                             for f in result.metadata["files"]:
                                 files_edited.append(f)
+                                abs_f = str((Path(self.config.workspace_root) / f).resolve())
+                                evict_file_cache(session_id, abs_f)
                                 evict_file_cache(session_id, f)
                         executed_calls = {
                             s for s in executed_calls
@@ -1275,7 +1361,13 @@ class SimpleLoop:
         if not target:
             return False
         try:
+            resolved_p = (Path(self.config.workspace_root) / target).resolve()
+            if not resolved_p.is_file():
+                return False
             content = params.get("content", "")
+            raw = resolved_p.read_text(encoding="utf-8", errors="replace")
+            if raw != content:
+                return False
             return bool(is_identical_replay(session_id, target, content))
         except Exception:
             return False

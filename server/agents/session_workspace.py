@@ -126,6 +126,8 @@ def evict_file_cache(session_id: str, path: str) -> None:
     """Drop any cached read entries for ``path``."""
     with _LOCK:
         _cache_evict(session_id, path)
+        if session_id in _STORE:
+            _STORE[session_id].pop(path, None)
 
 
 def is_identical_replay(session_id: str, path: str, content: str) -> bool:

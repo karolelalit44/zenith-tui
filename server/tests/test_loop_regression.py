@@ -634,11 +634,9 @@ async def test_non_code_prompt_still_gets_tools_on_iteration_one(test_config):
     assert provider.first_turn_tools, "iteration-1 tool list must not be empty"
     offered = {t["function"]["name"] for t in provider.first_turn_tools}
     assert "file_read" in offered
-    # T1 (token strategy): the lean seed no longer ships the large web schemas on
-    # every turn. Research tools stay reachable - a direct call to an unseeded
-    # tool auto-escalates it, and discover_capabilities lists what exists
-    # (see test_build_seed_is_lean_and_web_tools_still_escalate).
-    assert "websearch" not in offered, "web schemas should not be in the lean default seed"
+    # Web research tools are core build-seed tools now (see CORE_BUILD_TOOLS):
+    # the model must be able to reach them on iteration 1 without a detour.
+    assert "websearch" in offered, "web research tools must ship in the build seed"
     assert "discover_capabilities" in offered, "discovery tools must remain offered"
 
 

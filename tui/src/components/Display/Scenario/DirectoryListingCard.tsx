@@ -3,6 +3,7 @@ import React from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
+import { stripAnsi } from '../../../utils/ansi';
 import { toWorkspaceRelative } from '../../../utils/workspacePath';
 import type { EventRenderContext } from './componentRegistry';
 import { formatErrorSummary } from './errorSummary';
@@ -100,7 +101,7 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
     const displayPath =
       normalizedFinal === '.' ? './' : normalizedFinal.endsWith('/') ? normalizedFinal : `${normalizedFinal}/`;
 
-    const rawOutput = event.output || (typeof event.metadata?.output === 'string' ? event.metadata.output : '') || '';
+    const rawOutput = stripAnsi(event.output || (typeof event.metadata?.output === 'string' ? event.metadata.output : '') || '');
 
     const { dirs, files, totalDirs, totalFiles } = parseDirectoryEntries(rawOutput, event.metadata);
     const allEntries = [...dirs, ...files];

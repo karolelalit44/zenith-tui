@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from server.config.constants import DEFAULT_CONTEXT_WINDOW, MAX_OUTPUT_TOKENS_CLAMP
 
-SEED_VERSION = 4
+SEED_VERSION = 5
 
 DEFAULTS: dict = {
     "contextWindow": DEFAULT_CONTEXT_WINDOW,
@@ -656,6 +656,35 @@ PROVIDERS: list[dict] = [
                 "isDefault": False,
                 "tokenizer": "",
                 "promptTier": "compact",
+                "source": "builtin",
+            },
+            {
+                "key": "openrouter/z-ai/glm-5.2:free",
+                "providerId": "openrouter",
+                "id": "z-ai/glm-5.2:free",
+                "name": "Z.ai: GLM 5.2 (free)",
+                "description": (
+                    "Z.ai large-scale reasoning model. Free on OpenRouter. Strong at "
+                    "coding, tool use, and long-horizon agent workflows."
+                ),
+                "contextWindow": 32768,
+                "parameters": "MoE",
+                "architecture": "Sparse-attention MoE",
+                "inputModalities": ["text"],
+                "outputModalities": ["text"],
+                "tags": ["free", "reasoning", "coding", "agentic"],
+                "capabilities": {
+                    "function_calling": True,
+                    "structured_output": True,
+                    "reasoning": True,
+                    "thinking": False,
+                },
+                "speedTier": "moderate",
+                "bestFor": ["reasoning", "agentic coding", "complex multi-step automation"],
+                "pricing": {"input": 0.0, "output": 0.0},
+                "isDefault": False,
+                "tokenizer": "",
+                "promptTier": "flagship",
                 "source": "builtin",
             },
         ],

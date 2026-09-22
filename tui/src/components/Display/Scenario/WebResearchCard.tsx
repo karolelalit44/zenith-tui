@@ -5,6 +5,7 @@ import { WEBFETCH_TOOL, WEBSEARCH_TOOL } from '../../../constants/toolDisplay';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
+import { stripAnsi } from '../../../utils/ansi';
 import { formatDuration } from '../../../utils/text';
 import type { EventRenderContext } from './componentRegistry';
 
@@ -253,12 +254,13 @@ export const WebResearchCard: React.FC<{
 
     const displayQuery = query || (queries?.[0] ?? '');
     const multi = Array.isArray(queries) && queries.length > 1;
-    const previewLines = String(event.output || '')
+    const cleanOutput = stripAnsi(String(event.output || ''));
+    const previewLines = cleanOutput
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => /^\d+\. /.test(l))
       .slice(0, 2);
-    const firstRef = String(event.output || '')
+    const firstRef = cleanOutput
       .split('\n')
       .map((l) => refTokenFromLine(l))
       .find((t) => t !== null);
@@ -423,7 +425,7 @@ export const WebResearchCard: React.FC<{
         );
       }
       const shown = typeof event.metadata?.shown === 'number' ? (event.metadata.shown as number) : undefined;
-      const pills = String(event.output || '')
+      const pills = stripAnsi(String(event.output || ''))
         .split('\n')
         .filter((l) => l.trim().startsWith('>>>'))
         .slice(0, 2)

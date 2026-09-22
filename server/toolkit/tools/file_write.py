@@ -108,7 +108,13 @@ class FileWriteTool(BaseTool):
 
             session_id = current_tool_session_id.get() or ""
             if session_id:
-                evict_file_cache(session_id, str(resolved))
+                # _STORE (write records) is keyed by the raw relative path —
+                # use the same key so evict_file_cache hits the store entry.
+                # _READ_CACHE (read slices) is absolute-keyed; eviction for it
+                # happens in simple_loop's post-execution block which resolves
+                # the path. The evict here ensures the write record is dropped
+                # promptly so the next read of this path doesn't serve stale data.
+                evict_file_cache(session_id, rel_path)
                 record_write(session_id, rel_path, content)
 
             action = "Updated" if existed else "Created"

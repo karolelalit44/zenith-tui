@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type {
   CaptainOrchestrationEvent,
@@ -68,6 +69,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     showStatusRow = true,
   }) => {
     const { theme } = useTheme();
+    const { rows: termRows, columns: termCols } = useTerminalDimensions();
 
     const renderContext = useMemo(
       () => ({
@@ -83,8 +85,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       [thinkingCollapsed, calmMode, isHistorical, isRunning, workspaceName, gitBranch, scrollOffset, maxDynamicLines],
     );
 
-    const rows = process.stdout.rows ?? 24;
-    const dynamicLimit = Math.max(10, Math.min(20, rows - 8));
+    const dynamicLimit = Math.max(10, Math.min(20, termRows - 8));
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const expanded = hasOverflow && historyExpanded;
 
@@ -267,7 +268,6 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       );
     };
 
-    const termCols = process.stdout.columns;
     const contentWidth = termCols ? Math.max(30, termCols - 2) : '100%';
 
     return (

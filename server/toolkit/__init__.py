@@ -68,6 +68,7 @@ def create_default_registry(
         SafetyCheckMiddleware,
     )
     from .middleware.plan_write import PlanWriteGuard
+    from .middleware.read_only import ReadOnlyModeGuard
 
     registry = ToolRegistry()
     registry.register_middleware(LoggingMiddleware())
@@ -109,6 +110,10 @@ def create_default_registry(
 
         registry.register_middleware(HookMiddleware(HookRunner(hooks)))
     registry.register_middleware(SafetyCheckMiddleware())
+    # Hard execution gate for primary read-only investigation: blocks
+    # non-read-only tools (file_write/file_edit/apply_patch/...) even when a
+    # text-fenced call sneaks past tool_choice="none" (G1).
+    registry.register_middleware(ReadOnlyModeGuard(registry))
     validation_errors = validate_registry(registry)
     if validation_errors:
         logger.warning("Tool registry validation failed at startup:")

@@ -63,10 +63,35 @@ class SchemaResolver:
         self._evict()
         return True
 
-    def _evict(self) -> None:
+    def request_tools(self, names: list[str]) -> list[str]:
+        """Escalate a whole batch at once (e.g. every tool the model called in
+        a multi-call turn) without stranding any member of the batch.
+
+        Single-name eviction is FIFO: with a nearly-full seed, the first of N
+        escalated tools would be evicted as the Nth is added, so a model that
+        calls ``file_delete`` then ``job_kill`` then ``explore`` in one turn
+        would have ``file_delete`` bounced from the active set and mislabeled
+        "Hallucinated tool" before it even executes. Batch escalation adds all
+        names first, then evicts only non-batch overflow.
+
+        Returns the names that survived (i.e. are present in the active set).
+        """
+        if self.registry is None:
+            return []
+        requested = [n for n in names if self.registry.get(n) is not None]
+        for name in requested:
+            if name in self._active:
+                self._active.move_to_end(name)
+            else:
+                self._active[name] = None
+        self._evict(protected=set(requested))
+        return [n for n in requested if n in self._active]
+
+    def _evict(self, protected: set[str] | None = None) -> None:
+        protected = protected or set()
         while len(self._active) > self._max_tools:
             for name in self._active:
-                if name not in self._always_on:
+                if name not in self._always_on and name not in protected:
                     del self._active[name]
                     break
             else:

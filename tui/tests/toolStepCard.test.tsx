@@ -424,4 +424,101 @@ describe('ToolStepCard', () => {
     expect(frame).toContain('empty_dir/');
     expect(frame).toContain('(empty directory)');
   });
+
+  it('does not render file code or content for file_write unless explicitly requested', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_write',
+        params: { path: 'src/new.ts', content: 'const secret = 42;\nconsole.log(secret);' },
+        success: true,
+        metadata: { path: 'src/new.ts' },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Create');
+    expect(frame).toContain('src/new.ts');
+    expect(frame).not.toContain('const secret');
+    expect(frame).not.toContain('console.log');
+  });
+
+  it('renders file code/content for file_write when show_content is explicitly requested', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_write',
+        params: { path: 'src/new.ts', content: 'const secret = 42;\nconsole.log(secret);', show_content: true },
+        success: true,
+        metadata: { path: 'src/new.ts' },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Create');
+    expect(frame).toContain('src/new.ts');
+    expect(frame).toContain('const secret = 42;');
+  });
+
+  it('does not render whole-file diff for file_write unless explicitly requested', () => {
+    const wholeFileDiff = '@@ -0,0 +1,2 @@\n+const a = 1;\n+const b = 2;\n';
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_write',
+        params: { path: 'src/new.ts', content: 'const a = 1;\nconst b = 2;\n' },
+        success: true,
+        metadata: { path: 'src/new.ts', diff: wholeFileDiff },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Create');
+    expect(frame).toContain('src/new.ts');
+    expect(frame).not.toContain('const a = 1;');
+  });
+
+  it('does not render file_read output excerpt unless explicitly requested', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_read',
+        params: { path: 'src/foo.ts' },
+        output: 'line 1\nline 2\nline 3',
+        success: true,
+        metadata: { path: 'src/foo.ts' },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Read');
+    expect(frame).toContain('src/foo.ts');
+    expect(frame).toContain('3 lines');
+    expect(frame).not.toContain('line 1');
+    expect(frame).not.toContain('line 2');
+  });
+
+  it('renders file_read output excerpt when explicitly requested', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_read',
+        params: { path: 'src/foo.ts', show_content: true },
+        output: 'line 1\nline 2\nline 3',
+        success: true,
+        metadata: { path: 'src/foo.ts' },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Read');
+    expect(frame).toContain('src/foo.ts');
+    expect(frame).toContain('line 1');
+  });
+
+  it('renders patch mutation tool step with Patch verb and diff', () => {
+    const diff = '@@ -1,2 +1,2 @@\n-old code\n+patched code\n';
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'apply_patch',
+        params: { patch: '*** foo.ts\n--- foo.ts\n' },
+        success: true,
+        metadata: { path: 'foo.ts', diff },
+      }),
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('Patch');
+    expect(frame).toContain('old code');
+    expect(frame).toContain('patched code');
+  });
 });

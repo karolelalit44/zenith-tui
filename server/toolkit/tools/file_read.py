@@ -310,11 +310,12 @@ class FileReadTool(BaseTool):
                 numbered += notice
 
             if session_id:
+                cached_limit = len(selected) if truncated_by_bytes else limit
                 cache_file_read(
                     session_id,
                     str(resolved),
                     offset,
-                    limit,
+                    cached_limit,
                     numbered,
                     mtime_ns,
                     size,

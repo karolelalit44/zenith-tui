@@ -9,6 +9,7 @@ from server.toolkit.tools.file_write import FileWriteTool
 from server.toolkit.tools.glob import GlobTool
 from server.toolkit.tools.grep import GrepTool
 from server.agents.session_workspace import get_cached_read, record_read
+from server.toolkit.registry import current_tool_session_id
 
 
 @pytest.fixture
@@ -290,3 +291,124 @@ class TestApplyPatchResilience:
         assert result.success
         assert not (temp_workspace / "src_old.txt").exists()
         assert (temp_workspace / "dest_new.txt").read_text(encoding="utf-8") == "moved successfully\n"
+
+
+class TestContextLifecycleAndDriftResilience:
+    @pytest.mark.asyncio
+    async def test_write_then_read_then_edit_lifecycle(self, temp_workspace):
+        """Verify the exact lifecycle: create file -> read ground truth -> edit portion -> verify fresh content."""
+        token = current_tool_session_id.set("lifecycle-session-1")
+        try:
+            write_tool = FileWriteTool()
+            read_tool = FileReadTool()
+            edit_tool = FileEditTool()
+
+            # 1. Create file with initial content
+            init_code = (
+                "def calculate_tax(subtotal: float) -> float:\n"
+                "    rate = 0.05\n"
+                "    return subtotal * rate\n"
+            )
+            write_res = await write_tool.execute(
+                {"path": "pricing.py", "content": init_code},
+                str(temp_workspace),
+            )
+            assert write_res.success
+            assert (temp_workspace / "pricing.py").read_text(encoding="utf-8") == init_code
+
+            # 2. Read file to confirm ground truth and line numbers
+            read_res1 = await read_tool.execute({"path": "pricing.py"}, str(temp_workspace))
+            assert read_res1.success
+            assert "1: def calculate_tax" in read_res1.output
+            assert "2:     rate = 0.05" in read_res1.output
+            assert "3:     return subtotal * rate" in read_res1.output
+
+            # 3. Edit a portion of the file (update tax rate)
+            edit_res = await edit_tool.execute(
+                {
+                    "path": "pricing.py",
+                    "old_content": "    rate = 0.05\n    return subtotal * rate",
+                    "new_content": "    rate = 0.08\n    return round(subtotal * rate, 2)",
+                },
+                str(temp_workspace),
+            )
+            assert edit_res.success
+            assert edit_res.metadata.get("changes") == 1
+
+            # 4. Subsequent read MUST return the newly edited code, not stale cache
+            read_res2 = await read_tool.execute({"path": "pricing.py"}, str(temp_workspace))
+            assert read_res2.success
+            assert "rate = 0.08" in read_res2.output
+            assert "rate = 0.05" not in read_res2.output
+
+        finally:
+            current_tool_session_id.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_full_rewrite_overwrites_existing_file(self, temp_workspace):
+        """Verify rewriting full content of an existing file with overwrite=True."""
+        token = current_tool_session_id.set("lifecycle-session-2")
+        try:
+            write_tool = FileWriteTool()
+            read_tool = FileReadTool()
+
+            # Step 1: Initial file
+            await write_tool.execute(
+                {"path": "config.json", "content": '{"version": 1}'},
+                str(temp_workspace),
+            )
+
+            # Read step
+            read1 = await read_tool.execute({"path": "config.json"}, str(temp_workspace))
+            assert '{"version": 1}' in read1.output
+
+            # Step 2: Full rewrite with new content
+            new_config = '{\n  "version": 2,\n  "features": ["auth", "billing"]\n}'
+            rewrite_res = await write_tool.execute(
+                {"path": "config.json", "content": new_config, "overwrite": True},
+                str(temp_workspace),
+            )
+            assert rewrite_res.success
+            assert rewrite_res.metadata.get("overwritten") is True
+            assert (temp_workspace / "config.json").read_text(encoding="utf-8") == new_config
+
+            # Step 3: Verify read returns new content immediately
+            read2 = await read_tool.execute({"path": "config.json"}, str(temp_workspace))
+            assert '"version": 2' in read2.output
+            assert '"version": 1' not in read2.output
+        finally:
+            current_tool_session_id.reset(token)
+
+    def test_heavy_operations_compaction_preserves_file_read(self):
+        """Under heavy operations, compaction digests verbose tool outputs but protects file_read content."""
+        from server.agents.compaction import prune_inflight_messages
+
+        # Simulate a long, heavy turn with 12 tool calls:
+        # file_read followed by 10 verbose bash/search outputs
+        messages = [
+            {
+                "role": "user",
+                "content": "[Tool: file_read | Status: SUCCESS]\n1: def critical_logic():\n2:     return 42\n",
+                "digest": "Read critical_logic.py (2 lines)",
+            }
+        ]
+        for i in range(10):
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "[Tool: bash | Status: SUCCESS]\n" + ("test output line\n" * 50),
+                    "digest": f"Ran test #{i} (50 lines)",
+                }
+            )
+
+        # Prune with keep_latest_tools=3
+        pruned, stats = prune_inflight_messages(messages, keep_latest_tools=3)
+
+        # The file_read message at index 0 must NOT be collapsed to a hollow digest
+        file_read_msg = pruned[0]["content"]
+        assert "def critical_logic():" in file_read_msg
+        assert "return 42" in file_read_msg
+
+        # Older bash tool messages should be reduced to digests to prevent context overflow
+        assert pruned[1]["content"] == "Ran test #0 (50 lines)"
+

@@ -35,6 +35,7 @@ def make_tool(*, name: str, schema: dict | None = None, **attrs):
 
 
 EXPECTED_TOOLS = {
+    "apply_patch",
     "bash",
     "discover_capabilities",
     "file_delete",
@@ -74,12 +75,14 @@ class TestToolInventory:
         assert inventory["bash"].read_only is False
         assert inventory["file_write"].read_only is False
         assert inventory["file_delete"].read_only is False
+        assert inventory["apply_patch"].read_only is False
 
     def test_mode_declarations(self):
         inventory = {e.name: e for e in build_inventory(create_default_registry())}
         assert inventory["file_read"].modes == []
         assert inventory["file_write"].modes == []
         assert inventory["file_edit"].modes == []
+        assert inventory["apply_patch"].modes == []
         assert inventory["bash"].modes == ["build"]
 
     def test_permission_and_concurrency(self):
@@ -87,6 +90,8 @@ class TestToolInventory:
         assert inventory["bash"].permission_scope == "command"
         assert inventory["bash"].concurrency_group == "shell"
         assert inventory["file_write"].concurrency_group == "workspace_mutation"
+        assert inventory["apply_patch"].concurrency_group == "workspace_mutation"
+        assert inventory["apply_patch"].permission_scope == "write"
         assert inventory["webfetch"].permission_scope == "network"
         # WP5 D7: the legacy write-capable "agent" tool is no longer on the
         # default registry surface; crewmate-class permission lives on explore.
