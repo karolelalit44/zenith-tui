@@ -14,8 +14,8 @@ import { CommandInput } from './components/Input/CommandInput';
 import { CommandPalette } from './components/Input/CommandPalette';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
 import { OptionBanner } from './components/ui/OptionBanner';
-  import { contentWidth as contentWidthForColumns } from './constants/layout';
-  import { AppProvider } from './context/AppContext';
+import { contentWidth as contentWidthForColumns } from './constants/layout';
+import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
@@ -41,14 +41,22 @@ import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
-import type { ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo, TurnManifestEvent } from './types/scenario';
+import type {
+  PermissionRequestedEvent,
+  PermissionResolvedEvent,
+  ScenarioEvent,
+  ScenarioMode,
+  SuccessEvent,
+  TokenInfo,
+  TurnManifestEvent,
+} from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
 import { consolidateOrchestrationEvents } from './utils/orchestration';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 import { consolidateTodoBoardEvents } from './utils/todoBoard';
-  import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
+import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
 import { resolveWorkspaceRoot } from './utils/workspacePath';
 
 /**
@@ -194,6 +202,28 @@ export const App: React.FC = () => {
   const { activeProvider } = useProvider();
   const activeGitBranch = useMemo(() => getActiveGitBranch(workspace), [workspace]);
   const [continueTarget, setContinueTarget] = useState<{ prompt: string; manifest: TurnManifestEvent } | null>(null);
+  const [dismissedPermissionIds, setDismissedPermissionIds] = useState<Set<string>>(new Set());
+
+  // The most recent permission_requested that has no matching resolved event yet.
+  // Derived from events so history / reconnect replay renders identically.
+  const pendingPermission = useMemo(() => {
+    if (!isRunning) return null;
+    const resolved = new Set(
+      events
+        .filter((e): e is PermissionResolvedEvent => e.kind === 'permission_resolved')
+        .map((e) => e.requestId),
+    );
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const e = events[i];
+      if (e.kind === 'permission_requested') {
+        const req = e as PermissionRequestedEvent;
+        if (!resolved.has(req.requestId) && !dismissedPermissionIds.has(req.requestId)) {
+          return req;
+        }
+      }
+    }
+    return null;
+  }, [events, isRunning, dismissedPermissionIds]);
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
   const refreshStats = useCallback(() => {
@@ -489,6 +519,7 @@ export const App: React.FC = () => {
       // previous session repopulate the array right after resetEvents clears it.
       abort();
       setActiveSessionId(sessionId);
+      setDismissedPermissionIds(new Set());
       resetEvents();
       const turns = convertHistoryToTurns(messages ?? [], selectedMode);
       if (turns.length > 0) {
@@ -510,6 +541,7 @@ export const App: React.FC = () => {
     abort();
     abortActiveTurn(eventsRef.current);
     setActiveSessionId(null);
+    setDismissedPermissionIds(new Set());
     clearTurns();
     resetEvents();
     resetScroll();
@@ -709,6 +741,42 @@ export const App: React.FC = () => {
 
   const handleContinueDismiss = useCallback(() => setContinueTarget(null), []);
 
+  const handlePermissionSelect = useCallback(
+    (value: 'approve' | 'deny') => {
+      if (!pendingPermission) return;
+      const requestId = pendingPermission.requestId;
+      const sessionId = pendingPermission.sessionId || lastSessionId;
+      // Without a session we cannot answer the backend — keep the banner so
+      // the turn does not strand silently until the 300s auto-deny.
+      if (!sessionId) return;
+      wsClient
+        .respondPermission(sessionId, requestId, value === 'approve')
+        .then(() => {
+          // Dismiss on ack (resolved true/false both mean the backend moved
+          // on; the permission_resolved event clears it anyway). On transport
+          // failure keep the banner so the user can retry.
+          setDismissedPermissionIds((prev) => new Set(prev).add(requestId));
+        })
+        .catch(() => {});
+    },
+    [pendingPermission, lastSessionId],
+  );
+
+  const handlePermissionDismiss = useCallback(() => {
+    if (!pendingPermission) return;
+    const requestId = pendingPermission.requestId;
+    const sessionId = pendingPermission.sessionId || lastSessionId;
+    if (!sessionId) return;
+    // Closing the banner is an explicit deny — never just hide it, or the
+    // backend turn stays suspended until timeout with no UI.
+    wsClient
+      .respondPermission(sessionId, requestId, false)
+      .then(() => {
+        setDismissedPermissionIds((prev) => new Set(prev).add(requestId));
+      })
+      .catch(() => {});
+  }, [pendingPermission, lastSessionId]);
+
   const handleOpenHelp = useCallback(() => openOverlay('help'), [openOverlay]);
 
   const handleOpenProvider = useCallback(() => {
@@ -859,6 +927,24 @@ export const App: React.FC = () => {
 
         {!showFilePicker && !isOverlayOpen && !showPalette && (
           <Box flexDirection="column" width="100%">
+            {pendingPermission && (
+              <OptionBanner
+                title={`Permission required: ${pendingPermission.scope}`}
+                message={truncateEnd(
+                  sanitizeSingleLine(
+                    pendingPermission.label ||
+                      (pendingPermission.tool ? `Run ${pendingPermission.tool}` : 'Action needs your approval'),
+                  ),
+                  90,
+                )}
+                options={[
+                  { label: 'Approve', value: 'approve' },
+                  { label: 'Deny', value: 'deny' },
+                ]}
+                onSelect={handlePermissionSelect}
+                onClose={handlePermissionDismiss}
+              />
+            )}
             {continueTarget && (
               <OptionBanner
                 title={

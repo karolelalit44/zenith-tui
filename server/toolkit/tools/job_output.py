@@ -59,17 +59,20 @@ class JobOutputTool(BaseTool):
         if job is None:
             return ToolResult(success=False, error=f"Job {job_id} not found")
         full = manager.get_output(job_id) or ""
+        raw_offset = params.get("offset", 0)
         try:
-            offset = max(0, int(params.get("offset") or 0))
+            offset = max(0, int(raw_offset or 0))
         except (TypeError, ValueError):
-            offset = 0
+            return ToolResult(success=False, error=f"Invalid offset: {raw_offset!r}")
+        raw_max = params.get("max_chars", 15000)
         try:
-            _max = int(params.get("max_chars") or 15000)
+            _max = int(raw_max or 15000)
         except (TypeError, ValueError):
-            _max = 15000
+            return ToolResult(success=False, error=f"Invalid max_chars: {raw_max!r}")
         _max = max(1000, min(_max, 50000))
         total = len(full)
-        truncated = total > _max
+        offset = min(offset, total)
+        truncated = (total - offset) > _max
         if not truncated:
             output = full[offset:] if offset else full
             next_offset = total

@@ -314,7 +314,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const metaDurMs =
     typeof event.metadata?.duration_ms === 'number' ? Math.max(0, event.metadata.duration_ms) : undefined;
   const durationSec = metaDurMs !== undefined ? metaDurMs : isPending ? elapsedMs : 0;
-  const durationText = formatDuration(durationSec);
+  const durationText =
+    durationSec > 0 || isPending ? formatDuration(isPending ? Math.max(1000, durationSec) : durationSec) : '';
 
   const repeatMeta = event.metadata?.[TOOL_META_REPEAT_COUNT];
   const repeatCount = typeof repeatMeta === 'number' && repeatMeta > 1 ? repeatMeta : 0;
@@ -364,7 +365,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       ) : null}
       {durationText ? (
         <Box flexShrink={0} marginLeft={1}>
-          <Text color={theme.colors.text.dim}>· {durationText}</Text>
+          <Text color={theme.colors.text.dim}>~ {durationText}</Text>
         </Box>
       ) : null}
     </>

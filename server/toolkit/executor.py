@@ -20,6 +20,7 @@ from server.config.constants import (
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
     PERMISSION_COMMAND,
+    PERMISSION_DELETE,
     PERMISSION_NETWORK,
     PERMISSION_READ,
     PERMISSION_WRITE,
@@ -310,18 +311,20 @@ def _permission_scope_for_tool(
 ) -> tuple[str | None, str | None]:
     """Resolve the permission scope an execution should be gated on.
 
-    Returns ``(scope, label)`` where ``scope`` of None means "no gate" — the
-    request must be left to the other safeguards (destructive/high-risk shell
-    commands are blocked by the SafetyCheckMiddleware). Bash/terminal calls are
-    assessed from the actual command text; every other tool uses the
-    ``permission_scope`` declared on its tool definition.
+    Returns ``(scope, label)`` where ``scope`` of None means "no gate" (unknown
+    tool only — callers already reject unknown tools before the gate).
+    Destructive/high-risk shell commands resolve to ``delete`` (ASK by default)
+    for defense in depth; they are still hard-blocked downstream by the
+    SafetyCheckMiddleware. Bash/terminal calls are assessed from the actual
+    command text; every other tool uses the ``permission_scope`` declared on
+    its tool definition.
     """
     if tool_name in (BASH_TOOL, TERMINAL_TOOL):
         command = str(tool_params.get("command", "") or "")
         assessment = assess_command(command)
         label = f"bash: {command.strip()[:80]}" if command.strip() else tool_name
         if assessment.risk_level == "high" or assessment.tier == "destructive":
-            return None, label
+            return PERMISSION_DELETE, label
         if assessment.requires_approval:
             if assessment.tier == "network":
                 return PERMISSION_NETWORK, label

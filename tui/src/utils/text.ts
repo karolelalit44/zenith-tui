@@ -4,20 +4,17 @@ export const MAX_MESSAGE_PREVIEW_LENGTH = 200;
 /** Formats a duration in milliseconds into a compact human string.
  *
  * Rules:
- * - Sub-second values (< 2s, non-integer seconds): `0.5 s`, `1.5 s`
  * - Whole-second intervals (< 60s): `2 s`, `3 s`, `33 s`
+ *   Sub-second inputs floor to `1 s` so instant calls never read as zero.
  * - Minute-based intervals (>= 60s): `1.2 minutes`, `37.40 minutes`
  * - zero/negative input renders nothing (`''`) so instant calls don't
- *   fake a "1 s" reading.
+ *   fake a duration reading.
  */
 export function formatDuration(ms: number): string {
   if (ms <= 0) return '';
   const totalMs = Math.max(1, Math.round(ms));
   const totalSec = totalMs / 1000;
   if (totalSec < 60) {
-    if (totalSec < 2 && !Number.isInteger(totalSec)) {
-      return `${totalSec.toFixed(1)} s`;
-    }
     return `${Math.max(1, Math.floor(totalSec))} s`;
   }
   const mins = totalSec / 60;
@@ -29,10 +26,9 @@ export function formatDuration(ms: number): string {
 export function truncateMiddle(text: string, maxLength: number): string {
   if (maxLength <= 0) return '';
   if (text.length <= maxLength) return text;
-  if (maxLength === 1) return '…';
-  if (maxLength === 2) return '…';
-  const half = Math.floor((maxLength - 3) / 2);
-  const tailHalf = maxLength - 3 - half;
+  if (maxLength <= 3) return '…';
+  const half = Math.floor((maxLength - 1) / 2);
+  const tailHalf = maxLength - 1 - half;
   return `${text.slice(0, half)}…${text.slice(-tailHalf)}`;
 }
 

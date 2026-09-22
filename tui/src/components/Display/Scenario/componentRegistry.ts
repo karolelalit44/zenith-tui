@@ -5,6 +5,7 @@ import { CompactionFlowBlock } from './CompactionFlowBlock';
 import { ErrorBlock } from './ErrorBlock';
 import { FinalSummaryCard } from './FinalSummaryCard';
 import { MessageBlock } from './MessageBlock';
+import { PermissionRequestBlock } from './PermissionRequestBlock';
 import { PlanReadyBlock } from './PlanReadyBlock';
 import { ProgressBar } from './ProgressBar';
 import { SessionStatusLine } from './SessionStatusLine';
@@ -53,6 +54,8 @@ class ComponentRegistry {
     this.register('success', SuccessCard as EventComponentType);
     this.register('progress', ProgressBar as EventComponentType);
     this.register('plan_ready', PlanReadyBlock as EventComponentType);
+    this.register('permission_requested', PermissionRequestBlock as EventComponentType);
+    this.register('permission_resolved', PermissionRequestBlock as EventComponentType);
     this.register('turn_manifest', TurnManifestCard as EventComponentType);
     this.register('captain_orchestration', CaptainOrchestratorBlock as EventComponentType);
     this.register('todo_board', TodoBoardBlock as unknown as EventComponentType);

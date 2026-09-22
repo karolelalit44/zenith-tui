@@ -191,7 +191,24 @@ def _model_runtime_shape(entry: dict) -> dict:
             "isDefault",
             "maxOutputTokens",
         ):
-            if str(_k).lower() in {"apikey", "apikeyvalue", "api_key", "secret", "token"}:
+            _norm = str(_k).lower().replace("-", "").replace("_", "")
+            if _norm in {
+                "apikey",
+                "apikeyvalue",
+                "secret",
+                "token",
+                "password",
+                "passwd",
+                "pwd",
+                "privatekey",
+                "clientsecret",
+                "auth",
+                "authorization",
+                "bearer",
+                "credentials",
+                "accesskey",
+                "secretkey",
+            }:
                 continue
             shape.setdefault("extra_" + str(_k), _v)
     return shape

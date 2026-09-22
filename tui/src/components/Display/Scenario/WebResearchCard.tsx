@@ -7,7 +7,7 @@ import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import { stripAnsi } from '../../../utils/ansi';
-import { countWord, formatDuration } from '../../../utils/text';
+import { countWord, formatDuration, truncateMiddle } from '../../../utils/text';
 import type { EventRenderContext } from './componentRegistry';
 
 /**
@@ -23,12 +23,6 @@ function getDomain(url: string): string {
   } catch {
     return url.split('/')[0] || url;
   }
-}
-
-function truncateMiddle(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const half = Math.floor((max - 3) / 2);
-  return `${text.slice(0, half)}…${text.slice(-half)}`;
 }
 
 function refTokenFromLine(line: string): string | null {

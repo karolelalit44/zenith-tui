@@ -33,6 +33,16 @@ export interface FooterLayoutOutput {
   branchText: string;
   pathBranch: string;
   tokenUsage: string;
+  /** @deprecated alias of tokenUsage — kept for backward compat. */
+  tokenCount: string;
+  /** @deprecated echo of effectiveMaxTokens — kept for backward compat. */
+  maxTokens: string;
+  /** @deprecated gauge removed — always empty. Kept for backward compat. */
+  gauge: string;
+  /** @deprecated gauge removed — always false. Kept for backward compat. */
+  showGauge: boolean;
+  /** @deprecated always empty. Kept for backward compat. */
+  scopeLabel: string;
 }
 
 /** Compact cumulative run/API token telemetry (e.g. 12.4K, 1.2M, 420). */
@@ -98,6 +108,11 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     pathBranch = dirText;
   }
 
+  const maxTokens =
+    typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0
+      ? `${input.effectiveMaxTokens}`
+      : '0';
+
   return {
     modeLabel,
     chip: chipText,
@@ -108,5 +123,10 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     branchText,
     pathBranch,
     tokenUsage,
+    tokenCount: tokenUsage,
+    maxTokens,
+    gauge: '',
+    showGauge: false,
+    scopeLabel: '',
   };
 }

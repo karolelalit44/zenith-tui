@@ -6,9 +6,14 @@ import { loadUserProfile, saveUserProfile, type UserProfile } from '../../servic
 import { useTheme } from '../../theme/ThemeContext';
 import { themeOptions } from '../../theme/theme';
 
+import type { PermissionScope } from '../../types/scenario';
+
 interface SettingsModalProps {
   onClose: () => void;
 }
+
+/** Scopes that default to `ask`; the auto-approve toggle moves them together. */
+const AUTO_APPROVE_SCOPES: PermissionScope[] = ['delete', 'command', 'network', 'crewmate', 'plan'];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const { theme, activeThemeId, setTheme } = useTheme();
@@ -19,10 +24,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const [selectedThemeIdx, setSelectedThemeIdx] = useState(currentThemeIdx >= 0 ? currentThemeIdx : 0);
   const [prefCursor, setPrefCursor] = useState(0);
 
+  const autoApproveEnabled = AUTO_APPROVE_SCOPES.every(
+    (scope) => userProfile.settings.permissionPolicy[scope] === 'allow',
+  );
+
   const toggleAutoApprove = () => {
-    const next = !userProfile.settings.autoApproveTools;
-    setUserProfile((prev) => ({ ...prev, settings: { ...prev.settings, autoApproveTools: next } }));
-    saveUserProfile({ settings: { ...userProfile.settings, autoApproveTools: next } });
+    const next = autoApproveEnabled ? 'ask' : 'allow';
+    const policy = { ...userProfile.settings.permissionPolicy };
+    for (const scope of AUTO_APPROVE_SCOPES) {
+      // Preserve explicit denies (e.g. set via permission.policy RPC) — the
+      // bulk toggle only flips between ask and allow.
+      if (policy[scope] === 'deny') continue;
+      policy[scope] = next as 'ask' | 'allow';
+    }
+    setUserProfile((prev) => ({ ...prev, settings: { ...prev.settings, permissionPolicy: policy } }));
+    saveUserProfile({ settings: { ...userProfile.settings, permissionPolicy: policy } });
   };
 
   const toggleThinkingCollapsed = () => {
@@ -157,10 +173,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 </Text>
               </Box>
               <Text
-                color={userProfile.settings.autoApproveTools ? theme.colors.status.success : theme.colors.status.error}
+                color={autoApproveEnabled ? theme.colors.status.success : theme.colors.status.error}
                 bold
               >
-                {userProfile.settings.autoApproveTools ? '[ENABLED]' : '[DISABLED]'}
+                {autoApproveEnabled ? '[ENABLED]' : '[DISABLED]'}
               </Text>
             </Box>
 

@@ -1184,7 +1184,7 @@ class PromptExecutor:
             _pending_terminal.append(error_event)
             collected_events.append(error_event)
         finally:
-            unregister_permission_service(session_id)
+            unregister_permission_service(session_id, permission_service)
             if _original_model is not None:
                 self._provider.model = _original_model
             if _original_temperature is not None:

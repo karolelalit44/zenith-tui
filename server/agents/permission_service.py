@@ -182,6 +182,12 @@ class PermissionService:
                     self._timeout if timeout is None else timeout,
                 )
                 granted = False
+                if not future.done():
+                    future.cancel()
+            except asyncio.CancelledError:
+                if not future.done():
+                    future.cancel()
+                raise
         finally:
             self._pending.pop(request_id, None)
             await self._emit_event(
@@ -208,11 +214,29 @@ _registry: dict[str, PermissionService] = {}
 
 
 def register_permission_service(service: PermissionService) -> None:
+    existing = _registry.get(service.session_id)
+    if existing is not None and existing is not service:
+        log.warning(
+            "Permission service overwrite for session %s: concurrent turn replaced %r",
+            service.session_id,
+            existing,
+        )
     _registry[service.session_id] = service
     log.info("Permission service registered for session %s", service.session_id)
 
 
-def unregister_permission_service(session_id: str) -> None:
+def unregister_permission_service(
+    session_id: str, service: PermissionService | None = None
+) -> None:
+    existing = _registry.get(session_id)
+    if existing is None:
+        return
+    if service is not None and existing is not service:
+        log.warning(
+            "Permission service unregister skipped for session %s: owner mismatch (concurrent turn)",
+            session_id,
+        )
+        return
     removed = _registry.pop(session_id, None)
     if removed is not None:
         log.info("Permission service unregistered for session %s", session_id)

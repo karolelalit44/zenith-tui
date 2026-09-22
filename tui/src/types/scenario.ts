@@ -29,7 +29,9 @@ export type EventKind =
   | 'session_status'
   | 'session_summarized'
   | 'context_updated'
-  | 'token_usage_recorded';
+  | 'token_usage_recorded'
+  | 'permission_requested'
+  | 'permission_resolved';
 
 export interface ThinkingThought {
   text: string;
@@ -154,6 +156,47 @@ export interface PlanReadyEvent {
   id: string;
   plan: string;
   sessionId: string;
+}
+
+export type PermissionScope =
+  | 'read'
+  | 'write'
+  | 'delete'
+  | 'command'
+  | 'network'
+  | 'crewmate'
+  | 'plan';
+
+/** Per-scope approval level, mirroring the backend PermissionLevel enum. */
+export type PermissionLevel = 'ask' | 'allow' | 'deny';
+
+/**
+ * A permission request suspended the turn until a human approves or denies it.
+ * The TUI shows an interactive approve/deny banner keyed by `requestId`.
+ */
+export interface PermissionRequestedEvent {
+  kind: 'permission_requested';
+  id: string;
+  requestId: string;
+  scope: PermissionScope;
+  sessionId?: string;
+  tool?: string;
+  label?: string;
+  reason?: string;
+  params?: Record<string, unknown>;
+  /** Timeout seconds before the backend auto-denies (falls back to deny). */
+  timeout?: number;
+}
+
+/** A permission request was resolved (approve/deny or timeout auto-deny). */
+export interface PermissionResolvedEvent {
+  kind: 'permission_resolved';
+  id: string;
+  requestId: string;
+  sessionId?: string;
+  scope?: PermissionScope;
+  tool?: string;
+  allow: boolean;
 }
 
 export type CompactionTrigger = 'automatic' | 'manual';
@@ -561,7 +604,9 @@ export type ScenarioEvent =
   | SessionInfoEvent
   | SessionSummarizedEvent
   | ContextUpdatedEvent
-  | TokenUsageRecordedEvent;
+  | TokenUsageRecordedEvent
+  | PermissionRequestedEvent
+  | PermissionResolvedEvent;
 
 export type ScenarioMode = 'plan' | 'build';
 
