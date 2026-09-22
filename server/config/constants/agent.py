@@ -53,7 +53,7 @@ PROGRESS_DETAIL_MAX_CHARS = 48
 
 # Tools that mutate files — used to distinguish "tried to build but wrote
 # nothing" (worth warning about) from pure Q&A turns (not).
-FILE_MUTATING_TOOLS = frozenset({"file_write", "file_edit"})
+FILE_MUTATING_TOOLS = frozenset({"file_write", "file_edit", "apply_patch"})
 
 # Auto-generated session title cap (chars) before ellipsis.
 SESSION_TITLE_MAX_CHARS = 50

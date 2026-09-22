@@ -835,14 +835,15 @@ class TestDefaultRegistry:
         assert "list_dir" in tools
         assert "multi_edit" not in tools
         assert "todo" in tools
+        assert "apply_patch" in tools
         # WP5 D7: legacy write-capable agent tool removed; explore is the
         # delegation surface and requires an injected config.
         assert "agent" not in tools
         assert "explore" not in tools
-        assert len(tools) == 15
+        assert len(tools) == 16
         assert "discover_capabilities" in tools
         assert "get_tool_definition" in tools
-        assert len(tools) == 15
+        assert len(tools) == 16
 
 
 class TestTodoToolStatusNormalization:

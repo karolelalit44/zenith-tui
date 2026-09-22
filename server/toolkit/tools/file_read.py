@@ -109,10 +109,36 @@ def _extract_file_outline(lines: list[str], rel_path: str) -> str:
     )
 
 
+_BINARY_EXTENSIONS = {
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".iso",
+    ".pyc", ".pyo", ".pyd", ".wasm", ".class", ".jar",
+    ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff",
+    ".pdf", ".sqlite", ".db", ".node",
+}
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff"}
+
+
+def _is_binary(path: Path) -> bool:
+    if path.suffix.lower() in _BINARY_EXTENSIONS:
+        return True
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(1024)
+            if b"\x00" in chunk:
+                return True
+            non_printable = sum(1 for b in chunk if b < 9 or (13 < b < 32))
+            if chunk and (non_printable / len(chunk) > 0.3):
+                return True
+    except OSError:
+        return True
+    return False
+
+
 class FileReadTool(BaseTool):
     name = "file_read"
     description = (
-        "Read file contents by line range or inspect symbol outline. "
+        "Read file contents by line range, inspect directory contents, or inspect symbol outline. "
         "Default limit is 250 lines; pass offset to paginate."
     )
     requires_mode = None
@@ -160,18 +186,32 @@ class FileReadTool(BaseTool):
         resolved = validate_path(rel_path, workspace_root)
         if resolved is None:
             return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
-        if blocked_as_missing(get_matcher(workspace_root), rel_path):
-            return ToolResult(success=False, error=f"File not found: {rel_path}")
         if not resolved.exists():
             return ToolResult(success=False, error=f"File not found: {rel_path}")
         if resolved.is_dir():
-            return ToolResult(success=False, error=f"Path is a directory: {rel_path}")
+            return ToolResult(
+                success=False,
+                error=f"Path is a directory: {rel_path}. Use list_dir to inspect directory contents.",
+            )
 
         try:
             session_id = current_tool_session_id.get() or ""
             stat = resolved.stat()
             size = stat.st_size
             mtime_ns = stat.st_mtime_ns
+
+            if _is_binary(resolved):
+                ext = resolved.suffix.lower()
+                if ext in _IMAGE_EXTENSIONS:
+                    return ToolResult(
+                        success=True,
+                        output=f"[Image file: {rel_path} ({size} bytes)]",
+                        metadata={"path": str(resolved), "is_image": True, "size": size},
+                    )
+                return ToolResult(
+                    success=False,
+                    error=f"Cannot read binary file: {rel_path} ({size} bytes)",
+                )
 
             offset = max(0, int(params.get("offset", 0)))
             raw_limit = params.get("limit")
@@ -238,10 +278,29 @@ class FileReadTool(BaseTool):
                     },
                 )
 
-            selected = lines[offset : offset + limit]
+            raw_selected = lines[offset : offset + limit]
+            max_line_len = 2000
+            capped_lines = []
+            for l in raw_selected:
+                if len(l) > max_line_len:
+                    l = l[:max_line_len] + " ... (line truncated to 2000 chars)"
+                capped_lines.append(l)
+
+            max_read_bytes = 50 * 1024
+            selected = []
+            cur_bytes = 0
+            truncated_by_bytes = False
+            for l in capped_lines:
+                line_bytes = len(l.encode("utf-8")) + 1
+                if selected and (cur_bytes + line_bytes > max_read_bytes):
+                    truncated_by_bytes = True
+                    break
+                selected.append(l)
+                cur_bytes += line_bytes
+
             numbered = "\n".join(f"{i + offset + 1}: {line}" for i, line in enumerate(selected))
 
-            truncated = (offset + len(selected)) < total_lines
+            truncated = truncated_by_bytes or ((offset + len(selected)) < total_lines)
             if truncated:
                 next_offset = offset + len(selected)
                 notice = (

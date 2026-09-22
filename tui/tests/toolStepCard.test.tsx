@@ -364,17 +364,20 @@ describe('ToolStepCard', () => {
     expect(frame).toContain('removed from workspace');
   });
 
-  it('renders the rich status label for a successful websearch', () => {
+  it('renders the rich web research card for a successful websearch', () => {
     const { lastFrame } = renderStep(
       makeStep({
         tool: 'websearch',
         params: { query: 'ink components' },
-        metadata: { query: 'ink components' },
+        output: '1. Ink docs [ref: ref_doc_1]\n   https://ink.com',
+        metadata: { query: 'ink components', source: 'DuckDuckGo', count: 3 },
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain(' Web search');
+    expect(frame).toContain('Found');
     expect(frame).toContain('ink components');
+    expect(frame).toContain('ref_doc_1');
+    expect(frame).toContain('+1 more');
   });
 
   it('renders a list_dir step with DirectoryListingCard showing folders, files, and tree glyphs', () => {

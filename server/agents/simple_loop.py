@@ -48,11 +48,13 @@ from .llm_stream import StreamState, stream_completion
 from .prompts import compose_system_context, default_template_sections
 from .run_state import _activity_label
 from .session_workspace import (
+    evict_file_cache,
     get_cached_read,
     get_read_history,
     is_identical_replay,
     is_range_covered,
     record_read,
+    record_write,
     slice_served_count,
 )
 
@@ -62,6 +64,7 @@ _DEGENERATE_TOKENS = {
     "[tool calls]",
     "[thinking]",
     "[no output]",
+    "...",  # sanitized placeholder for empty assistant turn (see prune_inflight_messages)
 }
 
 
@@ -331,6 +334,7 @@ class SimpleLoop:
         max_steps = int(getattr(self.config, "agent_max_steps", 0) or MAX_STEPS_DEFAULT)
         nudges = 0
         length_continuations = 0
+        silent_continuations = 0
         pending_continuation_text = ""
         length_truncated = False
         last_finish_reason: FinishReason = FinishReason.STOP
@@ -639,7 +643,38 @@ class SimpleLoop:
                     messages.append({"role": "assistant", "content": response_text or ""})
                     messages.append({"role": "user", "content": nudge_content})
                     continue
-                break  # emergent stop
+
+                # Silent no-tool turn: the model ended with no tool call AND
+                # produced no message text (e.g. a reasoning-only trailer from
+                # a reason-then-act model). That is NOT a final answer — the
+                # user would receive nothing. Bounded continuation lets the
+                # model emit its actual answer or next tool call.
+                if (
+                    not current_turn_emitted
+                    and not self._last_emitted_message
+                    and silent_continuations < 2
+                ):
+                    silent_continuations += 1
+                    logger.info(
+                        "No tool call and no emitted text on iteration %d; "
+                        "continuing to let the model produce its answer (silent continuation %d/2)",
+                        iteration,
+                        silent_continuations,
+                    )
+                    messages.append({"role": "assistant", "content": response_text or ""})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your last turn ended without any response text or tool call. "
+                                "Continue and provide your final answer to the user's request "
+                                "now, or emit the next tool call."
+                            ),
+                        }
+                    )
+                    continue
+
+                break  # emergent stop — purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
 
             if self.tool_registry:
                 for tc in tool_calls:
@@ -789,25 +824,7 @@ class SimpleLoop:
                                 cached_result = ToolResult(
                                     success=True, output=cached, metadata=metadata
                                 )
-                                if already_read:
-                                    # True repeat read of an unchanged slice: its full
-                                    # content is already embedded in this transcript. Shrink
-                                    # the fresh copy to a compact receipt so repeat reads
-                                    # stop re-costing context tokens (observed 11k→17k/turn).
-                                    # The tool_result event above still carries the full
-                                    # output, so the user/TUI are unaffected.
-                                    receipt_output = (
-                                        f"[File already in context: {read_path} "
-                                        f"lines {read_offset + 1}-{read_offset + read_limit} "
-                                        f"unchanged — full content was embedded on an earlier "
-                                        f"read; re-read only ranges not yet read if you need "
-                                        f"different lines]"
-                                    )
-                                    transcript_result = ToolResult(
-                                        success=True, output=receipt_output, metadata={}
-                                    )
-                                else:
-                                    transcript_result = cached_result
+                                transcript_result = cached_result
                                 content = format_tool_result(tool_name, transcript_result)
                                 messages.append(
                                     {
@@ -858,10 +875,10 @@ class SimpleLoop:
 
                 target = tool_params.get("filepath") or tool_params.get("path") or ""
 
-                if tool_name == "file_write" and target and (target in created_files or self._replay_write(session_id, tool_params)):
-                    warn_msg = f"File rewrite blocked: '{target}' was already written this turn. Read it first, then use file_edit."
-                    yield r.warning(warn_msg, session_id, code="REWRITE_BLOCKED")
-                    messages.append({"role": "user", "content": warn_msg})
+                if tool_name == "file_write" and target and self._replay_write(session_id, tool_params):
+                    warn_msg = f"Duplicate file write: '{target}' already contains this exact content."
+                    yield r.warning(warn_msg, session_id, code="IDENTICAL_REPLAY")
+                    messages.append({"role": "user", "content": f"[Tool notice] {warn_msg}"})
                     has_rejected_call_this_turn = True
                     continue
 
@@ -927,8 +944,15 @@ class SimpleLoop:
                     p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
                         created_files.add(p)
-                    if tool_name in ("file_write", "file_edit", "file_delete") and p:
-                        files_edited.append(p)
+                        record_write(session_id, p, tool_params.get("content", ""))
+                    if tool_name in ("file_write", "file_edit", "file_delete", "apply_patch"):
+                        if p:
+                            files_edited.append(p)
+                            evict_file_cache(session_id, p)
+                        if tool_name == "apply_patch" and result.metadata and "files" in result.metadata:
+                            for f in result.metadata["files"]:
+                                files_edited.append(f)
+                                evict_file_cache(session_id, f)
                         executed_calls = {
                             s for s in executed_calls
                             if s[0] not in ("glob", "grep", "dir_list", "list_dir", "bash")
@@ -1082,19 +1106,6 @@ class SimpleLoop:
                 self._last_emitted_message = pending_continuation_text
             pending_continuation_text = ""
 
-        salvaged = False
-        if (stalled or doomed or iteration >= max_steps) and len(
-            (self._last_emitted_message or "").strip()
-        ) < SUMMARY_MIN_CHARS:
-            async for ev in self._salvage_final_answer(
-                session_id=session_id,
-                messages=messages,
-                reason="no recent progress" if stalled else "repetition limit",
-                iteration=iteration,
-            ):
-                yield ev
-            salvaged = True
-
         token_info = self.context_manager.get_token_info(messages, model)
         from server.agents.todo_state import get_todo_state
 
@@ -1104,24 +1115,42 @@ class SimpleLoop:
             and todo
             and any(e.status in ("pending", "in_progress", "blocked") for e in todo.list())
         )
-        has_file_work = bool(created_files or files_edited or any_tool_succeeded)
+        has_mutation = bool(created_files or files_edited)
+        has_file_work = has_mutation
+        # Purely model-dependent completion: no hard-coded length/mutation/citation
+        # checks — harness is thin deterministic executor around emergent model signal
+        # (Pi Codex OpenCode invariant: continue iff tool_calls present).
         substantive_answer = bool(
             self._last_emitted_message
             and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
         )
+        # Salvage only for deterministic guards (stall/doom/length), not for
+        # incomplete research — that is handled by the emergent nudge above.
+        salvaged = False
+        if (stalled or doomed or iteration >= max_steps) and len(
+            (self._last_emitted_message or "").strip()
+        ) < SUMMARY_MIN_CHARS:
+            salvage_reason = "no recent progress" if stalled else "repetition limit"
+            async for ev in self._salvage_final_answer(
+                session_id=session_id,
+                messages=messages,
+                reason=salvage_reason,
+                iteration=iteration,
+            ):
+                yield ev
+            salvaged = True
+
         is_stalled = bool(stalled or doomed)
         is_length_truncated = bool(last_finish_reason == FinishReason.LENGTH or length_truncated)
         is_step_limited = bool(iteration >= max_steps)
 
-        # Honest turn completion: A turn can NEVER be marked completed if:
-        # 1. Output was truncated by token limit (finish_reason=length)
-        # 2. Turn stalled or entered repetition limit (doomed)
-        # 3. Active tasks remain on the checklist
-        # 4. Maximum loop step limit was reached before settling
-        if is_length_truncated or is_stalled or has_pending_todos or (is_step_limited and not substantive_answer):
+        # Honest turn completion — purely model-dependent, thin harness:
+        # Completed iff model finished without deterministic guard violation.
+        # No hard-coded has_mutation/has_todo_success/substantive length check.
+        if is_length_truncated or is_stalled or has_pending_todos or is_step_limited:
             completed = False
         else:
-            completed = bool(salvaged or has_file_work or substantive_answer)
+            completed = True
 
         if is_length_truncated:
             message = "Response truncated by token limit (finish_reason=length)"

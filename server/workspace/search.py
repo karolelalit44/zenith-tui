@@ -11,6 +11,7 @@ this additive primitive is what the grep/glob tools will adopt in Phase 2.
 
 import asyncio
 import functools
+import json
 import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -59,17 +60,29 @@ async def _run(argv: list[str], cmd_runner: CmdRunner | None = None) -> tuple[in
 
 
 def _parse_grep_output(text: str) -> list[SearchMatch]:
-    """Parse ``rg --line-number --no-heading --with-filename`` output into ``SearchMatch``.
+    """Parse ``rg`` output (either JSON stream or text) into ``SearchMatch``.
 
-    The emitted format is ``path:line:content``.  The path may itself contain colons
-    (Windows drive letters) and the content may too, so scan from the right to find the
-    *last* token that parses as an integer line number; everything before it is the path
-    and everything after it is the content (both rejoined so embedded colons survive).
+    When ``--json`` is passed, ripgrep emits JSON lines containing exact paths,
+    line numbers, and text.
+    When plain text is passed (legacy/test runner), format is ``path:line:content``.
     """
     matches: list[SearchMatch] = []
     for line in text.splitlines():
-        if not line.strip():
+        line_clean = line.strip()
+        if not line_clean:
             continue
+        if line_clean.startswith("{") and line_clean.endswith("}"):
+            try:
+                data = json.loads(line_clean)
+                if data.get("type") == "match":
+                    match_data = data.get("data", {})
+                    path = match_data.get("path", {}).get("text", "")
+                    line_no = match_data.get("line_number")
+                    lines_text = match_data.get("lines", {}).get("text", "").rstrip("\r\n")
+                    matches.append(SearchMatch(path=path, line_number=line_no, text=lines_text))
+                    continue
+            except json.JSONDecodeError:
+                pass
         parts = line.split(":")
         for i in range(len(parts) - 1, 0, -1):
             try:
@@ -113,28 +126,36 @@ class RipgrepBackend:
         include: str | None = None,
         files_only: bool = False,
         path: str | None = None,
+        fixed_strings: bool = False,
+        json_output: bool = False,
     ) -> list[str]:
         """Assemble a ripgrep argv for either a content search or a file listing.
 
-        Content search uses ``-e <pattern>`` and, when *include* is given, adds a
-        ``--glob <include>`` *filter* (the pattern is still searched; include only
-        narrows which files are examined).  File listing uses ``--files`` plus
-        ``--glob <pattern>``.  ``.gitignore`` is honoured automatically; each extra
-        ``--ignore-file`` is appended explicitly.
+        Content search uses ``-e <pattern>`` (or ``-F <pattern>`` for literal search)
+        and, when *include* is given, adds a ``--glob <include>`` *filter*.
+        File listing uses ``--files`` plus ``--glob <pattern>``.
+        ``.gitignore`` is honoured automatically; each extra ``--ignore-file`` is appended explicitly.
         """
         argv: list[str] = []
         if files_only:
             argv.append("--files")
             if pattern:
                 argv.extend(["--glob", pattern])
+            argv.extend(["--glob", "!**/.git/**"])
             argv.append("--color")
             argv.append("never")
         else:
             if pattern is None:
                 raise ValueError("pattern is required for a content search")
-            argv.extend(["-e", pattern])
+            if fixed_strings:
+                argv.extend(["-F", pattern])
+            else:
+                argv.extend(["-e", pattern])
             if include:
                 argv.extend(["--glob", include])
+            argv.extend(["--glob", "!**/.git/**"])
+            if json_output:
+                argv.append("--json")
             argv.extend(
                 [
                     "--max-count",
@@ -153,16 +174,33 @@ class RipgrepBackend:
         return argv
 
     async def grep(
-        self, pattern: str, path: str, include: str | None = None
+        self,
+        pattern: str,
+        path: str,
+        include: str | None = None,
+        fixed_strings: bool = False,
+        json_output: bool = False,
     ) -> list[SearchMatch]:
         """Search *pattern* under *path* and return line-level matches.
 
         *include* is a ripgrep glob (e.g. ``"*.py"``) that *filters which files are
-        searched* while still matching *pattern* — matching opencode's grep semantics
-        rather than replacing the pattern.
+        searched* while still matching *pattern*.
+        If regex parsing fails in ripgrep (code 2), automatically recovers using
+        literal fixed-strings search (-F).
         """
-        argv = await self._build_argv(pattern=pattern, include=include, path=path)
+        use_json = json_output or (self._cmd_runner is None)
+        argv = await self._build_argv(
+            pattern=pattern,
+            include=include,
+            path=path,
+            fixed_strings=fixed_strings,
+            json_output=use_json,
+        )
         code, out, _ = await _run(argv, self._cmd_runner)
+        if code == 2 and not fixed_strings and self._cmd_runner is None:
+            return await self.grep(
+                pattern, path, include=include, fixed_strings=True, json_output=use_json
+            )
         # ripgrep returns a non-zero (1) code when nothing matches; that is not an error.
         if code not in (0, 1) and not out.strip():
             return []

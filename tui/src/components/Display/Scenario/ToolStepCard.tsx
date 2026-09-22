@@ -25,6 +25,7 @@ import type { EventRenderContext } from './componentRegistry';
 import { DirectoryListingCard } from './DirectoryListingCard';
 import { formatErrorSummary } from './errorSummary';
 import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
+import { WebResearchCard } from './WebResearchCard';
 
 /** Shape of the metadata payload the server attaches to explore results. */
 interface ExploreMeta {
@@ -590,6 +591,11 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         tick={tick}
       />
     );
+  }
+
+  /** Medium of A2+A3 Dossier — dense + modern pills, no boxes, 1.5 lines. */
+  if (toolKey === 'websearch' || toolKey === 'webfetch') {
+    return <WebResearchCard event={event} context={context} />;
   }
 
   /** Modern capabilities dossier — grouped, color-coded, professional. */

@@ -57,6 +57,7 @@ FILE_WRITE_TOOL = "file_write"
 FILE_EDIT_TOOL = "file_edit"
 FILE_DELETE_TOOL = "file_delete"
 FILE_READ_TOOL = "file_read"
+APPLY_PATCH_TOOL = "apply_patch"
 BASH_TOOL = "bash"
 TERMINAL_TOOL = "terminal"
 

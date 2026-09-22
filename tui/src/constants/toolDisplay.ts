@@ -192,12 +192,24 @@ function formatGrepStatus(source: StatusSource): string {
 }
 
 function formatWebsearchStatus(source: StatusSource): string {
-  const query = String(source.metadata.query || source.params?.query || '');
+  const queries = source.params?.queries;
+  if (Array.isArray(queries) && queries.length > 1) {
+    return ` Web search [${queries.length} queries: "${queries[0]}" +${queries.length - 1}]`;
+  }
+  const query = String(source.metadata.query || source.params?.query || (Array.isArray(queries) ? queries[0] : '') || '');
   return ` Web search "${query}"`;
 }
 
 function formatWebfetchStatus(source: StatusSource): string {
   const url = String(source.metadata.url || source.params?.url || '');
+  if (source.params?.pattern) {
+    return ` Find in page "${source.params.pattern}" on ${url}`;
+  }
+  if (source.params?.start_line || source.params?.end_line) {
+    const start = source.params.start_line || 1;
+    const end = source.params.end_line ? `-${source.params.end_line}` : '+';
+    return ` Read lines ${start}${end} of ${url}`;
+  }
   return ` Web fetch ${url}`;
 }
 

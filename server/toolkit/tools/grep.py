@@ -118,12 +118,37 @@ def _build_dir_hints(matches: list[str], top_n: int = 8) -> str:
     return "\n".join(lines)
 
 
+_BINARY_EXTENSIONS = {
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".iso",
+    ".pyc", ".pyo", ".pyd", ".wasm", ".class", ".jar",
+    ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff",
+    ".pdf", ".sqlite", ".db", ".node"
+}
+
+
+def _is_binary_file(path: Path) -> bool:
+    if path.suffix.lower() in _BINARY_EXTENSIONS:
+        return True
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(1024)
+            if b"\x00" in chunk:
+                return True
+            non_printable = sum(1 for b in chunk if b < 9 or (13 < b < 32))
+            if chunk and (non_printable / len(chunk) > 0.3):
+                return True
+    except OSError:
+        return True
+    return False
+
+
 def _iter_source_files(root: Path, base: Path, matcher: ZenithIgnoreMatcher):
     """Yield non-ignored files under root, pruning ignored directories before
     descending so large vendored trees are never walked at all."""
     if root.is_file():
         rel = _safe_rel(root, base)
-        if rel is not None and not matcher.is_ignored(rel):
+        if rel is not None and not matcher.is_ignored(rel) and not _is_binary_file(root):
             yield root
         return
     stack: list[Path] = [root]
@@ -145,6 +170,8 @@ def _iter_source_files(root: Path, base: Path, matcher: ZenithIgnoreMatcher):
                     dirs.append(Path(entry.path))
                 continue
             if rel is not None and matcher.is_ignored(rel):
+                continue
+            if Path(entry.path).suffix.lower() in _BINARY_EXTENSIONS:
                 continue
             yield Path(entry.path)
         stack.extend(reversed(dirs))
@@ -199,6 +226,11 @@ class GrepTool(BaseTool):
                     "type": "string",
                     "description": "File pattern filter (e.g. '*.py', '*.ts', 'src/**', '*.{ts,tsx}')",
                 },
+                "literal": {
+                    "type": "boolean",
+                    "description": "If true, treat pattern as exact literal text instead of regex (useful for code with brackets, parens, quotes)",
+                    "default": False,
+                },
             },
             "required": ["pattern"],
         }
@@ -211,6 +243,7 @@ class GrepTool(BaseTool):
         base = Path(workspace_root).resolve()
         requested_path = params.get("path", ".")
         include = params.get("include", None)
+        literal = params.get("literal", False)
 
         search_path = (
             Path(requested_path) if Path(requested_path).is_absolute() else base / requested_path
@@ -221,17 +254,27 @@ class GrepTool(BaseTool):
         if not search_path.exists():
             return ToolResult(success=False, error=f"Search path not found: {search_path}")
 
-        try:
-            regex = _cached_regex(pattern)
-        except re.error as e:
-            return ToolResult(success=False, error=f"Invalid regex: {e}")
+        if literal:
+            regex = re.compile(re.escape(pattern), re.IGNORECASE)
+            is_literal = True
+        else:
+            try:
+                regex = _cached_regex(pattern)
+                is_literal = False
+            except re.error as e:
+                return ToolResult(
+                    success=False,
+                    error=f"Invalid regex: {e}. Pass literal=true to search for exact literal text.",
+                )
 
         try:
             backend = RipgrepBackend(
                 ignore_files=[str(base / ".zenithignore")], max_results=GREP_MAX_RESULTS * 2
             )
             if _find_rg() is not None:
-                backend_matches = await backend.grep(pattern, str(search_path), include=include)
+                backend_matches = await backend.grep(
+                    pattern, str(search_path), include=include, fixed_strings=is_literal
+                )
             else:
                 matcher = ZenithIgnoreMatcher(workspace_root)
                 matcher.refresh()

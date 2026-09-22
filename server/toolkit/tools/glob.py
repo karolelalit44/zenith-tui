@@ -133,6 +133,11 @@ class GlobTool(BaseTool):
             matched_rel_paths = []
             for file_name in files:
                 file_path = Path(file_name)
+                if not file_path.is_absolute():
+                    if (search_path / file_path).exists():
+                        file_path = search_path / file_path
+                    elif (base / file_path).exists():
+                        file_path = base / file_path
                 try:
                     relative_path = file_path.resolve().relative_to(base)
                 except ValueError:
@@ -154,7 +159,10 @@ class GlobTool(BaseTool):
 
             truncated = total > GLOB_MAX_RESULTS
             shown_paths = matched_rel_paths[:GLOB_MAX_RESULTS]
-            file_strings = [str(p) for p in shown_paths]
+            file_strings = [
+                p.as_posix() if hasattr(p, "as_posix") else str(p).replace("\\", "/")
+                for p in shown_paths
+            ]
 
             output_lines: list[str] = []
             if summary_prefix:

@@ -34,6 +34,7 @@ _DEGENERATE_TOKENS = {
     "[tool calls]",
     "[thinking]",
     "[no output]",
+    "...",  # sanitized placeholder for empty assistant turn
 }
 
 

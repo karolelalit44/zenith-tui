@@ -8,6 +8,7 @@ from .registry_validation import validate_registry
 from .resolver import DISCOVERY_TOOLS, SchemaResolver, build_mode_tool_seed
 from .schema_metrics import estimate_tool_schema_tokens, measure_registry_schema_tokens
 from .tools.bash import BashTool
+from .tools.apply_patch import ApplyPatchTool
 from .tools.file_delete import FileDeleteTool
 from .tools.file_edit import FileEditTool
 from .tools.file_read import FileReadTool
@@ -24,6 +25,7 @@ from .tools.websearch import WebsearchTool
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ApplyPatchTool",
     "DISCOVERY_TOOLS",
     "BaseTool",
     "BashTool",
@@ -74,6 +76,7 @@ def create_default_registry(
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
     registry.register(FileEditTool())
+    registry.register(ApplyPatchTool())
     registry.register(FileDeleteTool())
     registry.register(GlobTool())
     registry.register(GrepTool())

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.agents.session_workspace import evict_file_cache, record_write
 from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     FILE_ALREADY_EXISTS_ERROR,
@@ -9,7 +10,7 @@ from server.config.constants import (
     PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
-from server.workspace.ignore import blocked_as_missing, get_matcher
+from server.toolkit.registry import current_tool_session_id
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -65,11 +66,10 @@ class FileWriteTool(BaseTool):
                 success=False,
                 error=f"Path escapes workspace boundary: {rel_path}. Use relative paths within the project.",
             )
-        if blocked_as_missing(get_matcher(workspace_root), rel_path):
-            return ToolResult(success=False, error=f"File not found: {rel_path}")
         content = params.get("content", "")
         overwrite = params.get(FILE_OVERWRITE_PARAM, False)
-        if resolved.exists() and (not overwrite):
+        existed = resolved.exists()
+        if existed and (not overwrite):
             return ToolResult(
                 success=False,
                 error=FILE_ALREADY_EXISTS_ERROR.format(
@@ -77,17 +77,46 @@ class FileWriteTool(BaseTool):
                 ),
             )
         try:
+            # Detect existing line endings and BOM before mutating
+            has_bom = False
+            has_crlf = False
+            if existed:
+                try:
+                    raw_bytes = resolved.read_bytes()
+                    has_bom = raw_bytes.startswith(b"\xef\xbb\xbf")
+                    has_crlf = b"\r\n" in raw_bytes
+                except OSError:
+                    pass
+
+            norm_content = (
+                content.replace("\r\n", "\n").replace("\n", "\r\n")
+                if has_crlf
+                else content
+            )
+            out_bytes = (
+                b"\xef\xbb\xbf" + norm_content.encode("utf-8")
+                if has_bom
+                else norm_content.encode("utf-8")
+            )
+
             # Serialize the filesystem mutation per workspace (opencode's
             # file-mutation Semaphore) so parallel tool calls cannot race on
-            # the same file. Validation above stays outside the critical
-            # section to keep lock hold-time minimal.
+            # the same file.
             async with FILE_MUTATION_QUEUE.mutation(workspace_root):
                 resolved.parent.mkdir(parents=True, exist_ok=True)
-                resolved.write_text(content, encoding="utf-8")
+                resolved.write_bytes(out_bytes)
+
+            session_id = current_tool_session_id.get() or ""
+            if session_id:
+                evict_file_cache(session_id, str(resolved))
+                record_write(session_id, rel_path, content)
+
+            action = "Updated" if existed else "Created"
             return ToolResult(
                 success=True,
-                output=f"Created {rel_path} ({len(content)} bytes)",
-                metadata={"path": str(resolved), "bytes": len(content)},
+                output=f"{action} {rel_path} ({len(content)} bytes)",
+                metadata={"path": str(resolved), "bytes": len(content), "overwritten": existed},
             )
         except Exception as e:
             return ToolResult(success=False, error=str(e))
+
