@@ -182,10 +182,12 @@ def build_tool_metadata(
         if tool_params.get("show_content") or tool_params.get("render_code"):
             meta["content"] = tool_params.get("content", "")
     elif tool_name == FILE_EDIT_TOOL:
+        old_text = str(tool_params.get("old_content", ""))
+        new_text = str(tool_params.get("new_content", ""))
         meta = {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
-            "old_content": tool_params.get("old_content", ""),
-            "new_content": tool_params.get("new_content", ""),
+            "old_content_chars": len(old_text),
+            "new_content_chars": len(new_text),
             "match": "exact",
         }
     elif tool_name in (FILE_DELETE_TOOL, FILE_READ_TOOL):
@@ -195,10 +197,17 @@ def build_tool_metadata(
 
     # Tool-reported metadata (e.g. resolved path, edit count, difflib patch)
     # is merged on top of the params-derived view so nothing is lost.
+    # Full file bodies must never persist in events: strip any raw content
+    # fields that a tool may have reported, keeping lengths only.
     if result.metadata:
         merged = dict(result.metadata)
         merged.update(meta)
         meta = merged
+        for _body_key in ("old_content", "new_content", "content"):
+            _val = meta.get(_body_key)
+            if isinstance(_val, str) and _val:
+                meta[_body_key + "_chars"] = len(_val)
+                del meta[_body_key]
 
     if tool_name in MUTATION_DIFF_TOOLS:
         diff = capture_mutation_diff(workspace_root, tool_params, result)

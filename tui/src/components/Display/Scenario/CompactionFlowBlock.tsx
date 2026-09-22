@@ -232,7 +232,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
       )}
 
       {notes.length > 0 ? (
-        <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+        <Box flexDirection="column" paddingLeft={2} marginTop={0}>
           {notes.map((note, noteIdx) => (
             <Text key={noteIdx} color={theme.colors.text.dim} wrap="truncate-end">
               ↳ {note}

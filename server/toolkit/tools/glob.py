@@ -131,6 +131,7 @@ class GlobTool(BaseTool):
                         if len(files) >= max_results:
                             break
             matched_rel_paths = []
+            ignored_skipped = 0
             for file_name in files:
                 file_path = Path(file_name)
                 if not file_path.is_absolute():
@@ -144,6 +145,8 @@ class GlobTool(BaseTool):
                     relative_path = file_path
                 if not matcher.is_ignored(relative_path):
                     matched_rel_paths.append(relative_path)
+                else:
+                    ignored_skipped += 1
 
             matched_rel_paths = sorted(set(matched_rel_paths))
             total = len(matched_rel_paths)
@@ -151,7 +154,13 @@ class GlobTool(BaseTool):
                 return ToolResult(
                     success=True,
                     output="No files found matching pattern",
-                    metadata={"count": 0, "shown": 0, "truncated": False, "files": []},
+                    metadata={
+                        "count": 0,
+                        "shown": 0,
+                        "truncated": False,
+                        "files": [],
+                        "ignored_skipped": ignored_skipped,
+                    },
                 )
 
             is_broad = total >= BROAD_PATTERN_THRESHOLD and _pattern_is_unscoped(pattern)
@@ -191,6 +200,7 @@ class GlobTool(BaseTool):
                     "shown": len(file_strings),
                     "truncated": truncated or len(output) >= GLOB_MAX_OUTPUT_CHARS,
                     "files": file_strings,
+                    "ignored_skipped": ignored_skipped,
                 },
             )
         except Exception as e:

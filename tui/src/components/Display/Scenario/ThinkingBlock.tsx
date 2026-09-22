@@ -1,10 +1,12 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { isZenithBright, isZenithDim, ZENITH_RETICLE, zenithPulseGlyphForTick } from '../../../constants/animation';
+import { ROW_GAP } from '../../../constants/layout';
 import { useAnimationTick } from '../../../context/AnimationContext';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ScenarioEvent, ThinkingEvent, ThinkingThought } from '../../../types/scenario';
-import { formatDuration } from '../../../utils/text';
+import { formatDuration, truncateEnd } from '../../../utils/text';
 
 import type { EventRenderContext } from './componentRegistry';
 
@@ -68,6 +70,8 @@ ZenithPulseGlyph.displayName = 'ZenithPulseGlyph';
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context, turnEvents }) => {
   const { theme } = useTheme();
   const isCalm = context?.calmMode === true;
+  const { columns } = useTerminalDimensions();
+  const termCols = columns || process.stdout.columns || 80;
 
   // In Calm Mode or when explicitly toggled via ctrl+h / /think,
   // reasoning renders as a compact, single-line telemetry chip.
@@ -123,24 +127,33 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
     </Box>
   );
 
+  // Preview is truncated in JS with an explicit ellipsis so it never gets hard-clipped
+  // mid-word at the terminal edge (Ink's truncate-end needs a known Text width, which
+  // flex siblings don't reliably provide inside `nowrap` rows).
+  const headerLabel = isStreaming ? 'Thinking' : durationStr ? `Thought for ${durationStr}` : 'Thought';
+  const headerLen = 2 + headerLabel.length;
+  const collapsedRowWidth = Math.max(30, termCols - 2);
+  const previewBudget = Math.max(20, collapsedRowWidth - 2 - headerLen - 3);
+  const previewText = preview ? truncateEnd(preview, previewBudget) : '';
+
   return (
-    <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
       {isCollapsed ? (
         <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
           <Box flexShrink={0}>{headerContent}</Box>
-          {preview ? (
+          {previewText ? (
             <>
               <Text color={theme.colors.text.dim}> · </Text>
               <Box flexShrink={1} flexGrow={1} overflow="hidden">
                 <Text color={theme.colors.text.dim} italic wrap="truncate-end">
-                  {preview}
+                  {previewText}
                 </Text>
               </Box>
             </>
           ) : null}
         </Box>
       ) : (
-        <Box flexDirection="row" alignItems="center" marginBottom={1}>
+        <Box flexDirection="row" alignItems="center" marginBottom={0}>
           {headerContent}
         </Box>
       )}
@@ -154,7 +167,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
           const hiddenCount = event.thoughts.length - thoughtsToRender.length;
 
           return (
-            <Box flexDirection="column" paddingLeft={2} width="100%">
+            <Box flexDirection="column" width="100%">
               {hiddenCount > 0 && (
                 <Box flexDirection="row" alignItems="center" marginBottom={0}>
                   <Text color={theme.colors.text.dim} dimColor italic>

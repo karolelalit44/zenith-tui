@@ -16,7 +16,6 @@ from server.config.constants import (
     TOOL_DOMAIN_READ,
 )
 from server.toolkit.registry import current_tool_session_id
-from server.workspace.ignore import blocked_as_missing, get_matcher
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path

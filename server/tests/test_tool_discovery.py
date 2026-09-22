@@ -39,7 +39,10 @@ class TestDiscoveryTools:
         registry = create_default_registry()
         discover = registry.get(DISCOVER_CAPABILITIES_TOOL)
         get_definition = registry.get(GET_TOOL_DEFINITION_TOOL)
-        assert discover.get_schema() == {"type": "object", "properties": {}}
+        schema = discover.get_schema()
+        assert schema["type"] == "object"
+        assert schema["properties"].get("query", {}).get("type") == "string"
+        assert schema.get("required", []) == []
         props = get_definition.get_schema()["properties"]
         assert "tool_name" in props
 

@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { contentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { FileAttachment } from '../../../types/scenario';
@@ -39,7 +40,7 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
 
     const termCols = columns || process.stdout.columns || 80;
     // App container has paddingX={1}, so inner usable width is (termCols - 2).
-    const contentWidth = Math.max(30, termCols - 2);
+    const treatedWidth = contentWidth(termCols);
 
     // Pick frozen timestamp display string
     const displayTime = termCols >= 80 ? (timestampLong ?? timestamp ?? '') : (timestamp ?? '');
@@ -48,11 +49,11 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
     const modelLabel = model ?? '';
 
     return (
-      <Box flexDirection="column" width={contentWidth} marginTop={0} marginBottom={1}>
+      <Box flexDirection="column" width={treatedWidth} marginTop={0} marginBottom={1}>
         {/* ── Full-width prompt bar with theme background fill ── */}
         <Box
           flexDirection="row"
-          width={contentWidth}
+          width={treatedWidth}
           backgroundColor={theme.colors.code.background}
           paddingX={2}
           paddingY={1}
@@ -90,7 +91,14 @@ export const UserMessageBlock: React.FC<UserMessageBlockProps> = React.memo(
         </Box>
 
         {/* ── Metadata row: model on far left, timestamp on far right ── */}
-        <Box flexDirection="row" justifyContent="space-between" width={contentWidth} paddingLeft={2} paddingRight={2}>
+        <Box
+          flexDirection="row"
+          justifyContent="space-between"
+          width={treatedWidth}
+          marginTop={1}
+          paddingLeft={1}
+          paddingRight={2}
+        >
           {modelLabel ? (
             <Text color={theme.colors.text.muted} wrap="truncate-end">
               ◇ <Text color={theme.colors.text.dim}>{modelLabel}</Text>

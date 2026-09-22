@@ -14,7 +14,10 @@ from .background import get_background_manager
 
 class JobOutputTool(BaseTool):
     name = "job_output"
-    description = "View background job output"
+    description = (
+        "View background job output. Poll periodically until completed is true. "
+        "Pass the job_id from bash run_in_background, then re-poll for completion."
+    )
     capability_id = "background_jobs"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
@@ -43,10 +46,19 @@ class JobOutputTool(BaseTool):
         job = manager.get(job_id)
         if job is None:
             return ToolResult(success=False, error=f"Job {job_id} not found")
-        output = manager.get_output(job_id) or ""
+        full = manager.get_output(job_id) or ""
+        output = full
+        _max = 15000
+        if len(full) > _max:
+            output = (
+                full[:_max]
+                + f"\n\n... [output truncated at {_max} chars of {len(full)} total. Poll job_output again with job_id='{job_id}' for the latest tail.]"
+            )
         if not job.done:
             return ToolResult(
-                success=True, output=output, metadata={"job_id": job_id, "completed": False}
+                success=True,
+                output=output,
+                metadata={"job_id": job_id, "completed": False},
             )
         ok = job.exit_code == 0
         return ToolResult(

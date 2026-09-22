@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoStatus } from '../../../types/scenario';
@@ -23,7 +24,7 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
   const colors = theme.colors;
   const { columns } = useTerminalDimensions();
   const termCols = columns || process.stdout.columns || 80;
-  const contentWidth = Math.max(30, termCols - 2);
+  const contentWidth = computeContentWidth(termCols);
 
   const all = event.board ?? [];
   const items = all.slice(0, MAX_VISIBLE_TODOS);

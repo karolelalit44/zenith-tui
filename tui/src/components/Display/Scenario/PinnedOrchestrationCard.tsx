@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
@@ -46,7 +47,7 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
     const colors = theme.colors;
     const { columns } = useTerminalDimensions();
     const termCols = columns || process.stdout.columns || 80;
-    const contentWidth = Math.max(30, termCols - 2);
+    const contentWidth = computeContentWidth(termCols);
 
     const crewmates = event.crewmates ?? [];
     const isMissionRunning = isRunning && event.stage !== 'complete';

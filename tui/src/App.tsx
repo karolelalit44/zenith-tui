@@ -14,7 +14,8 @@ import { CommandInput } from './components/Input/CommandInput';
 import { CommandPalette } from './components/Input/CommandPalette';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
 import { OptionBanner } from './components/ui/OptionBanner';
-import { AppProvider } from './context/AppContext';
+  import { contentWidth as contentWidthForColumns } from './constants/layout';
+  import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
 import { useOverlayManager } from './hooks/useOverlayManager';
@@ -47,7 +48,7 @@ import { convertHistoryToTurns } from './utils/historyToTurns';
 import { consolidateOrchestrationEvents } from './utils/orchestration';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 import { consolidateTodoBoardEvents } from './utils/todoBoard';
-import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
+  import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
 import { resolveWorkspaceRoot } from './utils/workspacePath';
 
 /**
@@ -124,7 +125,7 @@ export const App: React.FC = () => {
   } = useConversation();
 
   const termDims = useTerminalDimensions(remountStatic);
-  const contentWidth = termDims.columns ? Math.max(30, termDims.columns - 2) : '100%';
+  const contentWidth = termDims.columns ? contentWidthForColumns(termDims.columns) : '100%';
 
   const { scrollState, scrollUp, scrollDown, scrollToTop, scrollToBottom, resetScroll, updateContentHeight } =
     useScrollState();
@@ -809,7 +810,7 @@ export const App: React.FC = () => {
             return (
               <Box key={item.id} flexDirection="column" width={contentWidth}>
                 {turnCost ? (
-                  <Box marginBottom={1}>
+                  <Box paddingX={1} marginBottom={1}>
                     <Text color={theme.colors.text.muted}>◈ {turnCost}</Text>
                   </Box>
                 ) : null}

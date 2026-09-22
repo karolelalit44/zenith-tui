@@ -116,7 +116,9 @@ def create_default_registry(
     registry.register_middleware(ReadOnlyModeGuard(registry))
     validation_errors = validate_registry(registry)
     if validation_errors:
-        logger.warning("Tool registry validation failed at startup:")
         for error in validation_errors:
-            logger.warning("  %s", error)
+            logger.error("  %s", error)
+        raise ValueError(
+            "Tool registry validation failed: " + "; ".join(validation_errors)
+        )
     return registry

@@ -50,11 +50,71 @@ class DiscoverCapabilitiesTool(BaseTool):
         self._registry = registry
 
     def get_schema(self) -> dict:
-        return {"type": "object", "properties": {}}
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Optional intent phrase to rank tools (e.g. 'read a file', 'run tests'). When omitted, lists every capability.",
+                },
+            },
+        }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
         if self._registry is None:
             return ToolResult(success=False, error="Tool discovery unavailable: no registry")
+        query = str(params.get("query") or "").strip().lower()
+        if query:
+            scored: list[tuple[int, BaseTool]] = []
+            for name in self._registry.list_tools():
+                tool = self._registry.get(name)
+                if tool is None:
+                    continue
+                hay = " ".join(
+                    [
+                        tool.name,
+                        tool.capability_id or "",
+                        tool.description or "",
+                        " ".join(tool.search_terms or ()),
+                        " ".join(tool.domains or ()),
+                    ]
+                ).lower()
+                score = 0
+                for token in query.replace(",", " ").split():
+                    if not token:
+                        continue
+                    if token == tool.name.lower():
+                        score += 10
+                    elif token in (tool.capability_id or "").lower():
+                        score += 5
+                    elif token in hay:
+                        score += 2
+                if score > 0:
+                    scored.append((score, tool))
+            scored.sort(key=lambda item: (-item[0], item[1].name))
+            top = scored[:8]
+            if not top:
+                return ToolResult(
+                    success=True,
+                    output=f"No ranked tools matched '{params.get('query')}'. Call without a query to list every capability.",
+                    metadata={"query": params.get("query"), "count": 0},
+                )
+            lines = [f"Ranked tools for '{params.get('query')}' (top {len(top)}):"]
+            for score, tool in top:
+                flags = "read-only" if tool.read_only else "mutating"
+                lines.append(f"- {tool.name} [{flags}]: {tool.description}")
+            lines.append(
+                "Call get_tool_definition('<tool_name>') to load the full schema before using it."
+            )
+            return ToolResult(
+                success=True,
+                output="\n".join(lines),
+                metadata={
+                    "query": params.get("query"),
+                    "tools": [tool.name for _, tool in top],
+                    "count": len(top),
+                },
+            )
         grouped: dict[str, list[BaseTool]] = {}
         for name in sorted(self._registry.list_tools()):
             tool = self._registry.get(name)

@@ -144,17 +144,16 @@ export const TurnManifestCard: React.FC<TurnManifestCardProps> = React.memo(({ e
           }
           bold
         >
-          {event.completed ? ' Turn complete' : event.stalled ? '● Turn stalled' : '⧗ Turn paused'}
+          {event.completed ? '● Turn complete' : event.stalled ? '● Turn stalled' : '⧗ Turn paused'}
         </Text>
-        <Text color={theme.colors.text.muted}> </Text>
         <Text color={theme.colors.text.muted}>{formatTurnSummary(event)}</Text>
       </Box>
 
       {(event.created.length > 0 || event.modified.length > 0) && (
-        <Box flexDirection="column" paddingLeft={1} width="100%">
+        <Box flexDirection="column" paddingLeft={2} width="100%">
           {renderChildren(tree, '', theme)}
           {hidden > 0 && (
-            <Box paddingLeft={2}>
+            <Box>
               <Text color={theme.colors.text.muted}>… {hidden} more</Text>
             </Box>
           )}
@@ -162,7 +161,7 @@ export const TurnManifestCard: React.FC<TurnManifestCardProps> = React.memo(({ e
       )}
 
       {event.remaining.length > 0 && (
-        <Box flexDirection="column" paddingLeft={1} paddingTop={1} width="100%">
+        <Box flexDirection="column" paddingLeft={2} paddingTop={1} width="100%">
           <Box flexDirection="row">
             <Box width={2}>
               <Text color={theme.colors.status.warning}>◈</Text>
@@ -172,12 +171,12 @@ export const TurnManifestCard: React.FC<TurnManifestCardProps> = React.memo(({ e
             </Text>
           </Box>
           {event.remaining.slice(0, MAX_FILES).map((item, idx) => (
-            <Box key={idx} paddingLeft={2}>
+            <Box key={idx}>
               <Text color={theme.colors.text.muted}>- {item}</Text>
             </Box>
           ))}
           {event.remaining.length > MAX_FILES && (
-            <Box paddingLeft={2}>
+            <Box>
               <Text color={theme.colors.text.muted}>… {event.remaining.length - MAX_FILES} more</Text>
             </Box>
           )}

@@ -513,7 +513,8 @@ class TestBashTool:
             )
             is None
         )
-        assert _assess_dedicated_tool_bypass("Get-Content app.log -Tail 5") is None
+        assert _assess_dedicated_tool_bypass("Get-Content app.log -Tail 5") is not None
+        assert "file_read" in _assess_dedicated_tool_bypass("Get-Content app.log -Tail 5")
 
     def test_file_view_with_path_still_refused(self):
         from server.toolkit.tools.bash import _assess_dedicated_tool_bypass

@@ -176,14 +176,15 @@ def _assess_dedicated_tool_bypass(command: str) -> str | None:
                 "Example: list_dir(path='server') or glob(pattern='**/*.py', path='server')."
             )
         if _FILE_VIEW_BYPASS.match(seg):
-            # Only a bare `head file.txt` / `tail -n 5 log` (path operand)
-            # bypasses the dedicated file_read tool. `head -N` truncates a
-            # stream and is legitimate (e.g. `curl ... | head -200`), so it
-            # must NOT be redirected to file_read.
+            # `head file.txt` / `tail log.txt` (path operand) bypasses
+            # file_read. `head -200` / `tail -n 5` (numeric flags only)
+            # truncates a stream and is legitimate. For `Get-Content
+            # file.txt -Tail 5`, the first non-flag token is the path.
+            # Refuse if ANY non-flag operand is non-numeric (a real path).
             operands = [t for t in _FILE_VIEW_OPERAND.findall(seg)[1:] if not t.startswith("-")]
-            path = operands[-1] if operands else None
-            if path is None or _FILE_VIEW_NUMERIC.match(path):
+            if not any(not _FILE_VIEW_NUMERIC.match(o) for o in operands):
                 continue
+            path = next(o for o in operands if not _FILE_VIEW_NUMERIC.match(o))
             return (
                 f"Refused: Do not use shell file viewers for reading. "
                 f"Use dedicated 'file_read' tool. Example: file_read(path='{path}')."

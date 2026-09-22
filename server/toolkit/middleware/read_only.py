@@ -24,17 +24,26 @@ class ReadOnlyModeGuard(ToolMiddleware):
     """
 
     def __init__(self, registry: ToolRegistry) -> None:
-        # Derive the allow-list from tool metadata (not a hand-maintained
-        # list) so a future read-only tool is allowed automatically and a
-        # mutator added later can never leak in by omission.
-        self.allowed = frozenset(
-            name for name in registry.list_tools()
-            if getattr(registry.get(name), "read_only", False)
-        ) | {
-            DISCOVER_CAPABILITIES_TOOL,
-            GET_TOOL_DEFINITION_TOOL,
-        }
+        self._registry = registry
         self.blocked_calls = 0
+        self._allowed_cache: frozenset[str] | None = None
+        self._cache_ttl = 60
+        self._cache_time = 0.0
+
+    @property
+    def allowed(self) -> frozenset[str]:
+        if self._allowed_cache is None:
+            self._allowed_cache = frozenset(
+                name for name in self._registry.list_tools()
+                if getattr(self._registry.get(name), "read_only", False)
+            ) | {
+                DISCOVER_CAPABILITIES_TOOL,
+                GET_TOOL_DEFINITION_TOOL,
+            }
+        return self._allowed_cache
+
+    def clear_cache(self) -> None:
+        self._allowed_cache = None
 
     async def before_execute(
         self, name: str, params: dict[str, Any], ctx: ToolContext

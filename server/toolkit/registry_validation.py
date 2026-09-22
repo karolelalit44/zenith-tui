@@ -9,6 +9,7 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     CONCURRENCY_GROUP_SHELL,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
+    CREWMATE_MODE,
     MAX_TOOL_DESCRIPTION_LENGTH,
     MAX_TOOL_NAME_LENGTH,
     PERMISSION_COMMAND,
@@ -18,6 +19,7 @@ from server.config.constants import (
     PERMISSION_READ,
     PERMISSION_WRITE,
     PLAN_MODE,
+    READ_ONLY_MODE,
     RISK_HIGH,
     RISK_LOW,
     RISK_MEDIUM,
@@ -25,7 +27,7 @@ from server.config.constants import (
 )
 from server.toolkit.registry import ToolRegistry
 
-_VALID_MODES = (None, BUILD_MODE, PLAN_MODE)
+_VALID_MODES = (None, BUILD_MODE, PLAN_MODE, READ_ONLY_MODE, CREWMATE_MODE)
 _VALID_RISK_LEVELS = (RISK_SAFE, RISK_LOW, RISK_MEDIUM, RISK_HIGH)
 _VALID_PERMISSION_SCOPES = (
     PERMISSION_READ,
@@ -106,6 +108,18 @@ def validate_registry(registry: ToolRegistry) -> list[str]:
             errors.append(
                 f"Tool '{name}': read_only=False but permission_scope='{PERMISSION_READ}'"
             )
+        if not tool.read_only and tool.concurrency_group == CONCURRENCY_GROUP_READONLY:
+            errors.append(
+                f"Tool '{name}': read_only=False but concurrency_group='{CONCURRENCY_GROUP_READONLY}'"
+            )
+        _timeout = getattr(tool, "timeout_ms", None)
+        if _timeout is not None and (not isinstance(_timeout, int) or _timeout <= 0):
+            errors.append(f"Tool '{name}': invalid timeout_ms '{_timeout}'")
+        _modes = getattr(tool, "modes", None)
+        if isinstance(_modes, (list, tuple)):
+            for _m in _modes:
+                if _m not in (BUILD_MODE, PLAN_MODE, READ_ONLY_MODE, CREWMATE_MODE):
+                    errors.append(f"Tool '{name}': invalid mode entry '{_m}'")
         for schema_error in _validate_schema(tool.get_schema()):
             errors.append(f"Tool '{name}': {schema_error}")
     return errors

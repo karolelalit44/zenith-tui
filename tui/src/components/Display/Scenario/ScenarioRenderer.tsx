@@ -1,6 +1,8 @@
 import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
+import { estimateTokensForEvents } from '../../../services/api/tokenEstimationService';
 import { useTheme } from '../../../theme/ThemeContext';
 import type {
   CaptainOrchestrationEvent,
@@ -14,7 +16,6 @@ import { consolidateCompactionEvents } from '../../../utils/compaction';
 import { consolidateOrchestrationEvents } from '../../../utils/orchestration';
 import { foldReadOnlyRepeats, pairToolEvents, progressDuplicatesPendingToolStep } from '../../../utils/pairToolEvents';
 import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
-import { estimateTokensForEvents } from '../../../services/api/tokenEstimationService';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -268,7 +269,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       );
     };
 
-    const contentWidth = termCols ? Math.max(30, termCols - 2) : '100%';
+    const contentWidth = termCols ? computeContentWidth(termCols) : '100%';
 
     return (
       <Box flexDirection="column" width={contentWidth}>

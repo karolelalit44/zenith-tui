@@ -1,5 +1,6 @@
 import { Box, type Key, Text } from 'ink';
 import React, { useCallback } from 'react';
+import { FOOTER_EDGE_PAD } from '../../constants/layout';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
 import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
@@ -89,7 +90,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     const { columns } = useTerminalDimensions();
     const termCols = columns || process.stdout.columns || 80;
-    const dividerWidth = Math.max(0, termCols - 6);
+    const dividerWidth = Math.max(0, termCols - FOOTER_EDGE_PAD);
 
     const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
     const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
@@ -250,9 +251,9 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           )}
 
           <Box flexDirection="row" width="100%" alignItems="flex-start">
-            <Box flexShrink={0}>
+            <Box flexShrink={0} marginRight={1}>
               <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
-                {focused ? '❯' : '◌'}{' '}
+                {focused ? '❯' : '◌'}
               </Text>
             </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1}>

@@ -1,7 +1,6 @@
 import { Box, Text } from 'ink';
 import React, { useRef } from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
-import { stripAnsi } from '../../../utils/ansi';
 import {
   EXPLORE_TOOL,
   FILE_DELETE_TOOL_SET,
@@ -20,7 +19,8 @@ import {
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
-import { formatDuration } from '../../../utils/text';
+import { stripAnsi } from '../../../utils/ansi';
+import { countWord, formatDuration } from '../../../utils/text';
 import { getWorkspaceFolderName, toWorkspaceRelative } from '../../../utils/workspacePath';
 import type { EventRenderContext } from './componentRegistry';
 import { DirectoryListingCard } from './DirectoryListingCard';
@@ -79,7 +79,7 @@ const ExploreCrewCard: React.FC<{
   context?: EventRenderContext;
   metaPill: React.ReactNode;
   tick: number;
-}> = React.memo(({ event, isPending, state, elapsedMs, tick }) => {
+}> = React.memo(({ event, isPending, state, elapsedMs, tick, metaPill }) => {
   const { theme } = useTheme();
   const meta = readExploreMeta(event.metadata);
   const crewmateName = meta.crewmate_name ?? 'Apogee';
@@ -100,15 +100,6 @@ const ExploreCrewCard: React.FC<{
       : state === 'cancelled'
         ? theme.colors.status.warning
         : theme.colors.border.muted;
-
-  const durationSec =
-    event.metadata?.duration_ms !== undefined
-      ? Math.max(0, event.metadata.duration_ms as number)
-      : isPending
-        ? elapsedMs
-        : 0;
-  const durationText =
-    durationSec > 0 || isPending ? formatDuration(Math.max(1000, Math.floor(durationSec / 1000) * 1000)) : '';
 
   /** Confidence chips: one glance = report trustworthiness. */
   const chips: { color: string; glyph: string; label: string }[] = [];
@@ -155,11 +146,7 @@ const ExploreCrewCard: React.FC<{
           <Box flexShrink={0}>
             <Text color={theme.colors.text.dim}>{meta.thoroughness ?? 'standard'}</Text>
           </Box>
-          {durationText ? (
-            <Box flexShrink={0} marginLeft={1}>
-              <Text color={theme.colors.text.dim}>~ {durationText}</Text>
-            </Box>
-          ) : null}
+          {metaPill}
         </Box>
 
         {/* Mission line: status glyph ❯ objective */}
@@ -171,7 +158,7 @@ const ExploreCrewCard: React.FC<{
             {isPending
               ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} `
               : ok
-                ? ' '
+                ? '  '
                 : state === 'cancelled'
                   ? '⊘ '
                   : '✗ '}
@@ -327,8 +314,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const metaDurMs =
     typeof event.metadata?.duration_ms === 'number' ? Math.max(0, event.metadata.duration_ms) : undefined;
   const durationSec = metaDurMs !== undefined ? metaDurMs : isPending ? elapsedMs : 0;
-  const durationText =
-    durationSec > 0 || isPending ? formatDuration(Math.max(1000, Math.floor(durationSec / 1000) * 1000)) : '';
+  const durationText = formatDuration(durationSec);
 
   const repeatMeta = event.metadata?.[TOOL_META_REPEAT_COUNT];
   const repeatCount = typeof repeatMeta === 'number' && repeatMeta > 1 ? repeatMeta : 0;
@@ -363,7 +349,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     }
     return (
       <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-        {isSuccess ? '' : '✗'}{' '}
+        {isSuccess ? ' ' : '✗'}{' '}
       </Text>
     );
   })();
@@ -378,7 +364,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       ) : null}
       {durationText ? (
         <Box flexShrink={0} marginLeft={1}>
-          <Text color={theme.colors.text.dim}>~ {durationText}</Text>
+          <Text color={theme.colors.text.dim}>· {durationText}</Text>
         </Box>
       ) : null}
     </>
@@ -731,8 +717,9 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   // Inline result counts keep read/search rows to ONE line total.
   const inlineCount = (() => {
     if (!isSuccess || isPending || outputText.trim().length === 0) return '';
-    if (isFileRead) return `${outputText.split('\n').filter((l) => l.trim()).length} lines`;
-    if (isGrepSearch) return `${outputText.split('\n').filter((l) => l.trim()).length} matches`;
+    const count = outputText.split('\n').filter((l) => l.trim()).length;
+    if (isFileRead) return countWord(count, 'line');
+    if (isGrepSearch) return countWord(count, 'match');
     return '';
   })();
 

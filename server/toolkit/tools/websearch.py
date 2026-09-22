@@ -64,12 +64,15 @@ class WebsearchTool(BaseTool):
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Single search query string (optional if 'queries' is provided)",
+                    "minLength": 1,
+                    "description": "Single search query string (required if 'queries' is omitted)",
                 },
                 "queries": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Batch of up to 4 search queries to execute concurrently",
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "items": {"type": "string", "minLength": 1},
+                    "description": "Batch of 1-4 search queries to execute concurrently (required if 'query' is omitted)",
                 },
                 "max_results": {
                     "type": "integer",
@@ -94,6 +97,7 @@ class WebsearchTool(BaseTool):
                     "description": "Optional recency filter to restrict results to fresh content",
                 },
             },
+            "anyOf": [{"required": ["query"]}, {"required": ["queries"]}],
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
@@ -112,7 +116,10 @@ class WebsearchTool(BaseTool):
             query_list = [raw_query]
 
         if not query_list:
-            return ToolResult(success=False, error="No search query provided")
+            return ToolResult(
+                success=False,
+                error="No search query provided: supply 'query' with a non-empty string or 'queries' with 1-4 non-empty strings.",
+            )
 
         try:
             max_results = min(int(params.get("max_results", _DEFAULT_MAX_RESULTS)), 20)

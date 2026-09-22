@@ -39,7 +39,7 @@ class ListDirTool(BaseTool):
             "properties": {
                 "path": {"type": "string", "description": "Directory path", "default": "."},
             },
-            "required": ["path"],
+            "required": [],
         }
 
     async def execute(self, params: dict[str, Any], workspace_root: str) -> ToolResult:
@@ -64,6 +64,7 @@ class ListDirTool(BaseTool):
             base_resolved = Path(workspace_root).resolve()
             dirs: list[str] = []
             files: list[str] = []
+            ignored_skipped = 0
             # os.scandir yields DirEntry with cached stat — one syscall per entry
             # vs os.listdir + is_dir() which stats twice. Measurably faster on
             # large dirs (e.g. 2k files: ~40% fewer stats).
@@ -81,6 +82,7 @@ class ListDirTool(BaseTool):
                         matcher.is_ignored_dir(child_rel) if is_dir else matcher.is_ignored(child_rel)
                     )
                     if ignored:
+                        ignored_skipped += 1
                         continue
                     if is_dir:
                         dirs.append(f"{entry.name}/")
@@ -96,6 +98,7 @@ class ListDirTool(BaseTool):
                     "dirs": len(dirs),
                     "files": len(files),
                     "entries": output_lines,
+                    "ignored_skipped": ignored_skipped,
                 },
             )
         except Exception as exc:

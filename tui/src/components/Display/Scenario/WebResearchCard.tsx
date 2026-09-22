@@ -1,12 +1,13 @@
 import { Box, Text } from 'ink';
 import React, { useRef } from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
+import { ROW_GAP } from '../../../constants/layout';
 import { WEBFETCH_TOOL, WEBSEARCH_TOOL } from '../../../constants/toolDisplay';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import { stripAnsi } from '../../../utils/ansi';
-import { formatDuration } from '../../../utils/text';
+import { countWord, formatDuration } from '../../../utils/text';
 import type { EventRenderContext } from './componentRegistry';
 
 /**
@@ -76,9 +77,7 @@ export const WebResearchCard: React.FC<{
   const metaDurMs =
     typeof event.metadata?.duration_ms === 'number' ? Math.max(0, event.metadata.duration_ms) : undefined;
   const durationText =
-    metaDurMs !== undefined || isPending
-      ? formatDuration(Math.max(1000, Math.floor((metaDurMs ?? liveMs) / 1000) * 1000))
-      : '';
+    metaDurMs !== undefined ? formatDuration(metaDurMs) : isPending ? formatDuration(liveMs) : '';
 
   const isSearch = event.tool === WEBSEARCH_TOOL;
   const isFetch = event.tool === WEBFETCH_TOOL;
@@ -116,7 +115,7 @@ export const WebResearchCard: React.FC<{
   const metaRow = (suffix: string) =>
     durationText ? (
       <Text color={dim}>
-        {suffix ? '  ' : ''}{durationText}
+        {suffix ? ` ${suffix}` : ''} · {durationText}
       </Text>
     ) : null;
 
@@ -126,7 +125,7 @@ export const WebResearchCard: React.FC<{
     const body = String(event.error || 'tool failed').replace(/\s+/g, ' ').trim();
     if (isCalm) {
       return (
-        <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+        <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
           <Box flexDirection="row" alignItems="center">
             <Text color={dim} dimColor>
               · {label} ✗ — {truncateMiddle(body, 52)}
@@ -171,10 +170,10 @@ export const WebResearchCard: React.FC<{
       const allowed = event.params?.allowed_domains as string[] | undefined;
       if (isCalm) {
         return (
-          <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+          <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
             <Box flexDirection="row" alignItems="center">
               <Text color={dim} dimColor>
-                · search  "{truncateMiddle(q, 44)}"
+                · search "{truncateMiddle(q, 44)}"
               </Text>
               {metaRow('')}
             </Box>
@@ -222,7 +221,7 @@ export const WebResearchCard: React.FC<{
       const hint = suggestions || 'no results — try a broader query';
       if (isCalm) {
         return (
-          <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+          <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
             <Box flexDirection="row" alignItems="center">
               <Text color={dim} dimColor>
                 · no results — "{truncateMiddle(query, 36)}"
@@ -267,10 +266,10 @@ export const WebResearchCard: React.FC<{
 
     if (isCalm) {
       return (
-        <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+        <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
           <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
             <Text color={dim} dimColor>
-              · {count ?? ''} · {source} — "{truncateMiddle(displayQuery, 38)}"
+              · {count !== undefined ? `${count} · ` : ''}{source} — "{truncateMiddle(displayQuery, 38)}"
             </Text>
             <Box flexGrow={1} />
             {metaRow('')}
@@ -285,14 +284,18 @@ export const WebResearchCard: React.FC<{
             {isSuccess ? '●' : '○'}{' '}
           </Text>
           <Text color={dim}>Found</Text>
-          <Box marginX={1} paddingX={1} backgroundColor={shade}>
-            <Text color={isSuccess ? success : dim} bold>
-              {count ?? ''} 
-            </Text>
-          </Box>
-          <Text color={dim}>·</Text>
+          {count !== undefined ? (
+            <>
+              <Box marginX={1} paddingX={1} backgroundColor={shade}>
+                <Text color={isSuccess ? success : dim} bold>
+                  {count}
+                </Text>
+              </Box>
+              <Text color={dim}>·</Text>
+            </>
+          ) : null}
           <Text color={info} bold>
-            {' ' + source}
+            {` ${source}`}
           </Text>
           <Box marginLeft={1} paddingX={1} backgroundColor={shade} overflow="hidden">
             <Text color={bright} italic wrap="truncate-end">
@@ -346,10 +349,10 @@ export const WebResearchCard: React.FC<{
       const dom = url ? getDomain(url) : '';
       if (isCalm) {
         return (
-          <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+          <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
             <Box flexDirection="row" alignItems="center">
               <Text color={dim} dimColor>
-                · fetch {pat ? pat + ' · ' : ''}{dom || truncateMiddle(url, 28)}
+                · fetch {pat ? `${pat} · ` : ''}{dom || truncateMiddle(url, 28)}
               </Text>
               {metaRow('')}
             </Box>
@@ -390,10 +393,10 @@ export const WebResearchCard: React.FC<{
         const hint = suggestions || 'try a shorter keyword · read sections via start_line/end_line';
         if (isCalm) {
           return (
-            <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+            <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
               <Box flexDirection="row" alignItems="center">
                 <Text color={dim} dimColor>
-                  · no matches "{pattern}" · {tl} lines
+                  · no matches "{pattern}" · {countWord(tl, 'line')}
                 </Text>
                 {metaRow('')}
               </Box>
@@ -412,7 +415,7 @@ export const WebResearchCard: React.FC<{
                   "{truncateMiddle(pattern, 24)}"
                 </Text>
               </Box>
-              <Text color={dim}> · {tl} lines</Text>
+              <Text color={dim}> · {countWord(tl, 'line')}</Text>
               <Box flexGrow={1} />
               {metaRow('')}
             </Box>
@@ -433,10 +436,10 @@ export const WebResearchCard: React.FC<{
       const tail = shown !== undefined && shown < m ? ` · first ${shown}` : '';
       if (isCalm) {
         return (
-          <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+          <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
             <Box flexDirection="row" alignItems="center">
               <Text color={dim} dimColor>
-                · {m} matches · {tl} lines — "{truncateMiddle(pattern, 20)}"{tail}
+                · {countWord(m, 'match')} · {countWord(tl, 'line')} — "{truncateMiddle(pattern, 20)}"{tail}
               </Text>
               {metaRow('')}
             </Box>
@@ -452,7 +455,7 @@ export const WebResearchCard: React.FC<{
               </Text>
             </Box>
             <Text color={dim}> matches</Text>
-            <Text color={dim}> · {tl} lines —</Text>
+            <Text color={dim}> · {countWord(tl, 'line')} —</Text>
             <Box marginLeft={1} paddingX={1} backgroundColor={shade} overflow="hidden">
               <Text color={bright} italic bold wrap="truncate-end">
                 "{truncateMiddle(pattern, 18)}"
@@ -460,7 +463,7 @@ export const WebResearchCard: React.FC<{
             </Box>
             {tail ? (
               <Text color={dim} dimColor>
-                {' ' + tail}
+                {` ${tail}`}
               </Text>
             ) : null}
             <Box flexGrow={1} />
@@ -469,7 +472,7 @@ export const WebResearchCard: React.FC<{
           {pills.length > 0 ? (
             <Box flexDirection="column" paddingLeft={2} marginTop={0}>
               {pills.map((p, i) => (
-                <Box key={i} paddingX={1} backgroundColor={i === 0 ? warning + '20' : shade} overflow="hidden">
+                <Box key={i} paddingX={1} backgroundColor={i === 0 ? `${warning}20` : shade} overflow="hidden">
                   <Text color={i === 0 ? warning : muted} bold={i === 0} wrap="truncate-end">
                     {truncateMiddle(p, 64)}
                   </Text>
@@ -489,19 +492,19 @@ export const WebResearchCard: React.FC<{
     const { sliced } = truncatedCounts(event.output || '', chars);
     const truncated = event.metadata?.truncated === true;
     const truncLabel = isRange
-      ? `lines ${startLine ?? 1}${endLine ? '–' + endLine : '+'}`
+      ? `lines ${startLine ?? 1}${endLine ? `–${endLine}` : '+'}`
       : truncated
         ? sliced !== undefined && chars !== undefined
-          ? `truncated ${compact(sliced)}/${compact(chars)} → start_line`
-          : 'truncated → start_line'
+          ? `truncated ${compact(sliced)}/${compact(chars)} · use start_line`
+          : 'truncated · use start_line'
         : '';
     if (isCalm) {
       return (
-        <Box flexDirection="column" width="100%" marginBottom={0} paddingX={1}>
+        <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
           <Box flexDirection="row" alignItems="center">
             <Text color={dim} dimColor>
               · fetch {url ? getDomain(url) : 'page'}
-              {totalLines ? ` · ${totalLines} lines` : ''}
+              {totalLines ? ` · ${countWord(totalLines, 'line')}` : ''}
               {truncLabel ? ` — ${truncLabel}` : ''}
             </Text>
             {metaRow('')}
@@ -521,9 +524,9 @@ export const WebResearchCard: React.FC<{
               {url ? getDomain(url) : 'page'}
             </Text>
           </Box>
-          {totalLines ? <Text color={dim}> · {totalLines} lines</Text> : null}
+          {totalLines ? <Text color={dim}> · {countWord(totalLines, 'line')}</Text> : null}
           {truncLabel ? (
-            <Box marginLeft={1} paddingX={1} backgroundColor={warning + '20'}>
+            <Box marginLeft={1} paddingX={1} backgroundColor={`${warning}20`}>
               <Text color={warning} bold>
                 {truncLabel}
               </Text>

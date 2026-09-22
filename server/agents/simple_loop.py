@@ -700,10 +700,11 @@ class SimpleLoop:
 
                 break  # emergent stop — purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
 
+            mode_available: set[str] = set()
+            blocked: list[str] = []
             if self.tool_registry:
                 mode_available = set(self.tool_registry.list_tools_for_mode(mode))
                 escalate: list[str] = []
-                blocked: list[str] = []
                 kept_calls: list[dict] = []
                 for tc in tool_calls:
                     t_name = tc.get("tool")
@@ -784,10 +785,14 @@ class SimpleLoop:
             # Surface mode-restricted calls now that the assistant content has
             # been recorded, preserving assistant -> user ordering.
             if blocked:
+                available = (
+                    ', '.join(sorted(mode_available))
+                    if mode_available
+                    else 'none (tool registry unavailable)'
+                )
                 messages.append({"role": "user", "content": (
                     f"[Tool rejected] {', '.join(sorted(set(blocked)))} is not available in "
-                    f"'{mode}' mode. Available tools for {mode}: "
-                    f"{', '.join(sorted(mode_available))}."
+                    f"'{mode}' mode. Available tools for {mode}: {available}."
                 )})
 
             executed_any_call_this_turn = False

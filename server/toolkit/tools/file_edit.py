@@ -136,11 +136,37 @@ class FileEditTool(BaseTool):
                             error=f"Ambiguous: found {len(matches)} line-trimmed matches. Provide more surrounding context or set replaceAll: true.",
                         )
                     else:
-                        preview = old[:80] + ("..." if len(old) > 80 else "")
-                        return ToolResult(
-                            success=False,
-                            error=f"Content not found in file (exact match only): {preview}",
-                        )
+                        stripped_old = [l.strip() for l in old_lines]
+                        norm_matches: list[int] = []
+                        if old_len <= len(lines):
+                            for i in range(len(lines) - old_len + 1):
+                                window = [l.strip() for l in lines[i : i + old_len]]
+                                if window == stripped_old:
+                                    norm_matches.append(i)
+                        if len(norm_matches) == 1:
+                            idx = norm_matches[0]
+                            updated_lines = lines[:idx] + new_lines + lines[idx + old_len :]
+                            new_norm_content = "\n".join(updated_lines)
+                            changes = 1
+                            match_kind = "whitespace_normalized"
+                        elif len(norm_matches) > 1 and replace_all:
+                            updated_lines = list(lines)
+                            for idx in reversed(norm_matches):
+                                updated_lines = updated_lines[:idx] + new_lines + updated_lines[idx + old_len :]
+                            new_norm_content = "\n".join(updated_lines)
+                            changes = len(norm_matches)
+                            match_kind = "whitespace_normalized"
+                        elif len(norm_matches) > 1:
+                            return ToolResult(
+                                success=False,
+                                error=f"Ambiguous: found {len(norm_matches)} whitespace-normalized matches. Provide more surrounding context or set replaceAll: true.",
+                            )
+                        else:
+                            preview = old[:80] + ("..." if len(old) > 80 else "")
+                            return ToolResult(
+                                success=False,
+                                error=f"Content not found in file (exact match only): {preview}. Read the file first and copy old_content exactly, or add more surrounding context.",
+                            )
 
                 final_text = (
                     new_norm_content.replace("\n", "\r\n")

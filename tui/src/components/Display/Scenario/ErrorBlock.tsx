@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useState } from 'react';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ErrorEvent } from '../../../types/scenario';
@@ -19,7 +20,7 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
   const [expanded, setExpanded] = useState(false);
   const { columns } = useTerminalDimensions();
   const termCols = columns || process.stdout.columns || 80;
-  const contentWidth = Math.max(30, termCols - 2);
+  const contentWidth = computeContentWidth(termCols);
 
   const rawMessage = event.message.trim();
   const truncated = rawMessage.length > MAX_MESSAGE_PREVIEW_LENGTH;

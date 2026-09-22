@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
@@ -31,7 +32,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const colors = theme.colors;
     const { columns } = useTerminalDimensions();
     const termCols = columns || process.stdout.columns || 80;
-    const contentWidth = Math.max(30, termCols - 2);
+    const contentWidth = computeContentWidth(termCols);
 
     const pending = event.pending === true;
 

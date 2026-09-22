@@ -8,7 +8,7 @@ from typing import Any
 from server.agents.todo_state import TodoEntry, get_todo_state, normalize_status
 from server.config.constants import (
     BUILD_MODE,
-    CONCURRENCY_GROUP_READONLY,
+    CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     PERMISSION_WRITE,
     PLAN_MODE,
     TOOL_DOMAIN_TASK,
@@ -78,7 +78,7 @@ class TodoTool(BaseTool):
     requires_mode = None
     modes = (PLAN_MODE, BUILD_MODE)
     read_only = False
-    concurrency_group = CONCURRENCY_GROUP_READONLY
+    concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
     permission_scope = PERMISSION_WRITE
     domains = (TOOL_DOMAIN_TASK,)
     search_terms = ("todo", "task", "track", "plan list", "progress")

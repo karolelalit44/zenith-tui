@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { TABLE_WIDTH_INSET } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import { highlightCode } from '../../../utils/syntaxHighlight';
@@ -296,7 +297,7 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   const numCols = Math.max(headers.length, ...rows.map((r) => r.length), 1);
   while (headers.length < numCols) headers.push('');
 
-  const maxTableWidth = Math.max(24, columns - 6);
+  const maxTableWidth = Math.max(24, columns - TABLE_WIDTH_INSET);
   // Account for table borders: "│ " (2) + " │ " (3 * (numCols - 1)) + " │" (2) = 4 + 3*(numCols - 1)
   const overhead = 4 + 3 * (numCols - 1);
   const availCellWidth = Math.max(numCols * 3, maxTableWidth - overhead);
@@ -350,6 +351,10 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
   scrollOffset,
 }) => {
   const { theme } = useTheme();
+  const { columns } = useTerminalDimensions();
+  const termCols = columns || process.stdout.columns || 80;
+  // Horizontal rules span the content column (App paddingX + widget inset).
+  const hrWidth = Math.max(20, termCols - TABLE_WIDTH_INSET);
 
   if (!content) return null;
 
@@ -434,7 +439,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
         const parts: string[] = [];
         if (addedCount) parts.push(`+${addedCount}`);
         if (removedCount) parts.push(`-${removedCount}`);
-        diffStatsStr = parts.length > 0 ? `L ${parts.join(' ')} lines` : `L ${codeLines.length} lines`;
+        diffStatsStr = parts.length > 0 ? `${parts.join(' ')} lines` : `${codeLines.length} lines`;
       }
 
       const gutterWidth = Math.max(2, String(codeLines.length).length);
@@ -453,11 +458,8 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
             {/* Designer Terminal Window Header Bar */}
             <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
               <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
-                <Text color={theme.colors.decorative.trafficLight.red}>● </Text>
-                <Text color={theme.colors.decorative.trafficLight.yellow}>● </Text>
-                <Text color={theme.colors.decorative.trafficLight.green}>● </Text>
-                <Text color={theme.colors.status.info} bold wrap="truncate-end">
-                  {lang === 'DIFF' ? 'diff' : lang.toLowerCase()}
+                <Text color={theme.colors.status.info} bold>
+                  ▸ {lang === 'DIFF' ? 'diff' : lang.toLowerCase()}
                 </Text>
                 {lang === 'DIFF' && diffStatsStr ? (
                   <>
@@ -479,6 +481,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
                     lineCounter = parseInt(hunkMatch[1], 10);
                     return (
                       <Box key={cIdx} width="100%">
+                        <Text color={theme.colors.text.dim}>{' '.repeat(gutterWidth)} │ </Text>
                         <Text color={theme.colors.text.dim}>{cL}</Text>
                       </Box>
                     );
@@ -678,9 +681,29 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
       continue;
     }
 
-    if (!line.trim()) {
-      blocks.push(<Box key={`blank_${idx}`} height={1} />);
+    if (/^\s*(?:---+|\*{3,}|_{3,}|—{2,}|─{2,})\s*$/.test(line)) {
+      blocks.push(
+        <Box key={`hr_${idx}`} width="100%">
+          <Text color={theme.colors.border.muted} dimColor wrap="truncate-end">
+            {'─'.repeat(hrWidth)}
+          </Text>
+        </Box>,
+      );
       idx++;
+      continue;
+    }
+
+    if (!line.trim()) {
+      // Collapse consecutive blank lines into a single spacer and drop
+      // trailing blanks so the response body never shows double-height gaps.
+      let run = 0;
+      while (idx + run < rawLines.length && !rawLines[idx + run].trim()) {
+        run += 1;
+      }
+      if (idx + run < rawLines.length) {
+        blocks.push(<Box key={`blank_${idx}`} height={1} />);
+      }
+      idx += run;
       continue;
     }
 

@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { SPINNER_FRAMES } from '../../../constants/animation';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
@@ -73,7 +74,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
   const { columns } = useTerminalDimensions();
 
   const termCols = columns || process.stdout.columns || 80;
-  const contentWidth = Math.max(30, termCols - 2);
+  const contentWidth = computeContentWidth(termCols);
 
   const isRunning = event.stage !== 'complete';
 

@@ -27,6 +27,7 @@ CATALOG_VERSION = 2
 
 _lock = threading.Lock()
 _cache: dict[str, dict] = {}
+_cache_mtime: dict[str, float] = {}
 
 _FORBIDDEN_KEYS = {"apiKey", "apiKeyValue", "api_key", "secret", "token"}
 
@@ -94,18 +95,25 @@ def read_model_entries(home: StorageHome) -> dict[str, dict]:
 def invalidate_catalog_cache() -> None:
     with _lock:
         _cache.clear()
+        _cache_mtime.clear()
 
 
 def load_catalog(home: StorageHome | None = None) -> dict:
     from .paths import resolve_home
 
-    root_key = str((home or StorageHome(resolve_home())).root)
+    resolved_home = home or StorageHome(resolve_home())
+    root_key = str(resolved_home.root)
     with _lock:
+        try:
+            current_mtime = resolved_home.catalog_path.stat().st_mtime
+        except OSError:
+            current_mtime = -1.0
         cached = _cache.get(root_key)
-        if cached is not None:
+        if cached is not None and _cache_mtime.get(root_key) == current_mtime:
             return cached
-        built = _build_runtime_catalog(home or StorageHome(root_key))
+        built = _build_runtime_catalog(resolved_home)
         _cache[root_key] = built
+        _cache_mtime[root_key] = current_mtime
         return built
 
 
@@ -149,7 +157,7 @@ def _build_runtime_catalog(home: StorageHome) -> dict:
             "models": models,
             "_catalog_version": CATALOG_VERSION,
         }
-    return {"version": 1, "providers": providers}
+    return {"version": CATALOG_VERSION, "providers": providers}
 
 
 def _model_runtime_shape(entry: dict) -> dict:
@@ -174,6 +182,16 @@ def _model_runtime_shape(entry: dict) -> dict:
     max_out = entry.get("maxOutputTokens") or entry.get("max_output_tokens")
     if max_out:
         shape["max_output_tokens"] = int(max_out)
+    for _k, _v in entry.items():
+        if _k not in shape and _k not in (
+            "key",
+            "providerId",
+            "source",
+            "contextWindow",
+            "isDefault",
+            "maxOutputTokens",
+        ):
+            shape.setdefault("extra_" + str(_k), _v)
     return shape
 
 

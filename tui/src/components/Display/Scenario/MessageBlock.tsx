@@ -18,7 +18,7 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event, co
   return (
     <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
       {hasContent && (
-        <Box paddingLeft={1} flexDirection="column">
+        <Box flexDirection="column">
           <TerminalMarkdown
             content={event.text}
             isRunning={context?.isRunning && !context?.isHistorical}
@@ -28,7 +28,7 @@ export const MessageBlock: React.FC<MessageBlockProps> = React.memo(({ event, co
         </Box>
       )}
       {!hasContent && !event.partial && (
-        <Box paddingLeft={1} flexDirection="column">
+        <Box flexDirection="column">
           <Text color={theme.colors.text.muted} italic>
             (empty response)
           </Text>
