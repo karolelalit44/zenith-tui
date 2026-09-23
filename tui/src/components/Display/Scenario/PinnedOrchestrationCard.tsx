@@ -1,22 +1,16 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
 import { contentWidth as computeContentWidth } from '../../../constants/layout';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { CrewmateAgent, CrewmateStatus, TimelineEntry } from '../../../types/scenario';
 import type { ConsolidatedOrchestration } from '../../../utils/orchestration';
+import { Spinner } from '../../ui/Spinner';
 
 interface PinnedOrchestrationCardProps {
   event: ConsolidatedOrchestration;
   isRunning?: boolean;
 }
-
-const LiveSpinner: React.FC = () => {
-  const tick = useAnimationTick();
-  return <>{SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}</>;
-};
 
 function getStageLabel(stage: string): string {
   switch (stage) {
@@ -52,6 +46,10 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
     const crewmates = event.crewmates ?? [];
     const isMissionRunning = isRunning && event.stage !== 'complete';
     const stageLabel = getStageLabel(event.stage);
+    // Mixed outcome: some crew completed while others failed. Rendering that as
+    // a flat "✗ Failed" next to a "✔ DONE" row was the self-contradictory
+    // banner from the log; a partially-completed label is truthful.
+    const hasSuccessCrew = crewmates.some((cm) => cm.status === 'completed' || cm.status === 'reviewed');
 
     const renderCrewmateBadge = (status: CrewmateStatus) => {
       switch (status) {
@@ -65,7 +63,7 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
         case 'working':
           return (
             <Text color={colors.status.info} bold>
-              {isMissionRunning ? <LiveSpinner /> : '◐'} ACTIVE
+              {isMissionRunning ? <Spinner /> : '◐'} ACTIVE
             </Text>
           );
         case 'failed':
@@ -113,10 +111,14 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
             >
               {isMissionRunning ? (
                 <>
-                  <LiveSpinner /> {stageLabel}
+                  <Spinner /> {stageLabel}
                 </>
               ) : event.hasFailedCrew ? (
-                '✗ Failed'
+                hasSuccessCrew ? (
+                  '✗ Partially Completed'
+                ) : (
+                  '✗ Failed'
+                )
               ) : (
                 '✔ Complete'
               )}
@@ -172,7 +174,7 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
                   <Box flexDirection="row" paddingLeft={2}>
                     <Text color={colors.status.accent}>↳ </Text>
                     <Text color={colors.status.info}>
-                      <LiveSpinner />{' '}
+                      <Spinner />{' '}
                     </Text>
                     <Text color={colors.text.bright} italic wrap="truncate-end">
                       {cm.activity}

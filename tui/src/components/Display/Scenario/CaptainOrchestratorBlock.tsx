@@ -1,8 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
 import { contentWidth as computeContentWidth } from '../../../constants/layout';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { Theme } from '../../../theme/theme';
@@ -13,6 +11,7 @@ import type {
   PlanItem,
   PlanItemStatus,
 } from '../../../types/scenario';
+import { Spinner } from '../../ui/Spinner';
 
 interface CaptainOrchestratorBlockProps {
   event: CaptainOrchestrationEvent;
@@ -28,25 +27,32 @@ function renderPlanStatus(status: PlanItemStatus, themeColors: Theme['colors']) 
     case 'completed':
       return { icon: ' ', label: 'Completed', color: themeColors.status.success };
     case 'needs_review':
-      return { icon: '🔍 ', label: 'Needs Review', color: themeColors.status.warning };
+      return { icon: '◉ ', label: 'Needs Review', color: themeColors.status.warning };
     case 'failed':
       return { icon: '✗ ', label: 'Failed', color: themeColors.status.error };
     case 'reassigned':
-      return { icon: '🔀 ', label: 'Reassigned', color: themeColors.status.accent };
+      return { icon: '↻ ', label: 'Reassigned', color: themeColors.status.accent };
     default:
       return { icon: '• ', label: status, color: themeColors.text.muted };
   }
 }
 
 /** Render status icon and color for Crewmate Agents. */
-function renderCrewmateStatus(status: CrewmateStatus, themeColors: Theme['colors'], tick: number) {
+function renderCrewmateStatus(
+  status: CrewmateStatus,
+  themeColors: Theme['colors'],
+): {
+  icon: React.ReactNode;
+  label: string;
+  color: string;
+} {
   switch (status) {
     case 'spawned':
     case 'assigned':
       return { icon: '⚡ ', label: 'Assigned', color: themeColors.status.info };
     case 'working':
       return {
-        icon: `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} `,
+        icon: <Spinner suffix=" " />,
         label: 'Working',
         color: themeColors.status.info,
       };
@@ -56,13 +62,13 @@ function renderCrewmateStatus(status: CrewmateStatus, themeColors: Theme['colors
     case 'reviewed':
       return { icon: ' ', label: 'Completed', color: themeColors.status.success };
     case 'needs_review':
-      return { icon: '🔍 ', label: 'Reviewing', color: themeColors.status.warning };
+      return { icon: '◉ ', label: 'Reviewing', color: themeColors.status.warning };
     case 'failed':
       return { icon: '✗ ', label: 'Failed', color: themeColors.status.error };
     case 'reassigned':
-      return { icon: '🔀 ', label: 'Reassigned', color: themeColors.status.accent };
+      return { icon: '↻ ', label: 'Reassigned', color: themeColors.status.accent };
     case 'retired':
-      return { icon: '💤 ', label: 'Retired', color: themeColors.text.dim };
+      return { icon: '⊘ ', label: 'Retired', color: themeColors.text.dim };
     default:
       return { icon: '• ', label: status, color: themeColors.text.muted };
   }
@@ -70,7 +76,6 @@ function renderCrewmateStatus(status: CrewmateStatus, themeColors: Theme['colors
 
 export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
-  const tick = useAnimationTick();
   const { columns } = useTerminalDimensions();
 
   const termCols = columns || process.stdout.columns || 80;
@@ -121,7 +126,11 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
       break;
     case 'complete':
       if (hasFailedCrew) {
-        stageLabel = 'Orchestration Failed';
+        if (crewmates.some((cm) => cm.status === 'completed' || cm.status === 'reviewed')) {
+          stageLabel = 'Orchestration Partially Completed';
+        } else {
+          stageLabel = 'Orchestration Failed';
+        }
         stageColor = theme.colors.status.error;
       } else {
         stageLabel = 'Orchestration Complete';
@@ -151,13 +160,17 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
             </Text>
             <Text color={theme.colors.text.dim}> · </Text>
             <Text color={stageColor} bold wrap="truncate-end">
-              {isRunning
-                ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} ${stageLabel}`
-                : hasFailedCrew && event.stage === 'complete'
-                  ? `✗ ${stageLabel}`
-                  : allRetiredOrDone || event.stage !== 'complete'
-                    ? ` ${stageLabel}`
-                    : `⊘ ${stageLabel}`}
+              {isRunning ? (
+                <>
+                  <Spinner /> {stageLabel}
+                </>
+              ) : hasFailedCrew && event.stage === 'complete' ? (
+                `✗ ${stageLabel}`
+              ) : allRetiredOrDone || event.stage !== 'complete' ? (
+                ` ${stageLabel}`
+              ) : (
+                `⊘ ${stageLabel}`
+              )}
             </Text>
           </Box>
         </Box>
@@ -177,7 +190,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
           <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
             <Box flexDirection="row" marginBottom={0}>
               <Text color={theme.colors.text.emerald} bold>
-                📋 EXECUTION PLAN
+                ⬚ EXECUTION PLAN
               </Text>
               <Text color={theme.colors.text.dim}> ({event.plan.length} workstreams)</Text>
             </Box>
@@ -201,7 +214,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
           <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
             <Box flexDirection="row" marginBottom={0}>
               <Text color={theme.colors.status.warning} bold>
-                👥 CREWMATES DISPATCH
+                ⬚ CREWMATES DISPATCH
               </Text>
               <Text color={theme.colors.text.dim}>
                 {' '}
@@ -211,7 +224,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
 
             <Box flexDirection="column" paddingLeft={1}>
               {event.crewmates.map((cm: CrewmateAgent) => {
-                const cmSt = renderCrewmateStatus(cm.status, theme.colors, tick);
+                const cmSt = renderCrewmateStatus(cm.status, theme.colors);
                 return (
                   <Box
                     key={cm.id}
@@ -278,7 +291,7 @@ export const CaptainOrchestratorBlock: React.FC<CaptainOrchestratorBlockProps> =
           <Box flexDirection="column" paddingLeft={1} marginBottom={0}>
             <Box flexDirection="row" marginBottom={0}>
               <Text color={theme.colors.status.info} bold>
-                ⏱ CAPTAIN DECISION TIMELINE
+                ⬚ CAPTAIN DECISION TIMELINE
               </Text>
             </Box>
             {(() => {

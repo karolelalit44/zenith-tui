@@ -130,7 +130,7 @@ function buildEventsFromAssistantMessage(msg: Record<string, unknown>): Scenario
         percent: 0,
         estimated: true,
       },
-    } as ScenarioEvent);
+    });
   }
 
   return paired;

@@ -12,12 +12,11 @@ export interface FooterLayoutInput {
   providerName: string;
   dir: string;
   branch: string;
-  effectiveMaxTokens?: number;
   /** Cumulative run/API token usage (telemetry). */
   runTokens?: number;
   /** True when the cumulative run usage is estimated, not provider-reported. */
   runEstimated?: boolean;
-  /** Composed-context occupancy percent (0–100). Omitted → no ctx segment renders. */
+  /** Composed-context occupancy percent (0–100). Omitted → no context segment renders. */
   contextPercent?: number;
   /** True when the context-window denominator is a fallback estimate. */
   windowEstimated?: boolean;
@@ -33,16 +32,6 @@ export interface FooterLayoutOutput {
   branchText: string;
   pathBranch: string;
   tokenUsage: string;
-  /** @deprecated alias of tokenUsage — kept for backward compat. */
-  tokenCount: string;
-  /** @deprecated echo of effectiveMaxTokens — kept for backward compat. */
-  maxTokens: string;
-  /** @deprecated gauge removed — always empty. Kept for backward compat. */
-  gauge: string;
-  /** @deprecated gauge removed — always false. Kept for backward compat. */
-  showGauge: boolean;
-  /** @deprecated always empty. Kept for backward compat. */
-  scopeLabel: string;
 }
 
 /** Compact cumulative run/API token telemetry (e.g. 12.4K, 1.2M, 420). */
@@ -61,13 +50,13 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
   const gaugePercent =
     typeof input.contextPercent === 'number' ? Math.max(0, Math.min(100, input.contextPercent)) : null;
 
-  // Token telemetry: always shown when runTokens is a defined number (even 0),
-  // and the ctx occupancy is independent of the token counter — a live run with
-  // 0 accumulated tokens must still report its context fill.
+  // Token telemetry uses bare figures with no `tok`/`ctx` labels: run usage is
+  // shown when runTokens is a defined number (even 0), while context occupancy
+  // remains independent of that counter.
   const runCount = typeof input.runTokens === 'number' ? input.runTokens : 0;
   const hasRunUsage = typeof input.runTokens === 'number';
-  const tokenStr = hasRunUsage ? `${formatRunTokens(runCount)} tok` : '';
-  const ctxStr = gaugePercent !== null ? `${gaugePercent.toFixed(1)}% ctx` : '';
+  const tokenStr = hasRunUsage ? formatRunTokens(runCount) : '';
+  const ctxStr = gaugePercent !== null ? `${gaugePercent.toFixed(1)}%` : '';
   const tokenUsage = [tokenStr, ctxStr].filter(Boolean).join(' · ');
 
   const cleanBranch = input.branch ? input.branch.replace(/^\(+|\)+$/g, '').trim() : '';
@@ -108,11 +97,6 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     pathBranch = dirText;
   }
 
-  const maxTokens =
-    typeof input.effectiveMaxTokens === 'number' && input.effectiveMaxTokens > 0
-      ? `${input.effectiveMaxTokens}`
-      : '0';
-
   return {
     modeLabel,
     chip: chipText,
@@ -123,10 +107,5 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     branchText,
     pathBranch,
     tokenUsage,
-    tokenCount: tokenUsage,
-    maxTokens,
-    gauge: '',
-    showGauge: false,
-    scopeLabel: '',
   };
 }

@@ -11,6 +11,7 @@ import type {
   ThinkingEvent,
   TimelineEntry,
   TurnManifestEvent,
+  WarningEvent,
 } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
 import { consolidateOrchestrationEvents } from '../../../utils/orchestration';
@@ -31,6 +32,8 @@ interface ScenarioRendererProps {
   scrollOffset?: number;
   maxDynamicLines?: number;
   showStatusRow?: boolean;
+  /** Global ctrl+e signal — expands every truncated warning/error message. */
+  expandedWarnings?: boolean;
 }
 
 class EventErrorBoundary extends Component<
@@ -68,6 +71,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     scrollOffset,
     maxDynamicLines,
     showStatusRow = true,
+    expandedWarnings = false,
   }) => {
     const { theme } = useTheme();
     const { rows: termRows, columns: termCols } = useTerminalDimensions();
@@ -82,8 +86,19 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         gitBranch,
         scrollOffset,
         maxDynamicLines,
+        expandedWarnings,
       }),
-      [thinkingCollapsed, calmMode, isHistorical, isRunning, workspaceName, gitBranch, scrollOffset, maxDynamicLines],
+      [
+        thinkingCollapsed,
+        calmMode,
+        isHistorical,
+        isRunning,
+        workspaceName,
+        gitBranch,
+        scrollOffset,
+        maxDynamicLines,
+        expandedWarnings,
+      ],
     );
 
     const dynamicLimit = Math.max(10, Math.min(20, termRows - 8));
@@ -99,6 +114,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       // plumbing, never part of the conversation transcript. Preserve
       // session_summarized so the FinalSummaryCard can render.
       source = source.filter((e) => !String(e.kind).startsWith('session_') || e.kind === 'session_summarized');
+      // STREAM_RETRY is a transient notice surfaced by the pinned status row and
+      // auto-hidden after a few seconds; it must not linger in scrollback.
+      source = source.filter((e) => !(e.kind === 'warning' && (e as WarningEvent).code === 'STREAM_RETRY'));
       // Progress rows are LIVE-ONLY instrumentation. After completion the
       // SuccessCard status row supersedes them; keeping them in scrollback
       // triple-echoed every tool call.

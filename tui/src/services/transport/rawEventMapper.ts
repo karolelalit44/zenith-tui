@@ -80,6 +80,7 @@ export function mapTurnManifest(id: string, d: Record<string, unknown>): TurnMan
     remaining: Array.isArray(d.remaining) ? d.remaining.map(String) : [],
     completed: d.completed === true,
     stalled: d.stalled === true,
+    answered: d.answered === true,
     files: Array.isArray(d.files)
       ? d.files.map((f: Record<string, unknown>) => ({
           path: String(f.path || ''),
@@ -291,7 +292,7 @@ function UnknownEvent(kind: string, id: string): ScenarioEvent {
     id,
     message: `[Unknown event: ${kind}]`,
     code: 'UNKNOWN_EVENT',
-  } as ScenarioEvent;
+  };
 }
 
 export function mapRawEvent(kind: string, data: Record<string, unknown> | undefined, rpcId?: string): ScenarioEvent {
@@ -410,10 +411,7 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         tool: d.tool ? String(d.tool) : undefined,
         label: d.label ? String(d.label) : undefined,
         reason: d.reason ? String(d.reason) : undefined,
-        params:
-          d.params && typeof d.params === 'object'
-            ? (d.params as Record<string, unknown>)
-            : undefined,
+        params: d.params && typeof d.params === 'object' ? (d.params as Record<string, unknown>) : undefined,
         timeout: typeof d.timeout === 'number' ? d.timeout : undefined,
       };
       return requested;
@@ -439,37 +437,43 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         stage: (d.stage as CaptainOrchestrationEvent['stage']) || 'thinking',
         captainMessage: String(d.captainMessage || d.message || ''),
         plan: Array.isArray(d.plan)
-          ? d.plan.map((item: Record<string, unknown>): PlanItem => ({
-              id: String(item.id || ''),
-              title: String(item.title || ''),
-              assignedCrewmate: item.assignedCrewmate
-                ? String(item.assignedCrewmate)
-                : item.assignedAgent
-                ? String(item.assignedAgent)
-                : undefined,
-              status: (item.status as PlanItem['status']) || 'queued',
-              details: item.details ? String(item.details) : undefined,
-            }))
+          ? d.plan.map(
+              (item: Record<string, unknown>): PlanItem => ({
+                id: String(item.id || ''),
+                title: String(item.title || ''),
+                assignedCrewmate: item.assignedCrewmate
+                  ? String(item.assignedCrewmate)
+                  : item.assignedAgent
+                    ? String(item.assignedAgent)
+                    : undefined,
+                status: (item.status as PlanItem['status']) || 'queued',
+                details: item.details ? String(item.details) : undefined,
+              }),
+            )
           : undefined,
         crewmates: Array.isArray(d.crewmates)
-          ? d.crewmates.map((cm: Record<string, unknown>): CrewmateAgent => ({
-              id: String(cm.id || ''),
-              name: String(cm.name || ''),
-              role: String(cm.role || ''),
-              task: String(cm.task || ''),
-              activity: cm.activity ? String(cm.activity) : undefined,
-              status: (cm.status as CrewmateAgent['status']) || 'assigned',
-              progress: typeof cm.progress === 'number' ? cm.progress : undefined,
-              resultSummary: cm.resultSummary ? String(cm.resultSummary) : undefined,
-              error: cm.error ? String(cm.error) : undefined,
-            }))
+          ? d.crewmates.map(
+              (cm: Record<string, unknown>): CrewmateAgent => ({
+                id: String(cm.id || ''),
+                name: String(cm.name || ''),
+                role: String(cm.role || ''),
+                task: String(cm.task || ''),
+                activity: cm.activity ? String(cm.activity) : undefined,
+                status: (cm.status as CrewmateAgent['status']) || 'assigned',
+                progress: typeof cm.progress === 'number' ? cm.progress : undefined,
+                resultSummary: cm.resultSummary ? String(cm.resultSummary) : undefined,
+                error: cm.error ? String(cm.error) : undefined,
+              }),
+            )
           : undefined,
         timeline: Array.isArray(d.timeline)
-          ? d.timeline.map((tl: Record<string, unknown>): TimelineEntry => ({
-              timestamp: String(tl.timestamp || ''),
-              message: String(tl.message || ''),
-              type: (tl.type as TimelineEntry['type']) || 'info',
-            }))
+          ? d.timeline.map(
+              (tl: Record<string, unknown>): TimelineEntry => ({
+                timestamp: String(tl.timestamp || ''),
+                message: String(tl.message || ''),
+                type: (tl.type as TimelineEntry['type']) || 'info',
+              }),
+            )
           : undefined,
         activeStep: d.activeStep ? String(d.activeStep) : undefined,
       };

@@ -158,14 +158,7 @@ export interface PlanReadyEvent {
   sessionId: string;
 }
 
-export type PermissionScope =
-  | 'read'
-  | 'write'
-  | 'delete'
-  | 'command'
-  | 'network'
-  | 'crewmate'
-  | 'plan';
+export type PermissionScope = 'read' | 'write' | 'delete' | 'command' | 'network' | 'crewmate' | 'plan';
 
 /** Per-scope approval level, mirroring the backend PermissionLevel enum. */
 export type PermissionLevel = 'ask' | 'allow' | 'deny';
@@ -314,6 +307,8 @@ export interface TurnManifestEvent {
   remaining: string[];
   completed: boolean;
   stalled: boolean;
+  /** True when a substantive answer (or salvage summary) was produced. */
+  answered?: boolean;
   files: { path: string; exists: boolean; size: number }[];
 }
 

@@ -6,6 +6,7 @@ Covers:
 - P0-3: usage accounting is reset per request (no cross-prompt leakage).
 """
 
+import itertools
 import pytest
 
 from server.agents.loop import AgentLoop, _params_label
@@ -345,6 +346,26 @@ async def test_progress_events_derive_from_executed_tools(test_config):
     assert "Reading files" in labels, labels
     for step in last_steps:
         assert step.get("status") in ("done", "error", "pending", "active")
+
+
+@pytest.mark.asyncio
+async def test_progress_percent_is_non_decreasing(test_config):
+    """Progress must only ever advance: when a new active step opens, the done
+    count stays put while the total grows, which used to snap the percent back
+    down mid-run (a live "96%" regressing to "92%")."""
+    provider = _MultiToolProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Write a file and read it", "s1", [], "build"):
+        events.append(event)
+
+    progress = [e for e in events if e.kind == EventKind.PROGRESS]
+    assert len(progress) >= 3, "multiple tool calls must emit multiple progress updates"
+    percents = [int(e.data.get("percent", 0)) for e in progress]
+    for earlier, later in itertools.pairwise(percents):
+        assert later >= earlier, f"progress regressed {earlier}% -> {later}%"
+    assert percents[-1] >= 50, "a turn with a completed tool must end on a meaningful percent"
 
 
 @pytest.mark.asyncio

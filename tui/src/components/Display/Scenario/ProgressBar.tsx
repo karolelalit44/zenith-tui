@@ -1,9 +1,8 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ProgressEvent } from '../../../types/scenario';
+import { Spinner } from '../../ui/Spinner';
 
 interface ProgressBarProps {
   event: ProgressEvent;
@@ -24,18 +23,17 @@ interface ProgressBarProps {
  */
 export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) => {
   const { theme } = useTheme();
-  const tick = useAnimationTick();
 
   const steps = event.steps;
   const activeIdx = steps.findIndex((s) => s.status === 'active');
   const lastIdx = steps.length - 1;
   const current = steps[activeIdx >= 0 ? activeIdx : lastIdx];
   const doneCount = steps.filter((s) => s.status === 'done').length;
+  const isActive = current?.status === 'active';
 
   let icon = '·';
   let iconColor = theme.colors.text.dim;
-  if (current?.status === 'active') {
-    icon = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
+  if (isActive) {
     iconColor = theme.colors.text.ethereal;
   } else if (current?.status === 'error') {
     icon = '✗';
@@ -48,7 +46,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = React.memo(({ event }) =>
   return (
     <Box flexDirection="row" width="100%" marginBottom={1} paddingX={1} alignItems="center">
       <Box width={2} flexShrink={0}>
-        <Text color={iconColor}>{icon}</Text>
+        {isActive ? <Spinner color={theme.colors.text.ethereal} /> : <Text color={iconColor}>{icon}</Text>}
       </Box>
       <Text color={theme.colors.text.bright} wrap="truncate-end">
         {current?.label ?? event.label}

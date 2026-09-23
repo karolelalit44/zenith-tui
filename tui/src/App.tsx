@@ -1,12 +1,7 @@
 import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BootLoading } from './components/BootLoading';
-import {
-  PinnedOrchestrationCard,
-  PinnedTodoCard,
-  ScenarioRenderer,
-  SuccessCard,
-} from './components/Display/Scenario';
+import { PinnedOrchestrationCard, PinnedTodoCard, ScenarioRenderer, SuccessCard } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScrollIndicator } from './components/Display/ScrollIndicator';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
@@ -49,6 +44,7 @@ import type {
   SuccessEvent,
   TokenInfo,
   TurnManifestEvent,
+  WarningEvent,
 } from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
@@ -56,7 +52,6 @@ import { convertHistoryToTurns } from './utils/historyToTurns';
 import { consolidateOrchestrationEvents } from './utils/orchestration';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 import { consolidateTodoBoardEvents } from './utils/todoBoard';
-import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
 import { resolveWorkspaceRoot } from './utils/workspacePath';
 
 /**
@@ -109,6 +104,7 @@ export const App: React.FC = () => {
   }, []);
   const [showPalette, setShowPalette] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [expandedWarnings, setExpandedWarnings] = useState(false);
 
   const [retryTarget, setRetryTarget] = useState<RetryTarget | null>(null);
   const handleRetryDismiss = useCallback(() => setRetryTarget(null), []);
@@ -204,14 +200,39 @@ export const App: React.FC = () => {
   const [continueTarget, setContinueTarget] = useState<{ prompt: string; manifest: TurnManifestEvent } | null>(null);
   const [dismissedPermissionIds, setDismissedPermissionIds] = useState<Set<string>>(new Set());
 
+  // Transient "provider retrying" notice: shown for a few seconds, then hidden.
+  // Keyed on the LAST STREAM_RETRY event id so ordinary chunk updates during a
+  // long turn never keep the banner alive indefinitely. Events only ever append
+  // (reset to [] for a fresh session), so forward-scan from the last processed
+  // index is amortized O(1) per new event instead of a full backscan per change.
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
+  const lastRetryNoticeId = useRef<string | null>(null);
+  const retryScanFrom = useRef(0);
+  useEffect(() => {
+    if (events.length < retryScanFrom.current) {
+      retryScanFrom.current = 0;
+    }
+    let notice: WarningEvent | null = null;
+    for (let i = retryScanFrom.current; i < events.length; i++) {
+      const e = events[i];
+      if (e.kind === 'warning' && (e as WarningEvent).code === 'STREAM_RETRY') {
+        notice = e as WarningEvent;
+      }
+    }
+    retryScanFrom.current = events.length;
+    if (!notice || notice.id === lastRetryNoticeId.current) return;
+    lastRetryNoticeId.current = notice.id;
+    setRetryNotice(notice.message || 'Provider hiccup; request retried successfully.');
+    const timer = setTimeout(() => setRetryNotice(null), 4500);
+    return () => clearTimeout(timer);
+  }, [events]);
+
   // The most recent permission_requested that has no matching resolved event yet.
   // Derived from events so history / reconnect replay renders identically.
   const pendingPermission = useMemo(() => {
     if (!isRunning) return null;
     const resolved = new Set(
-      events
-        .filter((e): e is PermissionResolvedEvent => e.kind === 'permission_resolved')
-        .map((e) => e.requestId),
+      events.filter((e): e is PermissionResolvedEvent => e.kind === 'permission_resolved').map((e) => e.requestId),
     );
     for (let i = events.length - 1; i >= 0; i -= 1) {
       const e = events[i];
@@ -289,15 +310,6 @@ export const App: React.FC = () => {
     if (liveSuccessTokenInfo?.windowEstimated === true) return true;
     return contextInfo?.windowEstimated === true;
   }, [footerContext, contextInfo, liveSuccessTokenInfo]);
-
-  const turnUsageCosts = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const t of completedTurns) {
-      const cost = formatTurnCost(resolveTurnUsage(t.events));
-      if (cost) map.set(t.id, cost);
-    }
-    return map;
-  }, [completedTurns]);
 
   // Derive the active todo board from the live event stream, or fall back to
   // the latest turn's todo board if live stream has not emitted one yet.
@@ -599,6 +611,7 @@ export const App: React.FC = () => {
       clearAttachments();
       setRetryTarget(null);
       setHistoryExpanded(false);
+      setExpandedWarnings(false);
       startScenario(trimmed, selectedMode, providerId, modelId, attachments);
     },
     [
@@ -638,6 +651,7 @@ export const App: React.FC = () => {
     setShowPalette: handleSetShowPalette,
     slashMenuOpen: showAutocomplete,
     onToggleHistoryExpanded: () => setHistoryExpanded((v) => !v),
+    onToggleExpandedWarnings: () => setExpandedWarnings((v) => !v),
   });
 
   useEffect(() => {
@@ -864,30 +878,21 @@ export const App: React.FC = () => {
                     model={item.turn.model}
                     timestamp={item.turn.timestamp}
                     timestampLong={item.turn.timestampLong}
-                    attachments={item.turn.attachments}
                   />
                 </Box>
               );
             }
 
             // type === 'response'
-            const turnCost =
-              (item.turn.events && item.turn.events.length > 0
-                ? formatTurnCost(resolveTurnUsage(item.turn.events))
-                : undefined) || turnUsageCosts.get(item.turn.id);
             return (
               <Box key={item.id} flexDirection="column" width={contentWidth}>
-                {turnCost ? (
-                  <Box paddingX={1} marginBottom={1}>
-                    <Text color={theme.colors.text.muted}>◈ {turnCost}</Text>
-                  </Box>
-                ) : null}
                 <ScenarioRenderer
                   events={item.turn.events}
                   isRunning={false}
                   isHistorical={true}
                   thinkingCollapsed={thinkingCollapsed}
                   calmMode={calmMode}
+                  expandedWarnings={expandedWarnings}
                   workspaceName={workspace}
                   gitBranch={activeGitBranch}
                 />
@@ -907,6 +912,7 @@ export const App: React.FC = () => {
               thinkingCollapsed={thinkingCollapsed}
               calmMode={calmMode}
               historyExpanded={historyExpanded}
+              expandedWarnings={expandedWarnings}
               workspaceName={workspace}
               gitBranch={activeGitBranch}
               scrollOffset={localScrollOffset}
@@ -976,20 +982,22 @@ export const App: React.FC = () => {
 
             {activeOrchestration && (
               <Box marginBottom={1} width="100%">
-                <PinnedOrchestrationCard
-                  event={activeOrchestration}
-                  isRunning={isRunning}
-                />
+                <PinnedOrchestrationCard event={activeOrchestration} isRunning={isRunning} />
               </Box>
             )}
 
             {activeTodoBoard && (
               <Box marginBottom={1} width="100%">
-                <PinnedTodoCard
-                  event={activeTodoBoard}
-                  isRunning={isRunning}
-                  activeActivity={activeTaskActivity}
-                />
+                <PinnedTodoCard event={activeTodoBoard} isRunning={isRunning} activeActivity={activeTaskActivity} />
+              </Box>
+            )}
+
+            {retryNotice && (
+              <Box marginBottom={1} paddingX={1} width="100%">
+                <Text color={theme.colors.status.info} bold>
+                  ↻{' '}
+                </Text>
+                <Text color={theme.colors.text.bright}>{retryNotice}</Text>
               </Box>
             )}
 
@@ -1022,7 +1030,6 @@ export const App: React.FC = () => {
               scrollUp={scrollUp}
               scrollDown={scrollDown}
               mode={selectedMode}
-              maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
               runTokens={liveRunTokens}
               runEstimated={runEstimated}
               contextPercent={footerContextPercent}

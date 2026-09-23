@@ -108,6 +108,42 @@ def test_tiny_content_plus_long_reasoning_stays_content_only():
 # ---------------------------------------------------------------------------
 
 
+class _RetryingProvider(_ReasoningOnlyProvider):
+    """Simulates a provider that retried a failed attempt mid-stream: the
+    ``_retry_notice`` flag is already set when the first chunk arrives."""
+
+    def __init__(self, content: str = "ok"):
+        super().__init__(content=content)
+        self._retry_notice = True
+
+
+def _warnings(events):
+    return [ev for ev in events if ev.kind == EventKind.WARNING]
+
+
+def test_retry_notice_emitted_once_and_flag_cleared():
+    provider = _RetryingProvider(content="ok")
+    events = _collect_events(provider)
+
+    retries = [
+        ev for ev in _warnings(events) if ev.data.get("code") == "STREAM_RETRY"
+    ]
+    # One notice per retried stream, exactly: emitted on the first chunk after
+    # the retry, then the flag is cleared so it cannot fire again.
+    assert len(retries) == 1
+    assert "retried" in retries[0].data.get("message", "")
+    assert provider._retry_notice is False
+
+
+def test_no_retry_notice_without_flag():
+    provider = _ReasoningOnlyProvider(content="ok")
+    events = _collect_events(provider)
+
+    assert not [
+        ev for ev in _warnings(events) if ev.data.get("code") == "STREAM_RETRY"
+    ]
+
+
 class TestReasoningPart:
     def test_delta_merge_in_place(self):
         part = ReasoningPart()

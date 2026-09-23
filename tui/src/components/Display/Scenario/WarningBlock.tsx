@@ -1,11 +1,13 @@
-import { Box, Text, useInput } from 'ink';
-import React, { useState } from 'react';
+import { Box, Text } from 'ink';
+import React from 'react';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { WarningEvent } from '../../../types/scenario';
 import { MAX_MESSAGE_PREVIEW_LENGTH } from '../../../utils/text';
+import type { EventRenderContext } from './componentRegistry';
 
 interface WarningBlockProps {
   event: WarningEvent;
+  context?: EventRenderContext;
 }
 
 /**
@@ -42,23 +44,14 @@ export function compactDiagnosticMessage(message: string): string {
     .trim();
 }
 
-export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event }) => {
+export const WarningBlock: React.FC<WarningBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
-  const [expanded, setExpanded] = useState(false);
+  const expanded = context?.expandedWarnings === true;
 
   const diagnostic = isLoopDiagnostic(event.code);
   const rawMessage = (diagnostic ? compactDiagnosticMessage(event.message) : event.message.trim()).trim();
   const truncated = rawMessage.length > MAX_MESSAGE_PREVIEW_LENGTH;
   const shownMessage = expanded || !truncated ? rawMessage : `${rawMessage.slice(0, MAX_MESSAGE_PREVIEW_LENGTH)}…`;
-
-  useInput(
-    (input, key) => {
-      if (key.ctrl && (input === 'e' || input === '\x05')) {
-        setExpanded((value) => !value);
-      }
-    },
-    { isActive: truncated },
-  );
 
   if (diagnostic) {
     return (

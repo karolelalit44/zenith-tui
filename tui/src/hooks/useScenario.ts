@@ -65,7 +65,7 @@ export function useScenario(): UseScenarioReturn {
 
   const applyQueueTo = useCallback(
     (base: ScenarioEvent[], queue: { event: ScenarioEvent; index: number }[]): ScenarioEvent[] => {
-      let next = [...base];
+      const next = base.slice();
       for (const { event, index } of queue) {
         // Reasoning streams as partial thinking events; they grow the LAST
         // block in place instead of stacking a new block per delta.
@@ -74,11 +74,20 @@ export function useScenario(): UseScenarioReturn {
           const lastIsPartialThinking = last.kind === 'thinking' && (last as ThinkingEvent).partial === true;
           const incomingPartial = (event as ThinkingEvent).partial === true;
           if (lastIsPartialThinking && (incomingPartial || !(event as ThinkingEvent).partial)) {
-            next = [...next.slice(0, -1), event];
+            next[next.length - 1] = event;
             continue;
           }
         }
-        next = upsertEvent(next, event, index);
+        // In-place upsert on the single isolated copy: id match, then index-hint
+        // slot, then append. Avoids a fresh [...events] allocation per event.
+        const existingIndex = next.findIndex((e) => Boolean(e.id) && e.id === event.id);
+        if (existingIndex >= 0) {
+          next[existingIndex] = event;
+        } else if (typeof index === 'number' && index >= 0 && index < next.length && next[index].kind === 'progress') {
+          next[index] = event;
+        } else {
+          next.push(event);
+        }
       }
       return next;
     },
@@ -127,7 +136,7 @@ export function useScenario(): UseScenarioReturn {
       }
       if (event.kind === 'turn_manifest') {
         const originalPrompt = eventsRef.current.find((e) => e.kind === 'message')?.text ?? '';
-        setLastManifest({ manifest: event as unknown as TurnManifestEvent, originalPrompt });
+        setLastManifest({ manifest: event, originalPrompt });
         flushBatch();
         setEvents((prev) => {
           const next = upsertEvent(prev, event, index);
@@ -472,16 +481,9 @@ export function useScenario(): UseScenarioReturn {
       }
 
       wsClient
-        .continuePrompt(
-          prompt,
-          selectedMode,
-          sessionIdRef.current ?? undefined,
-          provider,
-          manifest as TurnManifestEvent,
-          {
-            ...(model ? { model } : {}),
-          },
-        )
+        .continuePrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider, manifest, {
+          ...(model ? { model } : {}),
+        })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
           reportError('prompt_err', `Backend prompt error: ${message}`);

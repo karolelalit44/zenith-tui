@@ -1,6 +1,5 @@
 import { Box, Text } from 'ink';
 import React, { useRef } from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
 import {
   EXPLORE_TOOL,
   FILE_DELETE_TOOL_SET,
@@ -16,12 +15,13 @@ import {
   TOOL_META_INTERRUPTED,
   TOOL_META_REPEAT_COUNT,
 } from '../../../constants/toolDisplay';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import { stripAnsi } from '../../../utils/ansi';
 import { countWord, formatDuration } from '../../../utils/text';
 import { getWorkspaceFolderName, toWorkspaceRelative } from '../../../utils/workspacePath';
+import { LiveElapsed } from '../../ui/LiveElapsed';
+import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 import { DirectoryListingCard } from './DirectoryListingCard';
 import { formatErrorSummary } from './errorSummary';
@@ -78,8 +78,7 @@ const ExploreCrewCard: React.FC<{
   elapsedMs: number;
   context?: EventRenderContext;
   metaPill: React.ReactNode;
-  tick: number;
-}> = React.memo(({ event, isPending, state, elapsedMs, tick, metaPill }) => {
+}> = React.memo(({ event, isPending, state, elapsedMs, metaPill }) => {
   const { theme } = useTheme();
   const meta = readExploreMeta(event.metadata);
   const crewmateName = meta.crewmate_name ?? 'Apogee';
@@ -155,13 +154,7 @@ const ExploreCrewCard: React.FC<{
             color={isPending ? theme.colors.status.info : ok ? theme.colors.status.success : theme.colors.status.error}
             bold
           >
-            {isPending
-              ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} `
-              : ok
-                ? '  '
-                : state === 'cancelled'
-                  ? '⊘ '
-                  : '✗ '}
+            {isPending ? <Spinner suffix=" " /> : ok ? '  ' : state === 'cancelled' ? '⊘ ' : '✗ '}
           </Text>
           <Text color={theme.colors.text.bright} wrap="truncate-end">
             {objective || 'Exploring…'}
@@ -293,7 +286,6 @@ interface ToolStepCardProps {
 export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
   const isPending = Boolean(event.pending && context?.isRunning && !context?.isHistorical);
-  const tick = useAnimationTick();
 
   // Live elapsed time must measure from the tool step's own start, not from app
   // mount (the shared animation tick only re-renders; it is not a clock).
@@ -321,7 +313,6 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const repeatCount = typeof repeatMeta === 'number' && repeatMeta > 1 ? repeatMeta : 0;
 
   const primary = getToolStepPrimaryParam(event.tool, event.params);
-
   const statusText = !isPending ? getToolStepStatusText(event) : '';
   const verb = getToolVerbLabel(event.tool);
   const textTrimmed = event.text ? event.text.trim() : '';
@@ -337,7 +328,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     if (isPending) {
       return (
         <Text color={theme.colors.status.info} bold>
-          {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
+          <Spinner suffix=" " />
         </Text>
       );
     }
@@ -363,7 +354,11 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           <Text color={theme.colors.text.dim}>×{repeatCount}</Text>
         </Box>
       ) : null}
-      {durationText ? (
+      {isPending && startedAt !== undefined ? (
+        <Box flexShrink={0} marginLeft={1}>
+          <LiveElapsed startedAt={startedAt} color={theme.colors.text.dim} />
+        </Box>
+      ) : durationText ? (
         <Box flexShrink={0} marginLeft={1}>
           <Text color={theme.colors.text.dim}>~ {durationText}</Text>
         </Box>
@@ -381,17 +376,14 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
   const cmdString = primary?.value ?? (event.params.command as string) ?? '';
 
-  const isCreateFile =
-    toolKey === 'file_write' ||
-    toolKey === 'write_file' ||
-    toolKey === 'create_file';
+  const isCreateFile = toolKey === 'file_write' || toolKey === 'write_file' || toolKey === 'create_file';
 
   const explicitlyRequested = Boolean(
     event.params?.show_content ||
-    event.params?.render_code ||
-    event.params?.show_diff ||
-    event.metadata?.show_content ||
-    event.metadata?.render_code
+      event.params?.render_code ||
+      event.params?.show_diff ||
+      event.metadata?.show_content ||
+      event.metadata?.render_code,
   );
 
   // Resolve the diff/content to render underneath the header. Prefer a
@@ -412,10 +404,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
     const lower = event.tool.toLowerCase();
     const isEditTool =
-      lower === 'file_edit' ||
-      lower === 'multi_edit' ||
-      lower === 'edit_file' ||
-      lower === 'replace_file_content';
+      lower === 'file_edit' || lower === 'multi_edit' || lower === 'edit_file' || lower === 'replace_file_content';
     if (isEditTool && event.params) {
       const oldContent =
         (event.params.old_content as string) ??
@@ -514,7 +503,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           <Box flexDirection="row" alignItems="center">
             {isPending ? (
               <Text color={theme.colors.status.info} bold>
-                {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
+                <Spinner suffix=" " />
               </Text>
             ) : state === 'cancelled' ? (
               <Text color={theme.colors.status.warning} bold>
@@ -579,7 +568,6 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         elapsedMs={elapsedMs}
         context={context}
         metaPill={metaPill}
-        tick={tick}
       />
     );
   }
@@ -594,7 +582,6 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         elapsedMs={elapsedMs}
         context={context}
         metaPill={metaPill}
-        tick={tick}
       />
     );
   }

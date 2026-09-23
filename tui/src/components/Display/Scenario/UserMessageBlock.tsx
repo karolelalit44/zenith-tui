@@ -3,7 +3,6 @@ import React from 'react';
 import { contentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
-import type { FileAttachment } from '../../../types/scenario';
 import { parseStyledSegments } from '../../../utils/mentionTokens';
 
 interface UserMessageBlockProps {
@@ -19,8 +18,6 @@ interface UserMessageBlockProps {
    * Used when terminal width >= 80 columns.
    */
   timestampLong?: string;
-  /** Files/folders attached to this turn (unused in UI). */
-  attachments?: FileAttachment[];
 }
 
 /**

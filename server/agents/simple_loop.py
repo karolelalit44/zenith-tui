@@ -14,7 +14,6 @@ from server.config.constants import (
     DEFAULT_FILE_READ_LINES,
     MAX_ACTIVE_TOOLS_PER_TURN,
     MAX_STEPS_DEFAULT,
-    MAX_STEPS_PROMPT,
     MAX_TOOL_OUTPUT_BASELINE,
     PLAN_MODE,
     SALVAGE_DIGEST_MAX_ITEMS,
@@ -162,7 +161,10 @@ class SimpleLoop:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.warning("Salvage completion failed (%s); using deterministic digest", e)
+            # %r, not %s: asyncio.TimeoutError stringifies to "" so the old
+            # "%s" form produced a context-free "Salvage completion failed ()"
+            # line in prod logs.
+            logger.warning("Salvage completion failed (%r); using deterministic digest", e)
         else:
             raw = (result or "").strip()
             clean, attempted_calls = UnifiedResponseFormatter.process_response(raw)
@@ -349,6 +351,19 @@ class SimpleLoop:
                     return flat[:48] + ("\u2026" if len(flat) > 48 else "")
             return ""
 
+        # Progress must only ever advance: adding a new *active* step grows the
+        # step count while the done count is unchanged, which naively regressed
+        # the percent (a mid-run "96%" snapping back to "92%" in the TUI).
+        last_progress_pct = 0
+
+        def _progress_percent(done: int, total: int) -> int:
+            nonlocal last_progress_pct
+            pct = round(done * 100 / max(1, total))
+            if pct < last_progress_pct:
+                pct = last_progress_pct
+            last_progress_pct = pct
+            return pct
+
         def _emit_progress(tool_name: str, success: bool, detail: str = "") -> Event:
             label = _activity_label(tool_name, len(progress_steps) + 1, detail)
             if progress_steps and progress_steps[-1].get("status") == "active":
@@ -366,7 +381,7 @@ class SimpleLoop:
                     }
                 )
             done = sum(1 for s in progress_steps if s["status"] == "done")
-            percent = round(done * 100 / max(1, len(progress_steps)))
+            percent = _progress_percent(done, len(progress_steps))
             return r.progress(
                 percent, label, session_id, iteration=iteration, steps=list(progress_steps)
             )
@@ -375,7 +390,7 @@ class SimpleLoop:
             label = _activity_label(tool_name, len(progress_steps) + 1, detail)
             progress_steps.append({"label": label, "status": "active", "tool": tool_name})
             done = sum(1 for s in progress_steps if s["status"] == "done")
-            percent = round(done * 100 / max(1, len(progress_steps)))
+            percent = _progress_percent(done, len(progress_steps))
             return r.progress(
                 percent, label, session_id, iteration=iteration, steps=list(progress_steps)
             )
@@ -397,10 +412,6 @@ class SimpleLoop:
                 )
                 yield r.warning("Request cancelled", session_id, code="CANCELLED")
                 return
-            nudge_step = max_steps - 5 if max_steps > 5 else max_steps - 1
-            if iteration > 0 and iteration == nudge_step:
-                messages.append({"role": "user", "content": MAX_STEPS_PROMPT})
-                yield r.warning(MAX_STEPS_PROMPT, session_id, code="MAX_STEPS")
 
             token_info = self.context_manager.get_token_info(messages, model)
             if token_info.percent >= self.config.context_compaction_threshold:

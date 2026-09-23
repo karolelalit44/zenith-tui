@@ -204,6 +204,17 @@ async def stream_completion(
             messages, tools=tools, tool_choice=tool_choice, response_format=response_format
         ):
             stream_chunk_count += 1
+            # Provider retried a failed attempt before producing this chunk.
+            # Surface a transient notice (the frontend auto-hides it) so the
+            # user sees the request hiccuped and recovered instead of an
+            # unexplained pause.
+            if getattr(provider, "_retry_notice", False):
+                provider._retry_notice = False
+                yield r.warning(
+                    "Provider hiccup; request retried successfully.",
+                    session_id,
+                    code="STREAM_RETRY",
+                )
             if reasoning:
                 state.reasoning_text += reasoning
                 reasoning_part.merge(reasoning)

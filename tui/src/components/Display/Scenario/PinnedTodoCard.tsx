@@ -1,21 +1,15 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { contentWidth as computeContentWidth } from '../../../constants/layout';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../../../types/scenario';
 import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
+import { Spinner } from '../../ui/Spinner';
 import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, TodoStatusGlyph } from './todoStatus';
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const MAX_PINNED_TODOS = 5;
 const PROGRESS_BAR_WIDTH = 8;
-
-const LiveSpinner: React.FC = () => {
-  const tick = useAnimationTick();
-  return <Text>{SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}</Text>;
-};
 
 export interface PinnedTodoCardProps {
   event: ConsolidatedTodoBoard;
@@ -127,7 +121,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
                 ↳{' '}
               </Text>
               <Text color={colors.status.info}>
-                <LiveSpinner />{' '}
+                <Spinner />{' '}
               </Text>
               <Text color={colors.text.bright} wrap="truncate-end">
                 {activeActivity.label}
@@ -159,7 +153,7 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
                     status={pending ? 'todo' : item.status}
                     colors={colors}
                     bracketColor={bracketColor}
-                    spinner={!pending && item.status === 'in_progress' && isRunning ? <LiveSpinner /> : undefined}
+                    spinner={!pending && item.status === 'in_progress' && isRunning ? <Spinner /> : undefined}
                   />
                 </Box>
               </Box>

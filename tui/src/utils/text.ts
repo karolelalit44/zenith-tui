@@ -32,9 +32,15 @@ export function truncateMiddle(text: string, maxLength: number): string {
   return `${text.slice(0, half)}…${text.slice(-tailHalf)}`;
 }
 
+/** Words whose English plural is not just `noun + s`. */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  match: 'matches',
+};
+
 /** Singular/plural count phrase: `1 line`, `3 lines`, `1 match`, `5 matches`. */
 export function countWord(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+  if (count === 1) return `1 ${noun}`;
+  return `${count} ${IRREGULAR_PLURALS[noun] ?? `${noun}s`}`;
 }
 
 export function truncateEnd(text: string, maxLength: number): string {

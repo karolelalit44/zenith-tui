@@ -144,7 +144,13 @@ export const TurnManifestCard: React.FC<TurnManifestCardProps> = React.memo(({ e
           }
           bold
         >
-          {event.completed ? '● Turn complete' : event.stalled ? '● Turn stalled' : '⧗ Turn paused'}
+          {event.completed
+            ? '● Turn complete'
+            : event.stalled
+              ? '● Turn stalled'
+              : event.answered
+                ? '⧗ Turn finalizing'
+                : '⧗ Turn paused'}{' '}
         </Text>
         <Text color={theme.colors.text.muted}>{formatTurnSummary(event)}</Text>
       </Box>

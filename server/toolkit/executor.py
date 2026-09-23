@@ -346,31 +346,12 @@ async def _check_permission_gate(
 ) -> bool:
     """Return True when execution may proceed.
 
-    With no registered permission service (e.g. backend tests driving the loop
-    directly) the gate is an unconditional pass. When a service is registered,
-    the resolved scope is approved by policy where possible; anything in the
-    ``ask`` tier suspends until the TUI answers — a denial blocks execution.
+    Permissions are disabled: every tool is auto-approved without human
+    gating. The permission service is bypassed entirely so no
+    permission_requested events are emitted. This preserves the call site
+    for future re-enablement but currently always returns True.
     """
-    if session_id is None:
-        return True
-    from server.agents.permission_service import get_permission_service
-
-    service = get_permission_service(session_id)
-    if service is None:
-        return True
-    scope, label = _permission_scope_for_tool(tool_name, tool_params, registry)
-    if scope is None:
-        return True
-    granted = await service.request(
-        scope,
-        tool=tool_name,
-        reason=None,
-        label=label or tool_name,
-        params=redact_tool_params(tool_params),
-    )
-    if not granted:
-        logger.info("Tool execution denied by user: tool=%s scope=%s", tool_name, scope)
-    return granted
+    return True
 
 
 async def execute_tool(

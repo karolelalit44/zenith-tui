@@ -1,10 +1,10 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import { stripAnsi } from '../../../utils/ansi';
 import { toWorkspaceRelative } from '../../../utils/workspacePath';
+import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 import { formatErrorSummary } from './errorSummary';
 
@@ -15,7 +15,6 @@ export interface DirectoryListingCardProps {
   elapsedMs: number;
   context?: EventRenderContext;
   metaPill: React.ReactNode;
-  tick: number;
 }
 
 interface ParsedEntry {
@@ -85,7 +84,7 @@ function parseDirectoryEntries(
 }
 
 export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.memo(
-  ({ event, isPending, state, metaPill, tick, context }) => {
+  ({ event, isPending, state, metaPill, context }) => {
     const { theme } = useTheme();
 
     const rawPath =
@@ -101,7 +100,9 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
     const displayPath =
       normalizedFinal === '.' ? './' : normalizedFinal.endsWith('/') ? normalizedFinal : `${normalizedFinal}/`;
 
-    const rawOutput = stripAnsi(event.output || (typeof event.metadata?.output === 'string' ? event.metadata.output : '') || '');
+    const rawOutput = stripAnsi(
+      event.output || (typeof event.metadata?.output === 'string' ? event.metadata.output : '') || '',
+    );
 
     const { dirs, files, totalDirs, totalFiles } = parseDirectoryEntries(rawOutput, event.metadata);
     const allEntries = [...dirs, ...files];
@@ -161,7 +162,7 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
             <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
               {isPending ? (
                 <Text color={theme.colors.status.info} bold>
-                  {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
+                  <Spinner suffix=" " />
                 </Text>
               ) : state === 'cancelled' ? (
                 <Text color={theme.colors.status.warning} bold>

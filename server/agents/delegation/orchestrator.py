@@ -438,6 +438,13 @@ class CaptainOrchestrator:
                             "summary above is best-effort from gathered evidence."
                         )
                     ] + list(result.unverified)
+                    # A timed-out mission whose salvage produced a real report
+                    # is NOT a failed mission: it delivered the deliverable.
+                    # Marking it completed makes the TUI show "✔ completed/100%"
+                    # (instead of the self-contradictory "✗ Orchestration Failed
+                    # while a crafted report was delivered") while the unverified
+                    # note above keeps the caveat visible.
+                    result.status = "completed"
             elif run.last_error:
                 result = assemble_result(
                     task,
@@ -529,18 +536,23 @@ class CaptainOrchestrator:
         failure; an empty return keeps the deterministic fallback.
         """
         evidence: list[str] = []
+        tool_evidence = 0
         for event in child_events:
             if event.kind == EventKind.TOOL_RESULT:
                 out = str(event.data.get("output") or "")[:400]
                 if out:
                     evidence.append(f"[{event.data.get('tool')}] {out}")
+                    tool_evidence += 1
             elif event.kind == EventKind.MESSAGE and not event.data.get("partial"):
                 text = str(event.data.get("text") or "")[:400]
                 if text:
                     evidence.append(f"[notes] {text}")
             if sum(len(e) for e in evidence) > 12_000:
                 break
-        if not evidence:
+        # A "completed" label must not be granted from unanchored model notes:
+        # require at least one concrete tool result (file read, search, ...) in
+        # the evidence the salvage summary is derived from.
+        if not evidence or tool_evidence == 0:
             return ""
         prompt = (
             "A delegated investigation was cut off by its time budget. Using "

@@ -28,7 +28,6 @@ interface CommandInputProps {
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
   mode?: ScenarioMode;
-  maxTokens?: number;
   /** Cumulative run/API token usage (telemetry). */
   runTokens?: number;
   /** True when cumulative run usage is estimated, not provider-reported. */
@@ -66,7 +65,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     historyDown,
     mode = 'build',
     calmMode,
-    maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
     runTokens,
     runEstimated,
     contextPercent,
@@ -91,12 +89,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     const { columns } = useTerminalDimensions();
     const termCols = columns || process.stdout.columns || 80;
     const dividerWidth = Math.max(0, termCols - FOOTER_EDGE_PAD);
-
-    const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
-    const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
-    const modelContextWindow = activeModelInfo?.context_window ?? SESSION_STATUS_DEFAULTS.maxTokens;
-    const backendMaxTokens = maxTokens > 0 ? maxTokens : SESSION_STATUS_DEFAULTS.maxTokens;
-    const effectiveMaxTokens = Math.min(modelContextWindow, backendMaxTokens);
 
     const handleSpecial = useCallback(
       (char: string, key: Key, value: string): boolean => {
@@ -290,7 +282,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             providerName={providerName}
             dir={workspaceName}
             branch={activeBranch}
-            effectiveMaxTokens={effectiveMaxTokens}
             runTokens={runTokens}
             runEstimated={runEstimated}
             contextPercent={contextPercent}

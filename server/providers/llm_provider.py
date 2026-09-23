@@ -597,6 +597,14 @@ class LLMProvider(BaseProvider):
         self._cumulative_usage: dict = {}
         self._last_finish_reason: FinishReason = FinishReason.STOP
         self._last_ttft_ms: int | None = None
+        # Set when _stream_impl retries a failed attempt mid-stream; consumers
+        # (llm_stream) surface a transient "retrying" notice to the user.
+        self._retry_notice: bool = False
+        # Hard guard: the retry-notice and per-call metrics are instance state,
+        # so two concurrent streams on one provider would cross-consume them.
+        # Stream calls are serialized per provider today; this makes a future
+        # concurrent caller fail loudly instead of silently glitching.
+        self._streams_in_flight = 0
         self._token_counter = TokenCounter()
         self._throttle = _RequestThrottle(_resolve_min_request_interval(name))
         _set_api_key(name, self.api_key)
@@ -812,6 +820,14 @@ class LLMProvider(BaseProvider):
         tool_choice: str | None = None,
         response_format: dict | None = None,
     ) -> AsyncIterator[tuple[str, str | None]]:
+        if self._streams_in_flight:
+            raise ProviderError(
+                "Concurrent LLM streams on one provider are not supported",
+                provider=self.name,
+                code="CONCURRENT_STREAM",
+                recoverable=False,
+            )
+        self._streams_in_flight += 1
         try:
             async for chunk, event_type in self._stream_impl(
                 messages, tools, tool_choice=tool_choice, response_format=response_format
@@ -822,6 +838,8 @@ class LLMProvider(BaseProvider):
         except Exception as e:
             logger.error("STREAM ERROR model=%s error=%s", self._litellm_model, str(e))
             raise _classify_provider_error(e, self.name) from e
+        finally:
+            self._streams_in_flight -= 1
 
     async def _stream_impl(
         self,
@@ -858,6 +876,7 @@ class LLMProvider(BaseProvider):
         # forward and be replayed as if the model asked for them again.
         self._last_native_tool_calls = []
         self._last_ttft_ms = None
+        self._retry_notice = False
         accumulated_tool_calls: dict[int, dict] = {}
         chunk_count = 0
         content_chars = 0
@@ -1068,6 +1087,7 @@ class LLMProvider(BaseProvider):
                     _STREAM_RETRY_BASE_DELAY_S * attempt,
                     _STREAM_RETRY_MAX_DELAY_S,
                 ) + random.uniform(0, 1.0)
+                self._retry_notice = True
                 logger.warning(
                     "API STREAM RETRY model=%s attempt=%d backoff=%.1fs error=%r",
                     self._litellm_model,

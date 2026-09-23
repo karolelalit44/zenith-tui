@@ -1,13 +1,12 @@
 import { Box, Text } from 'ink';
 import React, { useRef } from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
 import { ROW_GAP } from '../../../constants/layout';
 import { WEBFETCH_TOOL, WEBSEARCH_TOOL } from '../../../constants/toolDisplay';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import { stripAnsi } from '../../../utils/ansi';
 import { countWord, formatDuration, truncateMiddle } from '../../../utils/text';
+import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 
 /**
@@ -41,18 +40,6 @@ function truncatedCounts(output: string, totalChars?: number): { sliced?: number
   return { sliced, total: typeof totalChars === 'number' ? totalChars : undefined };
 }
 
-/** Spin only while pending — keeps completed/historical cards static. */
-const LiveSpinner: React.FC<{ color: string }> = React.memo(({ color }) => {
-  const tick = useAnimationTick();
-  return (
-    <Text color={color} bold>
-      {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
-    </Text>
-  );
-});
-
-LiveSpinner.displayName = 'LiveSpinner';
-
 export const WebResearchCard: React.FC<{
   event: ToolStepEvent;
   context?: EventRenderContext;
@@ -70,17 +57,14 @@ export const WebResearchCard: React.FC<{
   const liveMs = isPending && startedAt !== undefined ? Date.now() - startedAt : 0;
   const metaDurMs =
     typeof event.metadata?.duration_ms === 'number' ? Math.max(0, event.metadata.duration_ms) : undefined;
-  const durationText =
-    metaDurMs !== undefined ? formatDuration(metaDurMs) : isPending ? formatDuration(liveMs) : '';
+  const durationText = metaDurMs !== undefined ? formatDuration(metaDurMs) : isPending ? formatDuration(liveMs) : '';
 
   const isSearch = event.tool === WEBSEARCH_TOOL;
   const isFetch = event.tool === WEBFETCH_TOOL;
   const isFailed = !isPending && Boolean(event.error);
   const isSuccess = !isPending && !isFailed && event.success !== false;
 
-  const query = String(
-    event.params?.query ?? event.metadata?.query ?? (event.params?.queries as string[])?.[0] ?? '',
-  );
+  const query = String(event.params?.query ?? event.metadata?.query ?? (event.params?.queries as string[])?.[0] ?? '');
   const queries = event.params?.queries as string[] | undefined;
   // metadata.url is the resolved target; params.url may be a ref_doc token.
   const url = String(event.metadata?.url || event.params?.url || '');
@@ -116,7 +100,9 @@ export const WebResearchCard: React.FC<{
   // ── Failure (shared by search + fetch) ────────────────────────────────────
   if (isFailed) {
     const label = isSearch ? 'search' : 'fetch';
-    const body = String(event.error || 'tool failed').replace(/\s+/g, ' ').trim();
+    const body = String(event.error || 'tool failed')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (isCalm) {
       return (
         <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
@@ -139,13 +125,7 @@ export const WebResearchCard: React.FC<{
             {label} failed
           </Text>
           <Text color={dim}> — </Text>
-          <Box
-            flexShrink={1}
-            flexGrow={0}
-            paddingX={1}
-            backgroundColor={shade}
-            overflow="hidden"
-          >
+          <Box flexShrink={1} flexGrow={0} paddingX={1} backgroundColor={shade} overflow="hidden">
             <Text color={muted} italic wrap="truncate-end">
               {truncateMiddle(body, 48)}
             </Text>
@@ -177,14 +157,9 @@ export const WebResearchCard: React.FC<{
       return (
         <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
           <Box flexDirection="row" alignItems="center">
-            <LiveSpinner color={info} />
+            <Spinner color={info} bold suffix=" " />
             <Text color={dim}>Searching</Text>
-            <Box
-              marginLeft={1}
-              paddingX={1}
-              backgroundColor={shade}
-              overflow="hidden"
-            >
+            <Box marginLeft={1} paddingX={1} backgroundColor={shade} overflow="hidden">
               <Text color={bright} bold wrap="truncate-end">
                 "{truncateMiddle(q, 44)}"
               </Text>
@@ -263,7 +238,8 @@ export const WebResearchCard: React.FC<{
         <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
           <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
             <Text color={dim} dimColor>
-              · {count !== undefined ? `${count} · ` : ''}{source} — "{truncateMiddle(displayQuery, 38)}"
+              · {count !== undefined ? `${count} · ` : ''}
+              {source} — "{truncateMiddle(displayQuery, 38)}"
             </Text>
             <Box flexGrow={1} />
             {metaRow('')}
@@ -346,7 +322,8 @@ export const WebResearchCard: React.FC<{
           <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
             <Box flexDirection="row" alignItems="center">
               <Text color={dim} dimColor>
-                · fetch {pat ? `${pat} · ` : ''}{dom || truncateMiddle(url, 28)}
+                · fetch {pat ? `${pat} · ` : ''}
+                {dom || truncateMiddle(url, 28)}
               </Text>
               {metaRow('')}
             </Box>
@@ -356,7 +333,7 @@ export const WebResearchCard: React.FC<{
       return (
         <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
           <Box flexDirection="row" alignItems="center">
-            <LiveSpinner color={info} />
+            <Spinner color={info} bold suffix=" " />
             <Text color={dim}>Fetching</Text>
             {dom ? (
               <Box marginLeft={1} paddingX={1} backgroundColor={shade}>

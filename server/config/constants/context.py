@@ -47,17 +47,12 @@ ANSI_RE = re.compile(
 # --- module 01 (turn/loop) ---
 # New opencode/codex-style loop design knobs. Additive-only additions.
 # The loop stops emergently when the model emits no tool calls, so the only
-# bounds are one advisory step nudge and one safety guard against a repetitive
-# tool loop.
+# bound is one safety guard against a repetitive tool loop.
 DOOM_LOOP_THRESHOLD = (
     3  # consecutive identical (name + input) tool calls → warn and stop the turn for human review
 )
 MAX_STEPS_DEFAULT = (
     25  # safety net iteration cap for a single turn; triggers salvage if budget exhausted
-)
-MAX_STEPS_PROMPT = (
-    "You have been working on this task for a very long time. Wrap up: finish the current "
-    "step, then produce your final answer. Do not start new tool calls."
 )
 
 
