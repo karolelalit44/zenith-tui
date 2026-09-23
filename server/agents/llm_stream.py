@@ -216,16 +216,22 @@ async def stream_completion(
                     code="STREAM_RETRY",
                 )
             if reasoning:
-                state.reasoning_text += reasoning
-                reasoning_part.merge(reasoning)
-                pending_reasoning_chars += len(reasoning)
-                # Live thinking block (codex ReasoningContentDelta parity): stream
-                # the running reasoning text as it arrives instead of batching
-                # the whole thought to the end of the turn, so the "thinking"
-                # block renders while the model is still reasoning, not after.
-                if pending_reasoning_chars >= _REASONING_EMIT_THRESHOLD:
-                    pending_reasoning_chars = 0
-                    yield r.thinking(reasoning_part.text, session_id, partial=True)
+                # Reasoning after content began is private trailing chain-of-
+                # thought: the thinking block was already closed the moment the
+                # first content chunk arrived, so any partials emitted here would
+                # never be finalized into a closed block — leaving a dangling
+                # "Thought" block duplicated in the UI timeline. Drop the phase.
+                if not reasoning_closed:
+                    state.reasoning_text += reasoning
+                    reasoning_part.merge(reasoning)
+                    pending_reasoning_chars += len(reasoning)
+                    # Live thinking block (codex ReasoningContentDelta parity): stream
+                    # the running reasoning text as it arrives instead of batching
+                    # the whole thought to the end of the turn, so the "thinking"
+                    # block renders while the model is still reasoning, not after.
+                    if pending_reasoning_chars >= _REASONING_EMIT_THRESHOLD:
+                        pending_reasoning_chars = 0
+                        yield r.thinking(reasoning_part.text, session_id, partial=True)
             if content:
                 # Close the thinking block IMMEDIATELY when reasoning completes
                 # and content begins, so the user timeline preserves chronological

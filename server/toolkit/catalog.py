@@ -15,7 +15,6 @@ class ToolInventoryEntry(BaseModel):
     modes: list[str]
     read_only: bool
     risk_level: str
-    permission_scope: str
     concurrency_group: str
     timeout_ms: int | None
     domains: list[str]
@@ -42,7 +41,6 @@ def build_inventory(
                 modes=list(tool.modes or []),
                 read_only=tool.read_only,
                 risk_level=tool.risk_level,
-                permission_scope=tool.permission_scope,
                 concurrency_group=tool.concurrency_group,
                 timeout_ms=tool.timeout_ms,
                 domains=list(tool.domains),

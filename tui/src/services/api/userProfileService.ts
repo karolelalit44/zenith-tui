@@ -1,5 +1,4 @@
 import { appConfig } from '../../config/appConfig';
-import type { PermissionLevel, PermissionScope } from '../../types/scenario';
 import { resolveWorkspaceRoot } from '../../utils/workspacePath';
 
 /**
@@ -27,12 +26,8 @@ interface UserSettingsSection {
   thinkingCollapsed: boolean;
   /** Calm mode (/clam): when true, model thinking output is hidden entirely. */
   calmMode: boolean;
-  /** Per-scope permission level; server-owned default mirrors DEFAULT_PERMISSION_POLICY. */
-  permissionPolicy: Partial<Record<PermissionScope, PermissionLevel>>;
   defaultMode: 'build' | 'plan';
 }
-
-export type { PermissionLevel, PermissionScope };
 
 export interface UserProfile {
   provider: UserProviderSection;
@@ -46,30 +41,6 @@ export interface UserProfile {
 
 const DEFAULT_THEME = 'graphite';
 const DEFAULT_MODE = 'build' as const;
-
-const DEFAULT_PERMISSION_POLICY: Partial<Record<PermissionScope, PermissionLevel>> = {
-  read: 'allow',
-  write: 'allow',
-  delete: 'ask',
-  command: 'ask',
-  network: 'ask',
-  crewmate: 'ask',
-  plan: 'ask',
-};
-
-const VALID_LEVELS: readonly PermissionLevel[] = ['ask', 'allow', 'deny'];
-
-function sanitizePermissionPolicy(value: unknown): Partial<Record<PermissionScope, PermissionLevel>> {
-  const out: Partial<Record<PermissionScope, PermissionLevel>> = {};
-  if (value && typeof value === 'object') {
-    for (const [scope, level] of Object.entries(value as Record<string, unknown>)) {
-      if (VALID_LEVELS.includes(level as PermissionLevel)) {
-        out[scope as PermissionScope] = level as PermissionLevel;
-      }
-    }
-  }
-  return out;
-}
 
 const HYDRATE_MAX_ATTEMPTS = 0;
 const HYDRATE_RETRY_MS = 1000;
@@ -92,7 +63,6 @@ function getInitialProfile(): UserProfile {
       theme: DEFAULT_THEME,
       thinkingCollapsed: false,
       calmMode: false,
-      permissionPolicy: { ...DEFAULT_PERMISSION_POLICY },
       defaultMode: DEFAULT_MODE,
     },
     providerSettings: {},
@@ -114,10 +84,6 @@ function applyServerPayload(payload: Record<string, unknown>): void {
   }
   if (!pendingSettingKeys.has('calmMode') && typeof prefs.calmMode === 'boolean') {
     nextSettings.calmMode = prefs.calmMode;
-  }
-  if (!pendingSettingKeys.has('permissionPolicy') && prefs.permissionPolicy !== undefined) {
-    const policy = sanitizePermissionPolicy(prefs.permissionPolicy);
-    if (Object.keys(policy).length > 0) nextSettings.permissionPolicy = policy;
   }
   if (!pendingSettingKeys.has('defaultMode') && (prefs.defaultMode === 'build' || prefs.defaultMode === 'plan')) {
     nextSettings.defaultMode = prefs.defaultMode;
@@ -161,11 +127,11 @@ async function hydrateFromServer(): Promise<void> {
 function scheduleRemoteSave(settingKeys: string[]): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const { theme, thinkingCollapsed, calmMode, permissionPolicy, defaultMode } = profileCache.settings;
+    const { theme, thinkingCollapsed, calmMode, defaultMode } = profileCache.settings;
     void fetch(appConfig.buildUrl('/profile/preferences'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme, thinkingCollapsed, calmMode, permissionPolicy, defaultMode }),
+      body: JSON.stringify({ theme, thinkingCollapsed, calmMode, defaultMode }),
     })
       .then((resp) => {
         if (resp.ok) {

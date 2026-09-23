@@ -46,7 +46,6 @@ from server.config.constants import (
     EXPLORE_RESULT_MAX_CHARS,
     EXPLORE_THOROUGHNESS_LEVELS,
     LATENCY_CLASS_HIGH,
-    PERMISSION_CREWMATE,
     RISK_MEDIUM,
     TOOL_DOMAIN_CREWMATE,
 )
@@ -143,7 +142,6 @@ class ExploreTool(BaseTool):
     requires_mode = None
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_CREWMATE
-    permission_scope = PERMISSION_CREWMATE
     domains = (TOOL_DOMAIN_CREWMATE,)
     search_terms = (
         "explore",

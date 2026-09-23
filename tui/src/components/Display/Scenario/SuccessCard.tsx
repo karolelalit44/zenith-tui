@@ -15,40 +15,33 @@ interface SuccessCardProps {
   turnEvents?: ScenarioEvent[];
 }
 
-/** Waveform bar characters for animated equalizer. */
-const WAVE_FRAMES = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂'] as const;
+/** Core glyph per breath tick: dim quiet → charge → ignited Zenith core → release. */
+const RETICLE_FRAMES = ['*', '+', '⨳', '+', '*'] as const;
 
 /**
- * Isolated 100ms-tick equalizer animation. Only this tiny node subscribes to
- * the shared tick while the turn runs; the memoized SuccessCard never
- * re-renders per tick.
+ * Isolated 100ms-tick reticle pulse: the four-fold core presses through the
+ * quiet dim `*`, charges as `+`, and ignites into the bold `⨳` Zenith core
+ * before releasing. Symmetric `·` rays frame it, and every glyph is colored
+ * purely from the theme. Only this tiny node subscribes to the shared tick
+ * while the turn runs; the memoized SuccessCard never re-renders per tick.
  */
-const SuccessEqualizer: React.FC = React.memo(() => {
+const ReticlePulse: React.FC = React.memo(() => {
   const { theme } = useTheme();
   const tick = useAnimationTick();
-  const gradient = [
-    theme.colors.status.accent,
-    theme.colors.text.emerald,
-    theme.colors.status.success,
-    theme.colors.status.info,
-  ];
+  const core = RETICLE_FRAMES[tick % RETICLE_FRAMES.length];
+  const color = core === '*' ? theme.colors.text.dim : theme.colors.status.info;
   return (
-    <Box flexDirection="row" marginRight={1} alignItems="flex-end">
-      {Array.from({ length: 3 }).map((_, idx) => {
-        const phase = (Math.sin(tick / 3 + idx * 0.85) + 1) / 2;
-        const frameIdx = Math.max(0, Math.min(WAVE_FRAMES.length - 1, Math.floor(phase * (WAVE_FRAMES.length - 1))));
-        const color = gradient[(idx + Math.floor(tick / 3)) % gradient.length];
-        return (
-          <Box key={idx} width={1}>
-            <Text color={color}>{WAVE_FRAMES[frameIdx]}</Text>
-          </Box>
-        );
-      })}
+    <Box flexDirection="row" marginRight={1} alignItems="center">
+      <Text color={theme.colors.text.dim}>{'·'}</Text>
+      <Text color={color} bold={core === '⨳'}>
+        {core}
+      </Text>
+      <Text color={theme.colors.text.dim}>{'·'}</Text>
     </Box>
   );
 });
 
-SuccessEqualizer.displayName = 'SuccessEqualizer';
+ReticlePulse.displayName = 'ReticlePulse';
 
 export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, context, manifest, turnEvents }) => {
   const { theme } = useTheme();
@@ -188,7 +181,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
       {/* Left Section: Animated Equalizer Wave (Running) / Status Glyph (Completed/Interrupted) + Metrics */}
       <Box flexDirection="row" alignItems="center" flexShrink={1}>
         {isLiveRunning ? (
-          <SuccessEqualizer />
+          <ReticlePulse />
         ) : !isComplete ? (
           <Box marginRight={1}>
             <Text color={theme.colors.status.warning} bold>

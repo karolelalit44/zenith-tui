@@ -11,7 +11,6 @@ from server.config.constants import (
     COST_CLASS_MEDIUM,
     DEFAULT_USER_AGENT,
     LATENCY_CLASS_HIGH,
-    PERMISSION_NETWORK,
     RISK_LOW,
     TOOL_DOMAIN_WEB,
     is_http_url,
@@ -111,7 +110,6 @@ class WebfetchTool(BaseTool):
     capability_id = "web_fetch"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_NETWORK
     domains = (TOOL_DOMAIN_WEB,)
     search_terms = (
         "web",

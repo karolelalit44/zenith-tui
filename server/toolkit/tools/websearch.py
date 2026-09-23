@@ -13,7 +13,6 @@ from server.config.constants import (
     DEFAULT_USER_AGENT,
     DEFAULT_WEBSEARCH_MAX_RESULTS,
     LATENCY_CLASS_HIGH,
-    PERMISSION_NETWORK,
     RISK_LOW,
     TOOL_DOMAIN_WEB,
 )
@@ -39,7 +38,6 @@ class WebsearchTool(BaseTool):
     capability_id = "web_search"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_NETWORK
     domains = (TOOL_DOMAIN_WEB,)
     search_terms = (
         "web",

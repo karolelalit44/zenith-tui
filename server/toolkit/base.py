@@ -14,7 +14,6 @@ from server.config.constants import (
     DEFAULT_TOOL_TIMEOUT_MS,
     LATENCY_CLASS_LOW,
     MAX_TOOL_OUTPUT_BASELINE,
-    PERMISSION_READ,
     RISK_SAFE,
 )
 
@@ -63,7 +62,6 @@ class BaseTool(ABC):
     read_only: bool = False
     timeout_ms: int | None = DEFAULT_TOOL_TIMEOUT_MS
     concurrency_group: str = CONCURRENCY_GROUP_READONLY
-    permission_scope: str = PERMISSION_READ
     domains: tuple[str, ...] = ()
     search_terms: tuple[str, ...] = ()
     risk_level: str = RISK_SAFE

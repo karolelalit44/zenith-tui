@@ -8,7 +8,6 @@ from fastapi import WebSocket
 import server.providers.responder as r
 from server.config.constants import (
     BUILD_MODE,
-    PERMISSION_SCOPES,
     SESSION_TITLE_MAX_CHARS,
 )
 from server.config.settings import AGENT_MODES
@@ -136,12 +135,6 @@ class MethodHandlers:
             "prompt.send": lambda: self._prompt(ws, rid, params, session_id),
             "prompt.continue": lambda: self._prompt_continue(ws, rid, params, session_id),
             "prompt.cancel": lambda: self._cancel_prompt(ws, rid, session_id),
-            "permission.respond": lambda: self._permission_respond(
-                ws, rid, params, session_id
-            ),
-            "permission.policy": lambda: self._permission_policy(
-                ws, rid, params, session_id
-            ),
             "context.compact": lambda: self._context_compact(
                 ws, rid, session_id, focus=(params or {}).get("focus")
             ),
@@ -169,80 +162,6 @@ class MethodHandlers:
                     )
                 return session_id
         await ws.send_text(make_error_response(rid, -32601, f"Method not found: {method}"))
-        return session_id
-
-    async def _permission_respond(self, ws, rid, params, session_id) -> str | None:
-        from server.agents.permission_service import get_permission_service
-
-        if not session_id:
-            await ws.send_text(
-                make_error_response(rid, -32602, "No active session for permission response")
-            )
-            return None
-        service = get_permission_service(session_id)
-        if service is None:
-            await ws.send_text(
-                make_error_response(
-                    rid, -32602, "No pending permission request for this session"
-                )
-            )
-            return session_id
-        request_id = str((params or {}).get("request_id") or "")
-        if not request_id:
-            await ws.send_text(
-                make_error_response(rid, -32602, "Missing permission request_id")
-            )
-            return session_id
-        allow = bool((params or {}).get("allow", False))
-        if not service.respond(request_id, allow):
-            await ws.send_text(
-                make_error_response(
-                    rid,
-                    -32602,
-                    f"No pending permission request: {request_id}",
-                )
-            )
-            return session_id
-        await ws.send_text(make_response(rid, {"resolved": True, "allow": allow}))
-        return session_id
-
-    async def _permission_policy(self, ws, rid, params, session_id) -> str | None:
-        from server.agents.permission_service import get_permission_service
-
-        if not session_id:
-            await ws.send_text(
-                make_error_response(rid, -32602, "No active session for permission policy")
-            )
-            return None
-        service = get_permission_service(session_id)
-        if service is None:
-            await ws.send_text(
-                make_error_response(
-                    rid, -32602, "No active permission service for this session"
-                )
-            )
-            return session_id
-        scope = (params or {}).get("scope")
-        level = (params or {}).get("level")
-        if scope not in PERMISSION_SCOPES or level not in ("ask", "allow", "deny"):
-            await ws.send_text(
-                make_error_response(
-                    rid, -32602, f"Invalid permission policy: scope={scope} level={level}"
-                )
-            )
-            return session_id
-        if not service.set_policy(str(scope), str(level)):
-            await ws.send_text(
-                make_error_response(
-                    rid, -32602, f"Invalid permission policy: scope={scope} level={level}"
-                )
-            )
-            return session_id
-        await ws.send_text(
-            make_response(
-                rid, {"scope": scope, "level": level, "policy": service.policy}
-            )
-        )
         return session_id
 
     async def _session_create(self, ws, rid, params) -> str:

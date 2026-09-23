@@ -37,8 +37,6 @@ import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
 import type {
-  PermissionRequestedEvent,
-  PermissionResolvedEvent,
   ScenarioEvent,
   ScenarioMode,
   SuccessEvent,
@@ -198,7 +196,6 @@ export const App: React.FC = () => {
   const { activeProvider } = useProvider();
   const activeGitBranch = useMemo(() => getActiveGitBranch(workspace), [workspace]);
   const [continueTarget, setContinueTarget] = useState<{ prompt: string; manifest: TurnManifestEvent } | null>(null);
-  const [dismissedPermissionIds, setDismissedPermissionIds] = useState<Set<string>>(new Set());
 
   // Transient "provider retrying" notice: shown for a few seconds, then hidden.
   // Keyed on the LAST STREAM_RETRY event id so ordinary chunk updates during a
@@ -208,6 +205,7 @@ export const App: React.FC = () => {
   const [retryNotice, setRetryNotice] = useState<string | null>(null);
   const lastRetryNoticeId = useRef<string | null>(null);
   const retryScanFrom = useRef(0);
+  const retryNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (events.length < retryScanFrom.current) {
       retryScanFrom.current = 0;
@@ -223,28 +221,16 @@ export const App: React.FC = () => {
     if (!notice || notice.id === lastRetryNoticeId.current) return;
     lastRetryNoticeId.current = notice.id;
     setRetryNotice(notice.message || 'Provider hiccup; request retried successfully.');
-    const timer = setTimeout(() => setRetryNotice(null), 4500);
-    return () => clearTimeout(timer);
+    // Held in a ref, NOT returned as effect cleanup: ordinary event appends
+    // re-run this effect on every chunk, and a cleanup would cancel the
+    // auto-hide timer before it fires. Only a NEW retry resets it.
+    if (retryNoticeTimer.current) clearTimeout(retryNoticeTimer.current);
+    retryNoticeTimer.current = setTimeout(() => {
+      retryNoticeTimer.current = null;
+      setRetryNotice(null);
+    }, 4500);
   }, [events]);
 
-  // The most recent permission_requested that has no matching resolved event yet.
-  // Derived from events so history / reconnect replay renders identically.
-  const pendingPermission = useMemo(() => {
-    if (!isRunning) return null;
-    const resolved = new Set(
-      events.filter((e): e is PermissionResolvedEvent => e.kind === 'permission_resolved').map((e) => e.requestId),
-    );
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-      const e = events[i];
-      if (e.kind === 'permission_requested') {
-        const req = e as PermissionRequestedEvent;
-        if (!resolved.has(req.requestId) && !dismissedPermissionIds.has(req.requestId)) {
-          return req;
-        }
-      }
-    }
-    return null;
-  }, [events, isRunning, dismissedPermissionIds]);
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
   const refreshStats = useCallback(() => {
@@ -531,7 +517,6 @@ export const App: React.FC = () => {
       // previous session repopulate the array right after resetEvents clears it.
       abort();
       setActiveSessionId(sessionId);
-      setDismissedPermissionIds(new Set());
       resetEvents();
       const turns = convertHistoryToTurns(messages ?? [], selectedMode);
       if (turns.length > 0) {
@@ -553,7 +538,6 @@ export const App: React.FC = () => {
     abort();
     abortActiveTurn(eventsRef.current);
     setActiveSessionId(null);
-    setDismissedPermissionIds(new Set());
     clearTurns();
     resetEvents();
     resetScroll();
@@ -755,42 +739,6 @@ export const App: React.FC = () => {
 
   const handleContinueDismiss = useCallback(() => setContinueTarget(null), []);
 
-  const handlePermissionSelect = useCallback(
-    (value: 'approve' | 'deny') => {
-      if (!pendingPermission) return;
-      const requestId = pendingPermission.requestId;
-      const sessionId = pendingPermission.sessionId || lastSessionId;
-      // Without a session we cannot answer the backend — keep the banner so
-      // the turn does not strand silently until the 300s auto-deny.
-      if (!sessionId) return;
-      wsClient
-        .respondPermission(sessionId, requestId, value === 'approve')
-        .then(() => {
-          // Dismiss on ack (resolved true/false both mean the backend moved
-          // on; the permission_resolved event clears it anyway). On transport
-          // failure keep the banner so the user can retry.
-          setDismissedPermissionIds((prev) => new Set(prev).add(requestId));
-        })
-        .catch(() => {});
-    },
-    [pendingPermission, lastSessionId],
-  );
-
-  const handlePermissionDismiss = useCallback(() => {
-    if (!pendingPermission) return;
-    const requestId = pendingPermission.requestId;
-    const sessionId = pendingPermission.sessionId || lastSessionId;
-    if (!sessionId) return;
-    // Closing the banner is an explicit deny — never just hide it, or the
-    // backend turn stays suspended until timeout with no UI.
-    wsClient
-      .respondPermission(sessionId, requestId, false)
-      .then(() => {
-        setDismissedPermissionIds((prev) => new Set(prev).add(requestId));
-      })
-      .catch(() => {});
-  }, [pendingPermission, lastSessionId]);
-
   const handleOpenHelp = useCallback(() => openOverlay('help'), [openOverlay]);
 
   const handleOpenProvider = useCallback(() => {
@@ -933,24 +881,6 @@ export const App: React.FC = () => {
 
         {!showFilePicker && !isOverlayOpen && !showPalette && (
           <Box flexDirection="column" width="100%">
-            {pendingPermission && (
-              <OptionBanner
-                title={`Permission required: ${pendingPermission.scope}`}
-                message={truncateEnd(
-                  sanitizeSingleLine(
-                    pendingPermission.label ||
-                      (pendingPermission.tool ? `Run ${pendingPermission.tool}` : 'Action needs your approval'),
-                  ),
-                  90,
-                )}
-                options={[
-                  { label: 'Approve', value: 'approve' },
-                  { label: 'Deny', value: 'deny' },
-                ]}
-                onSelect={handlePermissionSelect}
-                onClose={handlePermissionDismiss}
-              />
-            )}
             {continueTarget && (
               <OptionBanner
                 title={

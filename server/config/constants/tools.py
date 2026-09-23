@@ -1,7 +1,7 @@
 """Tool registry, toolkit, and crewmate-tool metadata constants.
 
-Owns tool names, permission/risk/cost/concurrency/domain metadata, discovery
-caps, output-size limits, special error markers, glob/grep/ignore limits,
+Owns tool names, risk/cost/concurrency/domain metadata, discovery caps,
+output-size limits, special error markers, glob/grep/ignore limits,
 attachments, and the structural-retrieval crewmate tool knobs.
 Depends on ``context.py`` for the context-window sizes used by the output-tier
 table, and on ``env.py``.
@@ -20,24 +20,6 @@ RISK_SAFE = "safe"
 RISK_LOW = "low"
 RISK_MEDIUM = "medium"
 RISK_HIGH = "high"
-
-PERMISSION_READ = "read"
-PERMISSION_WRITE = "write"
-PERMISSION_DELETE = "delete"
-PERMISSION_COMMAND = "command"
-PERMISSION_NETWORK = "network"
-PERMISSION_CREWMATE = "crewmate"
-PERMISSION_PLAN = "plan"
-
-PERMISSION_SCOPES = (
-    PERMISSION_READ,
-    PERMISSION_WRITE,
-    PERMISSION_DELETE,
-    PERMISSION_COMMAND,
-    PERMISSION_NETWORK,
-    PERMISSION_CREWMATE,
-    PERMISSION_PLAN,
-)
 
 CONCURRENCY_GROUP_READONLY = "read_only"
 CONCURRENCY_GROUP_WORKSPACE_MUTATION = "workspace_mutation"

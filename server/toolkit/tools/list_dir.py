@@ -6,7 +6,6 @@ from typing import Any
 
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
-    PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
 from server.workspace.ignore import get_matcher
@@ -22,7 +21,6 @@ class ListDirTool(BaseTool):
     capability_id = "workspace_discovery"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_READ
     domains = (TOOL_DOMAIN_READ,)
     search_terms = (
         "list",

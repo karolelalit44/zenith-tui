@@ -8,7 +8,6 @@ from server.agents.session_workspace import evict_file_cache
 from server.config.constants import (
     BUILD_MODE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
-    PERMISSION_DELETE,
     RISK_MEDIUM,
     TOOL_DOMAIN_EDIT,
 )
@@ -34,7 +33,6 @@ class FileDeleteTool(BaseTool):
     capability_id = "file_delete"
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
-    permission_scope = PERMISSION_DELETE
     domains = (TOOL_DOMAIN_EDIT,)
     search_terms = (
         "delete",

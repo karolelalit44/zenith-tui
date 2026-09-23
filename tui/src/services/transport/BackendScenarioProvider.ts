@@ -305,9 +305,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
             currentThinkingIndex,
           );
         } else {
-          mergedThinkingId = thinkingEv.id;
+          // Use the existing mergedThinkingId if one is pending
+          // (a non-thinking event interrupted the merge), so the
+          // final thinking reuses the partial thinking's id and
+          // upsertEvent replaces it instead of appending a duplicate.
+          const newId = mergedThinkingId ?? thinkingEv.id;
+          mergedThinkingId = newId;
           currentThinkingIndex = nextLocalIndex();
-          onEvent(mapped, currentThinkingIndex);
+          onEvent({ ...mapped, id: newId }, currentThinkingIndex);
         }
 
         if (!thinkingEv.partial) {
@@ -318,8 +323,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
       } else {
         currentThinkingIndex = null;
         mergedThinkingThoughts = [];
-        mergedThinkingId = null;
-        onEvent(mapped, nextLocalIndex());
+        // Do NOT reset mergedThinkingId — a final thinking event
+        // that arrives after an intervening non-thinking event
+        // (e.g. STREAM_RETRY warning) must reuse the partial
+        // thinking's id so upsertEvent replaces the orphaned
+        // partial instead of appending a duplicate "Thought" block.
+        currentThinkingIndex = nextLocalIndex();
+        onEvent(mapped, currentThinkingIndex);
       }
 
       const isTerminal = (kind === 'success' && !data?.tool) || kind === 'error';

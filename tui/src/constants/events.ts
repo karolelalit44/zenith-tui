@@ -12,5 +12,18 @@ export const LIVE_PROGRESS_EVENT_ID = 'evt_progress_live';
  * turn, surface a live progress row so the silence feels intentional. It is
  * a progress event, so it vanishes from scrollback on completion.
  */
-export const BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS = 2000;
-export const BACKEND_RESPONSE_PLACEHOLDER_LABEL = 'Waiting for backend response';
+export const BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS = 600;
+export const BACKEND_RESPONSE_PLACEHOLDER_LABEL = 'Contacting backend';
+
+/**
+ * Rotating status phrases for the awaiting-backend row. The underlying
+ * progress event keeps BACKEND_RESPONSE_PLACEHOLDER_LABEL as its stable
+ * label (pinned card, diagnostics); ProgressBar cycles these display-only
+ * phrases so a slow backend feels alive instead of stuck on one line.
+ */
+export const BACKEND_RESPONSE_PLACEHOLDER_PHRASES = [
+  'Contacting backend',
+  'Warming up agent',
+  'Loading workspace context',
+  'Establishing secure channel',
+] as const;

@@ -11,7 +11,6 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     GREP_MAX_OUTPUT_CHARS,
     GREP_MAX_RESULTS,
-    PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
 from server.workspace.ignore import ZenithIgnoreMatcher
@@ -202,7 +201,6 @@ class GrepTool(BaseTool):
     capability_id = "content_search"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_READ
     domains = (TOOL_DOMAIN_READ,)
     search_terms = (
         "grep",

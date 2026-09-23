@@ -12,7 +12,6 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     DEFAULT_FILE_READ_LINES,
     MAX_FILE_READ_LINES,
-    PERMISSION_READ,
     TOOL_DOMAIN_READ,
 )
 from server.toolkit.registry import current_tool_session_id
@@ -144,7 +143,6 @@ class FileReadTool(BaseTool):
     capability_id = "file_read"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_READ
     domains = (TOOL_DOMAIN_READ,)
     search_terms = (
         "read",

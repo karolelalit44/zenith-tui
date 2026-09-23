@@ -1,7 +1,33 @@
 import { useCallback, useMemo, useState } from 'react';
 import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
-import type { FileAttachment, ScenarioEvent, ScenarioMode, SuccessEvent, TokenInfo } from '../types/scenario';
+import type {
+  FileAttachment,
+  ScenarioEvent,
+  ScenarioMode,
+  SuccessEvent,
+  ThinkingEvent,
+  TokenInfo,
+} from '../types/scenario';
 import { clearTerminalScreen } from '../utils/terminal';
+
+/**
+ * Orphan-partial close: a `thinking` event still marked partial when the turn
+ * completes never received its final (abort / error / dropped trailer). Flip
+ * it to non-partial so the captured reasoning freezes as a static Thought
+ * block instead of a stuck streaming row or a truncated-looking duplicate.
+ * Returns the input array untouched when there is nothing to close.
+ */
+export function closeOrphanedPartialThinking(events: ScenarioEvent[]): ScenarioEvent[] {
+  let touched = false;
+  const next = events.map((e) => {
+    if (e.kind === 'thinking' && (e as ThinkingEvent).partial === true) {
+      touched = true;
+      return { ...e, partial: false };
+    }
+    return e;
+  });
+  return touched ? next : events;
+}
 
 export interface ConversationTurn {
   id: string;
@@ -207,10 +233,11 @@ export function useConversation(): UseConversationReturn {
       const lastIdx = prev.length - 1;
       const last = prev[lastIdx];
       const elapsedMs = last ? Math.max(1000, Date.now() - last.startedAt) : undefined;
+      const closedEvents = closeOrphanedPartialThinking(events);
 
       const stampedEvents =
         elapsedMs !== undefined
-          ? events.map((e) =>
+          ? closedEvents.map((e) =>
               e.kind === 'success'
                 ? {
                     ...e,
@@ -267,7 +294,8 @@ export function useConversation(): UseConversationReturn {
       const last = prev[lastIdx];
       if (last && !last.isComplete) {
         const elapsedMs = Math.max(1000, Date.now() - last.startedAt);
-        const sourceEvents = currentEvents && currentEvents.length > 0 ? currentEvents : last.events;
+        const rawEvents = currentEvents && currentEvents.length > 0 ? currentEvents : last.events;
+        const sourceEvents = closeOrphanedPartialThinking(rawEvents);
 
         // Preserve all generated content and resolve pending tool steps cleanly
         const stampedEvents = sourceEvents.map((e) => {

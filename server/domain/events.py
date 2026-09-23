@@ -65,8 +65,6 @@ class EventKind(StrEnum):
     PLAN_READY = "plan_ready"
     TURN_MANIFEST = "turn_manifest"
     TODO_BOARD = "todo_board"
-    PERMISSION_REQUESTED = "permission_requested"
-    PERMISSION_RESOLVED = "permission_resolved"
 
 
 class Event(BaseModel):

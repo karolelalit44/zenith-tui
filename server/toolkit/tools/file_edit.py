@@ -6,7 +6,6 @@ from typing import Any
 from server.agents.session_workspace import evict_file_cache, record_write
 from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
-    PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
 from server.toolkit.registry import current_tool_session_id
@@ -34,7 +33,6 @@ class FileEditTool(BaseTool):
     capability_id = "file_edit"
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
-    permission_scope = PERMISSION_WRITE
     domains = (TOOL_DOMAIN_EDIT,)
     search_terms = (
         "edit",

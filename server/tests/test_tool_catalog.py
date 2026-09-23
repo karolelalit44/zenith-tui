@@ -26,7 +26,6 @@ def make_tool(*, name: str, schema: dict | None = None, **attrs):
         "description": "Test tool",
         "capability_id": "file_read",
         "read_only": True,
-        "permission_scope": "read",
         "requires_mode": None,
         **attrs,
     }.items():
@@ -87,14 +86,11 @@ class TestToolInventory:
 
     def test_permission_and_concurrency(self):
         inventory = {e.name: e for e in build_inventory(create_default_registry())}
-        assert inventory["bash"].permission_scope == "command"
         assert inventory["bash"].concurrency_group == "shell"
         assert inventory["file_write"].concurrency_group == "workspace_mutation"
         assert inventory["apply_patch"].concurrency_group == "workspace_mutation"
-        assert inventory["apply_patch"].permission_scope == "write"
-        assert inventory["webfetch"].permission_scope == "network"
         # WP5 D7: the legacy write-capable "agent" tool is no longer on the
-        # default registry surface; crewmate-class permission lives on explore.
+        # default registry surface.
         assert "agent" not in inventory
 
     def test_baseline_schema_tokens(self):
@@ -144,18 +140,6 @@ class TestRegistryValidation:
         registry.register(make_tool(name="t1", capability_id="no_such_capability"))
         errors = validate_registry(registry)
         assert errors == []
-
-    def test_invalid_permission_scope_detected(self):
-        registry = ToolRegistry()
-        registry.register(make_tool(name="t1", permission_scope="evil"))
-        errors = validate_registry(registry)
-        assert any("invalid permission_scope" in e for e in errors)
-
-    def test_read_only_permission_mismatch_detected(self):
-        registry = ToolRegistry()
-        registry.register(make_tool(name="t1", read_only=False, permission_scope="read"))
-        errors = validate_registry(registry)
-        assert any("read_only=False but permission_scope" in e for e in errors)
 
     def test_invalid_schema_type_detected(self):
         registry = ToolRegistry()

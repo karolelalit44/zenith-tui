@@ -410,6 +410,7 @@ class CaptainOrchestrator:
                 raise
 
             # ---- assemble ------------------------------------------------ #
+            salvaged_report = False
             if timed_out:
                 result = assemble_result(
                     task,
@@ -431,13 +432,15 @@ class CaptainOrchestrator:
                     objective=content,
                 )
                 if salvaged:
-                    result.summary = salvaged
-                    result.unverified = [
-                        (
-                            "Mission hit the time budget mid-investigation; "
-                            "summary above is best-effort from gathered evidence."
-                        )
-                    ] + list(result.unverified)
+                    caveat = (
+                        "Mission hit the time budget mid-investigation; "
+                        "summary above is best-effort from gathered evidence."
+                    )
+                    # Surface the caveat next to the report so every consumer of
+                    # `summary` (crewmate card, success message, timeline) sees
+                    # the report is best-effort, not just the unverified[] field.
+                    result.summary = f"{salvaged}\n\n{caveat}"
+                    result.unverified = [caveat] + list(result.unverified)
                     # A timed-out mission whose salvage produced a real report
                     # is NOT a failed mission: it delivered the deliverable.
                     # Marking it completed makes the TUI show "✔ completed/100%"
@@ -445,6 +448,7 @@ class CaptainOrchestrator:
                     # while a crafted report was delivered") while the unverified
                     # note above keeps the caveat visible.
                     result.status = "completed"
+                    salvaged_report = True
             elif run.last_error:
                 result = assemble_result(
                     task,
@@ -511,13 +515,22 @@ class CaptainOrchestrator:
                 timeline=timeline,
                 active_step="complete",
             )
-            yield r.success(
+            success_event = r.success(
                 result.summary,
                 parent_session_id,
                 iterations=result.metrics.iterations,
                 token_info={"used": result.metrics.tokens_used},
                 elapsed_ms=result.metrics.elapsed_ms or None,
             )
+            if salvaged_report:
+                # A salvaged report is delivered but NOT independently verified:
+                # tag the terminal success so downstream (run_state, summaries)
+                # can distinguish "clean completion" from "best-effort report".
+                success_event.data["completed"] = True
+                success_event.data["answered"] = True
+                success_event.data["verified"] = False
+                success_event.data["salvaged"] = True
+            yield success_event
         finally:
             self._in_flight = False
 

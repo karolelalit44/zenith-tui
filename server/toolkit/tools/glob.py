@@ -9,7 +9,6 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     GLOB_MAX_OUTPUT_CHARS,
     GLOB_MAX_RESULTS,
-    PERMISSION_READ,
     TOOL_DOMAIN_WORKSPACE_DISCOVERY,
 )
 from server.workspace.ignore import get_matcher
@@ -64,7 +63,6 @@ class GlobTool(BaseTool):
     capability_id = "workspace_discovery"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_READ
     domains = (TOOL_DOMAIN_WORKSPACE_DISCOVERY,)
     search_terms = (
         "list files",

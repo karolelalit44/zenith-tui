@@ -19,11 +19,6 @@ from server.config.constants import (
     MAX_TOOL_METADATA_PREVIEW_CHARS,
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
-    PERMISSION_COMMAND,
-    PERMISSION_DELETE,
-    PERMISSION_NETWORK,
-    PERMISSION_READ,
-    PERMISSION_WRITE,
     TERMINAL_TOOL,
     TOOL_MAX_OUTPUT_CHARS,
 )
@@ -35,7 +30,6 @@ from server.toolkit.base import (
     decode_parameters,
     truncate_output,
 )
-from server.toolkit.command_safety import assess_command
 from server.toolkit.registry import ToolRegistry
 from server.workspace.git import GitOps
 
@@ -306,54 +300,6 @@ def check_self_delete(tool_name: str, tool_params: dict, created_files: set[str]
     return None
 
 
-def _permission_scope_for_tool(
-    tool_name: str, tool_params: dict, tool_registry: ToolRegistry
-) -> tuple[str | None, str | None]:
-    """Resolve the permission scope an execution should be gated on.
-
-    Returns ``(scope, label)`` where ``scope`` of None means "no gate" (unknown
-    tool only — callers already reject unknown tools before the gate).
-    Destructive/high-risk shell commands resolve to ``delete`` (ASK by default)
-    for defense in depth; they are still hard-blocked downstream by the
-    SafetyCheckMiddleware. Bash/terminal calls are assessed from the actual
-    command text; every other tool uses the ``permission_scope`` declared on
-    its tool definition.
-    """
-    if tool_name in (BASH_TOOL, TERMINAL_TOOL):
-        command = str(tool_params.get("command", "") or "")
-        assessment = assess_command(command)
-        label = f"bash: {command.strip()[:80]}" if command.strip() else tool_name
-        if assessment.risk_level == "high" or assessment.tier == "destructive":
-            return PERMISSION_DELETE, label
-        if assessment.requires_approval:
-            if assessment.tier == "network":
-                return PERMISSION_NETWORK, label
-            return PERMISSION_WRITE, label
-        if assessment.tier == "read_only":
-            return PERMISSION_READ, None
-        return PERMISSION_COMMAND, label
-    tool = tool_registry.get(tool_name)
-    if tool is None:
-        return None, None
-    return tool.permission_scope, None
-
-
-async def _check_permission_gate(
-    tool_name: str,
-    tool_params: dict,
-    session_id: str | None,
-    registry: ToolRegistry,
-) -> bool:
-    """Return True when execution may proceed.
-
-    Permissions are disabled: every tool is auto-approved without human
-    gating. The permission service is bypassed entirely so no
-    permission_requested events are emitted. This preserves the call site
-    for future re-enablement but currently always returns True.
-    """
-    return True
-
-
 async def execute_tool(
     tool_registry: ToolRegistry,
     tool_name: str,
@@ -377,17 +323,6 @@ async def execute_tool(
         tool_params = decode_parameters(definition.parameters, tool_params)
     except InvalidToolArgumentsError as exc:
         return ToolResult(success=False, error=str(exc)), 0
-
-    if not await _check_permission_gate(tool_name, tool_params, session_id, tool_registry):
-        scope, _ = _permission_scope_for_tool(tool_name, tool_params, tool_registry)
-        return (
-            ToolResult(
-                success=False,
-                error=f"Execution denied by user: {tool_name} requires approval.",
-                metadata={"permission_scope": scope, "denied": True},
-            ),
-            0,
-        )
 
     result = await tool_registry.execute(
         tool_name, tool_params, workspace_root, mode, session_id=session_id

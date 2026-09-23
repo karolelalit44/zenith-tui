@@ -9,9 +9,6 @@ import type {
   CrewmateFailedEvent,
   CrewmateSpawnedEvent,
   CrewmateStatusEvent,
-  PermissionRequestedEvent,
-  PermissionResolvedEvent,
-  PermissionScope,
   PlanItem,
   RunStateSnapshot,
   ScenarioEvent,
@@ -400,35 +397,6 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         plan: String(d.plan || ''),
         sessionId: String(d.session_id || ''),
       };
-
-    case 'permission_requested': {
-      const requested: PermissionRequestedEvent = {
-        kind: 'permission_requested',
-        id,
-        requestId: String(d.requestId || id),
-        scope: (d.scope as PermissionScope) || 'command',
-        sessionId: d.session_id ? String(d.session_id) : undefined,
-        tool: d.tool ? String(d.tool) : undefined,
-        label: d.label ? String(d.label) : undefined,
-        reason: d.reason ? String(d.reason) : undefined,
-        params: d.params && typeof d.params === 'object' ? (d.params as Record<string, unknown>) : undefined,
-        timeout: typeof d.timeout === 'number' ? d.timeout : undefined,
-      };
-      return requested;
-    }
-
-    case 'permission_resolved': {
-      const resolved: PermissionResolvedEvent = {
-        kind: 'permission_resolved',
-        id,
-        requestId: String(d.requestId || id),
-        sessionId: d.session_id ? String(d.session_id) : undefined,
-        scope: d.scope ? (d.scope as PermissionScope) : undefined,
-        tool: d.tool ? String(d.tool) : undefined,
-        allow: Boolean(d.allow),
-      };
-      return resolved;
-    }
 
     case 'captain_orchestration':
       return {

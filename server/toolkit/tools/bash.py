@@ -17,7 +17,6 @@ from server.config.constants import (
     COST_CLASS_HIGH,
     DEFAULT_BASH_TIMEOUT_MS,
     LATENCY_CLASS_HIGH,
-    PERMISSION_COMMAND,
     RISK_MEDIUM,
     TOOL_DOMAIN_EXECUTION,
 )
@@ -229,7 +228,6 @@ class BashTool(BaseTool):
     read_only = False
     timeout_ms = DEFAULT_BASH_TIMEOUT_MS
     concurrency_group = CONCURRENCY_GROUP_SHELL
-    permission_scope = PERMISSION_COMMAND
     domains = (TOOL_DOMAIN_EXECUTION,)
     search_terms = (
         "shell",

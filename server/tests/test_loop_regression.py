@@ -368,6 +368,52 @@ async def test_progress_percent_is_non_decreasing(test_config):
     assert percents[-1] >= 50, "a turn with a completed tool must end on a meaningful percent"
 
 
+class _SingleToolProvider(BaseProvider):
+    """Exactly one real tool call, no growing-total edge: the monotonic clamp is
+    a no-op here, so the raw done/total math is what must be asserted."""
+
+    def __init__(self):
+        super().__init__("singletool", "singletool-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        if self.call_count == 1:
+            return (
+                '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "x"}}\n```'
+            )
+        return "Done writing a.txt."
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        response = await self.complete(messages, tools)
+        for char in response:
+            yield (char, None)
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["singletool-model"]
+
+
+@pytest.mark.asyncio
+async def test_progress_percent_final_is_100_on_single_completed_tool(test_config):
+    """The clamp must not mask the underlying math: on a single-step turn with
+    one completed tool the final percent is exactly 100 (clamp is a no-op)."""
+    provider = _SingleToolProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Write a.txt", "s1", [], "build"):
+        events.append(event)
+
+    progress = [e for e in events if e.kind == EventKind.PROGRESS]
+    assert len(progress) >= 2, "a single tool step must open then complete"
+    assert int(progress[-1].data.get("percent", 0)) == 100, (
+        "single completed step must report 100% (clamp must not corrupt raw math)"
+    )
+
+
 @pytest.mark.asyncio
 async def test_loop_hard_stops_on_repeated_identical_calls(test_config):
     """P0-1: the loop must terminate instead of re-invoking the LLM forever."""

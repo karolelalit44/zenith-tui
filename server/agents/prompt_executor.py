@@ -15,11 +15,6 @@ from server.agents.delegation import (
     RepositoryIntelligenceCache,
     SpecialistRegistry,
 )
-from server.agents.permission_service import (
-    PermissionService,
-    register_permission_service,
-    unregister_permission_service,
-)
 from server.agents.run_state import (
     from_dict,
     merge_run_state,
@@ -36,7 +31,6 @@ from server.config.constants import (
     HANDOFF_PLACEHOLDER_CANCELLED,
     HANDOFF_PLACEHOLDER_ERROR,
     HANDOFF_PLACEHOLDER_NO_SUMMARY,
-    PERMISSION_PLAN,
     PLAN_MODE,
     TERMINAL_STATUS_CANCELLED,
     TERMINAL_STATUS_COMPLETED,
@@ -563,25 +557,6 @@ class PromptExecutor:
             logger.info("Plan mode model override: %s", plan_model_override)
         return plan_context, plan_approved, plan_model_override
 
-    def _profile_permission_policy(self) -> dict[str, str] | None:
-        """Seed the per-session permission policy from the user profile.
-
-        The profile is owned by the server (``preferences.permissionPolicy``)
-        so per-scope ask/allow/deny choices survive restarts. Junk entries are
-        filtered by PermissionService._normalize_policy.
-        """
-        try:
-            from server.storage.profile_store import load_profile
-
-            profile = load_profile(self._session_repo.home)
-            prefs = (profile or {}).get("preferences") or {}
-            policy = prefs.get("permissionPolicy")
-            if isinstance(policy, dict):
-                return {str(k): str(v) for k, v in policy.items() if isinstance(k, str) and isinstance(v, str)}
-        except Exception as exc:
-            logger.debug("No permission policy override applied: %s", exc)
-        return None
-
     async def _maybe_emit_plan_ready(
         self,
         session_id: str,
@@ -591,13 +566,12 @@ class PromptExecutor:
         plan_approved: bool,
         manager,
         collected_events: list[Event],
-        permission_service: PermissionService,
     ) -> tuple[int, bool]:
-        """Emit PLAN_READY and suspend for interactive approval when a build
-        depends on an unapproved plan.
+        """Emit PLAN_READY for informational display when a build depends on an
+        unapproved plan, then auto-approve it.
 
-        Returns ``(0, plan_approved)`` to continue the turn, or ``(1,
-        plan_approved)`` to stop it (approval denied or timed out).
+        Approvals are no longer requested interactively; the build proceeds.
+        Returns ``(0, plan_approved)``.
         """
         if (
             mode == BUILD_MODE
@@ -606,7 +580,7 @@ class PromptExecutor:
             and (not self._config.auto_approve_plan)
             and (not (content and content.strip()))
         ):
-            logger.info("Plan not yet approved — emitting PLAN_READY for session %s", session_id)
+            logger.info("Emitting PLAN_READY for session %s", session_id)
             plan_ready_event = Event(
                 kind=EventKind.PLAN_READY,
                 data={"plan": plan_context, "session_id": session_id},
@@ -615,34 +589,17 @@ class PromptExecutor:
             if manager:
                 await manager.send_event(session_id, plan_ready_event)
             collected_events.append(plan_ready_event)
-            logger.info("Plan pending approval — waiting on user for session %s", session_id)
-            granted = await permission_service.request(
-                PERMISSION_PLAN,
-                tool=None,
-                reason="A plan was generated and must be approved before the build begins.",
-                label="Plan approval",
-            )
-            if granted:
-                try:
-                    session = await self._session_repo.get(session_id)
-                    if session:
-                        session.plan_approved_at = datetime.now()
-                        await self._session_repo.update(session)
-                        plan_approved = True
-                        logger.info("Plan approved interactively for session %s", session_id)
-                except Exception:
-                    logger.warning("Failed to persist plan approval for session %s", session_id)
-                return 0, plan_approved
-            logger.info("Plan not approved — stopping build for session %s", session_id)
-            warning_event = r.warning(
-                "Plan was not approved. Approve the plan to begin building.",
-                session_id,
-                code="PLAN_DENIED",
-            )
-            if manager:
-                await manager.send_event(session_id, warning_event)
-            collected_events.append(warning_event)
-            return 1, plan_approved
+            try:
+                session = await self._session_repo.get(session_id)
+                if session:
+                    session.plan_approved_at = datetime.now()
+                    await self._session_repo.update(session)
+                plan_approved = True
+                logger.info("Plan auto-approved for session %s", session_id)
+            except Exception:
+                logger.warning("Failed to persist plan approval for session %s", session_id)
+                plan_approved = True
+            return 0, plan_approved
         return 0, plan_approved
 
     async def _persist_plan_output(self, session_id: str, response_text: str) -> None:
@@ -749,6 +706,12 @@ class PromptExecutor:
             if not (events or response_text.strip()):
                 logger.info("Skipping empty assistant message (no events or text)")
                 return
+            # Thinking is never persisted on the assistant message: it
+            # is surface-only in the live timeline. Persisting it would
+            # cause a duplicate "Thought" block when the session is
+            # later replayed from history (historyToTurns keeps
+            # non-partial thinking events).
+            events = [ev for ev in events if ev.kind != EventKind.THINKING]
             manifest = _turn_manifest_from_events(events)
             worked = _did_work(manifest)
             body = response_text
@@ -842,24 +805,13 @@ class PromptExecutor:
         summary_at_start: str | None = None
         _terminal_status = TERMINAL_STATUS_COMPLETED
 
-        async def _emit_permission_event(event: Event) -> None:
-            collected_events.append(event)
-            if manager is not None:
-                await manager.send_event(session_id, event)
-
-        permission_service = PermissionService(
-            session_id=session_id,
-            emit=_emit_permission_event,
-            policy=self._profile_permission_policy(),
-        )
-        register_permission_service(permission_service)
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
             plan_context, plan_approved, plan_model_override = await self._load_plan_context(
                 session_id, mode
             )
-            plan_status, plan_approved = await self._maybe_emit_plan_ready(
+            _, plan_approved = await self._maybe_emit_plan_ready(
                 session_id,
                 mode,
                 content,
@@ -867,11 +819,7 @@ class PromptExecutor:
                 plan_approved,
                 manager,
                 collected_events,
-                permission_service,
             )
-            if plan_status:
-                _step_count += 1
-                return
             _original_model = getattr(self._provider, "model", None)
             _original_temperature = getattr(self._provider, "temperature", None)
             _original_max_tokens = getattr(self._provider, "max_tokens", None)
@@ -1184,7 +1132,6 @@ class PromptExecutor:
             _pending_terminal.append(error_event)
             collected_events.append(error_event)
         finally:
-            unregister_permission_service(session_id, permission_service)
             if _original_model is not None:
                 self._provider.model = _original_model
             if _original_temperature is not None:

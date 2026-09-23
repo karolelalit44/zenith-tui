@@ -333,26 +333,6 @@ export class WebSocketClient {
     return this.send('prompt.cancel', { session_id: sessionId });
   }
 
-  respondPermission(
-    sessionId: string,
-    requestId: string,
-    allow: boolean,
-  ): Promise<{ resolved: boolean; allow: boolean }> {
-    return this.send('permission.respond', {
-      session_id: sessionId,
-      request_id: requestId,
-      allow,
-    });
-  }
-
-  setPermissionPolicy(
-    sessionId: string,
-    scope: string,
-    level: string,
-  ): Promise<{ scope: string; level: string; policy: Record<string, string> }> {
-    return this.send('permission.policy', { session_id: sessionId, scope, level });
-  }
-
   contextCompact(sessionId: string): Promise<{ summary: string; cleared: number }> {
     return this.send('context.compact', { session_id: sessionId });
   }

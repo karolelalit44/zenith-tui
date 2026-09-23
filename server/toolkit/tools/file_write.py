@@ -7,7 +7,6 @@ from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     FILE_ALREADY_EXISTS_ERROR,
     FILE_OVERWRITE_PARAM,
-    PERMISSION_WRITE,
     TOOL_DOMAIN_EDIT,
 )
 from server.toolkit.registry import current_tool_session_id
@@ -27,7 +26,6 @@ class FileWriteTool(BaseTool):
     capability_id = "file_write"
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
-    permission_scope = PERMISSION_WRITE
     domains = (TOOL_DOMAIN_EDIT,)
     search_terms = (
         "create",

@@ -103,6 +103,41 @@ def test_tiny_content_plus_long_reasoning_stays_content_only():
     assert thinking_final_idx < message_idx
 
 
+class _TrailingReasoningProvider(_ReasoningOnlyProvider):
+    """Emits a normal reasoning+content turn and THEN further chain-of-thought
+    after the answer started (some models keep reasoning while formulating the
+    reply). The trailing phase must not open a second thinking block."""
+
+    def __init__(self, content: str = "ok", reasoning: str = "x" * 250, trailing: str = "y" * 300):
+        super().__init__(content=content, reasoning=reasoning)
+        self._trailing = trailing
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        yield (None, self._reasoning)
+        yield (self._content, None)
+        yield (None, self._trailing)
+
+
+def test_trailing_reasoning_after_content_opens_no_second_thinking_block():
+    provider = _TrailingReasoningProvider()
+    events = _collect_events(provider)
+
+    thinking = [ev for ev in events if ev.kind is EventKind.THINKING]
+    messages = [ev for ev in events if ev.kind is EventKind.MESSAGE]
+
+    # Exactly one closed thinking block: the trailing reasoning is dropped,
+    # not re-emitted as a dangling partial (which previously rendered as a
+    # duplicate static "Thought" block in the UI after the assistant message).
+    finals = [ev for ev in thinking if ev.data.get("partial") is not True]
+    assert len(finals) == 1
+    assert finals[0].data["text"] == "x" * 250
+
+    # No thinking event may arrive after the first content chunk.
+    first_message_idx = events.index(messages[0])
+    trailing = [ev for ev in thinking if events.index(ev) > first_message_idx]
+    assert trailing == []
+
+
 # ---------------------------------------------------------------------------
 # Module 08 additive — reasoning as a Part (delta-merged), opencode-style.
 # ---------------------------------------------------------------------------

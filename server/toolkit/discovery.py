@@ -8,7 +8,6 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     DISCOVER_CAPABILITIES_TOOL,
     GET_TOOL_DEFINITION_TOOL,
-    PERMISSION_READ,
     RISK_SAFE,
     TOOL_DOMAIN_DISCOVERY,
 )
@@ -40,7 +39,6 @@ class DiscoverCapabilitiesTool(BaseTool):
     capability_id = CAPABILITY_TOOL_DISCOVERY
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_READ
     domains = (TOOL_DOMAIN_DISCOVERY,)
     search_terms = ("discover", "list tools", "capabilities", "available", "what can you do")
     risk_level = RISK_SAFE
@@ -149,7 +147,6 @@ class GetToolDefinitionTool(BaseTool):
     capability_id = CAPABILITY_TOOL_DISCOVERY
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_READ
     domains = (TOOL_DOMAIN_DISCOVERY,)
     search_terms = ("get tool", "tool schema", "tool definition", "how to use tool", "load tool")
     risk_level = RISK_SAFE
@@ -189,7 +186,6 @@ class GetToolDefinitionTool(BaseTool):
                 "capability_id": tool.capability_id,
                 "risk_level": tool.risk_level,
                 "read_only": tool.read_only,
-                "permission_scope": tool.permission_scope,
                 "concurrency_group": tool.concurrency_group,
                 "requires_mode": tool.requires_mode,
             },

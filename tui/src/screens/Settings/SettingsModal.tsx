@@ -6,14 +6,9 @@ import { loadUserProfile, saveUserProfile, type UserProfile } from '../../servic
 import { useTheme } from '../../theme/ThemeContext';
 import { themeOptions } from '../../theme/theme';
 
-import type { PermissionScope } from '../../types/scenario';
-
 interface SettingsModalProps {
   onClose: () => void;
 }
-
-/** Scopes that default to `ask`; the auto-approve toggle moves them together. */
-const AUTO_APPROVE_SCOPES: PermissionScope[] = ['delete', 'command', 'network', 'crewmate', 'plan'];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const { theme, activeThemeId, setTheme } = useTheme();
@@ -23,23 +18,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const currentThemeIdx = themeOptions.findIndex((t) => t.id === activeThemeId);
   const [selectedThemeIdx, setSelectedThemeIdx] = useState(currentThemeIdx >= 0 ? currentThemeIdx : 0);
   const [prefCursor, setPrefCursor] = useState(0);
-
-  const autoApproveEnabled = AUTO_APPROVE_SCOPES.every(
-    (scope) => userProfile.settings.permissionPolicy[scope] === 'allow',
-  );
-
-  const toggleAutoApprove = () => {
-    const next = autoApproveEnabled ? 'ask' : 'allow';
-    const policy = { ...userProfile.settings.permissionPolicy };
-    for (const scope of AUTO_APPROVE_SCOPES) {
-      // Preserve explicit denies (e.g. set via permission.policy RPC) — the
-      // bulk toggle only flips between ask and allow.
-      if (policy[scope] === 'deny') continue;
-      policy[scope] = next as 'ask' | 'allow';
-    }
-    setUserProfile((prev) => ({ ...prev, settings: { ...prev.settings, permissionPolicy: policy } }));
-    saveUserProfile({ settings: { ...userProfile.settings, permissionPolicy: policy } });
-  };
 
   const toggleThinkingCollapsed = () => {
     const next = !userProfile.settings.thinkingCollapsed;
@@ -71,12 +49,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       }
 
       if (key.downArrow) {
-        setPrefCursor((prev) => Math.min(1, prev + 1));
+        setPrefCursor((prev) => Math.min(0, prev + 1));
       }
 
       if (key.return || char === ' ') {
-        if (prefCursor === 0) toggleAutoApprove();
-        if (prefCursor === 1) toggleThinkingCollapsed();
+        if (prefCursor === 0) toggleThinkingCollapsed();
       }
     }
 
@@ -168,28 +145,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 <Text
                   color={prefCursor === 0 ? theme.colors.text.bright : theme.colors.text.dim}
                   bold={prefCursor === 0}
-                >
-                  Auto-Approve Tool Execution
-                </Text>
-              </Box>
-              <Text
-                color={autoApproveEnabled ? theme.colors.status.success : theme.colors.status.error}
-                bold
-              >
-                {autoApproveEnabled ? '[ENABLED]' : '[DISABLED]'}
-              </Text>
-            </Box>
-
-            <Box flexDirection="row" alignItems="center" marginY={1}>
-              <Box width={3}>
-                <Text color={prefCursor === 1 ? theme.colors.text.emerald : theme.colors.text.dim}>
-                  {prefCursor === 1 ? '▸ ' : '  '}
-                </Text>
-              </Box>
-              <Box width={30}>
-                <Text
-                  color={prefCursor === 1 ? theme.colors.text.bright : theme.colors.text.dim}
-                  bold={prefCursor === 1}
                 >
                   Thinking Block Display State
                 </Text>
