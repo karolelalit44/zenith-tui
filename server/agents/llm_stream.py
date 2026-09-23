@@ -233,10 +233,13 @@ async def stream_completion(
                         pending_reasoning_chars = 0
                         yield r.thinking(reasoning_part.text, session_id, partial=True)
             if content:
-                # Close the thinking block IMMEDIATELY when reasoning completes
-                # and content begins, so the user timeline preserves chronological
-                # fidelity (thinking -> message) rather than emitting thinking
-                # after the message.
+                # Close the thinking block IMMEDIATELY when content begins,
+                # unconditionally: from the first content chunk on, any further
+                # reasoning is private trailing chain-of-thought and is dropped
+                # (see the reasoning branch above). Closing here even when no
+                # reasoning preceded the content (content-before-reasoning
+                # providers) keeps the timeline chronological (thinking ->
+                # message) instead of emitting thinking after the message.
                 if not reasoning_closed and state.reasoning_text.strip():
                     duration_ms = int((_time.monotonic() - started_at) * 1000)
                     deduplicated = _deduplicate_reasoning(state.reasoning_text)
@@ -249,7 +252,7 @@ async def stream_completion(
                         )
                         state.reasoning_text = deduplicated
                     yield r.thinking(state.reasoning_text.strip(), session_id, duration_ms=duration_ms)
-                    reasoning_closed = True
+                reasoning_closed = True
                 state.response_text += content
                 yield r.message_event(content, session_id, partial=True)
         # Reasoning is model-internal chain-of-thought. It is never folded into

@@ -17,7 +17,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
 
   const currentThemeIdx = themeOptions.findIndex((t) => t.id === activeThemeId);
   const [selectedThemeIdx, setSelectedThemeIdx] = useState(currentThemeIdx >= 0 ? currentThemeIdx : 0);
-  const [prefCursor, setPrefCursor] = useState(0);
 
   const toggleThinkingCollapsed = () => {
     const next = !userProfile.settings.thinkingCollapsed;
@@ -44,16 +43,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
         setTheme(themeOptions[nextIdx].id);
       }
     } else {
-      if (key.upArrow) {
-        setPrefCursor((prev) => Math.max(0, prev - 1));
-      }
-
-      if (key.downArrow) {
-        setPrefCursor((prev) => Math.min(0, prev + 1));
-      }
-
       if (key.return || char === ' ') {
-        if (prefCursor === 0) toggleThinkingCollapsed();
+        toggleThinkingCollapsed();
       }
     }
 
@@ -137,15 +128,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           <Box flexDirection="column">
             <Box flexDirection="row" alignItems="center" marginY={1}>
               <Box width={3}>
-                <Text color={prefCursor === 0 ? theme.colors.text.emerald : theme.colors.text.dim}>
-                  {prefCursor === 0 ? '▸ ' : '  '}
-                </Text>
+                <Text color={theme.colors.text.emerald}>▸ </Text>
               </Box>
               <Box width={30}>
-                <Text
-                  color={prefCursor === 0 ? theme.colors.text.bright : theme.colors.text.dim}
-                  bold={prefCursor === 0}
-                >
+                <Text color={theme.colors.text.bright} bold>
                   Thinking Block Display State
                 </Text>
               </Box>

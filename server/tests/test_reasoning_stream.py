@@ -138,6 +138,36 @@ def test_trailing_reasoning_after_content_opens_no_second_thinking_block():
     assert trailing == []
 
 
+class _ContentFirstTrailingReasoningProvider(_ReasoningOnlyProvider):
+    """Emits content BEFORE any reasoning: the thinking block must close the
+    moment the first content chunk arrives even when no preceding reasoning
+    exists to finalize, so the later reasoning is dropped instead of being
+    emitted as a dangling Thought block after the assistant message."""
+
+    def __init__(self, content: str = "ok", reasoning: str = "y" * 300):
+        super().__init__(content=content, reasoning=reasoning)
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        yield (self._content, None)
+        yield (None, self._reasoning)
+
+
+def test_content_first_then_reasoning_opens_no_thinking_block():
+    provider = _ContentFirstTrailingReasoningProvider()
+    events = _collect_events(provider)
+
+    thinking = [ev for ev in events if ev.kind is EventKind.THINKING]
+    messages = [ev for ev in events if ev.kind is EventKind.MESSAGE]
+
+    # Content is delivered as the assistant message.
+    assert len(messages) == 1
+    assert messages[0].data["text"] == "ok"
+
+    # Reasoning that arrives after content began is dropped entirely: no
+    # partial, no final, no dangling "Thought" block after the message.
+    assert thinking == []
+
+
 # ---------------------------------------------------------------------------
 # Module 08 additive — reasoning as a Part (delta-merged), opencode-style.
 # ---------------------------------------------------------------------------

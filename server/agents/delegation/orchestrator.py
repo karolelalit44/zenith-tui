@@ -410,7 +410,6 @@ class CaptainOrchestrator:
                 raise
 
             # ---- assemble ------------------------------------------------ #
-            salvaged_report = False
             if timed_out:
                 result = assemble_result(
                     task,
@@ -448,7 +447,6 @@ class CaptainOrchestrator:
                     # while a crafted report was delivered") while the unverified
                     # note above keeps the caveat visible.
                     result.status = "completed"
-                    salvaged_report = True
             elif run.last_error:
                 result = assemble_result(
                     task,
@@ -522,14 +520,6 @@ class CaptainOrchestrator:
                 token_info={"used": result.metrics.tokens_used},
                 elapsed_ms=result.metrics.elapsed_ms or None,
             )
-            if salvaged_report:
-                # A salvaged report is delivered but NOT independently verified:
-                # tag the terminal success so downstream (run_state, summaries)
-                # can distinguish "clean completion" from "best-effort report".
-                success_event.data["completed"] = True
-                success_event.data["answered"] = True
-                success_event.data["verified"] = False
-                success_event.data["salvaged"] = True
             yield success_event
         finally:
             self._in_flight = False

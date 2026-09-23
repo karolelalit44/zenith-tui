@@ -22,7 +22,7 @@ export const PlanReadyBlock: React.FC<PlanReadyBlockProps> = React.memo(({ event
           {' '}
           Plan ready
         </Text>
-        <Text color={theme.colors.text.dim}> — awaiting approval before building</Text>
+        <Text color={theme.colors.text.dim}> — proceeding with build</Text>
       </Box>
       {hasPlan && (
         <Box paddingLeft={1} flexDirection="column">

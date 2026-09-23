@@ -84,7 +84,7 @@ class TestToolInventory:
         assert inventory["apply_patch"].modes == []
         assert inventory["bash"].modes == ["build"]
 
-    def test_permission_and_concurrency(self):
+    def test_concurrency_metadata(self):
         inventory = {e.name: e for e in build_inventory(create_default_registry())}
         assert inventory["bash"].concurrency_group == "shell"
         assert inventory["file_write"].concurrency_group == "workspace_mutation"
