@@ -15,12 +15,16 @@ interface SuccessCardProps {
   turnEvents?: ScenarioEvent[];
 }
 
-/** Core glyph per breath tick: dim quiet → charge → ignited Zenith core → release. */
-const RETICLE_FRAMES = ['*', '+', '⨳', '+', '*'] as const;
+/**
+ * Core glyph per breath tick: dim quiet → charge → ignited Zenith core → release.
+ * All frames are large, heavyweight glyphs (no small `*`/`+` cores) so the
+ * loading reticle reads clearly instead of a faint `·+·`.
+ */
+const RETICLE_FRAMES = ['◌', '❂', '⨳', '❂'] as const;
 
 /**
  * Isolated 100ms-tick reticle pulse: the four-fold core presses through the
- * quiet dim `*`, charges as `+`, and ignites into the bold `⨳` Zenith core
+ * quiet dim `◌`, charges as the bold `❂`, and ignites into the `⨳` Zenith core
  * before releasing. Symmetric `·` rays frame it, and every glyph is colored
  * purely from the theme. Only this tiny node subscribes to the shared tick
  * while the turn runs; the memoized SuccessCard never re-renders per tick.
@@ -29,7 +33,7 @@ const ReticlePulse: React.FC = React.memo(() => {
   const { theme } = useTheme();
   const tick = useAnimationTick();
   const core = RETICLE_FRAMES[tick % RETICLE_FRAMES.length];
-  const color = core === '*' ? theme.colors.text.dim : theme.colors.status.info;
+  const color = core === '◌' ? theme.colors.text.dim : theme.colors.status.info;
   return (
     <Box flexDirection="row" marginRight={1} alignItems="center">
       <Text color={theme.colors.text.dim}>{'·'}</Text>

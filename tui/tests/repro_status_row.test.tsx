@@ -343,7 +343,7 @@ describe('repro: completed response status row', () => {
 describe('Zenith reticle pulse on the live status row', () => {
   const partial = makeEvents().filter((e) => e.kind !== 'success');
 
-  it('pulses the dim quiet core on tick 0 (no ⨳, no +)', () => {
+  it('pulses the dim quiet ◌ core on tick 0 (no ⨳, no ❂)', () => {
     const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(0);
     const { lastFrame } = render(
       <ThemeProvider>
@@ -352,12 +352,12 @@ describe('Zenith reticle pulse on the live status row', () => {
     );
     const frame = lastFrame();
     expect(frame).not.toContain('⨳');
-    expect(frame).not.toContain('+');
+    expect(frame).not.toContain('❂');
     expect(frame).toContain('Esc to cancel');
     tickSpy.mockRestore();
   });
 
-  it('charges the core as + on ticks 1 and 3', () => {
+  it('charges the core as bold ❂ on ticks 1 and 3', () => {
     for (const tick of [1, 3]) {
       const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(tick);
       const { lastFrame } = render(
@@ -366,7 +366,7 @@ describe('Zenith reticle pulse on the live status row', () => {
         </ThemeProvider>,
       );
       const frame = lastFrame();
-      expect(frame).toContain('+');
+      expect(frame).toContain('❂');
       expect(frame).not.toContain('⨳');
       tickSpy.mockRestore();
     }
@@ -381,11 +381,11 @@ describe('Zenith reticle pulse on the live status row', () => {
     );
     const frame = lastFrame();
     expect(frame).toContain('⨳');
-    expect(frame).not.toContain('+');
+    expect(frame).not.toContain('❂');
     tickSpy.mockRestore();
   });
 
-  it('returns to the quiet core on tick 4 before the next cycle', () => {
+  it('returns to the quiet ◌ core on tick 4 before the next cycle', () => {
     const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(4);
     const { lastFrame } = render(
       <ThemeProvider>
@@ -394,7 +394,7 @@ describe('Zenith reticle pulse on the live status row', () => {
     );
     const frame = lastFrame();
     expect(frame).not.toContain('⨳');
-    expect(frame).not.toContain('+');
+    expect(frame).not.toContain('❂');
     tickSpy.mockRestore();
   });
 
@@ -407,6 +407,6 @@ describe('Zenith reticle pulse on the live status row', () => {
     const frame = lastFrame();
     expect(frame).toContain('●');
     expect(frame).not.toContain('⨳');
-    expect(frame).not.toContain('+');
+    expect(frame).not.toContain('❂');
   });
 });
