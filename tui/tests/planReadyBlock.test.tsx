@@ -23,6 +23,8 @@ describe('PlanReadyBlock', () => {
     const frame = lastFrame();
     expect(frame).toContain('◈');
     expect(frame).toContain('Plan ready');
+    expect(frame).not.toContain('awaiting approval');
+    expect(frame).toContain('proceeding with build');
     expect(frame).not.toContain('(empty response)');
   });
 

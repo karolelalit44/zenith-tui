@@ -1,7 +1,7 @@
 import { Box, Static, Text } from 'ink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BootLoading } from './components/BootLoading';
-import { ScenarioRenderer } from './components/Display/Scenario';
+import { PinnedOrchestrationCard, PinnedTodoCard, ScenarioRenderer, SuccessCard } from './components/Display/Scenario';
 import { UserMessageBlock } from './components/Display/Scenario/UserMessageBlock';
 import { ScrollIndicator } from './components/Display/ScrollIndicator';
 import { AutocompleteDropdown } from './components/Input/AutocompleteDropdown';
@@ -9,6 +9,7 @@ import { CommandInput } from './components/Input/CommandInput';
 import { CommandPalette } from './components/Input/CommandPalette';
 import { FilePickerModal } from './components/Input/FilePicker/FilePickerModal';
 import { OptionBanner } from './components/ui/OptionBanner';
+import { contentWidth as contentWidthForColumns } from './constants/layout';
 import { AppProvider } from './context/AppContext';
 import { useAutocomplete } from './hooks/useAutocomplete';
 import { useConversation } from './hooks/useConversation';
@@ -35,12 +36,20 @@ import { providerRepository } from './services/providers/ProviderRepository';
 import type { SessionSummary } from './services/transport/WebSocketClient';
 import { wsClient } from './services/transport/WebSocketClient';
 import { useTheme } from './theme/ThemeContext';
-import type { ScenarioEvent, ScenarioMode, TokenInfo, TurnManifestEvent } from './types/scenario';
+import type {
+  ScenarioEvent,
+  ScenarioMode,
+  SuccessEvent,
+  TokenInfo,
+  TurnManifestEvent,
+  WarningEvent,
+} from './types/scenario';
 import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
+import { consolidateOrchestrationEvents } from './utils/orchestration';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
-import { formatTurnCost, resolveTurnUsage } from './utils/turnUsage';
+import { consolidateTodoBoardEvents } from './utils/todoBoard';
 import { resolveWorkspaceRoot } from './utils/workspacePath';
 
 /**
@@ -93,6 +102,7 @@ export const App: React.FC = () => {
   }, []);
   const [showPalette, setShowPalette] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [expandedWarnings, setExpandedWarnings] = useState(false);
 
   const [retryTarget, setRetryTarget] = useState<RetryTarget | null>(null);
   const handleRetryDismiss = useCallback(() => setRetryTarget(null), []);
@@ -117,7 +127,7 @@ export const App: React.FC = () => {
   } = useConversation();
 
   const termDims = useTerminalDimensions(remountStatic);
-  const contentWidth = termDims.columns ? Math.max(30, termDims.columns - 2) : '100%';
+  const contentWidth = termDims.columns ? contentWidthForColumns(termDims.columns) : '100%';
 
   const { scrollState, scrollUp, scrollDown, scrollToTop, scrollToBottom, resetScroll, updateContentHeight } =
     useScrollState();
@@ -176,6 +186,7 @@ export const App: React.FC = () => {
     startScenario,
     abort,
     startCompaction,
+    resetEvents,
     eventsRef,
     lastSessionId,
     setActiveSessionId,
@@ -185,6 +196,41 @@ export const App: React.FC = () => {
   const { activeProvider } = useProvider();
   const activeGitBranch = useMemo(() => getActiveGitBranch(workspace), [workspace]);
   const [continueTarget, setContinueTarget] = useState<{ prompt: string; manifest: TurnManifestEvent } | null>(null);
+
+  // Transient "provider retrying" notice: shown for a few seconds, then hidden.
+  // Keyed on the LAST STREAM_RETRY event id so ordinary chunk updates during a
+  // long turn never keep the banner alive indefinitely. Events only ever append
+  // (reset to [] for a fresh session), so forward-scan from the last processed
+  // index is amortized O(1) per new event instead of a full backscan per change.
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
+  const lastRetryNoticeId = useRef<string | null>(null);
+  const retryScanFrom = useRef(0);
+  const retryNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (events.length < retryScanFrom.current) {
+      retryScanFrom.current = 0;
+    }
+    let notice: WarningEvent | null = null;
+    for (let i = retryScanFrom.current; i < events.length; i++) {
+      const e = events[i];
+      if (e.kind === 'warning' && (e as WarningEvent).code === 'STREAM_RETRY') {
+        notice = e as WarningEvent;
+      }
+    }
+    retryScanFrom.current = events.length;
+    if (!notice || notice.id === lastRetryNoticeId.current) return;
+    lastRetryNoticeId.current = notice.id;
+    setRetryNotice(notice.message || 'Provider hiccup; request retried successfully.');
+    // Held in a ref, NOT returned as effect cleanup: ordinary event appends
+    // re-run this effect on every chunk, and a cleanup would cancel the
+    // auto-hide timer before it fires. Only a NEW retry resets it.
+    if (retryNoticeTimer.current) clearTimeout(retryNoticeTimer.current);
+    retryNoticeTimer.current = setTimeout(() => {
+      retryNoticeTimer.current = null;
+      setRetryNotice(null);
+    }, 4500);
+  }, [events]);
+
   const [tokenUsageStats, setTokenUsageStats] = useState<TokenUsageStats | null>(null);
 
   const refreshStats = useCallback(() => {
@@ -251,14 +297,96 @@ export const App: React.FC = () => {
     return contextInfo?.windowEstimated === true;
   }, [footerContext, contextInfo, liveSuccessTokenInfo]);
 
-  const turnUsageCosts = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const t of completedTurns) {
-      const cost = formatTurnCost(resolveTurnUsage(t.events));
-      if (cost) map.set(t.id, cost);
+  // Derive the active todo board from the live event stream, or fall back to
+  // the latest turn's todo board if live stream has not emitted one yet.
+  const activeTodoBoard = useMemo(() => {
+    const liveBoard = consolidateTodoBoardEvents(events);
+    if (liveBoard?.board && liveBoard.board.length > 0) return liveBoard;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turnBoard = consolidateTodoBoardEvents(turns[i].events);
+      if (turnBoard?.board && turnBoard.board.length > 0) return turnBoard;
     }
-    return map;
-  }, [completedTurns]);
+    return null;
+  }, [events, turns]);
+
+  // Derive the active orchestration from the live event stream, or fall back to
+  // the latest turn's orchestration if live stream has not emitted one yet.
+  // Only the most recent turn may recap: an older mission's card must not stay
+  // pinned across unrelated turns.
+  const activeOrchestration = useMemo(() => {
+    const liveOrch = consolidateOrchestrationEvents(events);
+    if (liveOrch && liveOrch.crewmates && liveOrch.crewmates.length > 0) return liveOrch;
+    if (turns.length === 0) return null;
+    const turnOrch = consolidateOrchestrationEvents(turns[turns.length - 1].events);
+    return turnOrch && turnOrch.crewmates && turnOrch.crewmates.length > 0 ? turnOrch : null;
+  }, [events, turns]);
+
+  // The live status row event for the actively running turn. Rendered directly
+  // above CommandInput (and below the pinned orchestration and todo panels)
+  // so the execution hierarchy remains truthful:
+  // chat stream -> captain panel -> todo panel -> duration & token status row -> composer.
+  const liveSuccessEvent = useMemo<ScenarioEvent>(() => {
+    const existing = events.find((e) => e.kind === 'success');
+    if (existing) return existing;
+    const estTokens = estimateTokensForEvents(events);
+    const fallbackTokens = estTokens > 0 ? estTokens : events.length > 0 ? 1 : 0;
+    return {
+      kind: 'success',
+      id: 'evt_live_status_row',
+      elapsedMs: 0,
+      tokenInfo:
+        fallbackTokens > 0
+          ? {
+              used: fallbackTokens,
+              total: 0,
+              remaining: 0,
+              percent: 0,
+              estimated: true,
+            }
+          : undefined,
+    } as ScenarioEvent;
+  }, [events]);
+
+  const liveSuccessContext = useMemo(
+    () => ({
+      isRunning: true,
+      isHistorical: false,
+    }),
+    [],
+  );
+
+  // Derive the active sub-stage/activity for the running turn to surface in the pinned card
+  const activeTaskActivity = useMemo(() => {
+    if (!isRunning || events.length === 0) return undefined;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.kind === 'message') {
+        // Active turn is streaming conversational output; no background tool is executing
+        return undefined;
+      }
+      if (e.kind === 'progress' && e.label) {
+        return { label: e.label, percent: e.percent };
+      }
+      if (e.kind === 'tool_step' && e.tool) {
+        if (e.pending) {
+          const p = (e.params?.filepath || e.params?.path || e.params?.command || e.params?.query || '') as string;
+          const out = p ? `${e.tool} (${p})` : e.tool;
+          return { label: out, tool: e.tool };
+        }
+        // Tool has finished executing; stop search so completed tools do not show active spinners
+        return undefined;
+      }
+      if (e.kind === 'tool_call' && e.tool) {
+        const p = (e.params?.filepath || e.params?.path || e.params?.command || e.params?.query || '') as string;
+        const out = p ? `${e.tool} (${p})` : e.tool;
+        return { label: out, tool: e.tool };
+      }
+      if (e.kind === 'thinking') {
+        return { label: 'Reasoning...', isThinking: true };
+      }
+    }
+    return undefined;
+  }, [isRunning, events]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -282,14 +410,49 @@ export const App: React.FC = () => {
     }
   }, [runTokens, isRunning, events, liveSuccessTokenInfo]);
 
+  const activeMessageText = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].kind === 'message') {
+        return (events[i] as import('./types/scenario').MessageEvent).text || '';
+      }
+    }
+    return '';
+  }, [events]);
+
+  const liveContentHeight = useMemo(() => {
+    if (!isRunning) return completedTurns.length * 15;
+    const msgLines = activeMessageText ? activeMessageText.split('\n').length : 0;
+    const nonMsgCount = events.filter((e) => e.kind !== 'message').length;
+    return Math.max(msgLines, 1) + nonMsgCount * 3;
+  }, [isRunning, completedTurns.length, activeMessageText, events]);
+
+  const localScrollOffset = useMemo(() => {
+    if (!scrollState.isUserScrolled) return undefined;
+    const linesFromBottom = Math.max(
+      0,
+      scrollState.contentHeight - (scrollState.scrollOffset + scrollState.viewportHeight),
+    );
+    const msgLines = activeMessageText ? activeMessageText.split('\n').length : 0;
+    const maxMsgOffset = Math.max(0, msgLines - scrollState.viewportHeight);
+    return Math.max(0, maxMsgOffset - linesFromBottom);
+  }, [
+    scrollState.isUserScrolled,
+    scrollState.contentHeight,
+    scrollState.scrollOffset,
+    scrollState.viewportHeight,
+    activeMessageText,
+  ]);
+
   useEffect(() => {
-    // contentHeight tracks completed turns only; the live running block is
-    // always rendered below the window and is NOT part of the scrollable
-    // region. Counting streamed events here used to make the scroll offset
-    // jump on every incoming event (the jitter during generation).
-    const estimatedHeight = completedTurns.length * 15;
-    updateContentHeight(estimatedHeight);
-  }, [completedTurns.length, updateContentHeight]);
+    if (!isRunning || scrollState.isUserScrolled) {
+      updateContentHeight(liveContentHeight);
+    } else {
+      const timer = setTimeout(() => {
+        updateContentHeight(liveContentHeight);
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [liveContentHeight, updateContentHeight, isRunning, scrollState.isUserScrolled]);
 
   useEffect(() => {
     if (!isRunning && activeTurn?.isComplete) {
@@ -350,7 +513,11 @@ export const App: React.FC = () => {
 
   const handleSessionResume = useCallback(
     (sessionId: string, _summary: SessionSummary, messages?: Record<string, unknown>[]) => {
+      // Stop any in-flight turn first: without abort, stale WS events from the
+      // previous session repopulate the array right after resetEvents clears it.
+      abort();
       setActiveSessionId(sessionId);
+      resetEvents();
       const turns = convertHistoryToTurns(messages ?? [], selectedMode);
       if (turns.length > 0) {
         loadTurns(turns);
@@ -358,7 +525,7 @@ export const App: React.FC = () => {
         clearTurns();
       }
     },
-    [setActiveSessionId, clearTurns, loadTurns, selectedMode],
+    [abort, setActiveSessionId, resetEvents, clearTurns, loadTurns, selectedMode],
   );
 
   const handleCancel = useCallback(() => {
@@ -372,10 +539,11 @@ export const App: React.FC = () => {
     abortActiveTurn(eventsRef.current);
     setActiveSessionId(null);
     clearTurns();
+    resetEvents();
     resetScroll();
     setRetryTarget(null);
     setContinueTarget(null);
-  }, [abort, abortActiveTurn, eventsRef, setActiveSessionId, clearTurns, resetScroll]);
+  }, [abort, abortActiveTurn, eventsRef, setActiveSessionId, clearTurns, resetEvents, resetScroll]);
 
   const commandCtx = useMemo<CommandRunContext>(
     () => ({
@@ -427,6 +595,7 @@ export const App: React.FC = () => {
       clearAttachments();
       setRetryTarget(null);
       setHistoryExpanded(false);
+      setExpandedWarnings(false);
       startScenario(trimmed, selectedMode, providerId, modelId, attachments);
     },
     [
@@ -466,16 +635,35 @@ export const App: React.FC = () => {
     setShowPalette: handleSetShowPalette,
     slashMenuOpen: showAutocomplete,
     onToggleHistoryExpanded: () => setHistoryExpanded((v) => !v),
+    onToggleExpandedWarnings: () => setExpandedWarnings((v) => !v),
   });
 
   useEffect(() => {
     if (!isRunning && events.length > 0 && activeTurn && !activeTurn.isComplete) {
       const hadRecoverableError = eventsRef.current.some((e) => e.kind === 'error' && e.recoverable);
+      const successEvt = eventsRef.current.find((e) => e.kind === 'success') as SuccessEvent | undefined;
+      const manifestEvt =
+        lastManifest?.manifest ||
+        (eventsRef.current.find((e) => e.kind === 'turn_manifest') as TurnManifestEvent | undefined) ||
+        successEvt?.manifest;
+      const isTruncated =
+        successEvt?.truncated === true ||
+        successEvt?.finishReason === 'length' ||
+        Boolean(manifestEvt?.remaining?.some((r) => r.toLowerCase().includes('token limit')));
+      const hasPendingViaManifest = (manifestEvt?.remaining?.length ?? 0) > 0;
+      const isStalled = manifestEvt?.stalled === true;
+      const isNonTruncatedIncomplete =
+        !isTruncated &&
+        !isStalled &&
+        hasPendingViaManifest &&
+        ((successEvt && successEvt.completed === false) || (manifestEvt && manifestEvt.completed === false));
+      const isIncomplete = isTruncated || isNonTruncatedIncomplete;
+
       if (hadRecoverableError) {
-        if (lastManifest) {
+        if (manifestEvt) {
           setContinueTarget({
             prompt: activeTurn.prompt,
-            manifest: lastManifest.manifest,
+            manifest: manifestEvt,
           });
         } else {
           setRetryTarget({
@@ -484,6 +672,24 @@ export const App: React.FC = () => {
             model: activeTurn.model,
           });
         }
+      } else if (isIncomplete) {
+        const effectiveManifest: TurnManifestEvent = manifestEvt || {
+          kind: 'turn_manifest',
+          id: `manifest_${Date.now()}`,
+          created: [],
+          modified: [],
+          remaining: isTruncated ? ['Response truncated by token limit.'] : [],
+          completed: false,
+          stalled: false,
+          files: [],
+        };
+        const continuePrompt = isTruncated
+          ? 'Your response was cut off by the token limit. Please continue directly from where you left off without repeating any prior text.'
+          : activeTurn.prompt;
+        setContinueTarget({
+          prompt: continuePrompt,
+          manifest: effectiveManifest,
+        });
       }
       const finalTurnEvents = eventsRef.current.length >= events.length ? eventsRef.current : events;
       completeActiveTurn(finalTurnEvents);
@@ -620,27 +826,21 @@ export const App: React.FC = () => {
                     model={item.turn.model}
                     timestamp={item.turn.timestamp}
                     timestampLong={item.turn.timestampLong}
-                    attachments={item.turn.attachments}
                   />
                 </Box>
               );
             }
 
             // type === 'response'
-            const turnCost = turnUsageCosts.get(item.turn.id);
             return (
               <Box key={item.id} flexDirection="column" width={contentWidth}>
-                {turnCost ? (
-                  <Box marginBottom={1}>
-                    <Text color={theme.colors.text.muted}>◈ {turnCost}</Text>
-                  </Box>
-                ) : null}
                 <ScenarioRenderer
                   events={item.turn.events}
                   isRunning={false}
                   isHistorical={true}
                   thinkingCollapsed={thinkingCollapsed}
                   calmMode={calmMode}
+                  expandedWarnings={expandedWarnings}
                   workspaceName={workspace}
                   gitBranch={activeGitBranch}
                 />
@@ -660,13 +860,19 @@ export const App: React.FC = () => {
               thinkingCollapsed={thinkingCollapsed}
               calmMode={calmMode}
               historyExpanded={historyExpanded}
+              expandedWarnings={expandedWarnings}
               workspaceName={workspace}
               gitBranch={activeGitBranch}
+              scrollOffset={localScrollOffset}
+              maxDynamicLines={scrollState.viewportHeight}
+              showStatusRow={false}
             />
             {scrollState.isUserScrolled && (
               <Box paddingX={1} marginTop={0}>
                 <Text color={theme.colors.text.dim} dimColor>
-                  ▸ PgDn / End to follow live output
+                  ▸ PgDn / End to follow live output (
+                  {Math.max(0, scrollState.contentHeight - (scrollState.scrollOffset + scrollState.viewportHeight))}{' '}
+                  lines below)
                 </Text>
               </Box>
             )}
@@ -677,7 +883,11 @@ export const App: React.FC = () => {
           <Box flexDirection="column" width="100%">
             {continueTarget && (
               <OptionBanner
-                title="Continue where you left off"
+                title={
+                  continueTarget.manifest.remaining?.some((r) => r.toLowerCase().includes('token limit'))
+                    ? 'Output truncated by token limit'
+                    : 'Continue where you left off'
+                }
                 message={`Resume: ${truncateEnd(sanitizeSingleLine(continueTarget.prompt), 90)}`}
                 options={[
                   { label: 'Continue', value: 'continue' },
@@ -700,6 +910,38 @@ export const App: React.FC = () => {
               />
             )}
 
+            {activeOrchestration && (
+              <Box marginBottom={1} width="100%">
+                <PinnedOrchestrationCard event={activeOrchestration} isRunning={isRunning} />
+              </Box>
+            )}
+
+            {activeTodoBoard && (
+              <Box marginBottom={1} width="100%">
+                <PinnedTodoCard event={activeTodoBoard} isRunning={isRunning} activeActivity={activeTaskActivity} />
+              </Box>
+            )}
+
+            {retryNotice && (
+              <Box marginBottom={1} paddingX={1} width="100%">
+                <Text color={theme.colors.status.info} bold>
+                  ↻{' '}
+                </Text>
+                <Text color={theme.colors.text.bright}>{retryNotice}</Text>
+              </Box>
+            )}
+
+            {(isRunning || (activeTurn && !activeTurn.isComplete)) && (
+              <Box width="100%">
+                <SuccessCard
+                  event={liveSuccessEvent as SuccessEvent}
+                  context={liveSuccessContext}
+                  manifest={lastManifest?.manifest}
+                  turnEvents={events}
+                />
+              </Box>
+            )}
+
             <CommandInput
               calmMode={calmMode}
               input={input}
@@ -715,8 +957,9 @@ export const App: React.FC = () => {
               onClearAttachments={clearAttachments}
               historyUp={historyUp}
               historyDown={historyDown}
+              scrollUp={scrollUp}
+              scrollDown={scrollDown}
               mode={selectedMode}
-              maxTokens={footerContext?.total ?? (providerRepository.maxContextTokens || undefined)}
               runTokens={liveRunTokens}
               runEstimated={runEstimated}
               contextPercent={footerContextPercent}

@@ -76,12 +76,6 @@ class ToolError(ZenithError):
         self.tool = tool
 
 
-class ToolPermissionDenied(ToolError):
-    def __init__(self, tool: str, reason: str = "Permission denied"):
-        super().__init__(reason, tool=tool, recoverable=False)
-        self.code = "TOOL_PERMISSION_DENIED"
-
-
 class ToolNotFound(ToolError):
     def __init__(self, tool: str):
         super().__init__(f"Tool '{tool}' not found", tool=tool, recoverable=False)
@@ -157,18 +151,6 @@ class AgentCancelledError(AgentError):
     def __init__(self, session_id: str = ""):
         super().__init__("Agent cancelled by user", session_id=session_id, recoverable=True)
         self.code = "AGENT_CANCELLED"
-
-
-class PermissionError(ZenithError):
-    def __init__(self, message: str, tool: str = "", recoverable: bool = False):
-        super().__init__(message, code="PERMISSION_ERROR", recoverable=recoverable)
-        self.tool = tool
-
-
-class PermissionDenied(PermissionError):
-    def __init__(self, tool: str, reason: str = "Permission denied"):
-        super().__init__(reason, tool=tool, recoverable=False)
-        self.code = "PERMISSION_DENIED"
 
 
 class PersistenceError(ZenithError):

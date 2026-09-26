@@ -26,7 +26,6 @@ interface UserSettingsSection {
   thinkingCollapsed: boolean;
   /** Calm mode (/clam): when true, model thinking output is hidden entirely. */
   calmMode: boolean;
-  autoApproveTools: boolean;
   defaultMode: 'build' | 'plan';
 }
 
@@ -64,7 +63,6 @@ function getInitialProfile(): UserProfile {
       theme: DEFAULT_THEME,
       thinkingCollapsed: false,
       calmMode: false,
-      autoApproveTools: false,
       defaultMode: DEFAULT_MODE,
     },
     providerSettings: {},
@@ -86,9 +84,6 @@ function applyServerPayload(payload: Record<string, unknown>): void {
   }
   if (!pendingSettingKeys.has('calmMode') && typeof prefs.calmMode === 'boolean') {
     nextSettings.calmMode = prefs.calmMode;
-  }
-  if (!pendingSettingKeys.has('autoApproveTools') && typeof prefs.autoApproveTools === 'boolean') {
-    nextSettings.autoApproveTools = prefs.autoApproveTools;
   }
   if (!pendingSettingKeys.has('defaultMode') && (prefs.defaultMode === 'build' || prefs.defaultMode === 'plan')) {
     nextSettings.defaultMode = prefs.defaultMode;
@@ -132,11 +127,11 @@ async function hydrateFromServer(): Promise<void> {
 function scheduleRemoteSave(settingKeys: string[]): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const { theme, thinkingCollapsed, calmMode, autoApproveTools, defaultMode } = profileCache.settings;
+    const { theme, thinkingCollapsed, calmMode, defaultMode } = profileCache.settings;
     void fetch(appConfig.buildUrl('/profile/preferences'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme, thinkingCollapsed, calmMode, autoApproveTools, defaultMode }),
+      body: JSON.stringify({ theme, thinkingCollapsed, calmMode, defaultMode }),
     })
       .then((resp) => {
         if (resp.ok) {

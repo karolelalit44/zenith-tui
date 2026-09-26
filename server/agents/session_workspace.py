@@ -98,6 +98,37 @@ def record_read(session_id: str, path: str) -> None:
         _session_map(session_id)[path] = rec
 
 
+def record_write(session_id: str, path: str, content: str) -> None:
+    """Record that ``path`` was written/modified with ``content`` this session."""
+    now = _time.time()
+    c_hash = _content_hash(content)
+    size = len(content.encode("utf-8"))
+    with _LOCK:
+        _cache_evict(session_id, path)
+        rec = _session_map(session_id).get(path)
+        if rec is None:
+            rec = SessionFileRecord(
+                path=path,
+                content_hash=c_hash,
+                size=size,
+                writes=1,
+                last_edited_at=now,
+            )
+        else:
+            rec.content_hash = c_hash
+            rec.size = size
+            rec.writes += 1
+            rec.last_edited_at = now
+        _session_map(session_id)[path] = rec
+
+
+def evict_file_cache(session_id: str, path: str) -> None:
+    """Drop any cached read entries for ``path``."""
+    with _LOCK:
+        _cache_evict(session_id, path)
+        if session_id in _STORE:
+            _STORE[session_id].pop(path, None)
+
 
 def is_identical_replay(session_id: str, path: str, content: str) -> bool:
     """True when this exact content was already written for this path in this session."""
@@ -113,6 +144,7 @@ def _cache_evict(session_id: str, path: str) -> None:
     paths = _READ_CACHE.get(session_id)
     if paths is not None:
         paths.pop(path, None)
+
 
 
 def cache_file_read(
@@ -176,6 +208,34 @@ def get_cached_read(
         count = slice_entry.get("count", 0)
         slice_entry["count"] = count + 1
         return slice_entry.get("output")
+
+
+def slice_served_count(
+    session_id: str, path: str, offset: int, limit: int, mtime_ns: int | None = None, size: int | None = None
+) -> int:
+    """Times this exact (``path``, ``offset``, ``limit``) slice has been served.
+
+    Returns the count BEFORE the next ``get_cached_read`` call increments it, so
+    callers can tell a true repeat read (content already embedded in context)
+    from the first read of a range. Stale fingerprints (changed mtime/size) are
+    evicted and count as 0, mirroring ``get_cached_read``.
+
+    ``path`` must be an absolute, resolved path (same key space as ``get_cached_read``).
+    """
+    with _LOCK:
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        if entry is None:
+            return 0
+        if mtime_ns is not None and entry.get("mtime_ns") != mtime_ns:
+            _cache_evict(session_id, path)
+            return 0
+        if size is not None and entry.get("size") != size:
+            _cache_evict(session_id, path)
+            return 0
+        slice_entry = entry.get("slices", {}).get((offset, limit))
+        if slice_entry is None:
+            return 0
+        return slice_entry.get("count", 0)
 
 
 def get_read_history(session_id: str, path: str) -> list[tuple[int, int]]:

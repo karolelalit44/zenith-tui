@@ -7,7 +7,7 @@ export type { Theme };
  * Single source of truth for every theme palette is `themes.json`; this module
  * only types it and derives UI-facing helpers. Never add color literals here.
  */
-const typedThemes = themesJson as unknown as Record<string, Theme>;
+const typedThemes = themesJson as Record<string, Theme>;
 
 /** Fail loudly at startup if a palette in themes.json drifts from the Theme shape. */
 function assertThemeShape(id: string, t: Theme): void {

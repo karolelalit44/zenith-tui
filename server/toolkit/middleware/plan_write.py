@@ -32,7 +32,7 @@ class PlanWriteGuard(ToolMiddleware):
     outside the plan-mode tool surface, enforced here regardless of the prompt.
     """
 
-    _WRITE_TOOLS = ("file_write", "file_edit")
+    _WRITE_TOOLS = ("file_write", "file_edit", "apply_patch")
 
     async def before_execute(
         self, name: str, params: dict[str, Any], ctx: ToolContext
@@ -40,6 +40,29 @@ class PlanWriteGuard(ToolMiddleware):
         if ctx.mode != PLAN_MODE:
             return True
         if name not in self._WRITE_TOOLS:
+            return True
+        if name == "apply_patch":
+            patch_text = params.get("patch") or ""
+            targets: list[str] = []
+            for line in patch_text.splitlines():
+                line_s = line.strip()
+                if line_s.startswith("*** Add File:"):
+                    targets.append(line_s[len("*** Add File:") :].strip())
+                elif line_s.startswith("*** Update File:"):
+                    targets.append(line_s[len("*** Update File:") :].strip())
+                elif line_s.startswith("*** Delete File:"):
+                    targets.append(line_s[len("*** Delete File:") :].strip())
+                elif line_s.startswith("*** Move to:"):
+                    targets.append(line_s[len("*** Move to:") :].strip())
+            for t in targets:
+                if not is_plan_write_allowed(ctx.workspace_root, t):
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"Plan mode only allows writing plan.md or todo.md in the workspace root "
+                            f"(got '{t}'). Read files with file_read; write the plan to plan.md/todo.md."
+                        ),
+                    )
             return True
         path = params.get("path") or ""
         if not is_plan_write_allowed(ctx.workspace_root, path):

@@ -114,10 +114,12 @@ async def _do_startup() -> None:
                 "Active provider '%s' not configured yet", config.active_provider or "(none)"
             )
         registry = ProviderRegistry.from_config(config.providers, config.active_provider)
-        logger.info("Providers registered: %s", registry.list_providers())
         active_provider = registry.get(config.active_provider)
         tool_registry = create_default_registry(
-            timeout=config.tools.max_bash_timeout, provider=active_provider
+            timeout=config.tools.max_bash_timeout,
+            provider=active_provider,
+            hooks=config.hooks,
+            config=config,
         )
         _handler = ZenithHandler(
             config=config, home=home, registry=registry, tool_registry=tool_registry
@@ -249,6 +251,14 @@ async def startup_providers_validate(
 def _reload_config_after_validate(provider_id: str) -> None:
     if _handler is None:
         return
+    if hasattr(_handler, "_session_executors"):
+        for exc in _handler._session_executors.values():
+            if getattr(exc, "is_active", False):
+                logger.info(
+                    "Skipping provider '%s' reload after validation: active turn is executing",
+                    provider_id,
+                )
+                return
     try:
         _handler._reload_provider(provider_id)
         logger.info("Provider '%s' reloaded after validation", provider_id)

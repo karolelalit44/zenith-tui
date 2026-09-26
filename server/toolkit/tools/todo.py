@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
 
-from server.agents.todo_state import TodoEntry, get_todo_state
+from server.agents.todo_state import TodoEntry, get_todo_state, normalize_status
 from server.config.constants import (
     BUILD_MODE,
-    CONCURRENCY_GROUP_READONLY,
-    PERMISSION_WRITE,
+    CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     PLAN_MODE,
     TOOL_DOMAIN_TASK,
 )
@@ -19,7 +19,17 @@ from ..base import BaseTool, ToolResult
 logger = logging.getLogger(__name__)
 
 _ACTION_ENUM = ["write", "list", "remove"]
-_STATUS_ENUM = ["pending", "in_progress", "completed", "blocked", "cancelled"]
+_STATUS_ENUM = [
+    "pending",
+    "todo",
+    "open",
+    "in_progress",
+    "active",
+    "completed",
+    "done",
+    "blocked",
+    "cancelled",
+]
 _PRIORITY_ENUM = ["low", "medium", "high"]
 
 
@@ -44,13 +54,14 @@ def _map_status(status: str) -> str:
 
     Frontend: ``todo | in_progress | blocked | done | cancelled``.
     """
+    norm = normalize_status(status)
     return {
         "pending": "todo",
         "in_progress": "in_progress",
         "completed": "done",
         "blocked": "blocked",
         "cancelled": "cancelled",
-    }.get(status, "todo")
+    }.get(norm, "todo")
 
 
 class TodoTool(BaseTool):
@@ -66,8 +77,7 @@ class TodoTool(BaseTool):
     requires_mode = None
     modes = (PLAN_MODE, BUILD_MODE)
     read_only = False
-    concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_WRITE
+    concurrency_group = CONCURRENCY_GROUP_WORKSPACE_MUTATION
     domains = (TOOL_DOMAIN_TASK,)
     search_terms = ("todo", "task", "track", "plan list", "progress")
 
@@ -137,22 +147,57 @@ class TodoTool(BaseTool):
 
     def _handle_write(self, state: Any, params: dict[str, Any]) -> ToolResult:
         tasks = params.get("tasks")
+        if isinstance(tasks, str):
+            try:
+                tasks = json.loads(tasks)
+            except Exception:
+                pass
         if not isinstance(tasks, list):
-            return ToolResult(success=False, error="write requires a tasks array")
+            return ToolResult(
+                success=False,
+                error="write requires a tasks array: e.g. tasks=[{'title': '...', 'status': 'todo'}]",
+            )
 
-        state.reset()
-        for item in tasks:
+        parsed_items: list[dict[str, Any]] = []
+        for i, item in enumerate(tasks):
+            if isinstance(item, str):
+                try:
+                    item = json.loads(item)
+                except Exception:
+                    return ToolResult(
+                        success=False,
+                        error=f"Task at index {i} is not valid JSON",
+                    )
+            if not isinstance(item, dict):
+                return ToolResult(
+                    success=False,
+                    error=f"Task at index {i} must be an object with a 'title'",
+                )
             title = str(item.get("title") or "").strip()
             if not title:
-                continue
+                return ToolResult(
+                    success=False,
+                    error=f"Task at index {i} is missing a non-empty 'title'",
+                )
             existing_id = str(item.get("id") or "")
             status = str(item.get("status") or "pending")
             priority = str(item.get("priority") or "medium")
+            parsed_items.append(
+                {
+                    "title": title,
+                    "priority": priority,
+                    "status": status,
+                    "existing_id": existing_id if existing_id else None,
+                }
+            )
+
+        state.reset()
+        for entry in parsed_items:
             state.add(
-                title,
-                priority=priority,
-                status=status,
-                existing_id=existing_id if existing_id else None,
+                entry["title"],
+                priority=entry["priority"],
+                status=entry["status"],
+                existing_id=entry["existing_id"],
             )
 
         board = [_todo_item_dict(e) for e in state.list()]

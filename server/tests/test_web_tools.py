@@ -60,6 +60,51 @@ class TestHtmlToMarkdown:
         md = html_to_markdown(html, max_chars=50)
         assert len(md) <= 50
 
+    def test_formats_tables_with_dividers(self):
+        html = """
+        <table>
+          <thead><tr><th>Method</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td>GET</td><td>Retrieve item</td></tr>
+            <tr><td>POST</td><td>Create item</td></tr>
+          </tbody>
+        </table>
+        """
+        md = html_to_markdown(html)
+        assert "| Method | Description |" in md
+        assert "| --- | --- |" in md
+        assert "| GET | Retrieve item |" in md
+        assert "| POST | Create item |" in md
+
+    def test_extracts_code_language_tag(self):
+        html = '<pre><code class="language-python">x = 42\nprint(x)</code></pre>'
+        md = html_to_markdown(html)
+        assert "```python" in md
+        assert "x = 42" in md
+        assert "```" in md
+
+    def test_resolves_relative_links(self):
+        html = '<p>Check <a href="/docs/intro">documentation</a></p>'
+        md = html_to_markdown(html, base_url="https://example.com/api/v1")
+        assert "[documentation](https://example.com/docs/intro)" in md
+
+    def test_html_to_plain_text(self):
+        from server.toolkit.tools._html_text import html_to_plain_text
+        html = "<div><h1>Title</h1><p>Paragraph with <a href='#'>link</a>.</p><script>alert('bad')</script></div>"
+        text = html_to_plain_text(html)
+        assert "Title" in text
+        assert "Paragraph with link." in text
+        assert "alert" not in text
+
+    def test_extract_images(self):
+        from server.toolkit.tools._html_text import extract_images
+        html = '<div><img src="/img/arch.png" alt="Architecture Diagram"/><img src="https://cdn.example.com/logo.svg"/></div>'
+        imgs = extract_images(html, base_url="https://example.com/page")
+        assert len(imgs) == 2
+        assert imgs[0]["url"] == "https://example.com/img/arch.png"
+        assert imgs[0]["alt"] == "Architecture Diagram"
+        assert imgs[1]["url"] == "https://cdn.example.com/logo.svg"
+
 
 class TestWebsearchParsing:
     def test_parse_ddg_results_unwraps_redirects(self):
@@ -125,6 +170,7 @@ class TestWebsearchExecution:
         assert result.success
         assert result.output == "No results found."
         assert result.metadata["count"] == 0
+        assert "suggestions" in result.metadata
 
     @pytest.mark.asyncio
     async def test_allowed_domains_case_and_dot_insensitive(self, monkeypatch):

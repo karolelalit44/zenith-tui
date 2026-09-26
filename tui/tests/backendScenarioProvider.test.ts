@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backendScenarioProvider } from '../src/services/transport/BackendScenarioProvider';
 import { type JsonRpcEvent, WebSocketClient, wsClient } from '../src/services/transport/WebSocketClient';
+import type { ScenarioEvent, ThinkingEvent } from '../src/types/scenario';
+import { upsertEvent } from '../src/utils/eventUpsert';
 
 let rpcIdCounter = 0;
 function makeRpcEvent(kind: string, data: Record<string, unknown> = {}): JsonRpcEvent {
@@ -447,6 +449,124 @@ describe('Multi-Iteration Thinking and Tool Call Chronological Sequence', () => 
     expect(iter2Final).toBeDefined();
     expect(iter2Final?.thoughts).toContain('Thinking iter 2 full reasoning');
     expect(iter2Final?.duration).toBe(2500);
+
+    runner.abort();
+  });
+});
+
+describe('Thinking Merge Across Intervening Non-Thinking Events', () => {
+  it('reuses the partial thinking id for the final thinking when a warning arrives between them', () => {
+    const received: Array<{ event: import('../src/types/scenario').ScenarioEvent; index: number }> = [];
+    let completed = false;
+
+    const scenario = backendScenarioProvider.resolve('test', 'build');
+    const runner = backendScenarioProvider.execute(
+      scenario,
+      (evt, idx) => {
+        received.push({ event: evt, index: idx });
+      },
+      () => {
+        completed = true;
+      },
+    );
+
+    const emit = (kind: string, data: Record<string, unknown> = {}) =>
+      (wsClient as unknown as { emitter: { emit: (name: string, data: unknown) => void } }).emitter.emit(
+        'event',
+        makeRpcEvent(kind, data),
+      );
+
+    // Partial thinking arrives, then a STREAM_RETRY warning,
+    // then the final thinking with duration, then a message.
+    // The warning must NOT cause the final thinking to get a
+    // different id from the partial — otherwise useScenario's
+    // upsertEvent cannot replace the partial and a duplicate
+    // "Thought" block appears in the UI.
+    emit('thinking', { text: 'Partial reasoning text', partial: true });
+    emit('warning', { message: 'Provider hiccup; request retried successfully.', code: 'STREAM_RETRY' });
+    emit('thinking', { text: 'Partial reasoning text', duration: 4000, partial: false });
+    emit('message', { text: 'Done.', partial: false });
+    emit('turn_manifest', { completed: true });
+    emit('success', { message: 'done', iterations: 1 });
+
+    expect(completed).toBe(true);
+
+    const thinkingEvents = received
+      .map((r) => r.event)
+      .filter((e): e is import('../src/types/scenario').ThinkingEvent => e.kind === 'thinking');
+
+    // Both thinking events must share the same id so upsertEvent
+    // in useScenario can replace the orphaned partial with the
+    // final thinking instead of appending a second block.
+    expect(thinkingEvents.length).toBe(2);
+    const ids = thinkingEvents.map((e) => e.id);
+    expect(ids[0]).toBe(ids[1]);
+    expect(new Set(ids).size).toBe(1);
+
+    // Final thinking carries the duration; partial does not.
+    expect(thinkingEvents[1]?.partial).toBe(false);
+    expect(thinkingEvents[1]?.duration).toBe(4000);
+
+    runner.abort();
+  });
+});
+
+describe('Thought duplicate + truncate regression (single-iteration turn)', () => {
+  it('collapses the truncated partial and the final into ONE Thought with FULL text', () => {
+    // Faithful replica of useScenario.handleEvent routing: partials queue
+    // in the 75ms batch, non-partials flush the queue then id-upsert.
+    let state: ScenarioEvent[] = [];
+    const queue: Array<{ event: ScenarioEvent; index: number }> = [];
+    const flush = () => {
+      for (const { event, index } of queue.splice(0)) {
+        state = upsertEvent(state, event, index);
+      }
+    };
+    const onEvent = (event: ScenarioEvent, index: number) => {
+      const isPartial =
+        (event.kind === 'message' && (event as { partial?: boolean }).partial === true) ||
+        (event.kind === 'thinking' && (event as ThinkingEvent).partial === true);
+      if (isPartial) {
+        queue.push({ event, index });
+      } else {
+        flush();
+        state = upsertEvent(state, event, index);
+      }
+    };
+
+    let completed = false;
+    const scenario = backendScenarioProvider.resolve('test', 'build');
+    const runner = backendScenarioProvider.execute(scenario, onEvent, () => {
+      completed = true;
+    });
+    const emit = (kind: string, data: Record<string, unknown> = {}) =>
+      (wsClient as unknown as { emitter: { emit: (name: string, data: unknown) => void } }).emitter.emit(
+        'event',
+        makeRpcEvent(kind, data),
+      );
+
+    // Mirrors the reported turn: a ~200-char truncated partial snapshot,
+    // then the full final with duration, then the answer stream.
+    const partialText =
+      "The user is using a racial slur and inappropriate language. I should not engage with this kind of language. I'll respond professionally and redirect to the actual work if they have a legitimate";
+    const fullText = `${partialText} request.`;
+    const answer = "I'm here to help with software engineering tasks.";
+    emit('thinking', { text: partialText, partial: true });
+    emit('thinking', { text: fullText, duration: 4000, partial: false });
+    emit('message', { text: answer.slice(0, 10), partial: true });
+    emit('message', { text: answer.slice(10), partial: true });
+    emit('message', { text: answer, partial: false });
+    emit('turn_manifest', { completed: true, answered: true, created: [], modified: [] });
+    emit('success', { message: 'done', iterations: 1 });
+    flush();
+
+    expect(completed).toBe(true);
+    const thoughts = state.filter((e): e is ThinkingEvent => e.kind === 'thinking');
+    // Exactly ONE Thought block — no truncated duplicate.
+    expect(thoughts.length).toBe(1);
+    expect(thoughts[0].partial).toBe(false);
+    expect(thoughts[0].duration).toBe(4000);
+    expect(thoughts[0].thoughts.join(' ')).toContain('request.');
 
     runner.abort();
   });

@@ -83,13 +83,37 @@ function estimateEventTokens(event: ScenarioEvent): number {
       if (typeof v === 'string') chars += v.length;
     }
   }
+  if ('tool' in event && typeof (event as { tool?: unknown }).tool === 'string') {
+    chars += (event as { tool: string }).tool.length;
+  }
+  if (
+    'params' in event &&
+    typeof (event as { params?: unknown }).params === 'object' &&
+    (event as { params: unknown }).params !== null
+  ) {
+    try {
+      chars += JSON.stringify((event as { params: unknown }).params).length;
+    } catch {}
+  }
+  if ('plan' in event && typeof (event as { plan?: unknown }).plan === 'string') {
+    chars += (event as { plan: string }).plan.length;
+  }
+  if ('captainMessage' in event && typeof (event as { captainMessage?: unknown }).captainMessage === 'string') {
+    chars += (event as { captainMessage: string }).captainMessage.length;
+  }
+  if ('summary' in event && typeof (event as { summary?: unknown }).summary === 'string') {
+    chars += (event as { summary: string }).summary.length;
+  }
+  if ('reason' in event && typeof (event as { reason?: unknown }).reason === 'string') {
+    chars += (event as { reason: string }).reason.length;
+  }
   if ('metadata' in event && typeof event.metadata === 'object' && event.metadata !== null) {
     try {
       chars += JSON.stringify(event.metadata).length;
     } catch {}
   }
 
-  return Math.round(chars / 4);
+  return chars > 0 ? Math.max(1, Math.round(chars / 4)) : 0;
 }
 
 export function estimateTokensForEvents(events: ScenarioEvent[]): number {

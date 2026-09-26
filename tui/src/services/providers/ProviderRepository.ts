@@ -31,6 +31,9 @@ export class ProviderRepository extends BaseApiService {
   private _inFlightFetch: Promise<ProviderListResponse | null> | null = null;
 
   public async fetchProviderList(force = false): Promise<ProviderListResponse | null> {
+    if (!force && this._listCache) {
+      return this._listCache;
+    }
     if (!force && this._inFlightFetch) {
       return this._inFlightFetch;
     }

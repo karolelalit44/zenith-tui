@@ -9,14 +9,18 @@ Contract highlights:
 - Governance: ``config.explore_delegation`` gates availability (D3).
 - Budgets: per-mission timeout/context tokens by thoroughness (Phase 2) plus
   a rolling-window aggregate token ledger across children (D6).
-- Isolation: only the rendered structured report crosses the boundary
-  (S2); child transcript events are consumed, never forwarded.
+- Isolation: only the rendered structured report crosses the boundary (S2);
+  child transcript events are consumed, never forwarded. The captain-level
+  delegation lifecycle (captain_orchestration stages + crewmate_spawned /
+  status / complete / failed) IS forwarded in order — it is the operationally
+  meaningful story of the mission and feeds the TUI's orchestration card.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections import deque
 from typing import Any
@@ -42,18 +46,33 @@ from server.config.constants import (
     EXPLORE_RESULT_MAX_CHARS,
     EXPLORE_THOROUGHNESS_LEVELS,
     LATENCY_CLASS_HIGH,
-    PERMISSION_CREWMATE,
     RISK_MEDIUM,
     TOOL_DOMAIN_CREWMATE,
 )
-from server.config.environment import ZENITH_ENRICH_TIMEOUT
+from server.config.environment import ZENITH_ENRICH_TIMEOUT, ZENITH_SALVAGE_TIMEOUT
 from server.config.settings import AppSettings
+from server.domain.events import EventKind
+from server.toolkit.registry import current_tool_session_id
 
 from ..base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
-_EXPLORE_DEBOUNCE_GRACE_SECONDS = 15
+# Outer hard-cap sits at mission timeout + a salvage allowance. Once the
+# crewmate's inner mission budget fires (orchestrator.investigate), a final
+# provider completion (_salvage_child_summary, capped by ZENITH_SALVAGE_TIMEOUT)
+# turns the gathered evidence into a report. The grace MUST cover that call —
+# at 15s it always lost and the parent got a content-free "no result" instead of
+# a timed-out report.
+_EXPLORE_SALVAGE_GRACE_SECONDS = int(ZENITH_SALVAGE_TIMEOUT) + 30
+# Additional slack folded into the TTFT-derived budget floor: two LLM legs
+# (enrichment + crewmate turns) on the provider's measured latency, plus
+# tool-execution time, must fit inside the mission wall clock.
+_EXPLORE_TTFT_SLACK_S = 30
+# Hard ceiling on the TTFT-derived floor so an anomalous measurement cannot
+# stretch missions without bound.  Must exceed the highest static budget
+# (deep=360s) so the floor is meaningful on slow providers.
+_EXPLORE_TTFT_FLOOR_MAX_S = 420
 
 
 class ExploreSpendLedger:
@@ -90,6 +109,25 @@ _ledger = ExploreSpendLedger()
 # Width guard for environments that execute tools outside the parent loop.
 _spawn_semaphore = asyncio.Semaphore(EXPLORE_PARALLEL_DEFAULT)
 
+# Captain-level lifecycle kinds forwarded to the parent wire stream in order.
+# Deliberately excludes the child transcript (thinking/message/tool_*/progress
+# from the crewmate) — S2 isolation keeps the parent context clean.
+_LIFECYCLE_KINDS = frozenset(
+    {
+        EventKind.CAPTAIN_ORCHESTRATION,
+        EventKind.CREWMATE_SPAWNED,
+        EventKind.CREWMATE_STATUS,
+        EventKind.CREWMATE_COMPLETE,
+        EventKind.CREWMATE_FAILED,
+    }
+)
+
+# Bound on forwarded lifecycle entries: CREWMATE_STATUS can tick at high
+# frequency; cap the list so ToolResult metadata / WS replay stays bounded.
+# Terminal kinds (spawn/complete/failed + orchestration stages) are always
+# kept — only the oldest STATUS entries are evicted when full.
+_LIFECYCLE_MAX_EVENTS = 200
+
 
 class ExploreTool(BaseTool):
     name = "explore"
@@ -104,7 +142,6 @@ class ExploreTool(BaseTool):
     requires_mode = None
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_CREWMATE
-    permission_scope = PERMISSION_CREWMATE
     domains = (TOOL_DOMAIN_CREWMATE,)
     search_terms = (
         "explore",
@@ -178,8 +215,8 @@ class ExploreTool(BaseTool):
                     "enum": list(EXPLORE_THOROUGHNESS_LEVELS),
                     "default": DEFAULT_EXPLORE_THOROUGHNESS,
                     "description": (
-                        "quick=45s targeted lookup, standard=90s balanced, "
-                        "deep=150s multi-subsystem sweep"
+                        "quick=150s targeted lookup, standard=240s balanced, "
+                        "deep=360s multi-subsystem sweep"
                     ),
                 },
                 "crewmate": crewmate_schema,
@@ -200,7 +237,27 @@ class ExploreTool(BaseTool):
             return ToolResult(success=False, error="No objective provided")
 
         thoroughness = self._resolve_thoroughness(params.get("thoroughness"))
-        budget = EXPLORE_BUDGETS.get(thoroughness, EXPLORE_BUDGETS["standard"])
+        budget = dict(EXPLORE_BUDGETS.get(thoroughness, EXPLORE_BUDGETS["standard"]))
+        # Fit the mission wall clock to the provider's measured latency: on a slow
+        # provider (TTFT 38-75s observed) the static quick=150s window let one
+        # hung leg burn the whole mission before the first tool turn. Floor the
+        # budget at 2 round trips + tool slack on the latest measured TTFT. This
+        # stays bounded because FIX A ceilings the stream legs it is derived from.
+        ttft_ms = getattr(self._provider, "_last_ttft_ms", None)
+        if ttft_ms:
+            floor_s = min(
+                math.ceil(2 * (ttft_ms / 1000.0)) + _EXPLORE_TTFT_SLACK_S,
+                _EXPLORE_TTFT_FLOOR_MAX_S,
+            )
+            if budget["timeout_s"] < floor_s:
+                logger.info(
+                    "Explore budget floor applied thoroughness=%s base=%ds floor=%ds ttft_ms=%d",
+                    thoroughness,
+                    budget["timeout_s"],
+                    floor_s,
+                    ttft_ms,
+                )
+                budget["timeout_s"] = floor_s
 
         # Cheap guards precede ANY spend — enrichment is a provider call, so it
         # only happens after the budget window accepts a new mission.
@@ -231,19 +288,44 @@ class ExploreTool(BaseTool):
             self._tool_registry,
             cache=None,
         )
+        logger.info(
+            "Explore mission start thoroughness=%s budget=%ds crewmate=%s model=%s objective_chars=%d",
+            thoroughness,
+            budget["timeout_s"],
+            definition.name,
+            definition.model_override or getattr(self._provider, "model", "?"),
+            len(mission_objective),
+        )
         started = time.monotonic()
+        active_session_id = current_tool_session_id.get() or f"explore:{workspace_root}"
+        last_orch_data: dict[str, Any] | None = None
+        lifecycle: list[tuple[str, dict[str, Any]]] = []
         try:
-            async with asyncio.timeout(budget["timeout_s"] + _EXPLORE_DEBOUNCE_GRACE_SECONDS):
+            async with asyncio.timeout(budget["timeout_s"] + _EXPLORE_SALVAGE_GRACE_SECONDS):
                 async with _spawn_semaphore:
                     async for _event in orchestrator.investigate(
                         mission_objective,
                         definition,
-                        parent_session_id=f"explore:{workspace_root}",
+                        parent_session_id=active_session_id,
                         timeout_seconds=budget["timeout_s"],
                         max_context_tokens=budget["context_tokens"],
                     ):
-                        # Child lifecycle events never enter the parent
-                        # context (D5); terminal state comes from last_result.
+                        if _event.kind in _LIFECYCLE_KINDS:
+                            data = _event.data
+                            snapshot = dict(data) if isinstance(data, dict) else {}
+                            if len(lifecycle) >= _LIFECYCLE_MAX_EVENTS:
+                                # Evict the oldest STATUS tick to make room; if
+                                # none exists, drop the oldest entry so terminal
+                                # kinds (spawn/complete/failed) are preserved.
+                                for i, (k, _) in enumerate(lifecycle):
+                                    if k == str(EventKind.CREWMATE_STATUS):
+                                        del lifecycle[i]
+                                        break
+                                else:
+                                    del lifecycle[0]
+                            lifecycle.append((str(_event.kind), snapshot))
+                        if _event.kind == EventKind.CAPTAIN_ORCHESTRATION and isinstance(_event.data, dict):
+                            last_orch_data = dict(_event.data)
                         continue
         except TimeoutError:
             logger.warning("Explore mission hard-timeout (thoroughness=%s)", thoroughness)
@@ -256,11 +338,15 @@ class ExploreTool(BaseTool):
                 # Even a crashed mission reports actionably — mirrors WP2/WP3
                 # philosophy: never an empty, context-free failure.
                 output=f"[explore] failed\nError: {e}",
-                metadata=self._metadata(
-                    thoroughness,
-                    status="failed",
-                    crewmate_name=definition.name,
-                    crewmate_role=definition.role,
+                metadata=self._with_orchestration(
+                    self._metadata(
+                        thoroughness,
+                        status="failed",
+                        crewmate_name=definition.name,
+                        crewmate_role=definition.role,
+                    ),
+                    lifecycle,
+                    last_orch_data,
                 ),
             )
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -269,8 +355,19 @@ class ExploreTool(BaseTool):
         if result is None:
             return ToolResult(
                 success=False,
-                error="Explore mission produced no result.",
-                metadata=self._metadata(thoroughness, crewmate_name=definition.name),
+                error=(
+                    "Explore mission produced no result: the crewmate exhausted "
+                    f"its {budget['timeout_s']}s {thoroughness} budget and no "
+                    "AgentResult was assembled (salvage likely cancelled by the "
+                    "outer hard-cap). See the server log for the child trace."
+                ),
+                metadata=self._with_orchestration(
+                    self._metadata(
+                        thoroughness, status="failed", crewmate_name=definition.name
+                    ),
+                    lifecycle,
+                    last_orch_data,
+                ),
             )
         _ledger.record(result.metrics.tokens_used)
 
@@ -285,6 +382,7 @@ class ExploreTool(BaseTool):
             cached=cached,
             elapsed_ms=elapsed_ms or result.metrics.elapsed_ms,
         )
+        meta = self._with_orchestration(meta, lifecycle, last_orch_data)
         return ToolResult(success=ok, output=self._render(result), metadata=meta)
 
     # ------------------------------------------------------------------ #
@@ -356,6 +454,26 @@ class ExploreTool(BaseTool):
                 model_override=str(custom.get("model")) if custom.get("model") else routed_model,
             )
         return build_apogee_definition(model_override=routed_model), ""
+
+    @staticmethod
+    def _with_orchestration(
+        meta: dict,
+        lifecycle: list[tuple[str, dict[str, Any]]],
+        last_orch_data: dict[str, Any] | None,
+    ) -> dict:
+        """Attach the mission's captain-level lifecycle to tool metadata.
+
+        ``orchestration_events`` carries the FULL ordered lifecycle so the
+        executor can replay it on the wire; ``orchestration_event`` preserves
+        the legacy single-last-snapshot key for any consumer that reads it.
+        """
+        if lifecycle:
+            meta["orchestration_events"] = [
+                {"kind": kind, "data": dict(data)} for kind, data in lifecycle
+            ]
+        if last_orch_data:
+            meta["orchestration_event"] = dict(last_orch_data)
+        return meta
 
     @staticmethod
     def _metadata(

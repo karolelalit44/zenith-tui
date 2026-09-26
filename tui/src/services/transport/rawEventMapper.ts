@@ -1,17 +1,21 @@
 import type {
+  CaptainOrchestrationEvent,
   CompactionPhase,
   CompactionStatus,
   ContextPreservation,
   ContextUpdatedEvent,
+  CrewmateAgent,
   CrewmateCompleteEvent,
   CrewmateFailedEvent,
   CrewmateSpawnedEvent,
   CrewmateStatusEvent,
+  PlanItem,
   RunStateSnapshot,
   ScenarioEvent,
   SessionInfoEvent,
   SessionSummarizedEvent,
   SubtaskItem,
+  TimelineEntry,
   TodoBoardAction,
   TodoBoardChange,
   TodoItem,
@@ -19,6 +23,7 @@ import type {
   TodoStatus,
   TokenInfo,
   TokenUsageRecordedEvent,
+  TurnManifestEvent,
 } from '../../types/scenario';
 
 /**
@@ -60,6 +65,26 @@ function mapTokenInfo(value: unknown): TokenInfo | undefined {
     ...(runTotal !== undefined ? { runTotal } : {}),
     ...(runPrompt !== undefined ? { runPrompt } : {}),
     ...(runCompletion !== undefined ? { runCompletion } : {}),
+  };
+}
+
+export function mapTurnManifest(id: string, d: Record<string, unknown>): TurnManifestEvent {
+  return {
+    kind: 'turn_manifest',
+    id,
+    created: Array.isArray(d.created) ? d.created.map(String) : [],
+    modified: Array.isArray(d.modified) ? d.modified.map(String) : [],
+    remaining: Array.isArray(d.remaining) ? d.remaining.map(String) : [],
+    completed: d.completed === true,
+    stalled: d.stalled === true,
+    answered: d.answered === true,
+    files: Array.isArray(d.files)
+      ? d.files.map((f: Record<string, unknown>) => ({
+          path: String(f.path || ''),
+          exists: f.exists === true,
+          size: typeof f.size === 'number' ? f.size : 0,
+        }))
+      : [],
   };
 }
 
@@ -264,7 +289,7 @@ function UnknownEvent(kind: string, id: string): ScenarioEvent {
     id,
     message: `[Unknown event: ${kind}]`,
     code: 'UNKNOWN_EVENT',
-  } as ScenarioEvent;
+  };
 }
 
 export function mapRawEvent(kind: string, data: Record<string, unknown> | undefined, rpcId?: string): ScenarioEvent {
@@ -344,6 +369,13 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
         elapsedMs:
           typeof d.elapsedMs === 'number' ? d.elapsedMs : typeof d.duration === 'number' ? d.duration : undefined,
         tokenInfo: mapTokenInfo(d.tokenInfo),
+        completed: typeof d.completed === 'boolean' ? d.completed : undefined,
+        finishReason: typeof d.finish_reason === 'string' ? d.finish_reason : undefined,
+        truncated: typeof d.truncated === 'boolean' ? d.truncated : undefined,
+        manifest:
+          d.manifest && typeof d.manifest === 'object'
+            ? mapTurnManifest(id, d.manifest as Record<string, unknown>)
+            : undefined,
       };
 
     case 'progress':
@@ -370,11 +402,47 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
       return {
         kind: 'captain_orchestration',
         id,
-        stage: (d.stage as any) || 'working',
+        stage: (d.stage as CaptainOrchestrationEvent['stage']) || 'thinking',
         captainMessage: String(d.captainMessage || d.message || ''),
-        plan: Array.isArray(d.plan) ? (d.plan as any) : undefined,
-        crewmates: Array.isArray(d.crewmates) ? (d.crewmates as any) : undefined,
-        timeline: Array.isArray(d.timeline) ? (d.timeline as any) : undefined,
+        plan: Array.isArray(d.plan)
+          ? d.plan.map(
+              (item: Record<string, unknown>): PlanItem => ({
+                id: String(item.id || ''),
+                title: String(item.title || ''),
+                assignedCrewmate: item.assignedCrewmate
+                  ? String(item.assignedCrewmate)
+                  : item.assignedAgent
+                    ? String(item.assignedAgent)
+                    : undefined,
+                status: (item.status as PlanItem['status']) || 'queued',
+                details: item.details ? String(item.details) : undefined,
+              }),
+            )
+          : undefined,
+        crewmates: Array.isArray(d.crewmates)
+          ? d.crewmates.map(
+              (cm: Record<string, unknown>): CrewmateAgent => ({
+                id: String(cm.id || ''),
+                name: String(cm.name || ''),
+                role: String(cm.role || ''),
+                task: String(cm.task || ''),
+                activity: cm.activity ? String(cm.activity) : undefined,
+                status: (cm.status as CrewmateAgent['status']) || 'assigned',
+                progress: typeof cm.progress === 'number' ? cm.progress : undefined,
+                resultSummary: cm.resultSummary ? String(cm.resultSummary) : undefined,
+                error: cm.error ? String(cm.error) : undefined,
+              }),
+            )
+          : undefined,
+        timeline: Array.isArray(d.timeline)
+          ? d.timeline.map(
+              (tl: Record<string, unknown>): TimelineEntry => ({
+                timestamp: String(tl.timestamp || ''),
+                message: String(tl.message || ''),
+                type: (tl.type as TimelineEntry['type']) || 'info',
+              }),
+            )
+          : undefined,
         activeStep: d.activeStep ? String(d.activeStep) : undefined,
       };
 
@@ -470,22 +538,7 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
       };
 
     case 'turn_manifest':
-      return {
-        kind: 'turn_manifest',
-        id,
-        created: Array.isArray(d.created) ? d.created.map(String) : [],
-        modified: Array.isArray(d.modified) ? d.modified.map(String) : [],
-        remaining: Array.isArray(d.remaining) ? d.remaining.map(String) : [],
-        completed: d.completed === true,
-        stalled: d.stalled === true,
-        files: Array.isArray(d.files)
-          ? d.files.map((f: Record<string, unknown>) => ({
-              path: String(f.path || ''),
-              exists: f.exists === true,
-              size: typeof f.size === 'number' ? f.size : 0,
-            }))
-          : [],
-      };
+      return mapTurnManifest(id, d);
 
     case 'todo_board':
       return {
@@ -515,6 +568,8 @@ export function mapRawEvent(kind: string, data: Record<string, unknown> | undefi
                       }),
                     )
                   : [],
+                notes: item.notes ? String(item.notes) : undefined,
+                depends_on: Array.isArray(item.depends_on) ? item.depends_on.map(String) : undefined,
               }),
             )
           : [],

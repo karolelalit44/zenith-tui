@@ -37,7 +37,10 @@ class _FailingProvider(BaseProvider):
 
 @pytest.fixture
 def config():
-    return AppSettings(home_dir="/tmp/summary_truth_test.db", workspace_root="/tmp")
+    import tempfile
+
+    tmp = tempfile.gettempdir()
+    return AppSettings(home_dir=f"{tmp}/summary_truth_test.db", workspace_root=tmp)
 
 
 @pytest.mark.asyncio

@@ -28,17 +28,19 @@ export function useScrollState(initialViewportHeight = 20): UseScrollStateReturn
   });
 
   const lastAutoScrollRef = useRef<number>(0);
-  const AUTOSCROLL_GRACE_PERIOD = 1500;
 
   useEffect(() => {
-    const height = rows ? rows - 4 : initialViewportHeight;
+    const height = rows ? Math.max(5, rows - 9) : initialViewportHeight;
     setScrollState((prev) => ({ ...prev, viewportHeight: height }));
   }, [rows, initialViewportHeight]);
 
   const scrollUp = useCallback((lines?: number) => {
     const scrollAmount = lines ?? 5;
     setScrollState((prev) => {
-      const newOffset = Math.max(0, prev.scrollOffset - scrollAmount);
+      const currentOffset = prev.isUserScrolled
+        ? prev.scrollOffset
+        : Math.max(0, prev.contentHeight - prev.viewportHeight);
+      const newOffset = Math.max(0, currentOffset - scrollAmount);
       return {
         ...prev,
         scrollOffset: newOffset,
@@ -51,8 +53,9 @@ export function useScrollState(initialViewportHeight = 20): UseScrollStateReturn
     const scrollAmount = lines ?? 5;
     setScrollState((prev) => {
       const maxOffset = Math.max(0, prev.contentHeight - prev.viewportHeight);
-      const newOffset = Math.min(maxOffset, prev.scrollOffset + scrollAmount);
-      const atBottom = newOffset >= maxOffset - 2;
+      const currentOffset = prev.isUserScrolled ? prev.scrollOffset : maxOffset;
+      const newOffset = Math.min(maxOffset, currentOffset + scrollAmount);
+      const atBottom = newOffset >= maxOffset;
 
       return {
         ...prev,
@@ -93,11 +96,10 @@ export function useScrollState(initialViewportHeight = 20): UseScrollStateReturn
 
   const updateContentHeight = useCallback((height: number) => {
     setScrollState((prev) => {
-      const now = Date.now();
-      const wasAutoScrollRecent = now - lastAutoScrollRef.current < AUTOSCROLL_GRACE_PERIOD;
+      if (prev.contentHeight === height) return prev;
+      const maxOffset = Math.max(0, height - prev.viewportHeight);
 
-      if (!prev.isUserScrolled || wasAutoScrollRecent) {
-        const maxOffset = Math.max(0, height - prev.viewportHeight);
+      if (!prev.isUserScrolled) {
         return {
           ...prev,
           contentHeight: height,

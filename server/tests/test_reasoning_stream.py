@@ -103,9 +103,110 @@ def test_tiny_content_plus_long_reasoning_stays_content_only():
     assert thinking_final_idx < message_idx
 
 
+class _TrailingReasoningProvider(_ReasoningOnlyProvider):
+    """Emits a normal reasoning+content turn and THEN further chain-of-thought
+    after the answer started (some models keep reasoning while formulating the
+    reply). The trailing phase must not open a second thinking block."""
+
+    def __init__(self, content: str = "ok", reasoning: str = "x" * 250, trailing: str = "y" * 300):
+        super().__init__(content=content, reasoning=reasoning)
+        self._trailing = trailing
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        yield (None, self._reasoning)
+        yield (self._content, None)
+        yield (None, self._trailing)
+
+
+def test_trailing_reasoning_after_content_opens_no_second_thinking_block():
+    provider = _TrailingReasoningProvider()
+    events = _collect_events(provider)
+
+    thinking = [ev for ev in events if ev.kind is EventKind.THINKING]
+    messages = [ev for ev in events if ev.kind is EventKind.MESSAGE]
+
+    # Exactly one closed thinking block: the trailing reasoning is dropped,
+    # not re-emitted as a dangling partial (which previously rendered as a
+    # duplicate static "Thought" block in the UI after the assistant message).
+    finals = [ev for ev in thinking if ev.data.get("partial") is not True]
+    assert len(finals) == 1
+    assert finals[0].data["text"] == "x" * 250
+
+    # No thinking event may arrive after the first content chunk.
+    first_message_idx = events.index(messages[0])
+    trailing = [ev for ev in thinking if events.index(ev) > first_message_idx]
+    assert trailing == []
+
+
+class _ContentFirstTrailingReasoningProvider(_ReasoningOnlyProvider):
+    """Emits content BEFORE any reasoning: the thinking block must close the
+    moment the first content chunk arrives even when no preceding reasoning
+    exists to finalize, so the later reasoning is dropped instead of being
+    emitted as a dangling Thought block after the assistant message."""
+
+    def __init__(self, content: str = "ok", reasoning: str = "y" * 300):
+        super().__init__(content=content, reasoning=reasoning)
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        yield (self._content, None)
+        yield (None, self._reasoning)
+
+
+def test_content_first_then_reasoning_opens_no_thinking_block():
+    provider = _ContentFirstTrailingReasoningProvider()
+    events = _collect_events(provider)
+
+    thinking = [ev for ev in events if ev.kind is EventKind.THINKING]
+    messages = [ev for ev in events if ev.kind is EventKind.MESSAGE]
+
+    # Content is delivered as the assistant message.
+    assert len(messages) == 1
+    assert messages[0].data["text"] == "ok"
+
+    # Reasoning that arrives after content began is dropped entirely: no
+    # partial, no final, no dangling "Thought" block after the message.
+    assert thinking == []
+
+
 # ---------------------------------------------------------------------------
 # Module 08 additive — reasoning as a Part (delta-merged), opencode-style.
 # ---------------------------------------------------------------------------
+
+
+class _RetryingProvider(_ReasoningOnlyProvider):
+    """Simulates a provider that retried a failed attempt mid-stream: the
+    ``_retry_notice`` flag is already set when the first chunk arrives."""
+
+    def __init__(self, content: str = "ok"):
+        super().__init__(content=content)
+        self._retry_notice = True
+
+
+def _warnings(events):
+    return [ev for ev in events if ev.kind == EventKind.WARNING]
+
+
+def test_retry_notice_emitted_once_and_flag_cleared():
+    provider = _RetryingProvider(content="ok")
+    events = _collect_events(provider)
+
+    retries = [
+        ev for ev in _warnings(events) if ev.data.get("code") == "STREAM_RETRY"
+    ]
+    # One notice per retried stream, exactly: emitted on the first chunk after
+    # the retry, then the flag is cleared so it cannot fire again.
+    assert len(retries) == 1
+    assert "retried" in retries[0].data.get("message", "")
+    assert provider._retry_notice is False
+
+
+def test_no_retry_notice_without_flag():
+    provider = _ReasoningOnlyProvider(content="ok")
+    events = _collect_events(provider)
+
+    assert not [
+        ev for ev in _warnings(events) if ev.data.get("code") == "STREAM_RETRY"
+    ]
 
 
 class TestReasoningPart:

@@ -39,7 +39,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        effectiveMaxTokens={131072}
       />,
     );
 
@@ -59,7 +58,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        effectiveMaxTokens={131072}
       />,
     );
 
@@ -79,7 +77,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        effectiveMaxTokens={200_000}
         runTokens={12_400}
         contextPercent={39}
       />,
@@ -87,7 +84,9 @@ describe('ComposerFooter', () => {
 
     const frame = app.lastFrame();
     // The footer count is cumulative run/API usage and context percent...
-    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).toContain('12.4K · 39.0%');
+    expect(frame).not.toContain(' tok');
+    expect(frame).not.toContain(' ctx');
     expect(frame).not.toContain('78.8K');
     expect(frame).not.toContain('RUN');
     expect(frame).not.toContain('CTX');
@@ -105,7 +104,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        effectiveMaxTokens={200_000}
         runTokens={12_400}
         runEstimated={true}
         contextPercent={39}
@@ -114,7 +112,7 @@ describe('ComposerFooter', () => {
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).toContain('12.4K · 39.0%');
     expect(frame).not.toContain('~');
     expect(frame).not.toContain('░');
     restore();
@@ -130,7 +128,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        effectiveMaxTokens={131072}
       />,
     );
 
@@ -152,7 +149,6 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        effectiveMaxTokens={131072}
         calmMode={true}
       />,
     );
@@ -172,7 +168,6 @@ describe('ComposerFooter', () => {
         providerName: 'NVIDIA AI',
         dir: '.../code/zenith-frontend-tui',
         branch: 'fix/ser-tu-communication-n-separations',
-        effectiveMaxTokens: 131072,
       });
 
       const contentWidth = columns - 4;
@@ -183,7 +178,6 @@ describe('ComposerFooter', () => {
         layout.provider.length +
         (layout.dirText ? layout.dirText.length : 0) +
         (layout.branchText ? layout.branchText.length + 1 : 0) +
-        (layout.gauge ? layout.gauge.length + 1 : 0) +
         layout.tokenUsage.length;
 
       expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
@@ -199,7 +193,6 @@ describe('ComposerFooter', () => {
         providerName: 'NVIDIA AI',
         dir: '.../code/zenith-frontend-tui',
         branch: 'fix/ser-tu-communication-n-separations',
-        effectiveMaxTokens: 128_000,
         runTokens: 12_400,
         runEstimated: true,
         contextPercent: 100,
@@ -214,7 +207,6 @@ describe('ComposerFooter', () => {
         layout.provider.length +
         (layout.dirText ? layout.dirText.length : 0) +
         (layout.branchText ? layout.branchText.length + 1 : 0) +
-        (layout.gauge ? layout.gauge.length + 1 : 0) +
         layout.tokenUsage.length;
 
       expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
@@ -233,8 +225,6 @@ describe('ComposerFooter', () => {
       });
 
       expect(layout.tokenUsage).toBe('');
-      expect(layout.gauge).toBe('');
-      expect(layout.showGauge).toBe(false);
     }
   });
 
@@ -248,14 +238,13 @@ describe('ComposerFooter', () => {
         providerName="NVIDIA AI"
         dir=".../code/zenith-frontend-tui"
         branch="fix/ser-tu-communication-n-separations"
-        effectiveMaxTokens={200_000}
         runTokens={12_400}
         contextPercent={39}
       />,
     );
 
     const frame = app.lastFrame();
-    expect(frame).toContain('12.4K tok · 39.0% ctx');
+    expect(frame).toContain('12.4K · 39.0%');
     expect(frame).not.toContain('+168');
     expect(frame).not.toContain('(23 s)');
     restore();

@@ -11,7 +11,6 @@ interface ComposerFooterProps {
   providerName: string;
   dir: string;
   branch: string;
-  effectiveMaxTokens: number;
   /** Cumulative run/API usage (telemetry). */
   runTokens?: number;
   /** True when the cumulative run usage is estimated, not provider-reported. */
@@ -31,7 +30,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
     providerName,
     dir,
     branch,
-    effectiveMaxTokens,
     runTokens,
     runEstimated,
     contextPercent,
@@ -50,7 +48,6 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
       providerName,
       dir,
       branch,
-      effectiveMaxTokens,
       runTokens,
       runEstimated,
       contextPercent,

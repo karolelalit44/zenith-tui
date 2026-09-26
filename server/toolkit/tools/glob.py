@@ -9,7 +9,6 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     GLOB_MAX_OUTPUT_CHARS,
     GLOB_MAX_RESULTS,
-    PERMISSION_READ,
     TOOL_DOMAIN_WORKSPACE_DISCOVERY,
 )
 from server.workspace.ignore import get_matcher
@@ -43,10 +42,10 @@ def _build_directory_summary(file_rel_paths: list[Path]) -> str:
         f"Directory structure overview ({len(file_rel_paths)} files across {len(dir_counts)} directories):"
     ]
     for d, count in sorted(dir_counts.items()):
-        lines.append(f"  📁 {d} ({count} files)")
+        lines.append(f"  ◧ {d} ({count} files)")
     if root_files:
         lines.append(
-            f"  📄 Root files ({len(root_files)} files): {', '.join(sorted(root_files)[:8])}"
+            f"  ▤ Root files ({len(root_files)} files): {', '.join(sorted(root_files)[:8])}"
         )
         if len(root_files) > 8:
             lines[-1] += f", ... (+{len(root_files) - 8} more)"
@@ -64,7 +63,6 @@ class GlobTool(BaseTool):
     capability_id = "workspace_discovery"
     read_only = True
     concurrency_group = CONCURRENCY_GROUP_READONLY
-    permission_scope = PERMISSION_READ
     domains = (TOOL_DOMAIN_WORKSPACE_DISCOVERY,)
     search_terms = (
         "list files",
@@ -131,14 +129,22 @@ class GlobTool(BaseTool):
                         if len(files) >= max_results:
                             break
             matched_rel_paths = []
+            ignored_skipped = 0
             for file_name in files:
                 file_path = Path(file_name)
+                if not file_path.is_absolute():
+                    if (search_path / file_path).exists():
+                        file_path = search_path / file_path
+                    elif (base / file_path).exists():
+                        file_path = base / file_path
                 try:
                     relative_path = file_path.resolve().relative_to(base)
                 except ValueError:
                     relative_path = file_path
                 if not matcher.is_ignored(relative_path):
                     matched_rel_paths.append(relative_path)
+                else:
+                    ignored_skipped += 1
 
             matched_rel_paths = sorted(set(matched_rel_paths))
             total = len(matched_rel_paths)
@@ -146,7 +152,13 @@ class GlobTool(BaseTool):
                 return ToolResult(
                     success=True,
                     output="No files found matching pattern",
-                    metadata={"count": 0, "shown": 0, "truncated": False, "files": []},
+                    metadata={
+                        "count": 0,
+                        "shown": 0,
+                        "truncated": False,
+                        "files": [],
+                        "ignored_skipped": ignored_skipped,
+                    },
                 )
 
             is_broad = total >= BROAD_PATTERN_THRESHOLD and _pattern_is_unscoped(pattern)
@@ -154,7 +166,10 @@ class GlobTool(BaseTool):
 
             truncated = total > GLOB_MAX_RESULTS
             shown_paths = matched_rel_paths[:GLOB_MAX_RESULTS]
-            file_strings = [str(p) for p in shown_paths]
+            file_strings = [
+                p.as_posix() if hasattr(p, "as_posix") else str(p).replace("\\", "/")
+                for p in shown_paths
+            ]
 
             output_lines: list[str] = []
             if summary_prefix:
@@ -183,6 +198,7 @@ class GlobTool(BaseTool):
                     "shown": len(file_strings),
                     "truncated": truncated or len(output) >= GLOB_MAX_OUTPUT_CHARS,
                     "files": file_strings,
+                    "ignored_skipped": ignored_skipped,
                 },
             )
         except Exception as e:

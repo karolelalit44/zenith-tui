@@ -54,8 +54,15 @@ def test_read_provider_config_full_masks_key(tmp_path):
 def test_first_class_roster(tmp_path):
     result = get_provider_list(_home(tmp_path))
     ids = [p.id for p in result.all]
-    # Decision D3: exactly five builtin first-class providers.
-    assert sorted(ids) == ["gemini", "groq", "local_llm", "openai_compatible", "openrouter"]
+    # Decision D3: exactly six builtin first-class providers (NVIDIA added).
+    assert sorted(ids) == [
+        "gemini",
+        "groq",
+        "local_llm",
+        "nvidia",
+        "openai_compatible",
+        "openrouter",
+    ]
     assert result.connected == []
     groq = next(p for p in result.all if p.id == "groq")
     assert groq.validation_status == "unconfigured"

@@ -34,6 +34,7 @@ export interface UseScenarioReturn {
   ) => void;
   abort: () => void;
   startCompaction: () => void;
+  resetEvents: () => void;
   lastSessionId: string | null;
   setActiveSessionId: (id: string | null) => void;
   lastManifest: { manifest: TurnManifestEvent; originalPrompt: string } | null;
@@ -64,7 +65,7 @@ export function useScenario(): UseScenarioReturn {
 
   const applyQueueTo = useCallback(
     (base: ScenarioEvent[], queue: { event: ScenarioEvent; index: number }[]): ScenarioEvent[] => {
-      let next = [...base];
+      const next = base.slice();
       for (const { event, index } of queue) {
         // Reasoning streams as partial thinking events; they grow the LAST
         // block in place instead of stacking a new block per delta.
@@ -73,11 +74,20 @@ export function useScenario(): UseScenarioReturn {
           const lastIsPartialThinking = last.kind === 'thinking' && (last as ThinkingEvent).partial === true;
           const incomingPartial = (event as ThinkingEvent).partial === true;
           if (lastIsPartialThinking && (incomingPartial || !(event as ThinkingEvent).partial)) {
-            next = [...next.slice(0, -1), event];
+            next[next.length - 1] = event;
             continue;
           }
         }
-        next = upsertEvent(next, event, index);
+        // In-place upsert on the single isolated copy: id match, then index-hint
+        // slot, then append. Avoids a fresh [...events] allocation per event.
+        const existingIndex = next.findIndex((e) => Boolean(e.id) && e.id === event.id);
+        if (existingIndex >= 0) {
+          next[existingIndex] = event;
+        } else if (typeof index === 'number' && index >= 0 && index < next.length && next[index].kind === 'progress') {
+          next[index] = event;
+        } else {
+          next.push(event);
+        }
       }
       return next;
     },
@@ -126,7 +136,7 @@ export function useScenario(): UseScenarioReturn {
       }
       if (event.kind === 'turn_manifest') {
         const originalPrompt = eventsRef.current.find((e) => e.kind === 'message')?.text ?? '';
-        setLastManifest({ manifest: event as unknown as TurnManifestEvent, originalPrompt });
+        setLastManifest({ manifest: event, originalPrompt });
         flushBatch();
         setEvents((prev) => {
           const next = upsertEvent(prev, event, index);
@@ -134,6 +144,14 @@ export function useScenario(): UseScenarioReturn {
           return next;
         });
         return;
+      }
+
+      if (event.kind === 'success') {
+        const successEvt = event as import('../types/scenario').SuccessEvent;
+        if (successEvt.manifest) {
+          const originalPrompt = eventsRef.current.find((e) => e.kind === 'message')?.text ?? '';
+          setLastManifest({ manifest: successEvt.manifest, originalPrompt });
+        }
       }
 
       if (event.kind === 'tool_call') {
@@ -247,7 +265,7 @@ export function useScenario(): UseScenarioReturn {
           batchTimerRef.current = setTimeout(() => {
             batchTimerRef.current = null;
             flushBatch();
-          }, 16);
+          }, 75);
         }
       } else {
         flushBatch();
@@ -415,6 +433,20 @@ export function useScenario(): UseScenarioReturn {
     setLastSessionId(id);
   }, []);
 
+  const resetEvents = useCallback(() => {
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+    batchQueueRef.current = [];
+    pendingToolSteps.current = new Map();
+    lastWarningRef.current = null;
+    abortRequestedRef.current = false;
+    eventsRef.current = [];
+    setEvents([]);
+    setLastManifest(null);
+  }, []);
+
   const continueFromManifest = useCallback(
     async (
       prompt: string,
@@ -449,16 +481,9 @@ export function useScenario(): UseScenarioReturn {
       }
 
       wsClient
-        .continuePrompt(
-          prompt,
-          selectedMode,
-          sessionIdRef.current ?? undefined,
-          provider,
-          manifest as TurnManifestEvent,
-          {
-            ...(model ? { model } : {}),
-          },
-        )
+        .continuePrompt(prompt, selectedMode, sessionIdRef.current ?? undefined, provider, manifest, {
+          ...(model ? { model } : {}),
+        })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
           reportError('prompt_err', `Backend prompt error: ${message}`);
@@ -475,6 +500,7 @@ export function useScenario(): UseScenarioReturn {
     continueFromManifest,
     abort,
     startCompaction,
+    resetEvents,
     lastSessionId,
     setActiveSessionId,
     lastManifest,

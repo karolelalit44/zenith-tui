@@ -36,6 +36,7 @@ from server.config.constants import (
     TERMINAL_STATUS_COMPLETED,
     TERMINAL_STATUS_ERROR,
 )
+from server.config.environment import ZENITH_SALVAGE_TIMEOUT
 from server.config.settings import AGENT_MODES
 from server.domain.events import Event, EventKind
 from server.domain.message import Message
@@ -52,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 # When a worker turn produced files and its raw last-emitted text is this long, fold it into
 # a weak-model summary so the persisted assistant hand-off stays compact.
-_HANDOFF_SUMMARY_CHARS = 800
+_HANDOFF_SUMMARY_CHARS = 2500
 # Hard ceiling on the persisted assistant message. Guards against repeated
 # tool/reasoning noise ever becoming the canonical message (evidence-aware
 # finalization, QA-3).
@@ -205,6 +206,8 @@ def _turn_manifest_from_events(collected_events: list[Event]) -> dict | None:
             m = ev.data.get("manifest")
             if isinstance(m, dict):
                 manifest = m
+            elif "completed" in ev.data or "summary" in ev.data or "any_tool_succeeded" in ev.data:
+                manifest = ev.data
     return manifest
 
 
@@ -391,6 +394,10 @@ class PromptExecutor:
         self._specialist_registry = SpecialistRegistry.default()
         self._repo_intelligence_cache = RepositoryIntelligenceCache()
 
+    @property
+    def is_active(self) -> bool:
+        return bool(self._active_task and not self._active_task.done())
+
     def cancel_active(self) -> None:
         if self._active_task and (not self._active_task.done()):
             self._active_task.cancel()
@@ -559,7 +566,13 @@ class PromptExecutor:
         plan_approved: bool,
         manager,
         collected_events: list[Event],
-    ) -> int:
+    ) -> tuple[int, bool]:
+        """Emit PLAN_READY for informational display when a build depends on an
+        unapproved plan, then auto-approve it.
+
+        Approvals are no longer requested interactively; the build proceeds.
+        Returns ``(0, plan_approved)``.
+        """
         if (
             mode == BUILD_MODE
             and plan_context
@@ -567,7 +580,7 @@ class PromptExecutor:
             and (not self._config.auto_approve_plan)
             and (not (content and content.strip()))
         ):
-            logger.info("Plan not yet approved — emitting PLAN_READY for session %s", session_id)
+            logger.info("Emitting PLAN_READY for session %s", session_id)
             plan_ready_event = Event(
                 kind=EventKind.PLAN_READY,
                 data={"plan": plan_context, "session_id": session_id},
@@ -576,16 +589,18 @@ class PromptExecutor:
             if manager:
                 await manager.send_event(session_id, plan_ready_event)
             collected_events.append(plan_ready_event)
-            logger.info("Plan not approved — waiting for approval before build")
-            warning_event = r.warning(
-                "Plan is pending approval. Approve in the UI or use plan.approve to continue.",
-                session_id,
-            )
-            if manager:
-                await manager.send_event(session_id, warning_event)
-            collected_events.append(warning_event)
-            return 1
-        return 0
+            try:
+                session = await self._session_repo.get(session_id)
+                if session:
+                    session.plan_approved_at = datetime.now()
+                    await self._session_repo.update(session)
+                plan_approved = True
+                logger.info("Plan auto-approved for session %s", session_id)
+            except Exception:
+                logger.warning("Failed to persist plan approval for session %s", session_id)
+                plan_approved = True
+            return 0, plan_approved
+        return 0, plan_approved
 
     async def _persist_plan_output(self, session_id: str, response_text: str) -> None:
         try:
@@ -691,6 +706,12 @@ class PromptExecutor:
             if not (events or response_text.strip()):
                 logger.info("Skipping empty assistant message (no events or text)")
                 return
+            # Thinking is never persisted on the assistant message: it
+            # is surface-only in the live timeline. Persisting it would
+            # cause a duplicate "Thought" block when the session is
+            # later replayed from history (historyToTurns keeps
+            # non-partial thinking events).
+            events = [ev for ev in events if ev.kind != EventKind.THINKING]
             manifest = _turn_manifest_from_events(events)
             worked = _did_work(manifest)
             body = response_text
@@ -742,11 +763,18 @@ class PromptExecutor:
 
             summarizer = ConversationSummarizer(self._config, self._provider)
             model = str(getattr(self._provider, "model", "") or "")
-            return await summarizer.summarize(
-                _handoff_messages(collected_events, response_text), model, session_id
+            # The timeout is bounded by a full provider completion (12s was far
+            # below p95 latency, so the hand-off ALWAYS failed and silently
+            # burned a paid request). ZENITH_SALVAGE_TIMEOUT is the "one
+            # provider call for evidence -> summary" budget used elsewhere.
+            return await asyncio.wait_for(
+                summarizer.summarize(
+                    _handoff_messages(collected_events, response_text), model, session_id
+                ),
+                timeout=ZENITH_SALVAGE_TIMEOUT,
             )
         except Exception as e:
-            logger.warning("Hand-off summarization failed: %s", e)
+            logger.warning("Hand-off summarization skipped or timed out: %s", e)
             return None
 
     async def _execute(
@@ -776,13 +804,14 @@ class PromptExecutor:
         db_session = None
         summary_at_start: str | None = None
         _terminal_status = TERMINAL_STATUS_COMPLETED
+
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
             plan_context, plan_approved, plan_model_override = await self._load_plan_context(
                 session_id, mode
             )
-            if await self._maybe_emit_plan_ready(
+            _, plan_approved = await self._maybe_emit_plan_ready(
                 session_id,
                 mode,
                 content,
@@ -790,9 +819,7 @@ class PromptExecutor:
                 plan_approved,
                 manager,
                 collected_events,
-            ):
-                _step_count += 1
-                return
+            )
             _original_model = getattr(self._provider, "model", None)
             _original_temperature = getattr(self._provider, "temperature", None)
             _original_max_tokens = getattr(self._provider, "max_tokens", None)
@@ -979,9 +1006,98 @@ class PromptExecutor:
                             logger.warning("Failed to record token usage: %s", e)
                 elif event.kind == EventKind.WARNING:
                     msg = event.data.get("message", "")
-                    logger.info("  WARNING: %s", msg[:200])
+                    logger.info("  WARNING: %s", msg)
+                elif event.kind == EventKind.PROGRESS:
+                    pct = event.data.get("percent", 0)
+                    lbl = event.data.get("label", "")
+                    logger.info("  [PROGRESS]: %s%% %s", pct, lbl)
+                elif event.kind == EventKind.TODO_BOARD:
+                    action = event.data.get("action", "")
+                    tasks = event.data.get("board") or []
+                    logger.info("  [TODO BOARD]: action=%s tasks=%d", action, len(tasks) if isinstance(tasks, list) else 0)
+                elif event.kind == EventKind.TURN_MANIFEST:
+                    m_data = (
+                        event.data.get("manifest")
+                        if isinstance(event.data.get("manifest"), dict)
+                        else event.data
+                    )
+                    completed = m_data.get("completed", False)
+                    answered = m_data.get("answered", False)
+                    created = m_data.get("created", [])
+                    modified = m_data.get("modified", [])
+                    logger.info(
+                        "  [TURN MANIFEST]: completed=%s answered=%s created=%s modified=%s",
+                        completed,
+                        answered,
+                        created,
+                        modified,
+                    )
+                elif event.kind == EventKind.PLAN_READY:
+                    logger.info("  [PLAN READY]: %s", event.data.get("plan_id", ""))
+                elif event.kind in (
+                    EventKind.CONTEXT_COMPACTION_STARTED,
+                    EventKind.CONTEXT_COMPACTION_PHASE,
+                    EventKind.CONTEXT_COMPACTION_ENDED,
+                    EventKind.CONTEXT_COMPACTED,
+                ):
+                    phase = event.data.get("phase", "")
+                    status = event.data.get("status", "")
+                    detail = f"phase={phase}" if phase else (f"status={status}" if status else "")
+                    logger.info("  [COMPACTION]: %s %s", event.kind, detail)
+                elif event.kind == EventKind.CAPTAIN_ORCHESTRATION:
+                    stage = event.data.get("stage", "")
+                    msg = event.data.get("captainMessage", "")
+                    crew_cnt = len(event.data.get("crewmates") or [])
+                    step = event.data.get("activeStep", "")
+                    logger.info(
+                        "  [CAPTAIN ORCHESTRATION]: stage=%s crewmates=%d active_step=%s msg=%s",
+                        stage,
+                        crew_cnt,
+                        step,
+                        msg,
+                    )
+                elif event.kind == EventKind.CREWMATE_SPAWNED:
+                    logger.info(
+                        "  [CREWMATE SPAWNED]: id=%s name=%s role=%s task_id=%s model=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("name"),
+                        event.data.get("role"),
+                        event.data.get("task_id"),
+                        event.data.get("model"),
+                    )
+                elif event.kind == EventKind.CREWMATE_STATUS:
+                    logger.info(
+                        "  [CREWMATE STATUS]: id=%s status=%s activity=%s progress=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("status"),
+                        event.data.get("activity"),
+                        event.data.get("progress"),
+                    )
+                elif event.kind == EventKind.CREWMATE_COMPLETE:
+                    logger.info(
+                        "  [CREWMATE COMPLETE]: id=%s task_id=%s status=%s result_summary=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("task_id"),
+                        event.data.get("status"),
+                        event.data.get("result_summary"),
+                    )
+                elif event.kind == EventKind.CREWMATE_FAILED:
+                    logger.warning(
+                        "  [CREWMATE FAILED]: id=%s task_id=%s error=%s",
+                        event.data.get("crewmate_id"),
+                        event.data.get("task_id"),
+                        event.data.get("error"),
+                    )
+                elif event.kind == EventKind.TOKEN_USAGE_RECORDED:
+                    logger.debug("  [TOKEN USAGE RECORDED]: %s", event.data)
                 else:
-                    logger.info("  OTHER: %s", str(event.data)[:200])
+                    import json
+
+                    try:
+                        data_str = json.dumps(event.data, default=str)
+                    except Exception:
+                        data_str = str(event.data)
+                    logger.info("  [%s]: %s", str(event.kind).upper(), data_str)
                 if manager:
                     if event.kind in (EventKind.SUCCESS, EventKind.ERROR):
                         _pending_terminal.append(event)
@@ -1074,15 +1190,15 @@ class PromptExecutor:
                     },
                 )
                 collected_events.append(summarized_event)
-            await self._persist_assistant_message(
-                session_id, response_text, collected_events, terminal_status=_terminal_status
-            )
             if manager and summarized_event is not None:
                 await manager.send_event(session_id, summarized_event)
             if manager:
                 for terminal in _pending_terminal:
                     await manager.send_event(session_id, terminal)
                 _pending_terminal.clear()
+            await self._persist_assistant_message(
+                session_id, response_text, collected_events, terminal_status=_terminal_status
+            )
             if db_session is not None:
                 db_session.mark_idle()
                 try:

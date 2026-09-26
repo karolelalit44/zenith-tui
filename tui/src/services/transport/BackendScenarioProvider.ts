@@ -1,5 +1,9 @@
 import { appConfig } from '../../config/appConfig';
-import { BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS, BACKEND_RESPONSE_PLACEHOLDER_LABEL } from '../../constants/events';
+import {
+  BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS,
+  BACKEND_RESPONSE_PLACEHOLDER_LABEL,
+  LIVE_PROGRESS_EVENT_ID,
+} from '../../constants/events';
 import type { Scenario, ScenarioListener, ScenarioMode, ScenarioProvider, ScenarioRunner } from '../../types/scenario';
 import { mapRawEvent, uid } from './rawEventMapper';
 import { type WebSocketClient, wsClient } from './WebSocketClient';
@@ -20,6 +24,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
   execute(scenario: Scenario, onEvent: ScenarioListener, onComplete: () => void): ScenarioRunner {
     this.abortFlag = false;
     let eventIndex = 0;
+    let lastSequence = -1;
     let partialMessageIndex: number | null = null;
     let lastPartialMessageIndex: number | null = null;
     let partialMessageId: string | null = null;
@@ -33,6 +38,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disconnectEventIndex: number | null = null;
 
+    // Local slot hint for upsertEvent. NOTE: the server `sequence` is a
+    // per-session monotonic counter, while this events array resets per turn
+    // — so sequence values are NOT usable as array indices (they go out of
+    // bounds after the first turn and upsertEvent appends anyway). Index hints
+    // are local-only; true ordering comes from arrival order + id-based
+    // upserts. lastSequence is kept for diagnostics/emptiness checks only.
+    const nextLocalIndex = () => eventIndex++;
+
     const resetStaleTimer = () => {
       if (staleTimer) clearTimeout(staleTimer);
       staleTimer = setTimeout(() => {
@@ -45,7 +58,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
               code: 'STALE_TIMEOUT',
               recoverable: true,
             },
-            eventIndex++,
+            nextLocalIndex(),
           );
           finalize();
           onComplete();
@@ -97,7 +110,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
     const handleDisconnect = () => {
       if (completed) return;
       if (disconnectEventIndex !== null) return;
-      disconnectEventIndex = eventIndex++;
+      disconnectEventIndex = nextLocalIndex();
       onEvent(
         {
           kind: 'warning',
@@ -117,7 +130,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
             id: uid(),
             message: 'Connection to backend lost. Check that zenith serve is running.',
           },
-          disconnectEventIndex ?? eventIndex++,
+          disconnectEventIndex ?? nextLocalIndex(),
         );
         disconnectEventIndex = null;
         finalize();
@@ -145,7 +158,18 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
       resetStaleTimer();
 
-      const { kind, data, id: rpcId } = rpcEvent.params;
+      const {
+        kind,
+        data,
+        id: rpcId,
+        sequence,
+      } = rpcEvent.params as {
+        kind: string;
+        data: Record<string, unknown> | undefined;
+        id?: string;
+        sequence?: unknown;
+      };
+      if (typeof sequence === 'number') lastSequence = Math.max(lastSequence, sequence);
 
       if (kind === 'message' && data?.partial === true) {
         const token = String(data.text || '');
@@ -155,9 +179,8 @@ export class BackendScenarioProvider implements ScenarioProvider {
         partialMessageId = eventId;
 
         if (partialMessageIndex === null) {
-          partialMessageIndex = eventIndex;
-          lastPartialMessageIndex = eventIndex;
-          eventIndex++;
+          partialMessageIndex = nextLocalIndex();
+          lastPartialMessageIndex = partialMessageIndex;
         }
 
         onEvent(
@@ -173,7 +196,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
       }
 
       if (kind === 'message' && !data?.partial) {
-        const fullText = String(data.text || accumulatedText);
+        const fullText = String(data?.text || accumulatedText);
 
         let targetIndex: number;
         if (partialMessageIndex !== null) {
@@ -181,7 +204,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
         } else if (lastPartialMessageIndex !== null) {
           targetIndex = lastPartialMessageIndex;
         } else {
-          targetIndex = eventIndex++;
+          targetIndex = nextLocalIndex();
         }
 
         onEvent(
@@ -190,7 +213,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
             id: partialMessageId ?? rpcId ?? uid(),
             text: fullText,
             partial: false,
-            iteration: typeof data.iteration === 'number' ? data.iteration : undefined,
+            iteration: typeof data?.iteration === 'number' ? data.iteration : undefined,
           },
           targetIndex,
         );
@@ -218,6 +241,47 @@ export class BackendScenarioProvider implements ScenarioProvider {
         accumulatedText = '';
       }
 
+      // A structural boundary event (tool call/result, manifest, success,
+      // error) means the model's message stream for the current iteration is
+      // finished. When the server moves on without a closing non-partial
+      // MESSAGE event (a degenerate/whitespace partial, or a reasoning-only
+      // trailer before a tool call), the late final answer would otherwise
+      // reuse the SAME partialMessageIndex/id and upsert into the stale early
+      // slot — the final summary would render BEFORE the tool steps. Flush any
+      // accumulated real text as an intermediate block; drop empty/degenerate
+      // leftovers.
+      //
+      // Thinking and progress events are excluded: thinking arrives mid-turn
+      // and can arrive while a message is still logically in progress —
+      // flushing there would split one logical message into two rendered
+      // blocks. Progress is a status snapshot that doesn't mark a message
+      // boundary.
+      if (
+        partialMessageIndex !== null &&
+        (kind === 'tool_call' ||
+          kind === 'tool_result' ||
+          kind === 'turn_manifest' ||
+          kind === 'success' ||
+          kind === 'error')
+      ) {
+        const pendingText = accumulatedText;
+        if (pendingText && pendingText.trim().length > 0) {
+          onEvent(
+            {
+              kind: 'message',
+              id: partialMessageId ?? uid(),
+              text: pendingText,
+              partial: false,
+            },
+            partialMessageIndex,
+          );
+        }
+        partialMessageIndex = null;
+        lastPartialMessageIndex = null;
+        partialMessageId = null;
+        accumulatedText = '';
+      }
+
       const mapped = mapRawEvent(kind, data, rpcId);
 
       if (kind === 'thinking') {
@@ -241,10 +305,14 @@ export class BackendScenarioProvider implements ScenarioProvider {
             currentThinkingIndex,
           );
         } else {
-          mergedThinkingId = thinkingEv.id;
-          currentThinkingIndex = eventIndex;
-          onEvent(mapped, eventIndex);
-          eventIndex++;
+          // Use the existing mergedThinkingId if one is pending
+          // (a non-thinking event interrupted the merge), so the
+          // final thinking reuses the partial thinking's id and
+          // upsertEvent replaces it instead of appending a duplicate.
+          const newId = mergedThinkingId ?? thinkingEv.id;
+          mergedThinkingId = newId;
+          currentThinkingIndex = nextLocalIndex();
+          onEvent({ ...mapped, id: newId }, currentThinkingIndex);
         }
 
         if (!thinkingEv.partial) {
@@ -255,9 +323,13 @@ export class BackendScenarioProvider implements ScenarioProvider {
       } else {
         currentThinkingIndex = null;
         mergedThinkingThoughts = [];
-        mergedThinkingId = null;
-        onEvent(mapped, eventIndex);
-        eventIndex++;
+        // Do NOT reset mergedThinkingId — a final thinking event
+        // that arrives after an intervening non-thinking event
+        // (e.g. STREAM_RETRY warning) must reuse the partial
+        // thinking's id so upsertEvent replaces the orphaned
+        // partial instead of appending a duplicate "Thought" block.
+        currentThinkingIndex = nextLocalIndex();
+        onEvent(mapped, currentThinkingIndex);
       }
 
       const isTerminal = (kind === 'success' && !data?.tool) || kind === 'error';
@@ -279,18 +351,20 @@ export class BackendScenarioProvider implements ScenarioProvider {
 
     timerHandle = setTimeout(() => {
       timerHandle = null;
-      if (eventIndex === 0 && !completed) {
+      if (eventIndex === 0 && lastSequence < 0 && !completed) {
         // Live-only progress row instead of a permanent message: progress
         // events are stripped from scrollback once the turn completes, so
-        // this latency indicator never pollutes history.
+        // this latency indicator never pollutes history. Use
+        // LIVE_PROGRESS_EVENT_ID so the first real progress snapshot from the
+        // backend replaces this placeholder in-place (same id).
         onEvent(
           {
             kind: 'progress',
-            id: uid(),
+            id: LIVE_PROGRESS_EVENT_ID,
             label: BACKEND_RESPONSE_PLACEHOLDER_LABEL,
             steps: [],
           },
-          eventIndex++,
+          nextLocalIndex(),
         );
       }
     }, BACKEND_RESPONSE_PLACEHOLDER_DELAY_MS);

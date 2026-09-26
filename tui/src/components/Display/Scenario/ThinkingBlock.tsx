@@ -1,14 +1,19 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { isZenithBright, isZenithDim, ZENITH_RETICLE, zenithPulseGlyphForTick } from '../../../constants/animation';
+import { ROW_GAP } from '../../../constants/layout';
+import { useAnimationTick } from '../../../context/AnimationContext';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
-import type { ThinkingEvent, ThinkingThought } from '../../../types/scenario';
-import { formatDuration } from '../../../utils/text';
+import type { ScenarioEvent, ThinkingEvent, ThinkingThought } from '../../../types/scenario';
+import { formatDuration, truncateEnd } from '../../../utils/text';
 
 import type { EventRenderContext } from './componentRegistry';
 
 interface ThinkingBlockProps {
   event: ThinkingEvent;
   context?: EventRenderContext;
+  turnEvents?: ScenarioEvent[];
 }
 
 const getThoughtText = (thought: string | ThinkingThought): string =>
@@ -26,79 +31,173 @@ function hasRealReasoning(event: ThinkingEvent): boolean {
   });
 }
 
-export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context }) => {
+/**
+ * Static bright Zenith core for completed telemetry. No animation
+ * subscription, so historical/completed blocks never re-render on tick.
+ */
+const ZenithStaticGlyph: React.FC<{ suffix: string }> = React.memo(({ suffix }) => {
   const { theme } = useTheme();
-  // Hide the thinking block entirely when Calm Mode is enabled.
-  if (context?.calmMode === true) {
-    return null;
-  }
+  return (
+    <Text color={theme.colors.status.info} bold>
+      {ZENITH_RETICLE}
+      {suffix}
+    </Text>
+  );
+});
 
-  // Reasoning is FULLY VISIBLE by default. It only collapses when the user
-  // explicitly toggles it (ctrl+h / /think).
-  const isCollapsed = context?.thinkingCollapsed === true;
+ZenithStaticGlyph.displayName = 'ZenithStaticGlyph';
+
+/**
+ * Breathing pulse reticle for live deliberation:
+ *   ✣ (dim) → ✳ (normal) → ⨳ (BRIGHT core) → ✳ (normal), repeat.
+ * Isolating useAnimationTick() here keeps the 100ms re-render storm to the
+ * live blocks instead of every historical ThinkingBlock.
+ */
+const ZenithPulseGlyph: React.FC<{ suffix: string }> = ({ suffix }) => {
+  const { theme } = useTheme();
+  const tick = useAnimationTick();
+  const glyph = zenithPulseGlyphForTick(tick);
+  return (
+    <Text color={theme.colors.status.info} dimColor={isZenithDim(glyph)} bold={isZenithBright(glyph)}>
+      {glyph}
+      {suffix}
+    </Text>
+  );
+};
+
+ZenithPulseGlyph.displayName = 'ZenithPulseGlyph';
+
+export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, context, turnEvents }) => {
+  const { theme } = useTheme();
+  const isCalm = context?.calmMode === true;
+  const { columns } = useTerminalDimensions();
+  const termCols = columns || process.stdout.columns || 80;
+
+  // In Calm Mode or when explicitly toggled via ctrl+h / /think,
+  // reasoning renders as a compact, single-line telemetry chip.
+  const isCollapsed = isCalm || context?.thinkingCollapsed === true;
 
   if (!hasRealReasoning(event)) {
     return null;
   }
 
-  const isStreaming = event.partial === true && context?.isRunning !== false;
+  // Live turns breathe: the reticle pulses for the live turn so the
+  // ✣→✳→⨳ transformation is actually visible — partial streaming alone is
+  // too brief to ever see. Only the latest thinking block animates; already
+  // reasoned blocks hold the static bright core ⨳ like history does.
+  // The Deliberating/Deliberated text still follows the partial flag.
+  const isLive = context?.isRunning !== false && context?.isHistorical !== true;
+  const isStreaming = event.partial === true && isLive;
+  const isLatestThinking = (() => {
+    // Without the turn list we cannot prove this is the latest block: pulse
+    // only while streaming (at most one block streams at a time). Callers
+    // must pass turnEvents (ScenarioRenderer does) for the live breath to
+    // extend beyond the partial window on exactly the latest block.
+    if (!turnEvents) return event.partial === true;
+    if (turnEvents.length === 0) return true;
+    for (let i = turnEvents.length - 1; i >= 0; i -= 1) {
+      if (turnEvents[i].kind === 'thinking') return turnEvents[i].id === event.id;
+    }
+    return true;
+  })();
+  const pulses = isLive && isLatestThinking;
   const durationStr = event.duration > 0 ? formatDuration(event.duration) : '';
   const firstRealThought = event.thoughts
     .map((thought) => getThoughtText(thought).trim())
     .find((text) => text.length > 0 && !isStatusPlaceholder(text));
-  const preview =
-    firstRealThought && firstRealThought.length >= 72 ? `${firstRealThought.slice(0, 71)}…` : firstRealThought;
+  const preview = firstRealThought ? firstRealThought.replace(/\s+/g, ' ').trim() : '';
+
+  const headerContent = (
+    <Box flexDirection="row" alignItems="center">
+      {pulses ? <ZenithPulseGlyph suffix=" " /> : <ZenithStaticGlyph suffix=" " />}
+      {isStreaming ? (
+        <>
+          <Text color={theme.colors.status.info} bold>
+            Thinking
+          </Text>
+          {durationStr ? (
+            <Text color={theme.colors.text.muted}> · {durationStr}</Text>
+          ) : (
+            <Text color={theme.colors.text.dim}> …</Text>
+          )}
+        </>
+      ) : (
+        <Text color={theme.colors.text.muted}>{durationStr ? `Thought for ${durationStr}` : 'Thought'}</Text>
+      )}
+    </Box>
+  );
+
+  // Preview is truncated in JS with an explicit ellipsis so it never gets hard-clipped
+  // mid-word at the terminal edge (Ink's truncate-end needs a known Text width, which
+  // flex siblings don't reliably provide inside `nowrap` rows).
+  const headerLabel = isStreaming ? 'Thinking' : durationStr ? `Thought for ${durationStr}` : 'Thought';
+  const headerLen = 2 + headerLabel.length;
+  const collapsedRowWidth = Math.max(30, termCols - 2);
+  const previewBudget = Math.max(20, collapsedRowWidth - 2 - headerLen - 3);
+  const previewText = preview ? truncateEnd(preview, previewBudget) : '';
 
   return (
-    <Box flexDirection="column" width="100%" marginBottom={isCollapsed ? 0 : 1} paddingX={1}>
+    <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
       {isCollapsed ? (
         <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
-          <Text color={theme.colors.status.info}>✻ </Text>
-          {durationStr ? (
-            <Text color={theme.colors.text.muted}>Thought for {durationStr}</Text>
-          ) : (
-            <Text color={theme.colors.text.muted}>Thought</Text>
-          )}
-          {preview ? (
+          <Box flexShrink={0}>{headerContent}</Box>
+          {previewText ? (
             <>
               <Text color={theme.colors.text.dim}> · </Text>
-              <Box flexShrink={1}>
+              <Box flexShrink={1} flexGrow={1} overflow="hidden">
                 <Text color={theme.colors.text.dim} italic wrap="truncate-end">
-                  {preview}
+                  {previewText}
                 </Text>
               </Box>
             </>
           ) : null}
         </Box>
       ) : (
-        <Box flexDirection="row" alignItems="center" marginBottom={1}>
-          <Text color={theme.colors.status.info} bold>
-            ✻ Thinking
-          </Text>
-          {isStreaming && !durationStr ? (
-            <Text color={theme.colors.text.dim}> …</Text>
-          ) : durationStr ? (
-            <Text color={theme.colors.text.muted}> · {durationStr}</Text>
-          ) : null}
+        <Box flexDirection="row" alignItems="center" marginBottom={0}>
+          {headerContent}
         </Box>
       )}
 
-      {!isCollapsed && (
-        <Box flexDirection="column" paddingLeft={2} width="100%">
-          {event.thoughts.map((thought, idx) => (
-            <Box key={idx} flexDirection="row" alignItems="flex-start" width="100%" marginBottom={0}>
-              <Box width={2} flexShrink={0}>
-                <Text color={theme.colors.text.dim}>│</Text>
-              </Box>
-              <Box flexShrink={1}>
-                <Text color={theme.colors.text.muted} wrap="wrap">
-                  {getThoughtText(thought)}
-                </Text>
-              </Box>
+      {!isCollapsed &&
+        (() => {
+          const isLive = Boolean(context?.isRunning && !context?.isHistorical);
+          const maxThoughts = 5;
+          const thoughtsToRender =
+            isLive && event.thoughts.length > maxThoughts ? event.thoughts.slice(-maxThoughts) : event.thoughts;
+          const hiddenCount = event.thoughts.length - thoughtsToRender.length;
+
+          return (
+            <Box flexDirection="column" width="100%">
+              {hiddenCount > 0 && (
+                <Box flexDirection="row" alignItems="center" marginBottom={0}>
+                  <Text color={theme.colors.text.dim} dimColor italic>
+                    … ({hiddenCount} earlier thoughts)
+                  </Text>
+                </Box>
+              )}
+              {thoughtsToRender.map((thought, idx) => {
+                const thoughtText = getThoughtText(thought);
+                const lines = thoughtText.split('\n');
+                return (
+                  <Box key={idx} flexDirection="column" width="100%" marginBottom={0}>
+                    {lines.map((line, lineIdx) => (
+                      <Box key={lineIdx} flexDirection="row" alignItems="flex-start" width="100%" marginBottom={0}>
+                        <Box width={2} flexShrink={0}>
+                          <Text color={theme.colors.text.dim}>│</Text>
+                        </Box>
+                        <Box flexShrink={1}>
+                          <Text color={theme.colors.text.muted} italic wrap="wrap">
+                            {line || ' '}
+                          </Text>
+                        </Box>
+                      </Box>
+                    ))}
+                  </Box>
+                );
+              })}
             </Box>
-          ))}
-        </Box>
-      )}
+          );
+        })()}
     </Box>
   );
 });

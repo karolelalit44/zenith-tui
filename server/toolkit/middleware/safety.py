@@ -4,13 +4,16 @@ from typing import Any
 
 from ..base import ToolContext, ToolMiddleware, ToolResult
 from ..command_safety import assess_command
+from server.config.constants import BASH_TOOL, TERMINAL_TOOL
+
+_SHELL_TOOLS = (BASH_TOOL, TERMINAL_TOOL)
 
 
 class SafetyCheckMiddleware(ToolMiddleware):
     async def before_execute(
         self, name: str, params: dict[str, Any], ctx: ToolContext
     ) -> bool | ToolResult:
-        if name != "bash":
+        if name not in _SHELL_TOOLS:
             return True
         command = params.get("command", "")
         if not command:

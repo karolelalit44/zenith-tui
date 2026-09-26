@@ -9,15 +9,11 @@ from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     CONCURRENCY_GROUP_SHELL,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
+    CREWMATE_MODE,
     MAX_TOOL_DESCRIPTION_LENGTH,
     MAX_TOOL_NAME_LENGTH,
-    PERMISSION_COMMAND,
-    PERMISSION_CREWMATE,
-    PERMISSION_DELETE,
-    PERMISSION_NETWORK,
-    PERMISSION_READ,
-    PERMISSION_WRITE,
     PLAN_MODE,
+    READ_ONLY_MODE,
     RISK_HIGH,
     RISK_LOW,
     RISK_MEDIUM,
@@ -25,16 +21,8 @@ from server.config.constants import (
 )
 from server.toolkit.registry import ToolRegistry
 
-_VALID_MODES = (None, BUILD_MODE, PLAN_MODE)
+_VALID_MODES = (None, BUILD_MODE, PLAN_MODE, READ_ONLY_MODE, CREWMATE_MODE)
 _VALID_RISK_LEVELS = (RISK_SAFE, RISK_LOW, RISK_MEDIUM, RISK_HIGH)
-_VALID_PERMISSION_SCOPES = (
-    PERMISSION_READ,
-    PERMISSION_WRITE,
-    PERMISSION_DELETE,
-    PERMISSION_COMMAND,
-    PERMISSION_NETWORK,
-    PERMISSION_CREWMATE,
-)
 _VALID_CONCURRENCY_GROUPS = (
     CONCURRENCY_GROUP_READONLY,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
@@ -78,7 +66,7 @@ def validate_registry(registry: ToolRegistry) -> list[str]:
 
     Returns a list of human-readable errors; an empty list means the registry is
     valid. Checks bounded descriptions, valid JSON schemas, valid mode
-    declarations, and canonical capability/permission/concurrency metadata.
+    declarations, and canonical capability/risk/concurrency metadata.
     """
     errors: list[str] = []
     for name in registry.list_tools():
@@ -98,14 +86,20 @@ def validate_registry(registry: ToolRegistry) -> list[str]:
             errors.append(f"Tool '{name}': invalid mode declaration '{tool.requires_mode}'")
         if tool.risk_level not in _VALID_RISK_LEVELS:
             errors.append(f"Tool '{name}': invalid risk_level '{tool.risk_level}'")
-        if tool.permission_scope not in _VALID_PERMISSION_SCOPES:
-            errors.append(f"Tool '{name}': invalid permission_scope '{tool.permission_scope}'")
         if tool.concurrency_group not in _VALID_CONCURRENCY_GROUPS:
             errors.append(f"Tool '{name}': invalid concurrency_group '{tool.concurrency_group}'")
-        if not tool.read_only and tool.permission_scope == PERMISSION_READ:
+        if not tool.read_only and tool.concurrency_group == CONCURRENCY_GROUP_READONLY:
             errors.append(
-                f"Tool '{name}': read_only=False but permission_scope='{PERMISSION_READ}'"
+                f"Tool '{name}': read_only=False but concurrency_group='{CONCURRENCY_GROUP_READONLY}'"
             )
+        _timeout = getattr(tool, "timeout_ms", None)
+        if _timeout is not None and (not isinstance(_timeout, int) or _timeout <= 0):
+            errors.append(f"Tool '{name}': invalid timeout_ms '{_timeout}'")
+        _modes = getattr(tool, "modes", None)
+        if isinstance(_modes, (list, tuple)):
+            for _m in _modes:
+                if _m not in (BUILD_MODE, PLAN_MODE, READ_ONLY_MODE, CREWMATE_MODE):
+                    errors.append(f"Tool '{name}': invalid mode entry '{_m}'")
         for schema_error in _validate_schema(tool.get_schema()):
             errors.append(f"Tool '{name}': {schema_error}")
     return errors

@@ -7,6 +7,7 @@ import time as _time
 from pathlib import Path
 
 from server.config.constants import (
+    APPLY_PATCH_TOOL,
     AUTO_LINT_FIX_ENABLED,
     BASH_TOOL,
     BASH_WORKDIR_PARAM,
@@ -66,6 +67,17 @@ def redact_pii(text: str) -> str:
     return text
 
 
+# Near-miss tool names observed in prod logs ("Hallucinated tools ignored:
+# read"). Each maps a 100%-invalid-today name to its read-only canonical
+# tool so one wasted error round-trip becomes a served call. Additions here
+# must stay read-only -> read-only; never alias toward a mutating tool.
+# Deliberately a literal table, not fuzzy matching: fuzzy would risk
+# executing a tool the model did not intend.
+_TOOL_NAME_ALIASES: dict[str, str] = {
+    "read": FILE_READ_TOOL,
+}
+
+
 def validate_tool_calls(
     tool_calls: list[dict], registered_tools: set[str]
 ) -> tuple[list[dict], list[dict]]:
@@ -73,6 +85,12 @@ def validate_tool_calls(
     invalid: list[dict] = []
     for tc in tool_calls:
         name = tc.get("tool", "")
+        if name not in registered_tools and name in _TOOL_NAME_ALIASES:
+            canonical = _TOOL_NAME_ALIASES[name]
+            if canonical in registered_tools:
+                logger.info("Tool alias applied: '%s' -> '%s'", name, canonical)
+                tc["tool"] = canonical
+                name = canonical
         (valid if name in registered_tools else invalid).append(tc)
     return (valid, invalid)
 
@@ -106,7 +124,7 @@ def format_tool_result(
     return "\n".join(lines)
 
 
-MUTATION_DIFF_TOOLS = (FILE_WRITE_TOOL, FILE_EDIT_TOOL, FILE_DELETE_TOOL)
+MUTATION_DIFF_TOOLS = (FILE_WRITE_TOOL, FILE_EDIT_TOOL, FILE_DELETE_TOOL, APPLY_PATCH_TOOL)
 MAX_DIFF_CAPTURE_CHARS = 50_000
 
 
@@ -122,10 +140,10 @@ def capture_mutation_diff(workspace_root: str, tool_params: dict, result: ToolRe
         return ""
     target = str(tool_params.get("filepath") or tool_params.get("path") or "")
     if not target:
-        return ""
+        return str((result.metadata or {}).get("diff") or "")
     resolved = _resolve_workdir(workspace_root, target)
     if resolved is None or not resolved.is_file():
-        return ""
+        return str((result.metadata or {}).get("diff") or "")
     diff = ""
     try:
         git = GitOps(workspace_root)
@@ -159,14 +177,17 @@ def build_tool_metadata(
     elif tool_name == FILE_WRITE_TOOL:
         meta: dict = {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
-            "content": tool_params.get("content", ""),
             "match": "exact",
         }
+        if tool_params.get("show_content") or tool_params.get("render_code"):
+            meta["content"] = tool_params.get("content", "")
     elif tool_name == FILE_EDIT_TOOL:
+        old_text = str(tool_params.get("old_content", ""))
+        new_text = str(tool_params.get("new_content", ""))
         meta = {
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
-            "old_content": tool_params.get("old_content", ""),
-            "new_content": tool_params.get("new_content", ""),
+            "old_content_chars": len(old_text),
+            "new_content_chars": len(new_text),
             "match": "exact",
         }
     elif tool_name in (FILE_DELETE_TOOL, FILE_READ_TOOL):
@@ -174,12 +195,19 @@ def build_tool_metadata(
     else:
         meta = {}
 
-    # Tool-reported metadata (e.g. resolved path, edit count, difflib patch)
-    # is merged on top of the params-derived view so nothing is lost.
+    # Params-derived view (lengths only, no bodies) wins over tool-reported
+    # metadata so full file bodies never persist in events.
+    # Full file bodies must never persist in events: strip any raw content
+    # fields that a tool may have reported, keeping lengths only.
     if result.metadata:
         merged = dict(result.metadata)
         merged.update(meta)
         meta = merged
+        for _body_key in ("old_content", "new_content", "content"):
+            _val = meta.get(_body_key)
+            if isinstance(_val, str) and _val:
+                meta[_body_key + "_chars"] = len(_val)
+                del meta[_body_key]
 
     if tool_name in MUTATION_DIFF_TOOLS:
         diff = capture_mutation_diff(workspace_root, tool_params, result)
@@ -353,6 +381,48 @@ async def post_execution_hooks(
                     },
                 )
             )
+    if tool_name == "explore":
+        from server.domain.events import Event, EventKind
+
+        orch_events = (result.metadata or {}).get("orchestration_events")
+        emitted = 0
+        if isinstance(orch_events, list) and orch_events:
+            # Ordered captain-level lifecycle captured during the mission:
+            # captain_orchestration stages + crewmate spawned/status/complete/
+            # failed. Replayed in the exact order the orchestrator emitted them
+            # so the frontend's pinned orchestration card can stream the real
+            # narrative (think → delegate → work → complete) instead of a
+            # single after-the-fact snapshot.
+            for entry in orch_events:
+                if not isinstance(entry, dict):
+                    continue
+                kind_str = entry.get("kind")
+                try:
+                    kind = EventKind(kind_str)
+                except (ValueError, TypeError):
+                    continue
+                data = entry.get("data")
+                events.append(
+                    Event(
+                        kind=kind,
+                        session_id=session_id,
+                        data=data if isinstance(data, dict) else {},
+                    )
+                )
+                emitted += 1
+        if emitted == 0:
+            # Legacy fallback: a lone last-snapshot still yields one event.
+            # Also covers a corrupt orchestration_events list where every
+            # entry was skipped above — never drop the card silently.
+            orch_evt = (result.metadata or {}).get("orchestration_event")
+            if isinstance(orch_evt, dict):
+                events.append(
+                    Event(
+                        kind=EventKind.CAPTAIN_ORCHESTRATION,
+                        session_id=session_id,
+                        data=orch_evt,
+                    )
+                )
     edited_path = tool_params.get("filepath") or tool_params.get("path") or ""
     if tool_name in ("file_edit", "file_write") and result.success and edited_path:
         try:

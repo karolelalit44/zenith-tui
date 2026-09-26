@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from 'ink';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { commandRegistry } from '../../../services/api/CommandRegistry';
 import { useTheme } from '../../../theme/ThemeContext';
@@ -31,10 +31,12 @@ export const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
   );
 
   const [lastQuery, setLastQuery] = useState(query);
-  if (lastQuery !== query) {
-    setLastQuery(query);
-    setActiveIndex(0);
-  }
+  useEffect(() => {
+    if (lastQuery !== query) {
+      setLastQuery(query);
+      setActiveIndex(0);
+    }
+  }, [query, lastQuery]);
 
   const maxVisible = Math.max(3, Math.min(6, rows - 10));
   const selected = Math.min(activeIndex, Math.max(0, filtered.length - 1));

@@ -49,6 +49,8 @@ export const FILE_MUTATION_TOOL_SET: ReadonlySet<string> = new Set([
   FILE_EDIT_TOOL,
   EDIT_FILE_ALIAS,
   'multi_edit',
+  'apply_patch',
+  'patch',
 ]);
 
 export const FILE_DELETE_TOOL_SET: ReadonlySet<string> = new Set([FILE_DELETE_TOOL, DELETE_FILE_ALIAS]);
@@ -76,6 +78,8 @@ export const TOOL_VERB_LABELS: Record<string, string> = {
   [FILE_EDIT_TOOL]: 'Update',
   edit_file: 'Update',
   multi_edit: 'Update',
+  apply_patch: 'Patch',
+  patch: 'Patch',
   [FILE_DELETE_TOOL]: 'Delete',
   delete_file: 'Delete',
   [FILE_READ_TOOL]: 'Read',
@@ -192,12 +196,24 @@ function formatGrepStatus(source: StatusSource): string {
 }
 
 function formatWebsearchStatus(source: StatusSource): string {
-  const query = String(source.metadata.query || source.params?.query || '');
+  const queries = source.params?.queries;
+  if (Array.isArray(queries) && queries.length > 1) {
+    return ` Web search [${queries.length} queries: "${queries[0]}" +${queries.length - 1}]`;
+  }
+  const query = String(source.metadata.query || source.params?.query || (Array.isArray(queries) ? queries[0] : '') || '');
   return ` Web search "${query}"`;
 }
 
 function formatWebfetchStatus(source: StatusSource): string {
   const url = String(source.metadata.url || source.params?.url || '');
+  if (source.params?.pattern) {
+    return ` Find in page "${source.params.pattern}" on ${url}`;
+  }
+  if (source.params?.start_line || source.params?.end_line) {
+    const start = source.params.start_line || 1;
+    const end = source.params.end_line ? `-${source.params.end_line}` : '+';
+    return ` Read lines ${start}${end} of ${url}`;
+  }
   return ` Web fetch ${url}`;
 }
 
@@ -210,7 +226,7 @@ function formatBashStatus(source: StatusSource): string {
 
 function formatBackgroundStatus(source: StatusSource): string {
   const job = jobIdFrom(source.metadata);
-  return `⚡ Launch background task${job ? ` #${job}` : ''}`;
+  return `Launch background task${job ? ` #${job}` : ''}`;
 }
 
 function formatJobOutputStatus(source: StatusSource): string {

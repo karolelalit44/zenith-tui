@@ -204,22 +204,42 @@ async def stream_completion(
             messages, tools=tools, tool_choice=tool_choice, response_format=response_format
         ):
             stream_chunk_count += 1
+            # Provider retried a failed attempt before producing this chunk.
+            # Surface a transient notice (the frontend auto-hides it) so the
+            # user sees the request hiccuped and recovered instead of an
+            # unexplained pause.
+            if getattr(provider, "_retry_notice", False):
+                provider._retry_notice = False
+                yield r.warning(
+                    "Provider hiccup; request retried successfully.",
+                    session_id,
+                    code="STREAM_RETRY",
+                )
             if reasoning:
-                state.reasoning_text += reasoning
-                reasoning_part.merge(reasoning)
-                pending_reasoning_chars += len(reasoning)
-                # Live thinking block (codex ReasoningContentDelta parity): stream
-                # the running reasoning text as it arrives instead of batching
-                # the whole thought to the end of the turn, so the "thinking"
-                # block renders while the model is still reasoning, not after.
-                if pending_reasoning_chars >= _REASONING_EMIT_THRESHOLD:
-                    pending_reasoning_chars = 0
-                    yield r.thinking(reasoning_part.text, session_id, partial=True)
+                # Reasoning after content began is private trailing chain-of-
+                # thought: the thinking block was already closed the moment the
+                # first content chunk arrived, so any partials emitted here would
+                # never be finalized into a closed block — leaving a dangling
+                # "Thought" block duplicated in the UI timeline. Drop the phase.
+                if not reasoning_closed:
+                    state.reasoning_text += reasoning
+                    reasoning_part.merge(reasoning)
+                    pending_reasoning_chars += len(reasoning)
+                    # Live thinking block (codex ReasoningContentDelta parity): stream
+                    # the running reasoning text as it arrives instead of batching
+                    # the whole thought to the end of the turn, so the "thinking"
+                    # block renders while the model is still reasoning, not after.
+                    if pending_reasoning_chars >= _REASONING_EMIT_THRESHOLD:
+                        pending_reasoning_chars = 0
+                        yield r.thinking(reasoning_part.text, session_id, partial=True)
             if content:
-                # Close the thinking block IMMEDIATELY when reasoning completes
-                # and content begins, so the user timeline preserves chronological
-                # fidelity (thinking -> message) rather than emitting thinking
-                # after the message.
+                # Close the thinking block IMMEDIATELY when content begins,
+                # unconditionally: from the first content chunk on, any further
+                # reasoning is private trailing chain-of-thought and is dropped
+                # (see the reasoning branch above). Closing here even when no
+                # reasoning preceded the content (content-before-reasoning
+                # providers) keeps the timeline chronological (thinking ->
+                # message) instead of emitting thinking after the message.
                 if not reasoning_closed and state.reasoning_text.strip():
                     duration_ms = int((_time.monotonic() - started_at) * 1000)
                     deduplicated = _deduplicate_reasoning(state.reasoning_text)
@@ -232,7 +252,7 @@ async def stream_completion(
                         )
                         state.reasoning_text = deduplicated
                     yield r.thinking(state.reasoning_text.strip(), session_id, duration_ms=duration_ms)
-                    reasoning_closed = True
+                reasoning_closed = True
                 state.response_text += content
                 yield r.message_event(content, session_id, partial=True)
         # Reasoning is model-internal chain-of-thought. It is never folded into

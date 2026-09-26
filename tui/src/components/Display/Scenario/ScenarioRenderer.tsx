@@ -1,5 +1,8 @@
 import { Box, Text } from 'ink';
 import React, { Component, type ReactNode, useMemo } from 'react';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
+import { estimateTokensForEvents } from '../../../services/api/tokenEstimationService';
 import { useTheme } from '../../../theme/ThemeContext';
 import type {
   CaptainOrchestrationEvent,
@@ -8,8 +11,10 @@ import type {
   ThinkingEvent,
   TimelineEntry,
   TurnManifestEvent,
+  WarningEvent,
 } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
+import { consolidateOrchestrationEvents } from '../../../utils/orchestration';
 import { foldReadOnlyRepeats, pairToolEvents, progressDuplicatesPendingToolStep } from '../../../utils/pairToolEvents';
 import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
 import { componentRegistry } from './componentRegistry';
@@ -24,6 +29,11 @@ interface ScenarioRendererProps {
   historyExpanded?: boolean;
   workspaceName?: string;
   gitBranch?: string;
+  scrollOffset?: number;
+  maxDynamicLines?: number;
+  showStatusRow?: boolean;
+  /** Global ctrl+e signal — expands every truncated warning/error message. */
+  expandedWarnings?: boolean;
 }
 
 class EventErrorBoundary extends Component<
@@ -58,8 +68,13 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
     historyExpanded = false,
     workspaceName,
     gitBranch,
+    scrollOffset,
+    maxDynamicLines,
+    showStatusRow = true,
+    expandedWarnings = false,
   }) => {
     const { theme } = useTheme();
+    const { rows: termRows, columns: termCols } = useTerminalDimensions();
 
     const renderContext = useMemo(
       () => ({
@@ -69,12 +84,24 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         isRunning,
         workspaceName,
         gitBranch,
+        scrollOffset,
+        maxDynamicLines,
+        expandedWarnings,
       }),
-      [thinkingCollapsed, calmMode, isHistorical, isRunning, workspaceName, gitBranch],
+      [
+        thinkingCollapsed,
+        calmMode,
+        isHistorical,
+        isRunning,
+        workspaceName,
+        gitBranch,
+        scrollOffset,
+        maxDynamicLines,
+        expandedWarnings,
+      ],
     );
 
-    const rows = process.stdout.rows ?? 24;
-    const dynamicLimit = Math.max(10, Math.min(20, rows - 8));
+    const dynamicLimit = Math.max(10, Math.min(20, termRows - 8));
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const expanded = hasOverflow && historyExpanded;
 
@@ -87,6 +114,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       // plumbing, never part of the conversation transcript. Preserve
       // session_summarized so the FinalSummaryCard can render.
       source = source.filter((e) => !String(e.kind).startsWith('session_') || e.kind === 'session_summarized');
+      // STREAM_RETRY is a transient notice surfaced by the pinned status row and
+      // auto-hidden after a few seconds; it must not linger in scrollback.
+      source = source.filter((e) => !(e.kind === 'warning' && (e as WarningEvent).code === 'STREAM_RETRY'));
       // Progress rows are LIVE-ONLY instrumentation. After completion the
       // SuccessCard status row supersedes them; keeping them in scrollback
       // triple-echoed every tool call.
@@ -122,100 +152,27 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         grouped.push(ev);
       }
       const source2 = grouped;
-      const orchEvents = source2.filter((e): e is CaptainOrchestrationEvent => e.kind === 'captain_orchestration');
-      let consolidatedOrch: CaptainOrchestrationEvent | null = null;
-      if (orchEvents.length > 0) {
-        const latest = orchEvents[orchEvents.length - 1];
-        const crewmatesMap = new Map<string, CrewmateAgent>();
-        const timelineEntries: TimelineEntry[] = [];
-
-        // Fold raw crewmate lifecycle kinds into the card timeline so the
-        // crewmate story stays in one place (no standalone rows).
-        const rawAgentEntries: TimelineEntry[] = [];
-        for (const e of source2) {
-          if (e.kind === 'crewmate_spawned') {
-            rawAgentEntries.push({
-              timestamp: e.id,
-              message: `Spawned ${e.name} (${e.role})`,
-              type: 'info',
-            });
-          } else if (e.kind === 'crewmate_status') {
-            if (e.activity) {
-              rawAgentEntries.push({ timestamp: e.id, message: e.activity, type: 'info' });
-            }
-          } else if (e.kind === 'crewmate_complete') {
-            rawAgentEntries.push({
-              timestamp: e.id,
-              message: e.resultSummary || `${e.crewmateId} completed`,
-              type: 'success',
-            });
-          } else if (e.kind === 'crewmate_failed') {
-            rawAgentEntries.push({
-              timestamp: e.id,
-              message: e.error || `${e.crewmateId} failed`,
-              type: 'error',
-            });
-          }
-        }
-
-        for (const oe of orchEvents) {
-          if (oe.crewmates) {
-            for (const cm of oe.crewmates) {
-              crewmatesMap.set(cm.id, cm);
-            }
-          }
-          if (oe.timeline) {
-            for (const tl of oe.timeline) {
-              if (
-                !timelineEntries.some(
-                  (existing) => existing.timestamp === tl.timestamp && existing.message === tl.message,
-                )
-              ) {
-                timelineEntries.push(tl);
-              }
-            }
-          }
-        }
-        for (const tl of rawAgentEntries) {
-          if (
-            !timelineEntries.some((existing) => existing.timestamp === tl.timestamp && existing.message === tl.message)
-          ) {
-            timelineEntries.push(tl);
-          }
-        }
-
-        consolidatedOrch = {
-          kind: 'captain_orchestration',
-          id: orchEvents[0].id,
-          stage: latest.stage,
-          captainMessage: latest.captainMessage,
-          plan: latest.plan,
-          crewmates: crewmatesMap.size > 0 ? Array.from(crewmatesMap.values()) : undefined,
-          timeline: timelineEntries.length > 0 ? timelineEntries : undefined,
-          activeStep: latest.activeStep,
-        };
-      }
+      const consolidatedOrch = consolidateOrchestrationEvents(source2);
 
       const result: ScenarioEvent[] = [];
       let orchInserted = false;
       let compactionInserted = false;
-      let boardInserted = false;
       const consolidatedCompaction = consolidateCompactionEvents(events);
-      const consolidatedBoard = consolidateTodoBoardEvents(events);
 
       for (const e of source2) {
         if (e.kind === 'captain_orchestration') {
-          if (!orchInserted && consolidatedOrch) {
+          if (isHistorical && !orchInserted && consolidatedOrch) {
             result.push(consolidatedOrch);
             orchInserted = true;
           }
+          // In live active turns, captain orchestration is rendered exclusively in the pinned card above
+          // the composer input, keeping the chat stream fixed and non-jumping.
         } else if (e.kind === 'todo_board') {
-          // Fold every board snapshot into ONE minimal window (checkbox + SN +
-          // name, capped at 10 rows).
-          if (!boardInserted && consolidatedBoard) {
-            result.push(consolidatedBoard);
-            boardInserted = true;
-          }
+          // Todo board snapshots are rendered exclusively in the pinned card above
+          // the composer input, keeping the chat stream clean and non-redundant.
+        } else if (e.kind === 'tool_step' && e.tool === 'todo' && e.success) {
+          // Successful todo state transitions update the pinned card; do not clutter
+          // the chat scrollback with repetitive "Track task" rows.
         } else if (
           e.kind === 'crewmate_spawned' ||
           e.kind === 'crewmate_status' ||
@@ -242,12 +199,27 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
 
       const hasSuccess = result.some((e) => e.kind === 'success');
       if (!hasSuccess) {
+        if (!showStatusRow && !isHistorical) {
+          return result;
+        }
+        const estTokens = estimateTokensForEvents(result);
+        const fallbackTokens = estTokens > 0 ? estTokens : result.length > 0 ? 1 : 0;
         return [
           ...result,
           {
             kind: 'success',
             id: isHistorical ? 'evt_historical_status_row' : 'evt_live_status_row',
             elapsedMs: isHistorical ? 1000 : 0,
+            tokenInfo:
+              fallbackTokens > 0
+                ? {
+                    used: fallbackTokens,
+                    total: 0,
+                    remaining: 0,
+                    percent: 0,
+                    estimated: true,
+                  }
+                : undefined,
           } as ScenarioEvent,
         ];
       }
@@ -259,10 +231,20 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
           return e;
         });
       }
+      if (!showStatusRow) {
+        return result.filter((e) => e.kind !== 'success');
+      }
       return result;
-    }, [events, isRunning, isHistorical]);
+    }, [events, isRunning, isHistorical, showStatusRow]);
 
     const displayedEvents = useMemo(() => {
+      if (!showStatusRow && !isHistorical) {
+        const nonSuccess = visibleEvents.filter((e) => e.kind !== 'success');
+        if (!hasOverflow || expanded) {
+          return nonSuccess;
+        }
+        return nonSuccess.slice(-dynamicLimit);
+      }
       if (!hasOverflow || expanded) {
         return visibleEvents;
       }
@@ -271,7 +253,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const successEvents = visibleEvents.filter((e) => e.kind === 'success');
       const otherEvents = visibleEvents.filter((e) => e.kind !== 'success');
       return [...otherEvents.slice(-dynamicLimit), ...successEvents];
-    }, [visibleEvents, hasOverflow, expanded, dynamicLimit]);
+    }, [visibleEvents, hasOverflow, expanded, dynamicLimit, showStatusRow, isHistorical]);
 
     const pinnedEarly = useMemo(() => {
       if (!hasOverflow || expanded) return null;
@@ -287,7 +269,10 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       let lastManifest: TurnManifestEvent | null = null;
       for (const e of visibleEvents) {
         if (e.kind === 'turn_manifest') lastManifest = e;
-        else if (e.kind === 'success' && lastManifest) map.set(e.id, lastManifest);
+        else if (e.kind === 'success') {
+          const m = (e as import('../../../types/scenario').SuccessEvent).manifest || lastManifest;
+          if (m) map.set(e.id, m);
+        }
       }
       return map;
     }, [visibleEvents]);
@@ -302,8 +287,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       );
     };
 
-    const termCols = process.stdout.columns;
-    const contentWidth = termCols ? Math.max(30, termCols - 2) : '100%';
+    const contentWidth = termCols ? computeContentWidth(termCols) : '100%';
 
     return (
       <Box flexDirection="column" width={contentWidth}>

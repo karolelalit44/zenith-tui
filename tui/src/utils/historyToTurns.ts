@@ -1,4 +1,5 @@
 import type { ConversationTurn } from '../hooks/useConversation';
+import { estimateTokensForEvents } from '../services/api/tokenEstimationService';
 import { mapRawEvent } from '../services/transport/rawEventMapper';
 import type { FileAttachment, ScenarioEvent, ScenarioMode } from '../types/scenario';
 import { pairToolEvents } from './pairToolEvents';
@@ -112,6 +113,24 @@ function buildEventsFromAssistantMessage(msg: Record<string, unknown>): Scenario
     } else {
       paired.push(msgEvent);
     }
+  }
+
+  const hasSuccess = paired.some((e) => e.kind === 'success');
+  if (!hasSuccess && paired.length > 0) {
+    const est = estimateTokensForEvents(paired);
+    paired.push({
+      kind: 'success',
+      id: `evt_hist_success_${msg.id || Date.now()}`,
+      message: 'Completed',
+      elapsedMs: 1000,
+      tokenInfo: {
+        used: est > 0 ? est : 1,
+        total: 0,
+        remaining: 0,
+        percent: 0,
+        estimated: true,
+      },
+    });
   }
 
   return paired;

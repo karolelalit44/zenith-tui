@@ -1,7 +1,7 @@
 """Tool registry, toolkit, and crewmate-tool metadata constants.
 
-Owns tool names, permission/risk/cost/concurrency/domain metadata, discovery
-caps, output-size limits, special error markers, glob/grep/ignore limits,
+Owns tool names, risk/cost/concurrency/domain metadata, discovery caps,
+output-size limits, special error markers, glob/grep/ignore limits,
 attachments, and the structural-retrieval crewmate tool knobs.
 Depends on ``context.py`` for the context-window sizes used by the output-tier
 table, and on ``env.py``.
@@ -20,13 +20,6 @@ RISK_SAFE = "safe"
 RISK_LOW = "low"
 RISK_MEDIUM = "medium"
 RISK_HIGH = "high"
-
-PERMISSION_READ = "read"
-PERMISSION_WRITE = "write"
-PERMISSION_DELETE = "delete"
-PERMISSION_COMMAND = "command"
-PERMISSION_NETWORK = "network"
-PERMISSION_CREWMATE = "crewmate"
 
 CONCURRENCY_GROUP_READONLY = "read_only"
 CONCURRENCY_GROUP_WORKSPACE_MUTATION = "workspace_mutation"
@@ -51,12 +44,17 @@ TOOL_DOMAIN_DISCOVERY = "discovery"
 CAPABILITY_TOOL_DISCOVERY = "tool_discovery"
 DISCOVER_CAPABILITIES_TOOL = "discover_capabilities"
 GET_TOOL_DEFINITION_TOOL = "get_tool_definition"
-MAX_ACTIVE_TOOLS_PER_TURN = 12
+# Active-set ceiling per turn. Must stay strictly above the largest seed
+# (build seed = 12 incl. the always-on discovery pair) so on-demand escalation
+# always has free slots; a cap that exactly equals the seed would evict every
+# escalated tool back out of the active set the moment it's added.
+MAX_ACTIVE_TOOLS_PER_TURN = 16
 
 FILE_WRITE_TOOL = "file_write"
 FILE_EDIT_TOOL = "file_edit"
 FILE_DELETE_TOOL = "file_delete"
 FILE_READ_TOOL = "file_read"
+APPLY_PATCH_TOOL = "apply_patch"
 BASH_TOOL = "bash"
 TERMINAL_TOOL = "terminal"
 
@@ -66,18 +64,18 @@ BASH_WORKDIR_PARAM = "workdir"
 AUTO_LINT_FIX_ENABLED = True
 
 BASH_TOOL_DESCRIPTION_WINDOWS = (
-    "Run a PowerShell command in the workspace (PowerShell syntax only; never Unix "
-    "commands like ls -la, grep, mkdir -p). Prefer glob/grep/list_dir for file "
-    "discovery: faster and ignore-safe. Unbounded recursive listings (Get-ChildItem "
-    "-Recurse without -First N, tree, ls -R, find .) are refused; scope and limit "
-    "them. To act in a subfolder, start with 'Set-Location <folder>;'."
+    "Run a PowerShell command in the workspace for process execution (tests, lint, "
+    "build). PowerShell only; never Unix commands like ls -la, mkdir -p. NEVER use "
+    "bash to list, search, read, write, or edit files: use list_dir, glob, grep, "
+    "file_read, file_write, file_edit. All shell listings (dir, ls, Get-ChildItem) "
+    "are refused. To act in a subfolder: 'Set-Location <folder>;'."
 )
 BASH_TOOL_DESCRIPTION_UNIX = (
-    "Run a shell command in the workspace (POSIX/bash syntax only: mkdir -p, ls, "
-    "grep, rm; never PowerShell cmdlets). Prefer glob/grep/list_dir for file "
-    "discovery: faster and ignore-safe. Unbounded recursive listings (ls -R, tree, "
-    "find . without -maxdepth) are refused; scope and limit them. To act in a "
-    "subfolder, start with 'cd <folder> &&'."
+    "Run a shell command in the workspace for process execution (tests, lint, build). "
+    "POSIX/bash only: mkdir -p, rm; never PowerShell. NEVER use bash to list, search, "
+    "read, write, or edit files: use list_dir, glob, grep, file_read, file_write, "
+    "file_edit. All shell listings (ls, dir, find) are refused. "
+    "To act in a subfolder: 'cd <folder> &&'."
 )
 
 BASH_TOOL_COMMAND_PARAM_WINDOWS = "PowerShell command to execute (Windows PowerShell syntax only)"
@@ -172,10 +170,16 @@ APPOGEE_AGENT_NAME = "Apogee"
 APPOGEE_AGENT_ROLE = "Codebase Cartographer"
 # Thoroughness -> mission budget. Timeout bounds wall clock; context_tokens
 # bounds the child's own window; max_turns is advisory steering for deep runs.
+#
+# Values are provider-latency-aware: a crewmate needs >=2 LLM round trips
+# (plan -> tools -> synthesize) plus a possible salvage call. On slow providers
+# (TTFT 38-75s, full stream 27-100s on NVIDIA/deepseek-v4-flash) the old
+# quick=45s / standard=90s budgets made 4/4 missions time out deterministically
+# with a content-free "no result". Widths below fit 2 round trips + tools.
 EXPLORE_BUDGETS: dict[str, dict[str, int]] = {
-    "quick": {"timeout_s": 45, "context_tokens": 32_000},
-    "standard": {"timeout_s": 90, "context_tokens": 64_000},
-    "deep": {"timeout_s": 150, "context_tokens": 96_000},
+    "quick": {"timeout_s": 150, "context_tokens": 32_000},
+    "standard": {"timeout_s": 240, "context_tokens": 64_000},
+    "deep": {"timeout_s": 360, "context_tokens": 96_000},
 }
 EXPLORE_THOROUGHNESS_LEVELS = ("quick", "standard", "deep")
 DEFAULT_EXPLORE_THOROUGHNESS = "standard"

@@ -6,6 +6,7 @@ Covers:
 - P0-3: usage accounting is reset per request (no cross-prompt leakage).
 """
 
+import itertools
 import pytest
 
 from server.agents.loop import AgentLoop, _params_label
@@ -134,6 +135,33 @@ class _ConsecutiveFailureProvider(BaseProvider):
 
     async def list_models(self) -> list[str]:
         return ["consec-model"]
+
+
+class _ParallelBatchFailureProvider(BaseProvider):
+    """Emits a single turn with 6 successful writes and 4 failing reads."""
+
+    def __init__(self):
+        super().__init__("parallel-batch", "parallel-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        if self.call_count == 1:
+            calls = []
+            for i in range(6):
+                calls.append(f'{{"tool": "file_write", "params": {{"path": "success_{i}.txt", "content": "ok"}}}}')
+            for i in range(4):
+                calls.append(f'{{"tool": "file_read", "params": {{"path": "missing_{i}.txt"}}}}')
+            return "```tool\n" + "\n".join(calls) + "\n```"
+        return "The task is complete after parallel batch with some missing files."
+
+    stream = _stream_from_complete
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["parallel-model"]
 
 
 class _RateLimitProvider(BaseProvider):
@@ -321,6 +349,72 @@ async def test_progress_events_derive_from_executed_tools(test_config):
 
 
 @pytest.mark.asyncio
+async def test_progress_percent_is_non_decreasing(test_config):
+    """Progress must only ever advance: when a new active step opens, the done
+    count stays put while the total grows, which used to snap the percent back
+    down mid-run (a live "96%" regressing to "92%")."""
+    provider = _MultiToolProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Write a file and read it", "s1", [], "build"):
+        events.append(event)
+
+    progress = [e for e in events if e.kind == EventKind.PROGRESS]
+    assert len(progress) >= 3, "multiple tool calls must emit multiple progress updates"
+    percents = [int(e.data.get("percent", 0)) for e in progress]
+    for earlier, later in itertools.pairwise(percents):
+        assert later >= earlier, f"progress regressed {earlier}% -> {later}%"
+    assert percents[-1] >= 50, "a turn with a completed tool must end on a meaningful percent"
+
+
+class _SingleToolProvider(BaseProvider):
+    """Exactly one real tool call, no growing-total edge: the monotonic clamp is
+    a no-op here, so the raw done/total math is what must be asserted."""
+
+    def __init__(self):
+        super().__init__("singletool", "singletool-model")
+        self.call_count = 0
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        if self.call_count == 1:
+            return (
+                '```tool\n{"tool": "file_write", "params": {"path": "a.txt", "content": "x"}}\n```'
+            )
+        return "Done writing a.txt."
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        response = await self.complete(messages, tools)
+        for char in response:
+            yield (char, None)
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["singletool-model"]
+
+
+@pytest.mark.asyncio
+async def test_progress_percent_final_is_100_on_single_completed_tool(test_config):
+    """The clamp must not mask the underlying math: on a single-step turn with
+    one completed tool the final percent is exactly 100 (clamp is a no-op)."""
+    provider = _SingleToolProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Write a.txt", "s1", [], "build"):
+        events.append(event)
+
+    progress = [e for e in events if e.kind == EventKind.PROGRESS]
+    assert len(progress) >= 2, "a single tool step must open then complete"
+    assert int(progress[-1].data.get("percent", 0)) == 100, (
+        "single completed step must report 100% (clamp must not corrupt raw math)"
+    )
+
+
+@pytest.mark.asyncio
 async def test_loop_hard_stops_on_repeated_identical_calls(test_config):
     """P0-1: the loop must terminate instead of re-invoking the LLM forever."""
     provider = _StallProvider()
@@ -464,6 +558,46 @@ async def test_consecutive_failures_trigger_reflection_limit(test_config):
 
 
 @pytest.mark.asyncio
+async def test_parallel_tool_batch_partial_failures_do_not_abort(test_config):
+    """Parallel tool batches where some tools fail (e.g. missing files) must not trip REFLECTION_LIMIT."""
+    provider = _ParallelBatchFailureProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Do the work", "s1", [], "build"):
+        events.append(event)
+
+    limit_errors = [
+        e
+        for e in events
+        if e.kind == EventKind.ERROR and (e.data.get("code") or "") == "REFLECTION_LIMIT"
+    ]
+    assert not limit_errors, f"REFLECTION_LIMIT fired despite successful writes in batch: {limit_errors}"
+
+    writes = [
+        e
+        for e in events
+        if e.kind == EventKind.TOOL_RESULT
+        and e.data.get("tool") == "file_write"
+        and e.data.get("success")
+    ]
+    assert len(writes) == 6, f"expected 6 successful writes, got {len(writes)}"
+
+    reads = [
+        e
+        for e in events
+        if e.kind == EventKind.TOOL_RESULT
+        and e.data.get("tool") == "file_read"
+        and not e.data.get("success")
+    ]
+    assert len(reads) == 4, f"expected 4 failed read results delivered to context, got {len(reads)}"
+
+    assert any((e.data.get("text") or "").startswith("The task is complete") for e in events), (
+        "final answer never emitted"
+    )
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_error_does_not_emit_empty_response(test_config):
     """T3: a provider error must not also trigger a spurious EMPTY_RESPONSE."""
     provider = _RateLimitProvider()
@@ -567,11 +701,9 @@ async def test_non_code_prompt_still_gets_tools_on_iteration_one(test_config):
     assert provider.first_turn_tools, "iteration-1 tool list must not be empty"
     offered = {t["function"]["name"] for t in provider.first_turn_tools}
     assert "file_read" in offered
-    # T1 (token strategy): the lean seed no longer ships the large web schemas on
-    # every turn. Research tools stay reachable - a direct call to an unseeded
-    # tool auto-escalates it, and discover_capabilities lists what exists
-    # (see test_build_seed_is_lean_and_web_tools_still_escalate).
-    assert "websearch" not in offered, "web schemas should not be in the lean default seed"
+    # Web research tools are core build-seed tools now (see CORE_BUILD_TOOLS):
+    # the model must be able to reach them on iteration 1 without a detour.
+    assert "websearch" in offered, "web research tools must ship in the build seed"
     assert "discover_capabilities" in offered, "discovery tools must remain offered"
 
 

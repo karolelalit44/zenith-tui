@@ -1,13 +1,12 @@
 import { Box, Text } from 'ink';
 import React, { useEffect, useRef } from 'react';
 import { COMPACTION_PHASE_ORDER, COMPACTION_TRIGGER_LABELS } from '../../../config/context';
-import { SPINNER_FRAMES } from '../../../constants/animation';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { formatTokenCount } from '../../../services/api/tokenEstimationService';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { Theme } from '../../../theme/theme';
 import type { CompactionPhase, ContextCompactionFlowEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
+import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 import { TerminalMarkdown } from './TerminalMarkdown';
 
@@ -72,7 +71,6 @@ function pluralize(count: number, noun: string): string {
  */
 export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
-  const tick = useAnimationTick();
   const historical = context?.isHistorical ?? false;
 
   // Measure elapsed time from first render → terminal phase so the card can
@@ -149,9 +147,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
         <>
           <Box flexDirection="row" alignItems="center" paddingLeft={2}>
             <Box width={2} flexShrink={0}>
-              <Text color={color} bold>
-                {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}
-              </Text>
+              <Spinner color={color} bold />
             </Box>
             <Text color={color} bold wrap="truncate-end">
               {PHASE_LABEL[phase]}…
@@ -209,7 +205,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
           {/* ── Completion banner: trigger + token transition ── */}
           <Box paddingLeft={2} marginTop={0}>
             <Text color={theme.colors.status.success} bold wrap="truncate-end">
-              ✻ Context compacted ({triggerLabel}) · {[transitionStr, savedStr].filter(Boolean).join(' · ')} ✻
+              ⨳ Context compacted ({triggerLabel}) · {[transitionStr, savedStr].filter(Boolean).join(' · ')} ⨳
             </Text>
           </Box>
 
@@ -232,7 +228,7 @@ export const CompactionFlowBlock: React.FC<CompactionFlowBlockProps> = React.mem
       )}
 
       {notes.length > 0 ? (
-        <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+        <Box flexDirection="column" paddingLeft={2} marginTop={0}>
           {notes.map((note, noteIdx) => (
             <Text key={noteIdx} color={theme.colors.text.dim} wrap="truncate-end">
               ↳ {note}

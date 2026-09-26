@@ -260,9 +260,12 @@ class TestPromptExecutorPersistence:
 
         repo = _Repo()
         msg_repo = _MsgRepo()
+        import tempfile
+
         from server.config.settings import AppSettings
 
-        config = AppSettings(home_dir="/tmp/run_state_test.db", workspace_root="/tmp")
+        tmp = tempfile.gettempdir()
+        config = AppSettings(home_dir=f"{tmp}/run_state_test.db", workspace_root=tmp)
         executor = PromptExecutor(
             config,
             _Provider(),

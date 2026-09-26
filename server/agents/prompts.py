@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import logging
 import platform
 from collections.abc import Callable
@@ -25,6 +26,29 @@ def build_tool_reference_hint(workspace_root: str = "") -> str:
     )
 
 
+def _build_web_research_guidelines() -> str:
+    return (
+        "Guidelines for Web Tools (websearch, webfetch):\n"
+        "1. The >10% Temporal Instability Rule: Whenever you are about to make an assertion "
+        "about a topic where there is greater than a 10% probability that facts, APIs, package "
+        "versions, deprecations, or features have evolved since model training cutoff, web search "
+        "is MANDATORY before answering or writing code.\n"
+        "2. Mandatory Search Categories: Current package versions and syntax (include current year "
+        "in queries), active GitHub issues, PRs, breaking changes, CVE security advisories, and cloud "
+        "API documentation.\n"
+        "3. When NOT to Search: Never search the web for local workspace code or files (use grep, "
+        "glob, file_read instead). Never search for stable language fundamentals.\n"
+        "4. Escalation Ladder: Use websearch to discover sources, webfetch to read a specific URL. "
+        "For large documents, use webfetch with start_line and end_line or pattern (find_in_page) "
+        "to inspect targeted windows rather than dumping full pages.\n"
+        "5. Citation Formatting: Every factual statement derived from the web must include an "
+        "inline citation [descriptive title](url) placed immediately after the punctuation of the "
+        "sentence it supports. Never place citations inside code blocks or dump bare URLs.\n"
+        "6. Copyright & Fair Use: Quote no more than 25 words verbatim from any single source; "
+        "synthesize and summarize in your own words."
+    )
+
+
 def _build_env_section(workspace_root: str, mode: str) -> str:
     os_name = platform.system()
     shell_name = "powershell" if os_name == "Windows" else "bash"
@@ -37,8 +61,12 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
             "The bash tool runs in bash. Use bash syntax; never Windows PowerShell "
             "cmdlets. Write commands for bash."
         )
+    now = datetime.datetime.now(datetime.timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+    year_str = str(now.year)
     return (
         f"OS: {os_name} | Shell: {shell_name} | Mode: {mode} | Dir: {workspace_root}\n"
+        f"Current Date: {date_str} | Current Year: {year_str}\n"
         f"{constraint}"
     )
 
@@ -83,6 +111,7 @@ def default_template_sections(
     return [
         PromptSection("instructions", load_prompt_template(mode=mode)),
         PromptSection("env", lambda: _build_env_section(root, mode)),
+        PromptSection("web_research", _build_web_research_guidelines),
         PromptSection("tool_reference", lambda: build_tool_reference_hint(root)),
     ]
 

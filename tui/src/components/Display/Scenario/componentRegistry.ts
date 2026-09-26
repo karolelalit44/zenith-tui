@@ -24,6 +24,10 @@ export interface EventRenderContext {
   isRunning?: boolean;
   workspaceName?: string;
   gitBranch?: string;
+  maxDynamicLines?: number;
+  scrollOffset?: number;
+  /** Global ctrl+e signal: expands every truncated warning/error message. */
+  expandedWarnings?: boolean;
 }
 
 export type EventComponentType = React.ComponentType<{
@@ -53,22 +57,25 @@ class ComponentRegistry {
     this.register('plan_ready', PlanReadyBlock as EventComponentType);
     this.register('turn_manifest', TurnManifestCard as EventComponentType);
     this.register('captain_orchestration', CaptainOrchestratorBlock as EventComponentType);
-    this.register('todo_board', TodoBoardBlock as unknown as EventComponentType);
+    this.register('todo_board', TodoBoardBlock as EventComponentType);
     this.register('context_compaction_flow', CompactionFlowBlock as EventComponentType);
     // Session/context/token housekeeping events render as dim status lines.
-    this.register('session_created', SessionStatusLine as unknown as EventComponentType);
-    this.register('session_resumed', SessionStatusLine as unknown as EventComponentType);
-    this.register('session_state_changed', SessionStatusLine as unknown as EventComponentType);
-    this.register('session_paused', SessionStatusLine as unknown as EventComponentType);
-    this.register('session_renamed', SessionStatusLine as unknown as EventComponentType);
-    this.register('session_error', SessionStatusLine as unknown as EventComponentType);
-    this.register('session_status', SessionStatusLine as unknown as EventComponentType);
-    this.register('session_summarized', FinalSummaryCard as unknown as EventComponentType);
-    this.register('context_updated', SessionStatusLine as unknown as EventComponentType);
-    this.register('token_usage_recorded', SessionStatusLine as unknown as EventComponentType);
+    this.register('session_created', SessionStatusLine as EventComponentType);
+    this.register('session_resumed', SessionStatusLine as EventComponentType);
+    this.register('session_state_changed', SessionStatusLine as EventComponentType);
+    this.register('session_paused', SessionStatusLine as EventComponentType);
+    this.register('session_renamed', SessionStatusLine as EventComponentType);
+    this.register('session_error', SessionStatusLine as EventComponentType);
+    this.register('session_status', SessionStatusLine as EventComponentType);
+    this.register('session_summarized', FinalSummaryCard as EventComponentType);
+    this.register('context_updated', SessionStatusLine as EventComponentType);
+    this.register('token_usage_recorded', SessionStatusLine as EventComponentType);
   }
 
   public register(kind: string, component: EventComponentType): void {
+    if (this.registry.has(kind)) {
+      console.warn(`[componentRegistry] Overwriting existing component for event kind "${kind}"`);
+    }
     this.registry.set(kind, component);
   }
 

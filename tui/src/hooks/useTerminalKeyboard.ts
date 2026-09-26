@@ -30,6 +30,7 @@ interface UseTerminalKeyboardOptions {
 
   slashMenuOpen?: boolean;
   onToggleHistoryExpanded?: () => void;
+  onToggleExpandedWarnings?: () => void;
 }
 
 export function useTerminalKeyboard({
@@ -54,6 +55,7 @@ export function useTerminalKeyboard({
   composerRunning,
   slashMenuOpen,
   onToggleHistoryExpanded,
+  onToggleExpandedWarnings,
 }: UseTerminalKeyboardOptions): void {
   const optionsRef = useRef({
     turns,
@@ -77,6 +79,7 @@ export function useTerminalKeyboard({
     composerRunning,
     slashMenuOpen,
     onToggleHistoryExpanded,
+    onToggleExpandedWarnings,
   });
 
   useEffect(() => {
@@ -102,6 +105,7 @@ export function useTerminalKeyboard({
       composerRunning,
       slashMenuOpen,
       onToggleHistoryExpanded,
+      onToggleExpandedWarnings,
     };
   });
 
@@ -177,6 +181,11 @@ export function useTerminalKeyboard({
 
       if (pressed.includes('expand_history')) {
         if (opts.onToggleHistoryExpanded) opts.onToggleHistoryExpanded();
+        return;
+      }
+
+      if (key.ctrl && (input === 'e' || input === '\x05')) {
+        if (opts.onToggleExpandedWarnings) opts.onToggleExpandedWarnings();
         return;
       }
 

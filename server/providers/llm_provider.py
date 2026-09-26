@@ -19,6 +19,8 @@ from server.config.constants import (
 from server.config.environment import (
     ZENITH_MAX_TOKENS,
     ZENITH_MIN_REQUEST_INTERVAL,
+    ZENITH_STREAM_TIMEOUT,
+    ZENITH_STREAM_TTFT_TIMEOUT,
     ZENITH_TEMPERATURE,
 )
 from server.domain.enums import FinishReason
@@ -31,6 +33,12 @@ from .token_counter import TokenCounter
 
 logger = logging.getLogger(__name__)
 _catalog: dict | None = None
+
+# Pre-retry backoff: upstream flakiness (see logs: a retry fired on nearly
+# every turn against openrouter/free) must not hammer the provider or burn a
+# second full-context request instantly. Small, capped, jittered.
+_STREAM_RETRY_BASE_DELAY_S = 2.0
+_STREAM_RETRY_MAX_DELAY_S = 8.0
 
 
 _QUOTA_EXHAUSTED_KEYWORDS = (
@@ -507,6 +515,28 @@ class _RequestThrottle:
         return 0.0
 
 
+def _sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
+    """Strip internal Zenith metadata (e.g. 'digest', 'is_digested', 'time') before passing to LiteLLM.
+
+    Strict providers (e.g. Groq) reject chat completion messages containing unrecognized properties.
+    """
+    allowed_keys = {
+        "role",
+        "content",
+        "name",
+        "tool_calls",
+        "tool_call_id",
+        "function_call",
+    }
+    clean: list[dict] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            clean.append(m)
+            continue
+        clean.append({k: v for k, v in m.items() if k in allowed_keys})
+    return clean
+
+
 class LLMProvider(BaseProvider):
     def __init__(
         self,
@@ -566,6 +596,15 @@ class LLMProvider(BaseProvider):
         self._last_usage: dict = {}
         self._cumulative_usage: dict = {}
         self._last_finish_reason: FinishReason = FinishReason.STOP
+        self._last_ttft_ms: int | None = None
+        # Set when _stream_impl retries a failed attempt mid-stream; consumers
+        # (llm_stream) surface a transient "retrying" notice to the user.
+        self._retry_notice: bool = False
+        # Hard guard: the retry-notice and per-call metrics are instance state,
+        # so two concurrent streams on one provider would cross-consume them.
+        # Stream calls are serialized per provider today; this makes a future
+        # concurrent caller fail loudly instead of silently glitching.
+        self._streams_in_flight = 0
         self._token_counter = TokenCounter()
         self._throttle = _RequestThrottle(_resolve_min_request_interval(name))
         _set_api_key(name, self.api_key)
@@ -612,9 +651,10 @@ class LLMProvider(BaseProvider):
         litellm_model = self._litellm_model
         if model_override and model_override != self.model:
             litellm_model = _to_litellm_model(self._litellm_prefix, model_override)
+        clean_messages = _sanitize_messages_for_llm(messages)
         kwargs: dict = {
             "model": litellm_model,
-            "messages": messages,
+            "messages": clean_messages,
             "max_tokens": self.max_tokens,
             "stream": stream and self.streaming_enabled,
             "drop_params": True,
@@ -780,6 +820,14 @@ class LLMProvider(BaseProvider):
         tool_choice: str | None = None,
         response_format: dict | None = None,
     ) -> AsyncIterator[tuple[str, str | None]]:
+        if self._streams_in_flight:
+            raise ProviderError(
+                "Concurrent LLM streams on one provider are not supported",
+                provider=self.name,
+                code="CONCURRENT_STREAM",
+                recoverable=False,
+            )
+        self._streams_in_flight += 1
         try:
             async for chunk, event_type in self._stream_impl(
                 messages, tools, tool_choice=tool_choice, response_format=response_format
@@ -790,6 +838,8 @@ class LLMProvider(BaseProvider):
         except Exception as e:
             logger.error("STREAM ERROR model=%s error=%s", self._litellm_model, str(e))
             raise _classify_provider_error(e, self.name) from e
+        finally:
+            self._streams_in_flight -= 1
 
     async def _stream_impl(
         self,
@@ -825,12 +875,8 @@ class LLMProvider(BaseProvider):
         # Each call is a fresh turn: never let a prior turn's tool calls leak
         # forward and be replayed as if the model asked for them again.
         self._last_native_tool_calls = []
-        stream = await litellm.acompletion(**kwargs)
-        logger.info(
-            "API STREAM OPENED model=%s latency=%.0fms",
-            self._litellm_model,
-            (time.monotonic() - t0) * 1000,
-        )
+        self._last_ttft_ms = None
+        self._retry_notice = False
         accumulated_tool_calls: dict[int, dict] = {}
         chunk_count = 0
         content_chars = 0
@@ -838,60 +884,220 @@ class LLMProvider(BaseProvider):
         first_chunk_time: float | None = None
         stream_usage: dict | None = None
         streamed_finish: str | None = None
-        async for chunk in stream:
-            if first_chunk_time is None:
+        attempt = 0
+        while True:
+            # Wall-clock ceiling for the whole call (including the one retry):
+            # a slow-but-alive provider must fail over fast instead of hanging
+            # a turn for minutes. Raised as ProviderError so stream() doesn't
+            # re-classify, and excluded from the retry gate below.
+            if (time.monotonic() - t0) > ZENITH_STREAM_TIMEOUT:
+                raise ProviderError(
+                    f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                    provider=self.name,
+                    code="STREAM_TIMEOUT",
+                    recoverable=True,
+                )
+            # Time-to-first-chunk ceiling for this attempt: a request that
+            # never produces its first chunk is a silent dead stream.
+            leg_t0 = time.monotonic()
+            try:
+                stream = await asyncio.wait_for(
+                    litellm.acompletion(**kwargs), timeout=ZENITH_STREAM_TTFT_TIMEOUT
+                )
+                logger.info(
+                    "API STREAM OPENED model=%s latency=%.0fms",
+                    self._litellm_model,
+                    (time.monotonic() - leg_t0) * 1000,
+                )
+                # Enforce TTFT on the first chunk arrival: if the stream
+                # opens but never yields its first chunk, asyncio.wait_for
+                # on anext() will timeout instead of hanging forever.
+                # Remaining budget caps the wait so a nearly-exhausted total
+                # timeout doesn't wait a full TTFT.
+                remaining = ZENITH_STREAM_TIMEOUT - (time.monotonic() - t0)
+                if remaining <= 0:
+                    raise ProviderError(
+                        f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                        provider=self.name,
+                        code="STREAM_TIMEOUT",
+                        recoverable=True,
+                    )
+                try:
+                    first_chunk = await asyncio.wait_for(
+                        anext(stream),
+                        timeout=min(ZENITH_STREAM_TTFT_TIMEOUT, remaining),
+                    )
+                except asyncio.TimeoutError as te:
+                    # First-chunk stall: could be TTFT or exhausted total budget (when remaining < TTFT).
+                    if remaining <= ZENITH_STREAM_TTFT_TIMEOUT:
+                        raise ProviderError(
+                            f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                            provider=self.name,
+                            code="STREAM_TIMEOUT",
+                            recoverable=True,
+                        ) from te
+                    raise ProviderError(
+                        f"Stream did not yield first chunk within {ZENITH_STREAM_TTFT_TIMEOUT:.0f}s",
+                        provider=self.name,
+                        code="STREAM_TIMEOUT",
+                        recoverable=True,
+                    ) from te
+                except StopAsyncIteration:
+                    break
                 first_chunk_time = time.monotonic()
-                self._last_ttft_ms = round((first_chunk_time - t0) * 1000)
+                ttft_ms = (first_chunk_time - leg_t0) * 1000
+                if ttft_ms > ZENITH_STREAM_TTFT_TIMEOUT * 1000:
+                    raise ProviderError(
+                        f"Time to first chunk exceeded {ZENITH_STREAM_TTFT_TIMEOUT:.0f}s",
+                        provider=self.name,
+                        code="STREAM_TIMEOUT",
+                        recoverable=True,
+                    )
+                self._last_ttft_ms = round(ttft_ms)
                 logger.info(
                     "API FIRST CHUNK model=%s time_to_first_chunk=%.0fms",
                     self._litellm_model,
                     self._last_ttft_ms,
                 )
-            chunk_count += 1
-            # Capture the streamed finish reason (P3.1): the last non-null
-            # chunk-level reason is the true terminal condition of the stream.
-            if chunk.choices:
-                raw_chunk_finish = getattr(chunk.choices[0], "finish_reason", None)
-                if raw_chunk_finish:
-                    streamed_finish = str(raw_chunk_finish)
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if hasattr(chunk, "usage") and chunk.usage:
-                u = chunk.usage
-                stream_usage = {
-                    "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(u, "total_tokens", 0) or 0,
-                }
-                stream_usage["cached_tokens"] = _extract_cached_tokens(u)
-                cc = getattr(u, "cache_creation_input_tokens", None) or 0
-                if cc:
-                    stream_usage["cache_creation_tokens"] = cc
-            if not delta:
-                continue
-            if delta.content:
-                content_chars += len(delta.content)
-                yield (delta.content, None)
-            reasoning = getattr(delta, "reasoning_content", None)
-            if reasoning:
-                reasoning_chars += len(reasoning)
-                yield ("", reasoning)
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in accumulated_tool_calls:
-                        accumulated_tool_calls[idx] = {
-                            "id": tc_delta.id or "",
-                            "type": "function",
-                            "function": {"name": "", "arguments": ""},
+                chunk = first_chunk
+                # Process the first chunk and then iterate remaining chunks.
+                # Total timeout is enforced per-chunk inside this loop.
+                while True:
+                    if (time.monotonic() - t0) > ZENITH_STREAM_TIMEOUT:
+                        raise ProviderError(
+                            f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                            provider=self.name,
+                            code="STREAM_TIMEOUT",
+                            recoverable=True,
+                        )
+                    chunk_count += 1
+                    # Capture the streamed finish reason (P3.1): the last non-null
+                    # chunk-level reason is the true terminal condition of the stream.
+                    if chunk.choices:
+                        raw_chunk_finish = getattr(chunk.choices[0], "finish_reason", None)
+                        if raw_chunk_finish:
+                            streamed_finish = str(raw_chunk_finish)
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        u = chunk.usage
+                        stream_usage = {
+                            "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
+                            "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
+                            "total_tokens": getattr(u, "total_tokens", 0) or 0,
                         }
-                    tc = accumulated_tool_calls[idx]
-                    if tc_delta.id:
-                        tc["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            tc["function"]["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            tc["function"]["arguments"] += tc_delta.function.arguments
+                        stream_usage["cached_tokens"] = _extract_cached_tokens(u)
+                        cc = getattr(u, "cache_creation_input_tokens", None) or 0
+                        if cc:
+                            stream_usage["cache_creation_tokens"] = cc
+                    if not delta:
+                        # Empty delta (e.g. finish-reason-only chunk): advance to next chunk
+                        remaining = ZENITH_STREAM_TIMEOUT - (time.monotonic() - t0)
+                        if remaining <= 0:
+                            raise ProviderError(
+                                f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                                provider=self.name,
+                                code="STREAM_TIMEOUT",
+                                recoverable=True,
+                            )
+                        try:
+                            chunk = await asyncio.wait_for(
+                                anext(stream), timeout=remaining
+                            )
+                        except asyncio.TimeoutError as te:
+                            raise ProviderError(
+                                f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                                provider=self.name,
+                                code="STREAM_TIMEOUT",
+                                recoverable=True,
+                            ) from te
+                        except StopAsyncIteration:
+                            break
+                        continue
+                    if delta.content:
+                        content_chars += len(delta.content)
+                        yield (delta.content, None)
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if reasoning:
+                        reasoning_chars += len(reasoning)
+                        yield ("", reasoning)
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in accumulated_tool_calls:
+                                accumulated_tool_calls[idx] = {
+                                    "id": tc_delta.id or "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            tc = accumulated_tool_calls[idx]
+                            if tc_delta.id:
+                                tc["id"] = tc_delta.id
+                            if tc_delta.function:
+                                if tc_delta.function.name:
+                                    tc["function"]["name"] = tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    tc["function"]["arguments"] += tc_delta.function.arguments
+                    remaining = ZENITH_STREAM_TIMEOUT - (time.monotonic() - t0)
+                    if remaining <= 0:
+                        raise ProviderError(
+                            f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                            provider=self.name,
+                            code="STREAM_TIMEOUT",
+                            recoverable=True,
+                        )
+                    try:
+                        chunk = await asyncio.wait_for(
+                            anext(stream), timeout=remaining
+                        )
+                    except asyncio.TimeoutError as te:
+                        raise ProviderError(
+                            f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
+                            provider=self.name,
+                            code="STREAM_TIMEOUT",
+                            recoverable=True,
+                        ) from te
+                    except StopAsyncIteration:
+                        break
+            except ProviderError:
+                raise
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                raise ProviderError(
+                    f"Stream did not open within {ZENITH_STREAM_TTFT_TIMEOUT:.0f}s",
+                    provider=self.name,
+                    code="STREAM_TIMEOUT",
+                    recoverable=True,
+                ) from None
+            except Exception as e:
+                # One retry, and only when nothing deliverable reached the
+                # caller yet: re-issuing after content, reasoning, or tool
+                # calls streamed would duplicate visible text/reasoning or
+                # re-run requested tools.
+                if attempt > 0 or content_chars > 0 or reasoning_chars > 0 or accumulated_tool_calls:
+                    raise
+                attempt += 1
+                chunk_count = 0
+                content_chars = 0
+                reasoning_chars = 0
+                first_chunk_time = None
+                stream_usage = None
+                streamed_finish = None
+                delay = min(
+                    _STREAM_RETRY_BASE_DELAY_S * attempt,
+                    _STREAM_RETRY_MAX_DELAY_S,
+                ) + random.uniform(0, 1.0)
+                self._retry_notice = True
+                logger.warning(
+                    "API STREAM RETRY model=%s attempt=%d backoff=%.1fs error=%r",
+                    self._litellm_model,
+                    attempt,
+                    delay,
+                    e,
+                )
+                await asyncio.sleep(delay)
+                continue
+            break
         elapsed = (time.monotonic() - t0) * 1000
         finish = None
         if accumulated_tool_calls:

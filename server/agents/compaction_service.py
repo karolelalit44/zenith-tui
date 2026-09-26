@@ -177,7 +177,7 @@ def prune_tool_outputs(
         if msg.get("time") == "compacted":
             continue
         orig_len = len(content)
-        if "digest" in msg:
+        if "digest" in msg and not content.startswith(("[Tool: file_read", "[Tool: todo")):
             msg["content"] = msg["digest"]
             msg["time"] = "compacted"
             msg["is_digested"] = True
@@ -205,7 +205,7 @@ def compact_live_tail(messages: list[dict]) -> None:
     for msg in messages:
         content = msg.get("content", "")
         if msg.get("role") == "user" and isinstance(content, str) and content.startswith("[Tool:"):
-            if "digest" in msg:
+            if "digest" in msg and not content.startswith(("[Tool: file_read", "[Tool: todo")):
                 msg["content"] = msg["digest"]
                 msg["time"] = "compacted"
             elif len(content) > TAIL_TRIM_MAX_CHARS:
@@ -412,34 +412,72 @@ class CompactionService:
             outcome.kept_tail = max(0, len(history) - cut)
             prefix = history[:cut]
             if not prefix and not pruned.get("count", 0):
-                # Nothing can be safely summarized AND tool-output pruning found
-                # nothing to shrink: the operation would be a no-op. Report a
-                # skip instead of fabricating a summary or truncating anything.
-                # (A prune-only pass -- cut==0 but pruned["count"]>0 -- still
-                # falls through and completes, applying the shrunken candidate.)
+                if trigger != CompactionTrigger.MANUAL:
+                    # Nothing can be safely summarized AND tool-output pruning
+                    # found nothing to shrink: the operation would be a no-op.
+                    # Report a skip instead of fabricating a summary or
+                    # truncating anything. Manual triggers bypass this check and
+                    # fall through to summarize the full history below.
+                    # (A prune-only pass -- cut==0 but pruned["count"]>0 -- still
+                    # falls through and completes, applying the shrunken candidate.)
+                    logger.info(
+                        "Compaction skipped for %s: no summarizable prefix (cut=0, history=%d)",
+                        session_id,
+                        len(history),
+                    )
+                    outcome.status = CompactionStatus.SKIPPED
+                    outcome.completed_at = time.time()
+                    await emit(
+                        r.context_compaction_ended(
+                            session_id,
+                            reason,
+                            used,
+                            total,
+                            tokens_saved=0,
+                            summary_chars=0,
+                            summary="",
+                            tokens_before=before_tiers,
+                            tokens_after=None,
+                            trigger=trigger.value,
+                            status=outcome.status.value,
+                        )
+                    )
+                    return outcome
+                if not history:
+                    # Truly empty history — nothing to summarize for any trigger.
+                    logger.info(
+                        "Compaction skipped for %s: empty history", session_id
+                    )
+                    outcome.status = CompactionStatus.SKIPPED
+                    outcome.completed_at = time.time()
+                    await emit(
+                        r.context_compaction_ended(
+                            session_id,
+                            reason,
+                            used,
+                            total,
+                            tokens_saved=0,
+                            summary_chars=0,
+                            summary="",
+                            tokens_before=before_tiers,
+                            tokens_after=None,
+                            trigger=trigger.value,
+                            status=outcome.status.value,
+                        )
+                    )
+                    return outcome
+                # Manual trigger: context fits in window but user explicitly
+                # requested compaction. Summarize the entire history so the
+                # conversation state is captured in the summary regardless.
                 logger.info(
-                    "Compaction skipped for %s: no summarizable prefix (cut=0, history=%d)",
+                    "Manual compaction for %s: context fits window (cut=0, history=%d) "
+                    "— summarizing full history",
                     session_id,
                     len(history),
                 )
-                outcome.status = CompactionStatus.SKIPPED
-                outcome.completed_at = time.time()
-                await emit(
-                    r.context_compaction_ended(
-                        session_id,
-                        reason,
-                        used,
-                        total,
-                        tokens_saved=0,
-                        summary_chars=0,
-                        summary="",
-                        tokens_before=before_tiers,
-                        tokens_after=None,
-                        trigger=trigger.value,
-                        status=outcome.status.value,
-                    )
-                )
-                return outcome
+                prefix = history
+                outcome.cut = len(history)
+                outcome.kept_tail = 0
             if prefix:
                 async with _session_lock_semaphore:
                     summary = await ConversationSummarizer(
@@ -536,7 +574,7 @@ class CompactionService:
                     r.context_compaction_ended(
                         session_id,
                         reason,
-                        used,
+                        outcome.used_after,
                         total,
                         tokens_saved=outcome.tokens_saved,
                         summary_chars=outcome.summary_chars,

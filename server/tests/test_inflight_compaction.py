@@ -134,3 +134,46 @@ class TestInflightCompaction:
         end_data = end_events[0].data if hasattr(end_events[0], "data") else {}
         tokens_saved = end_data.get("tokensSaved", end_data.get("tokens_saved", 0))
         assert tokens_saved > 0
+
+    def test_file_read_and_todo_never_reduced_to_hollow_digest(self):
+        """Inflight compaction must preserve file_read and todo content rather than
+        reducing them to a hollow stub like 'file_read: ok' or 'todo: ok',
+        preventing multi-step amnesia loops."""
+        messages = [
+            {"role": "user", "content": "Audit files"},
+            {
+                "role": "user",
+                "content": "[Tool: todo | Status: SUCCESS]\n- [x] Step 1\n- [/] Step 2\n- [ ] Step 3",
+                "salvage_digest": "todo: ok",
+            },
+            {
+                "role": "user",
+                "content": "[Tool: file_read | Status: SUCCESS]\nMAX_TOOL_DESCRIPTION_LENGTH = 1000\n",
+                "salvage_digest": "file_read: ok",
+            },
+            {
+                "role": "user",
+                "content": "[Tool: todo | Status: SUCCESS]\n- [x] Step 1\n- [x] Step 2\n- [/] Step 3",
+                "salvage_digest": "todo: ok",
+            },
+            {
+                "role": "user",
+                "content": "[Tool: file_read | Status: SUCCESS]\nassert len(description) <= MAX_TOOL_DESCRIPTION_LENGTH\n",
+                "salvage_digest": "file_read: ok",
+            },
+            {
+                "role": "user",
+                "content": "[Tool: glob | Status: SUCCESS]\n" + "file.py\n" * 1000,
+                "digest": "[Tool: glob | Status: SUCCESS] Found 1000 files",
+            },
+            {"role": "user", "content": "[Tool: bash | Status: SUCCESS]\necho done"},
+            {"role": "user", "content": "[Tool: bash | Status: SUCCESS]\necho final"},
+        ]
+        # With 6 tool results kept, earlier tool results get pruned
+        pruned, _ = prune_inflight_messages(messages, keep_latest_tools=4)
+        # Even when pruned beyond keep_latest_tools, file_read and todo MUST retain their actual content
+        assert "MAX_TOOL_DESCRIPTION_LENGTH = 1000" in pruned[2]["content"]
+        assert "Step 1" in pruned[1]["content"]
+        assert pruned[2]["content"] != "file_read: ok"
+        assert pruned[1]["content"] != "todo: ok"
+

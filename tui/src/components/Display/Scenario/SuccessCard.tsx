@@ -5,6 +5,7 @@ import { estimateTokensForEvents, formatTokenCount } from '../../../services/api
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ScenarioEvent, SuccessEvent, TurnManifestEvent } from '../../../types/scenario';
 import { formatDuration } from '../../../utils/text';
+import { LiveElapsed } from '../../ui/LiveElapsed';
 import type { EventRenderContext } from './componentRegistry';
 
 interface SuccessCardProps {
@@ -14,22 +15,42 @@ interface SuccessCardProps {
   turnEvents?: ScenarioEvent[];
 }
 
-/** Waveform bar characters for animated equalizer. */
-const WAVE_FRAMES = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▇', '▆', '▅', '▄', '▃', '▂'] as const;
+/**
+ * Core glyph per breath tick: dim quiet → charge → ignited Zenith core → release.
+ * All frames are large, heavyweight glyphs (no small `*`/`+` cores) so the
+ * loading reticle reads clearly instead of a faint `·+·`.
+ */
+const RETICLE_FRAMES = ['◌', '❂', '⨳', '❂'] as const;
 
-export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, context, turnEvents }) => {
+/**
+ * Isolated 100ms-tick reticle pulse: the four-fold core presses through the
+ * quiet dim `◌`, charges as the bold `❂`, and ignites into the `⨳` Zenith core
+ * before releasing. Symmetric `·` rays frame it, and every glyph is colored
+ * purely from the theme. Only this tiny node subscribes to the shared tick
+ * while the turn runs; the memoized SuccessCard never re-renders per tick.
+ */
+const ReticlePulse: React.FC = React.memo(() => {
   const { theme } = useTheme();
   const tick = useAnimationTick();
+  const core = RETICLE_FRAMES[tick % RETICLE_FRAMES.length];
+  const color = core === '◌' ? theme.colors.text.dim : theme.colors.status.info;
+  return (
+    <Box flexDirection="row" marginRight={1} alignItems="center">
+      <Text color={theme.colors.text.dim}>{'·'}</Text>
+      <Text color={color} bold={core === '⨳'}>
+        {core}
+      </Text>
+      <Text color={theme.colors.text.dim}>{'·'}</Text>
+    </Box>
+  );
+});
+
+ReticlePulse.displayName = 'ReticlePulse';
+
+export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, context, manifest, turnEvents }) => {
+  const { theme } = useTheme();
 
   const isLiveRunning = Boolean(context?.isRunning && !context?.isHistorical);
-
-  // Gradient colors for equalizer animation while running
-  const gradient = [
-    theme.colors.status.accent,
-    theme.colors.text.emerald,
-    theme.colors.status.success,
-    theme.colors.status.info,
-  ];
 
   // Duration in whole 1-second increments (updates only on 1s changes).
   // Prefer the server-reported elapsedMs. The shared tick is ONLY a render
@@ -59,7 +80,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
       : 0;
     elapsedMs = eventDurations > 0 ? eventDurations : 1000;
   }
-  const durationStr = elapsedMs ? formatDuration(elapsedMs) : '';
+  const durationStr = formatDuration(elapsedMs || 1000);
 
   // Used tokens calculation. Authoritative priority:
   // 1. Composed context occupancy / turn tokens (used) if reported and non-zero
@@ -87,11 +108,26 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
   }
 
   const finalReportedTokens = reportedUsed ?? reportedRunTotal ?? turnRecordedTokens;
+  const rawEstimated = turnEvents ? estimateTokensForEvents(turnEvents) : 0;
   const usedTokens =
-    finalReportedTokens !== undefined ? finalReportedTokens : turnEvents ? estimateTokensForEvents(turnEvents) : 0;
+    finalReportedTokens !== undefined
+      ? finalReportedTokens
+      : rawEstimated > 0
+        ? rawEstimated
+        : turnEvents && turnEvents.length > 0
+          ? 1
+          : 0;
   const tokenStr = usedTokens > 0 ? `${formatTokenCount(usedTokens)} tokens` : '';
 
-  const metricsParts: string[] = [];
+  const effectiveManifest = manifest ?? event.manifest;
+  const isTruncated =
+    event.truncated === true ||
+    event.finishReason === 'length' ||
+    Boolean(effectiveManifest?.remaining?.some((r) => r.toLowerCase().includes('token limit')));
+  const isComplete =
+    !isTruncated && event.completed !== false && (!effectiveManifest || effectiveManifest.completed !== false);
+
+  const metricsParts: (string | React.ReactNode)[] = [];
   const rawIters =
     event.iterations !== undefined && event.iterations > 0
       ? event.iterations
@@ -102,13 +138,40 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
     metricsParts.push(`${iters} iter${iters === 1 ? '' : 's'}`);
   }
   if (durationStr) {
-    metricsParts.push(durationStr);
+    metricsParts.push(
+      isLiveRunning && runStartRef.current !== null ? (
+        <LiveElapsed key="live" startedAt={runStartRef.current} prefix="" />
+      ) : (
+        durationStr
+      ),
+    );
   }
   if (tokenStr) {
     metricsParts.push(tokenStr);
   }
+  if (!isComplete) {
+    if (isTruncated) {
+      metricsParts.push('truncated · token limit');
+    } else if (effectiveManifest?.remaining && effectiveManifest.remaining.length > 0) {
+      metricsParts.push(`${effectiveManifest.remaining.length} remaining`);
+    } else {
+      metricsParts.push('tasks remaining');
+    }
+  }
 
-  const metricsText = metricsParts.length > 0 ? metricsParts.join(' · ') : 'done';
+  const metricsNode =
+    metricsParts.length > 0
+      ? metricsParts.map((part, i) => (
+          <React.Fragment key={i}>
+            {i > 0 ? ' · ' : ''}
+            {part}
+          </React.Fragment>
+        ))
+      : isComplete
+        ? 'done'
+        : isTruncated
+          ? 'truncated'
+          : 'incomplete';
 
   return (
     <Box
@@ -122,20 +185,12 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
       {/* Left Section: Animated Equalizer Wave (Running) / Status Glyph (Completed/Interrupted) + Metrics */}
       <Box flexDirection="row" alignItems="center" flexShrink={1}>
         {isLiveRunning ? (
-          <Box flexDirection="row" marginRight={1} alignItems="flex-end">
-            {Array.from({ length: 3 }).map((_, idx) => {
-              const phase = (Math.sin(tick / 3 + idx * 0.85) + 1) / 2;
-              const frameIdx = Math.max(
-                0,
-                Math.min(WAVE_FRAMES.length - 1, Math.floor(phase * (WAVE_FRAMES.length - 1))),
-              );
-              const color = gradient[(idx + Math.floor(tick / 3)) % gradient.length];
-              return (
-                <Box key={idx} width={1}>
-                  <Text color={color}>{WAVE_FRAMES[frameIdx]}</Text>
-                </Box>
-              );
-            })}
+          <ReticlePulse />
+        ) : !isComplete ? (
+          <Box marginRight={1}>
+            <Text color={theme.colors.status.warning} bold>
+              ▲
+            </Text>
           </Box>
         ) : (
           <Box marginRight={1}>
@@ -145,7 +200,7 @@ export const SuccessCard: React.FC<SuccessCardProps> = React.memo(({ event, cont
           </Box>
         )}
 
-        <Text color={theme.colors.text.muted}>{metricsText}</Text>
+        <Text color={theme.colors.text.muted}>{metricsNode}</Text>
       </Box>
 
       {/* Right Section: Esc to cancel while running (hidden when completed or interrupted) */}

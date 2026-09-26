@@ -1,12 +1,15 @@
-import { Box, Text, useInput } from 'ink';
-import React, { useState } from 'react';
+import { Box, Text } from 'ink';
+import React from 'react';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ErrorEvent } from '../../../types/scenario';
 import { MAX_MESSAGE_PREVIEW_LENGTH } from '../../../utils/text';
+import type { EventRenderContext } from './componentRegistry';
 
 interface ErrorBlockProps {
   event: ErrorEvent;
+  context?: EventRenderContext;
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -14,12 +17,12 @@ const ACTION_LABELS: Record<string, string> = {
   change_model: 'Switch model/provider to continue',
 };
 
-export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
+export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
-  const [expanded, setExpanded] = useState(false);
+  const expanded = context?.expandedWarnings === true;
   const { columns } = useTerminalDimensions();
   const termCols = columns || process.stdout.columns || 80;
-  const contentWidth = Math.max(30, termCols - 2);
+  const contentWidth = computeContentWidth(termCols);
 
   const rawMessage = event.message.trim();
   const truncated = rawMessage.length > MAX_MESSAGE_PREVIEW_LENGTH;
@@ -27,15 +30,6 @@ export const ErrorBlock: React.FC<ErrorBlockProps> = React.memo(({ event }) => {
 
   const badge = event.recoverable ? '[ERROR]' : '[FAILED]';
   const actionLabel = event.action ? ACTION_LABELS[event.action] : undefined;
-
-  useInput(
-    (input, key) => {
-      if (key.ctrl && (input === 'e' || input === '\x05')) {
-        setExpanded((value) => !value);
-      }
-    },
-    { isActive: truncated },
-  );
 
   return (
     <Box flexDirection="column" width={contentWidth} marginBottom={1} paddingX={1}>
