@@ -1,3 +1,5 @@
+import pytest
+
 from server.agents.loop import _format_tool_result
 from server.domain.events import EventKind
 from server.providers.parser import parse_tool_calls
@@ -82,3 +84,93 @@ class TestFormatToolResult:
         result = ToolResult(success=True, output="ok", metadata={"exit_code": 0})
         formatted = _format_tool_result("bash", result)
         assert "Metadata" in formatted
+
+
+class TestDecodeParametersCoercion:
+    def test_decode_stringified_array(self):
+        from server.toolkit.base import decode_parameters
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "tasks": {"type": "array"},
+                "action": {"type": "string"},
+            },
+            "required": ["action", "tasks"],
+        }
+        params = {"action": "write", "tasks": '[{"id": "t1", "title": "Audit"}]'}
+        decoded = decode_parameters(schema, params)
+        assert isinstance(decoded["tasks"], list)
+        assert decoded["tasks"][0]["id"] == "t1"
+
+    def test_decode_stringified_object(self):
+        from server.toolkit.base import decode_parameters
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "config": {"type": "object"},
+            },
+        }
+        params = {"config": '{"key": "value"}'}
+        decoded = decode_parameters(schema, params)
+        assert isinstance(decoded["config"], dict)
+        assert decoded["config"]["key"] == "value"
+
+
+class TestTodoToolStringifiedTasks:
+    @pytest.mark.asyncio
+    async def test_todo_write_stringified_tasks_json(self):
+        from server.toolkit.tools.todo import TodoTool
+
+        tool = TodoTool()
+        params = {
+            "action": "write",
+            "tasks": '[{"id": "t1", "title": "Check websockets", "priority": "high"}]',
+        }
+        res = await tool.execute(params, "")
+        assert res.success is True
+        assert "Check websockets" in res.output
+
+    @pytest.mark.asyncio
+    async def test_todo_write_stringified_items_json(self):
+        from server.toolkit.tools.todo import TodoTool
+
+        tool = TodoTool()
+        params = {
+            "action": "write",
+            "tasks": ['{"id": "t2", "title": "Nested item", "priority": "medium"}'],
+        }
+        res = await tool.execute(params, "")
+        assert res.success is True
+        assert "Nested item" in res.output
+
+    @pytest.mark.asyncio
+    async def test_todo_write_invalid_item_does_not_wipe_state(self):
+        from server.agents.todo_state import get_todo_state
+        from server.toolkit.tools.todo import TodoTool
+
+        tool = TodoTool()
+        state = get_todo_state("")
+        state.reset()
+
+        # Seed an initial valid task
+        seed_res = await tool.execute(
+            {"action": "write", "tasks": [{"title": "Existing task"}]},
+            "",
+        )
+        assert seed_res.success is True
+        assert len(state.list()) == 1
+
+        # Attempt write with invalid item
+        res = await tool.execute(
+            {"action": "write", "tasks": ["not valid json"]},
+            "",
+        )
+        assert res.success is False
+        assert "not valid JSON" in res.error
+
+        # Ensure board was not wiped
+        assert len(state.list()) == 1
+        assert state.list()[0].title == "Existing task"
+

@@ -114,21 +114,20 @@ async def _do_startup() -> None:
                 "Active provider '%s' not configured yet", config.active_provider or "(none)"
             )
         registry = ProviderRegistry.from_config(config.providers, config.active_provider)
-        logger.info("Providers registered: %s", registry.list_providers())
         active_provider = registry.get(config.active_provider)
         tool_registry = create_default_registry(
-            timeout=config.tools.max_bash_timeout, provider=active_provider
+            timeout=config.tools.max_bash_timeout,
+            provider=active_provider,
+            hooks=config.hooks,
+            config=config,
         )
         _handler = ZenithHandler(
             config=config, home=home, registry=registry, tool_registry=tool_registry
         )
-        from server.toolkit.registry_validation import validate_registry
-
-        validation_errors = validate_registry(tool_registry)
-        if validation_errors:
-            logger.error("Tool registry validation failed at startup:")
-            for error in validation_errors:
-                logger.error("  %s", error)
+        # Registry validation is not repeated here: create_default_registry above
+        # already ran it and raised on any error, so a second warn-and-continue
+        # pass could only ever observe an empty error list. Raising in the factory
+        # is the single policy — an invalid tool must stop startup, not be logged.
         # Intentional method wrap (pre-existing pattern); mypy dislikes it.
         _handler.handlers.dispatch = wrap_handler(_handler.handlers.dispatch)  # type: ignore[method-assign]
         logger.info("Handler initialized — server ready")
@@ -249,6 +248,14 @@ async def startup_providers_validate(
 def _reload_config_after_validate(provider_id: str) -> None:
     if _handler is None:
         return
+    if hasattr(_handler, "_session_executors"):
+        for exc in _handler._session_executors.values():
+            if getattr(exc, "is_active", False):
+                logger.info(
+                    "Skipping provider '%s' reload after validation: active turn is executing",
+                    provider_id,
+                )
+                return
     try:
         _handler._reload_provider(provider_id)
         logger.info("Provider '%s' reloaded after validation", provider_id)

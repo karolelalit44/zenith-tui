@@ -128,12 +128,28 @@ def get_matcher(workspace_root: str | Path) -> ZenithIgnoreMatcher:
 def blocked_as_missing(matcher: ZenithIgnoreMatcher, rel_path: str | Path) -> bool:
     """True when a read/write target must be reported as nonexistent.
 
-    Ignored paths are invisible: callers return their standard not-found error
-    so the agent cannot distinguish them from genuinely missing files. This is
-    the only place the block is logged.
+    Ignored paths are invisible: read paths return the standard not-found error so
+    the agent cannot distinguish them from genuinely missing files. This is the
+    only place the block is logged.
     """
     matcher.refresh()
     if matcher.is_ignored(rel_path) or matcher.is_ignored_dir(rel_path):
         logger.info("Ignored by .zenithignore; reporting as not found: %s", rel_path)
         return True
     return False
+
+
+def mutation_refusal(rel_path: str | Path) -> str:
+    """Error text for a write/edit/delete refused because the path is excluded.
+
+    A mutation refusal must not claim the file is missing when it exists. Reading
+    stays opaque (see :func:`blocked_as_missing`), but a refused write is a policy
+    decision the model can act on, so it names the cause and the way out instead
+    of sending the agent looking for a file that was never absent.
+    """
+    return (
+        f"Path '{rel_path}' is excluded by {ZENITH_IGNORE_FILE_NAME} and cannot be "
+        "written, edited or deleted. Write elsewhere, or remove the rule that "
+        f"matches it from {ZENITH_IGNORE_FILE_NAME}."
+    )
+

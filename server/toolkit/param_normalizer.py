@@ -63,7 +63,24 @@ def normalize_file_params(params: dict[str, Any], tool_name: str | None = None) 
     _apply_canonical("old_content", _OLD_CONTENT_CANONICAL_ALIASES)
     _apply_canonical("new_content", _NEW_CONTENT_CANONICAL_ALIASES)
     _apply_canonical("command", _COMMAND_CANONICAL_ALIASES)
-    _apply_canonical("pattern", _PATTERN_CANONICAL_ALIASES)
+    # websearch expects "query"/"queries", not "pattern". For that tool we
+    # canonicalize pattern-like aliases (including bare "q") toward "query"
+    # instead of the grep-oriented "pattern" canonical. Single scan prevents
+    # divergent state when both queries+pattern are present.
+    if tool_name == "websearch":
+        if "query" not in out and "queries" not in out:
+            for key in list(out.keys()):
+                stripped = _strip_key(key)
+                if stripped in _PATTERN_CANONICAL_ALIASES or stripped == "q":
+                    out["query"] = out.pop(key)
+                    break
+        # If queries batch already present, dangling pattern alias is redundant —
+        # drop it so WebsearchTool doesn't see an extra alias alongside queries.
+        if "queries" in out and "pattern" in out:
+            # pattern here is an alias for query, not webfetch's find_in_page
+            out.pop("pattern", None)
+    else:
+        _apply_canonical("pattern", _PATTERN_CANONICAL_ALIASES)
     for field in ("content", "old_content", "new_content"):
         if field in out:
             val = out[field]

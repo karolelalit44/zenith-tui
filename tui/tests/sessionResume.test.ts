@@ -32,9 +32,9 @@ describe('convertHistoryToTurns (production conversion)', () => {
     expect(turns[0].prompt).toBe('My name is Alice');
     expect(turns[0].mode).toBe(mode);
     expect(turns[0].isComplete).toBe(true);
-    expect(turns[0].events).toHaveLength(1);
-    expect(turns[1].events).toHaveLength(1);
-    expect(turns[2].events).toHaveLength(1);
+    expect(turns[0].events).toHaveLength(2);
+    expect(turns[1].events).toHaveLength(2);
+    expect(turns[2].events).toHaveLength(2);
   });
 
   test('non-alternating user,assistant,user,user,assistant,assistant preserves every message', () => {
@@ -49,10 +49,15 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const turns = convertHistoryToTurns(messages, mode);
     expect(turns).toHaveLength(3);
     expect(turns.map((t) => t.prompt)).toEqual(['Hello', 'Bye', 'Wait']);
-    expect(turns[0].events.map((e) => e.id)).toEqual(['evt_hist_msg_a1']);
+    expect(turns[0].events.map((e) => e.id)).toEqual(['evt_hist_msg_a1', 'evt_hist_success_a1']);
     expect(turns[1].events).toHaveLength(0);
     // Both assistant messages attach to the same unanswered user turn.
-    expect(turns[2].events.map((e) => e.id)).toEqual(['evt_hist_msg_a2', 'evt_hist_msg_a3']);
+    expect(turns[2].events.map((e) => e.id)).toEqual([
+      'evt_hist_msg_a2',
+      'evt_hist_success_a2',
+      'evt_hist_msg_a3',
+      'evt_hist_success_a3',
+    ]);
   });
 
   test('consecutive user messages keep both prompts, response goes to the latest', () => {
@@ -66,7 +71,7 @@ describe('convertHistoryToTurns (production conversion)', () => {
     expect(turns[0].prompt).toBe('First');
     expect(turns[1].prompt).toBe('Second');
     expect(turns[0].events).toHaveLength(0);
-    expect(turns[1].events).toHaveLength(1);
+    expect(turns[1].events).toHaveLength(2);
     expect(turns[1].events[0].kind).toBe('message');
     expect((turns[1].events[0] as ScenarioEvent & { text: string }).text).toBe('Answering second');
   });
@@ -80,7 +85,7 @@ describe('convertHistoryToTurns (production conversion)', () => {
     const turns = convertHistoryToTurns(messages, mode);
     expect(turns).toHaveLength(1);
     const ids = turns[0].events.map((e) => e.id);
-    expect(ids).toEqual(['evt_hist_msg_a1', 'evt_hist_msg_a2']);
+    expect(ids).toEqual(['evt_hist_msg_a1', 'evt_hist_success_a1', 'evt_hist_msg_a2', 'evt_hist_success_a2']);
     const texts = turns[0].events
       .filter((e) => e.kind === 'message')
       .map((e) => (e as ScenarioEvent & { text: string }).text);

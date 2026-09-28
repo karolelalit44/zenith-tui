@@ -41,7 +41,6 @@ _ALLOWED_PREFERENCE_TYPES: dict[str, type] = {
     "theme": str,
     "thinkingCollapsed": bool,
     "calmMode": bool,
-    "autoApproveTools": bool,
     "defaultMode": str,
 }
 

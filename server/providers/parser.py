@@ -115,17 +115,20 @@ def _repair_and_parse_json(candidate: str) -> dict | None:
     if "function" in data and "tool" not in data:
         data["tool"] = data.pop("function")
     if "arguments" in data and "params" not in data:
-        args = data.pop("arguments")
-        data["params"] = args if isinstance(args, dict) else {}
+        data["params"] = data.pop("arguments")
     if "tool" not in data:
         return None
     if data.get("tool") in PLACEHOLDER_TOOL_NAMES:
         return None
     params = data.get("params")
-    if params is None:
-        data["params"] = {}
-    elif not isinstance(params, dict):
-        return None
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except Exception:
+            params = {}
+    if not isinstance(params, dict):
+        params = {}
+    data["params"] = params
     return _validate_tool_name(data)
 
 
@@ -287,6 +290,11 @@ class UnifiedResponseFormatter:
             return {"tool": name, "params": normalize_file_params(args, name)}
         if "tool" in tc:
             params = tc.get("params", {})
+            if isinstance(params, str):
+                try:
+                    params = json.loads(params)
+                except Exception:
+                    params = {}
             if not isinstance(params, dict):
                 params = {}
             return {"tool": tc["tool"], "params": normalize_file_params(params, tc["tool"])}

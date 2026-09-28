@@ -1,9 +1,10 @@
 """Tests for the web tools: HTML->Markdown conversion and websearch parsing."""
 
+import pathlib
+
 import pytest
 
 from server.toolkit.tools._html_text import html_to_markdown
-from server.toolkit.tools.webfetch import FetchResult, fetch_page
 from server.toolkit.tools.websearch import WebsearchTool, _parse_ddg_results
 
 
@@ -59,6 +60,51 @@ class TestHtmlToMarkdown:
         html = "<p>" + "a" * 500 + "</p>"
         md = html_to_markdown(html, max_chars=50)
         assert len(md) <= 50
+
+    def test_formats_tables_with_dividers(self):
+        html = """
+        <table>
+          <thead><tr><th>Method</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td>GET</td><td>Retrieve item</td></tr>
+            <tr><td>POST</td><td>Create item</td></tr>
+          </tbody>
+        </table>
+        """
+        md = html_to_markdown(html)
+        assert "| Method | Description |" in md
+        assert "| --- | --- |" in md
+        assert "| GET | Retrieve item |" in md
+        assert "| POST | Create item |" in md
+
+    def test_extracts_code_language_tag(self):
+        html = '<pre><code class="language-python">x = 42\nprint(x)</code></pre>'
+        md = html_to_markdown(html)
+        assert "```python" in md
+        assert "x = 42" in md
+        assert "```" in md
+
+    def test_resolves_relative_links(self):
+        html = '<p>Check <a href="/docs/intro">documentation</a></p>'
+        md = html_to_markdown(html, base_url="https://example.com/api/v1")
+        assert "[documentation](https://example.com/docs/intro)" in md
+
+    def test_html_to_plain_text(self):
+        from server.toolkit.tools._html_text import html_to_plain_text
+        html = "<div><h1>Title</h1><p>Paragraph with <a href='#'>link</a>.</p><script>alert('bad')</script></div>"
+        text = html_to_plain_text(html)
+        assert "Title" in text
+        assert "Paragraph with link." in text
+        assert "alert" not in text
+
+    def test_extract_images(self):
+        from server.toolkit.tools._html_text import extract_images
+        html = '<div><img src="/img/arch.png" alt="Architecture Diagram"/><img src="https://cdn.example.com/logo.svg"/></div>'
+        imgs = extract_images(html, base_url="https://example.com/page")
+        assert len(imgs) == 2
+        assert imgs[0]["url"] == "https://example.com/img/arch.png"
+        assert imgs[0]["alt"] == "Architecture Diagram"
+        assert imgs[1]["url"] == "https://cdn.example.com/logo.svg"
 
 
 class TestWebsearchParsing:
@@ -125,6 +171,7 @@ class TestWebsearchExecution:
         assert result.success
         assert result.output == "No results found."
         assert result.metadata["count"] == 0
+        assert "suggestions" in result.metadata
 
     @pytest.mark.asyncio
     async def test_allowed_domains_case_and_dot_insensitive(self, monkeypatch):
@@ -224,103 +271,48 @@ class TestWebsearchExecution:
             await tool._search_api("wat", "key", "q", 5)
 
 
-class TestFetchPage:
-    """Additive interface-lock tests for the pure fetch+convert ``fetch_page``."""
+class TestSsrfGuardIsTheOnlyFetchPath:
+    """The SSRF firewall must be the *only* way this module reaches the network.
+
+    A "simple"/"insecure" fetch helper with a default that skips validation is a
+    bypass waiting for the next caller, so the invariant is pinned structurally:
+    the module builds no HTTP client of its own, and the tool refuses blocked
+    targets before any request is attempted.
+    """
+
+    def test_module_constructs_no_http_client(self):
+        import server.toolkit.tools.webfetch as webfetch_mod
+
+        source = pathlib.Path(webfetch_mod.__file__).read_text(encoding="utf-8")
+        assert "AsyncClient" not in source, (
+            "webfetch must not build its own HTTP client; all requests go "
+            "through secure_fetch, which validates the target"
+        )
+        assert "follow_redirects=True" not in source, (
+            "unguarded redirect following belongs only in _transport, where each "
+            "hop is revalidated"
+        )
 
     @pytest.mark.asyncio
-    async def test_fetch_page_returns_converted_markdown(self, monkeypatch):
-        import httpx
+    async def test_blocked_targets_are_refused_before_any_request(self, monkeypatch):
+        import server.toolkit.tools.webfetch as webfetch_mod
 
-        body = "<html><body><main><h1>Title</h1><p>Some body text.</p></main></body></html>"
+        called = []
 
-        class _Resp:
-            def __init__(self):
-                self.headers = {"content-type": "text/html"}
-                self.text = body
+        async def _fail(*_a, **_k):
+            called.append(1)
+            raise AssertionError("network must not be touched for a blocked target")
 
-            def raise_for_status(self):
-                return None
+        monkeypatch.setattr(webfetch_mod, "secure_fetch", _fail)
 
-        class _Client:
-            def __init__(self, *a, **k):
-                pass
+        for url in (
+            "http://127.0.0.1:8080/admin",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://localhost:3000/",
+            "http://10.0.0.5/internal",
+        ):
+            result = await webfetch_mod.WebfetchTool().execute({"url": url}, ".")
+            assert result.success is False, url
+            assert "security" in result.error.lower() or "not supported" in result.error.lower()
 
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-            async def get(self, url):
-                return _Resp()
-
-        monkeypatch.setattr(httpx, "AsyncClient", _Client)
-        result = await fetch_page("https://example.com")
-        assert isinstance(result, FetchResult)
-        assert result.url == "https://example.com"
-        assert "Title" in result.markdown
-        assert "Some body text." in result.markdown
-        assert "<html" not in result.markdown
-        assert result.content_type == "text/html"
-
-    @pytest.mark.asyncio
-    async def test_fetch_page_non_html_truncates(self, monkeypatch):
-        import httpx
-
-        raw = "a" * 500
-
-        class _Resp:
-            def __init__(self):
-                self.headers = {"content-type": "text/plain"}
-                self.text = raw
-
-            def raise_for_status(self):
-                return None
-
-        class _Client:
-            def __init__(self, *a, **k):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-            async def get(self, url):
-                return _Resp()
-
-        monkeypatch.setattr(httpx, "AsyncClient", _Client)
-        result = await fetch_page("https://example.com", max_chars=100)
-        assert result.truncated is True
-        assert "truncated at" in result.markdown
-        assert result.chars == 500
-
-    @pytest.mark.asyncio
-    async def test_fetch_page_propagates_http_error(self, monkeypatch):
-        import httpx
-
-        class _Resp:
-            def __init__(self):
-                self.headers = {"content-type": "text/html"}
-                self.text = ""
-
-            def raise_for_status(self):
-                raise httpx.HTTPStatusError("404", request=None, response=None)
-
-        class _Client:
-            def __init__(self, *a, **k):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-            async def get(self, url):
-                return _Resp()
-
-        monkeypatch.setattr(httpx, "AsyncClient", _Client)
-        with pytest.raises(httpx.HTTPStatusError):
-            await fetch_page("https://example.com")
+        assert not called

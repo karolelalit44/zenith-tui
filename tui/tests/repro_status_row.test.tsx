@@ -1,11 +1,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { render } from 'ink-testing-library';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ScenarioRenderer } from '../src/components/Display/Scenario/ScenarioRenderer';
+import * as AnimationContext from '../src/context/AnimationContext';
 import { AnimationProvider } from '../src/context/AnimationContext';
+import { mapRawEvent } from '../src/services/transport/rawEventMapper';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { ScenarioEvent } from '../src/types/scenario';
-import { mapRawEvent } from '../src/services/transport/rawEventMapper';
 
 const makeSuccess = (): ScenarioEvent => ({
   kind: 'success',
@@ -339,3 +340,73 @@ describe('repro: completed response status row', () => {
   });
 });
 
+describe('Zenith reticle pulse on the live status row', () => {
+  const partial = makeEvents().filter((e) => e.kind !== 'success');
+
+  it('pulses the dim quiet ◌ core on tick 0 (no ⨳, no ❂)', () => {
+    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(0);
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={partial} isRunning thinkingCollapsed={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).not.toContain('⨳');
+    expect(frame).not.toContain('❂');
+    expect(frame).toContain('Esc to cancel');
+    tickSpy.mockRestore();
+  });
+
+  it('charges the core as bold ❂ on ticks 1 and 3', () => {
+    for (const tick of [1, 3]) {
+      const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(tick);
+      const { lastFrame } = render(
+        <ThemeProvider>
+          <ScenarioRenderer events={partial} isRunning thinkingCollapsed={false} />
+        </ThemeProvider>,
+      );
+      const frame = lastFrame();
+      expect(frame).toContain('❂');
+      expect(frame).not.toContain('⨳');
+      tickSpy.mockRestore();
+    }
+  });
+
+  it('ignites the bold ⨳ Zenith core on tick 2', () => {
+    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(2);
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={partial} isRunning thinkingCollapsed={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('⨳');
+    expect(frame).not.toContain('❂');
+    tickSpy.mockRestore();
+  });
+
+  it('returns to the quiet ◌ core on tick 4 before the next cycle', () => {
+    const tickSpy = vi.spyOn(AnimationContext, 'useAnimationTick').mockReturnValue(4);
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={partial} isRunning thinkingCollapsed={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).not.toContain('⨳');
+    expect(frame).not.toContain('❂');
+    tickSpy.mockRestore();
+  });
+
+  it('replaces the pulse with the static ● success dot once completed', () => {
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={makeEvents()} isRunning={false} isHistorical thinkingCollapsed={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame();
+    expect(frame).toContain('●');
+    expect(frame).not.toContain('⨳');
+    expect(frame).not.toContain('❂');
+  });
+});

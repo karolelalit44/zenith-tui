@@ -98,6 +98,52 @@ def record_read(session_id: str, path: str) -> None:
         _session_map(session_id)[path] = rec
 
 
+def record_write(session_id: str, path: str, content: str) -> None:
+    """Record that ``path`` was written/modified with ``content`` this session."""
+    now = _time.time()
+    c_hash = _content_hash(content)
+    size = len(content.encode("utf-8"))
+    with _LOCK:
+        _cache_evict(session_id, path)
+        rec = _session_map(session_id).get(path)
+        if rec is None:
+            rec = SessionFileRecord(
+                path=path,
+                content_hash=c_hash,
+                size=size,
+                writes=1,
+                last_edited_at=now,
+            )
+        else:
+            rec.content_hash = c_hash
+            rec.size = size
+            rec.writes += 1
+            rec.last_edited_at = now
+        _session_map(session_id)[path] = rec
+
+
+def evict_file_cache(session_id: str, path: str) -> None:
+    """Drop any cached read entries for ``path``."""
+    with _LOCK:
+        _cache_evict(session_id, path)
+        if session_id in _STORE:
+            _STORE[session_id].pop(path, None)
+
+
+def evict_read_cache_path(path: str) -> None:
+    """Drop cached read slices for ``path`` in *every* session.
+
+    ``_READ_CACHE`` is keyed by absolute path, so a mutation is only invisible
+    if the invalidation is global: a write issued from a delegated, background,
+    or resumed session must still invalidate the primary session's cached slice
+    of the same file. Writers call this unconditionally on every successful
+    mutation; session write records (``_STORE``) stay session-scoped because
+    they describe what *this* session authored, not cache coherence.
+    """
+    with _LOCK:
+        for paths in _READ_CACHE.values():
+            paths.pop(path, None)
+
 
 def is_identical_replay(session_id: str, path: str, content: str) -> bool:
     """True when this exact content was already written for this path in this session."""
@@ -113,6 +159,7 @@ def _cache_evict(session_id: str, path: str) -> None:
     paths = _READ_CACHE.get(session_id)
     if paths is not None:
         paths.pop(path, None)
+
 
 
 def cache_file_read(

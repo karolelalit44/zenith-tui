@@ -184,6 +184,19 @@ class TestLifecycleEvents:
         assert crewmate_id.startswith("apogee:")
         assert len(crewmate_id.split(":")[1]) == 8
 
+        # Lifecycle (spawned/status/complete/failed) events must key on the SAME
+        # composite id as the captain_orchestration crewmates list, or the
+        # frontend consolidation folds them into duplicate phantom rows.
+        lifecycle_kinds = (
+            EventKind.CREWMATE_SPAWNED,
+            EventKind.CREWMATE_STATUS,
+            EventKind.CREWMATE_COMPLETE,
+            EventKind.CREWMATE_FAILED,
+        )
+        life_ids = {e.data.get("crewmate_id") for e in events if e.kind in lifecycle_kinds}
+        assert life_ids, "expected at least one CREWMATE lifecycle event"
+        assert life_ids == {crewmate_id}, f"lifecycle ids {life_ids} != orchid id {crewmate_id}"
+
 
 class TestIsolationAndPersistence:
     @pytest.mark.asyncio

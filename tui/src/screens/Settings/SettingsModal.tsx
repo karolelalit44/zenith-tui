@@ -17,13 +17,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
 
   const currentThemeIdx = themeOptions.findIndex((t) => t.id === activeThemeId);
   const [selectedThemeIdx, setSelectedThemeIdx] = useState(currentThemeIdx >= 0 ? currentThemeIdx : 0);
-  const [prefCursor, setPrefCursor] = useState(0);
-
-  const toggleAutoApprove = () => {
-    const next = !userProfile.settings.autoApproveTools;
-    setUserProfile((prev) => ({ ...prev, settings: { ...prev.settings, autoApproveTools: next } }));
-    saveUserProfile({ settings: { ...userProfile.settings, autoApproveTools: next } });
-  };
 
   const toggleThinkingCollapsed = () => {
     const next = !userProfile.settings.thinkingCollapsed;
@@ -50,17 +43,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
         setTheme(themeOptions[nextIdx].id);
       }
     } else {
-      if (key.upArrow) {
-        setPrefCursor((prev) => Math.max(0, prev - 1));
-      }
-
-      if (key.downArrow) {
-        setPrefCursor((prev) => Math.min(1, prev + 1));
-      }
-
       if (key.return || char === ' ') {
-        if (prefCursor === 0) toggleAutoApprove();
-        if (prefCursor === 1) toggleThinkingCollapsed();
+        toggleThinkingCollapsed();
       }
     }
 
@@ -144,37 +128,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           <Box flexDirection="column">
             <Box flexDirection="row" alignItems="center" marginY={1}>
               <Box width={3}>
-                <Text color={prefCursor === 0 ? theme.colors.text.emerald : theme.colors.text.dim}>
-                  {prefCursor === 0 ? '▸ ' : '  '}
-                </Text>
+                <Text color={theme.colors.text.emerald}>▸ </Text>
               </Box>
               <Box width={30}>
-                <Text
-                  color={prefCursor === 0 ? theme.colors.text.bright : theme.colors.text.dim}
-                  bold={prefCursor === 0}
-                >
-                  Auto-Approve Tool Execution
-                </Text>
-              </Box>
-              <Text
-                color={userProfile.settings.autoApproveTools ? theme.colors.status.success : theme.colors.status.error}
-                bold
-              >
-                {userProfile.settings.autoApproveTools ? '[ENABLED]' : '[DISABLED]'}
-              </Text>
-            </Box>
-
-            <Box flexDirection="row" alignItems="center" marginY={1}>
-              <Box width={3}>
-                <Text color={prefCursor === 1 ? theme.colors.text.emerald : theme.colors.text.dim}>
-                  {prefCursor === 1 ? '▸ ' : '  '}
-                </Text>
-              </Box>
-              <Box width={30}>
-                <Text
-                  color={prefCursor === 1 ? theme.colors.text.bright : theme.colors.text.dim}
-                  bold={prefCursor === 1}
-                >
+                <Text color={theme.colors.text.bright} bold>
                   Thinking Block Display State
                 </Text>
               </Box>

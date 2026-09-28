@@ -1,27 +1,17 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { contentWidth as computeContentWidth } from '../../../constants/layout';
+import { MAX_TODO_ROWS } from '../../../constants/todo';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoStatus } from '../../../types/scenario';
 import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
-
-export const MAX_VISIBLE_TODOS = 10;
-
-const SN_WIDTH = 7;
-const STATUS_WIDTH = 12;
+import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, TodoStatusGlyph } from './todoStatus';
 
 /**
- * A three-column table: serial number | todo title | status. The title is the
- * main, wider column and truncates to whatever space the terminal width allows;
- * status is one of success / failure / in progress (open items stay "todo").
+ * Strict three-column table: serial (1,2,3) | title (middle, bigger) |
+ * status symbol only. No IDs, no status words, no extra per-row metadata.
  */
-const STATUS_LABEL: Record<TodoStatus, string> = {
-  todo: 'todo',
-  in_progress: 'in progress',
-  done: 'success',
-  blocked: 'failure',
-  cancelled: 'failure',
-};
 
 interface TodoBoardBlockProps {
   event: ConsolidatedTodoBoard;
@@ -33,28 +23,14 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
   const colors = theme.colors;
   const { columns } = useTerminalDimensions();
   const termCols = columns || process.stdout.columns || 80;
-  const contentWidth = Math.max(30, termCols - 2);
+  const contentWidth = computeContentWidth(termCols);
 
   const all = event.board ?? [];
-  const items = all.slice(0, MAX_VISIBLE_TODOS);
+  const items = all.slice(0, MAX_TODO_ROWS);
   const hidden = all.length - items.length;
 
   const titleColor = (status: TodoStatus): string =>
     status === 'done' || status === 'in_progress' ? colors.text.bright : colors.text.muted;
-
-  const statusColor = (status: TodoStatus): string => {
-    switch (status) {
-      case 'done':
-        return colors.status.success;
-      case 'blocked':
-      case 'cancelled':
-        return colors.status.error;
-      case 'in_progress':
-        return colors.status.info;
-      default:
-        return colors.text.muted;
-    }
-  };
 
   return (
     <Box flexDirection="column" width={contentWidth} marginTop={1} marginBottom={1}>
@@ -72,20 +48,18 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
         {items.length === 0 ? (
           <Text color={colors.text.dim}>(no todos yet)</Text>
         ) : (
-          items.map((item) => (
+          items.map((item, idx) => (
             <Box key={item.id} flexDirection="row" width="100%">
-              <Box width={SN_WIDTH} flexShrink={0}>
-                <Text color={colors.text.dim}>{item.id}</Text>
+              <Box width={TODO_SN_WIDTH} flexShrink={0}>
+                <Text color={colors.text.dim}>{String(idx + 1)}</Text>
               </Box>
               <Box flexGrow={1} flexShrink={1}>
                 <Text color={titleColor(item.status)} wrap="truncate-end">
                   {item.title}
                 </Text>
               </Box>
-              <Box width={STATUS_WIDTH} flexShrink={0} paddingLeft={1} alignItems="flex-end">
-                <Text color={statusColor(item.status)} bold>
-                  {STATUS_LABEL[item.status]}
-                </Text>
+              <Box width={TODO_STATUS_WIDTH} flexShrink={0} paddingLeft={1}>
+                <TodoStatusGlyph status={item.status} colors={colors} />
               </Box>
             </Box>
           ))

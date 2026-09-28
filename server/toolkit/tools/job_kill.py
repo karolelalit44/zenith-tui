@@ -5,7 +5,6 @@ from typing import Any
 from server.config.constants import (
     BUILD_MODE,
     CONCURRENCY_GROUP_SHELL,
-    PERMISSION_COMMAND,
     RISK_LOW,
     TOOL_DOMAIN_EXECUTION,
 )
@@ -21,7 +20,6 @@ class JobKillTool(BaseTool):
     requires_mode = BUILD_MODE
     read_only = False
     concurrency_group = CONCURRENCY_GROUP_SHELL
-    permission_scope = PERMISSION_COMMAND
     domains = (TOOL_DOMAIN_EXECUTION,)
     search_terms = (
         "kill",

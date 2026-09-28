@@ -50,6 +50,7 @@ CORE_PLAN_TOOLS = [
     "grep",
     "websearch",
     "webfetch",
+    "todo",
 ]
 
 
@@ -68,10 +69,22 @@ PLAN_MODE_CONFIG = AgentModeConfig(
     allowed_tools=CORE_PLAN_TOOLS,
     description="Read-only analysis and planning with core tools and dynamic escalation.",
 )
-# Always-offered schemas. Web research tools stay registered and are promoted on
-# demand (get_tool_definition or a direct call auto-escalates), so a pure code
-# task never pays for their (large) schemas on every turn.
-CORE_BUILD_TOOLS = ["file_read", "file_edit", "file_write", "bash", "glob", "grep"]
+# Always-offered schemas. Web research tools are core research first-class
+# tools in build mode too: the 10% temporal-instability policy mandates search
+# for non-local claims, so the model must always have them available rather
+# than having to name them in its own prompt to trigger on-demand escalation.
+CORE_BUILD_TOOLS = [
+    "file_read",
+    "file_edit",
+    "file_write",
+    "apply_patch",
+    "bash",
+    "glob",
+    "grep",
+    "websearch",
+    "webfetch",
+    "todo",
+]
 BUILD_MODE_CONFIG = AgentModeConfig(
     name=BUILD_MODE,
     allowed_tools=CORE_BUILD_TOOLS,
@@ -149,15 +162,27 @@ class AppSettings(BaseModel):
     context_compaction_threshold: float = DEFAULTS.context_compaction_threshold
     async_summary_enabled: bool = DEFAULTS.async_summary_enabled
     auto_approve_plan: bool = Field(
-        default=False, description="Skip user confirmation when running a plan in build mode"
+        default=False,
+        description=(
+            "Adopt a plan the moment it is produced. When false, the first build "
+            "request that carries a plan adopts it instead. Either way the plan is "
+            "adopted without asking — this flag only moves *when*."
+        ),
     )
     auto_overwrite: bool = Field(
         default=True,
-        description="Automatically allow overwriting existing files without confirmation",
+        description=(
+            "Allow file_write to replace an existing file without the caller "
+            "passing overwrite=true. When false, overwrites are refused."
+        ),
     )
     auto_risky: bool = Field(
         default=True,
-        description="Automatically allow risky operations (file deletion, risky commands) without confirmation",
+        description=(
+            "Allow irreversible operations (file_delete) to proceed. When false, "
+            "destructive file operations are refused. This is a hard policy "
+            "switch, not a confirmation prompt."
+        ),
     )
     repo_map_enabled: bool = Field(
         default=True,

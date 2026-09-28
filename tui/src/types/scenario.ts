@@ -92,6 +92,10 @@ export interface SuccessEvent {
   iterations?: number;
   tokenInfo?: TokenInfo;
   elapsedMs?: number;
+  completed?: boolean;
+  finishReason?: string;
+  truncated?: boolean;
+  manifest?: TurnManifestEvent;
 }
 
 export interface MessageEvent {
@@ -267,6 +271,8 @@ export interface TurnManifestEvent {
   remaining: string[];
   completed: boolean;
   stalled: boolean;
+  /** True when a substantive answer (or salvage summary) was produced. */
+  answered?: boolean;
   files: { path: string; exists: boolean; size: number }[];
 }
 
@@ -386,6 +392,8 @@ export interface TodoItem {
   createdAt: number;
   updatedAt: number;
   subtasks: SubtaskItem[];
+  notes?: string;
+  depends_on?: string[];
 }
 
 export type TodoBoardAction = 'created' | 'updated' | 'completed' | 'cancelled' | 'snapshot';

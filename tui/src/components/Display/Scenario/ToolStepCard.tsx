@@ -1,6 +1,5 @@
 import { Box, Text } from 'ink';
 import React, { useRef } from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
 import {
   EXPLORE_TOOL,
   FILE_DELETE_TOOL_SET,
@@ -12,18 +11,22 @@ import {
   LIST_DIR_TOOL_SET,
   SEARCH_TOOL_SET,
   SHELL_TOOL_SET,
+  TODO_TOOL,
   TOOL_META_INTERRUPTED,
   TOOL_META_REPEAT_COUNT,
 } from '../../../constants/toolDisplay';
-import { useAnimationTick } from '../../../context/AnimationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
-import { formatDuration } from '../../../utils/text';
-import { getWorkspaceFolderName } from '../../../utils/workspacePath';
+import { stripAnsi } from '../../../utils/ansi';
+import { countWord, formatDuration } from '../../../utils/text';
+import { getWorkspaceFolderName, toWorkspaceRelative } from '../../../utils/workspacePath';
+import { LiveElapsed } from '../../ui/LiveElapsed';
+import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 import { DirectoryListingCard } from './DirectoryListingCard';
 import { formatErrorSummary } from './errorSummary';
 import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
+import { WebResearchCard } from './WebResearchCard';
 
 /** Shape of the metadata payload the server attaches to explore results. */
 interface ExploreMeta {
@@ -75,8 +78,7 @@ const ExploreCrewCard: React.FC<{
   elapsedMs: number;
   context?: EventRenderContext;
   metaPill: React.ReactNode;
-  tick: number;
-}> = React.memo(({ event, isPending, state, elapsedMs, tick }) => {
+}> = React.memo(({ event, isPending, state, elapsedMs, metaPill }) => {
   const { theme } = useTheme();
   const meta = readExploreMeta(event.metadata);
   const crewmateName = meta.crewmate_name ?? 'Apogee';
@@ -97,15 +99,6 @@ const ExploreCrewCard: React.FC<{
       : state === 'cancelled'
         ? theme.colors.status.warning
         : theme.colors.border.muted;
-
-  const durationSec =
-    event.metadata?.duration_ms !== undefined
-      ? Math.max(0, event.metadata.duration_ms as number)
-      : isPending
-        ? elapsedMs
-        : 0;
-  const durationText =
-    durationSec > 0 || isPending ? formatDuration(Math.max(1000, Math.floor(durationSec / 1000) * 1000)) : '';
 
   /** Confidence chips: one glance = report trustworthiness. */
   const chips: { color: string; glyph: string; label: string }[] = [];
@@ -152,11 +145,7 @@ const ExploreCrewCard: React.FC<{
           <Box flexShrink={0}>
             <Text color={theme.colors.text.dim}>{meta.thoroughness ?? 'standard'}</Text>
           </Box>
-          {durationText ? (
-            <Box flexShrink={0} marginLeft={1}>
-              <Text color={theme.colors.text.dim}>~ {durationText}</Text>
-            </Box>
-          ) : null}
+          {metaPill}
         </Box>
 
         {/* Mission line: status glyph ❯ objective */}
@@ -165,13 +154,7 @@ const ExploreCrewCard: React.FC<{
             color={isPending ? theme.colors.status.info : ok ? theme.colors.status.success : theme.colors.status.error}
             bold
           >
-            {isPending
-              ? `${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]} `
-              : ok
-                ? ' '
-                : state === 'cancelled'
-                  ? '⊘ '
-                  : '✗ '}
+            {isPending ? <Spinner suffix=" " /> : ok ? '  ' : state === 'cancelled' ? '⊘ ' : '✗ '}
           </Text>
           <Text color={theme.colors.text.bright} wrap="truncate-end">
             {objective || 'Exploring…'}
@@ -208,17 +191,32 @@ const ExploreCrewCard: React.FC<{
           </Box>
         ) : null}
 
-        {/* Failure context */}
-        {!isPending && !ok && event.error ? (
-          <Box paddingLeft={2}>
-            <Text
-              color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
-              wrap="truncate-end"
-            >
-              {formatErrorSummary(event.error)}
-            </Text>
-          </Box>
-        ) : null}
+        {/* Failure context. Cancelled missions show only an explicit error; a failed
+        mission whose error is empty falls back to its (actionable) output —
+        e.g. a "[explore] timed_out" report that previously rendered as nothing. */}
+        {!isPending && !ok
+          ? (() => {
+              const failureText =
+                event.error ||
+                (state === 'failed' && event.output
+                  ? stripAnsi(event.output)
+                      .replace(/^\[explore\][^\n]*\n?/, '')
+                      .trim()
+                  : '') ||
+                '';
+              if (!failureText) return null;
+              return (
+                <Box paddingLeft={2}>
+                  <Text
+                    color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
+                    wrap="truncate-end"
+                  >
+                    {formatErrorSummary(failureText)}
+                  </Text>
+                </Box>
+              );
+            })()
+          : null}
       </Box>
     </Box>
   );
@@ -252,11 +250,6 @@ function resolveExecutionState(event: ToolStepEvent, isPending: boolean): Execut
   if (isExecutionInterrupted(event)) return 'cancelled';
   if (event.success !== false) return 'success';
   return 'failed';
-}
-
-/** Strip ANSI escape sequences from command output strings to prevent Ink rendering glitches. */
-function stripAnsi(text: string): string {
-  return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
 }
 
 function isToolStatusBoilerplate(line: string): boolean {
@@ -293,7 +286,6 @@ interface ToolStepCardProps {
 export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, context }) => {
   const { theme } = useTheme();
   const isPending = Boolean(event.pending && context?.isRunning && !context?.isHistorical);
-  const tick = useAnimationTick();
 
   // Live elapsed time must measure from the tool step's own start, not from app
   // mount (the shared animation tick only re-renders; it is not a clock).
@@ -315,13 +307,12 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     typeof event.metadata?.duration_ms === 'number' ? Math.max(0, event.metadata.duration_ms) : undefined;
   const durationSec = metaDurMs !== undefined ? metaDurMs : isPending ? elapsedMs : 0;
   const durationText =
-    durationSec > 0 || isPending ? formatDuration(Math.max(1000, Math.floor(durationSec / 1000) * 1000)) : '';
+    durationSec > 0 || isPending ? formatDuration(isPending ? Math.max(1000, durationSec) : durationSec) : '';
 
   const repeatMeta = event.metadata?.[TOOL_META_REPEAT_COUNT];
   const repeatCount = typeof repeatMeta === 'number' && repeatMeta > 1 ? repeatMeta : 0;
 
   const primary = getToolStepPrimaryParam(event.tool, event.params);
-
   const statusText = !isPending ? getToolStepStatusText(event) : '';
   const verb = getToolVerbLabel(event.tool);
   const textTrimmed = event.text ? event.text.trim() : '';
@@ -337,7 +328,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     if (isPending) {
       return (
         <Text color={theme.colors.status.info} bold>
-          {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
+          <Spinner suffix=" " />
         </Text>
       );
     }
@@ -350,7 +341,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     }
     return (
       <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-        {isSuccess ? '' : '✗'}{' '}
+        {isSuccess ? ' ' : '✗'}{' '}
       </Text>
     );
   })();
@@ -363,7 +354,11 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           <Text color={theme.colors.text.dim}>×{repeatCount}</Text>
         </Box>
       ) : null}
-      {durationText ? (
+      {isPending && startedAt !== undefined ? (
+        <Box flexShrink={0} marginLeft={1}>
+          <LiveElapsed startedAt={startedAt} color={theme.colors.text.dim} />
+        </Box>
+      ) : durationText ? (
         <Box flexShrink={0} marginLeft={1}>
           <Text color={theme.colors.text.dim}>~ {durationText}</Text>
         </Box>
@@ -375,28 +370,42 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   const isShellCommand = SHELL_TOOL_SET.has(toolKey);
   const isGrepSearch = SEARCH_TOOL_SET.has(toolKey);
   const isFileRead = FILE_READ_TOOL_SET.has(toolKey);
+  const isGrep = toolKey === 'grep' || toolKey === 'grep_search';
+  const isGlob = toolKey === 'glob';
   const isFileMutation = FILE_MUTATION_TOOL_SET.has(toolKey);
 
   const cmdString = primary?.value ?? (event.params.command as string) ?? '';
 
+  const isCreateFile = toolKey === 'file_write' || toolKey === 'write_file' || toolKey === 'create_file';
+
+  const explicitlyRequested = Boolean(
+    event.params?.show_content ||
+      event.params?.render_code ||
+      event.params?.show_diff ||
+      event.metadata?.show_content ||
+      event.metadata?.render_code,
+  );
+
   // Resolve the diff/content to render underneath the header. Prefer a
-  // server-captured unified diff (params.diff or metadata.diff), then raw file
-  // content for brand-new files, and finally build a hunk-only diff on the
-  // client for legacy file_edit events that carry no server-side diff.
+  // server-captured unified diff (params.diff or metadata.diff), then client-computed
+  // hunk diff for edits. For file creations (file_write), never render file code/content
+  // or whole-file diffs unless explicitly requested.
   const diffOrContent = (() => {
-    const fromParams =
-      (event.params.diff as string) ||
-      (event.params.content as string) ||
-      (event.params.code as string) ||
-      (event.params.patch as string) ||
+    if (isCreateFile && !explicitlyRequested) {
+      return '';
+    }
+
+    const explicitDiff =
+      (typeof event.metadata?.diff === 'string' && event.metadata.diff ? event.metadata.diff : '') ||
+      (event.params?.diff as string) ||
+      (event.params?.patch as string) ||
       '';
-    if (fromParams) return fromParams;
-    if (typeof event.metadata?.diff === 'string' && event.metadata.diff) return event.metadata.diff;
+    if (explicitDiff) return explicitDiff;
+
     const lower = event.tool.toLowerCase();
-    if (
-      ('file_edit' === lower || 'multi_edit' === lower || 'edit_file' === lower || 'replace_file_content' === lower) &&
-      event.params
-    ) {
+    const isEditTool =
+      lower === 'file_edit' || lower === 'multi_edit' || lower === 'edit_file' || lower === 'replace_file_content';
+    if (isEditTool && event.params) {
       const oldContent =
         (event.params.old_content as string) ??
         (event.params.target_content as string) ??
@@ -409,12 +418,36 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         '';
       if (oldContent || newContent) return buildUnifiedDiff(oldContent, newContent);
     }
+
+    if (explicitlyRequested) {
+      return (event.params?.content as string) || (event.params?.code as string) || '';
+    }
+
     return '';
   })();
 
   if (isShellCommand) {
     const meta = event.metadata ?? {};
     const exitCode = typeof meta.exit_code === 'number' ? meta.exit_code : undefined;
+
+    // Dedicated-tool bypass refusals are not real failures — render as compact
+    // inline hint instead of a full terminal error card to avoid noisy `✗ Refused` blocks.
+    const isDedicatedBypassRefusal =
+      !isPending && !isSuccess && typeof event.error === 'string' && event.error.includes('Refused: Do not use shell');
+    if (isDedicatedBypassRefusal) {
+      return (
+        <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+          <Box flexDirection="row" alignItems="center">
+            <Text color={theme.colors.status.warning} bold>
+              ⚠{' '}
+            </Text>
+            <Text color={theme.colors.text.dim} wrap="truncate-end">
+              {formatErrorSummary(event.error)}
+            </Text>
+          </Box>
+        </Box>
+      );
+    }
 
     // Border colour carries the execution state: info while pending, warning if cancelled, neutral muted when completed.
     const borderColor = isPending
@@ -470,7 +503,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           <Box flexDirection="row" alignItems="center">
             {isPending ? (
               <Text color={theme.colors.status.info} bold>
-                {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
+                <Spinner suffix=" " />
               </Text>
             ) : state === 'cancelled' ? (
               <Text color={theme.colors.status.warning} bold>
@@ -535,7 +568,6 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         elapsedMs={elapsedMs}
         context={context}
         metaPill={metaPill}
-        tick={tick}
       />
     );
   }
@@ -550,8 +582,114 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         elapsedMs={elapsedMs}
         context={context}
         metaPill={metaPill}
-        tick={tick}
       />
+    );
+  }
+
+  /** Medium of A2+A3 Dossier — dense + modern pills, no boxes, 1.5 lines. */
+  if (toolKey === 'websearch' || toolKey === 'webfetch') {
+    return <WebResearchCard event={event} context={context} />;
+  }
+
+  /** Modern capabilities dossier — grouped, color-coded, professional. */
+  if (toolKey === 'discover_capabilities') {
+    const raw = event.output || '';
+    const lines = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('- '));
+    const parsed = lines
+      .map((l) => {
+        const m = l.match(/^-\s+(\S+)\s+\[(read-only|mutating)\]:\s+tools:\s+(.*)$/);
+        if (!m) return null;
+        return {
+          id: m[1],
+          flag: m[2] as 'read-only' | 'mutating',
+          tools: m[3]
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        };
+      })
+      .filter(Boolean) as { id: string; flag: 'read-only' | 'mutating'; tools: string[] }[];
+    const caps =
+      parsed.length > 0
+        ? parsed
+        : ((event.metadata?.capabilities as string[] | undefined)?.map((id) => ({
+            id,
+            flag: 'read-only' as const,
+            tools: [],
+          })) ?? []);
+    const totalCaps = caps.length;
+    const totalTools = caps.reduce((a, c) => a + c.tools.length, 0);
+    const isGrouped = parsed.length > 0;
+    return (
+      <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+        <Box
+          flexDirection="column"
+          backgroundColor={theme.colors.code.background}
+          borderStyle="round"
+          borderColor={theme.colors.border.muted}
+          paddingX={1}
+          paddingY={0}
+        >
+          <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap" justifyContent="space-between">
+            <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
+              <Text color={theme.colors.status.accent} bold>
+                ◆{' '}
+              </Text>
+              <Text color={theme.colors.text.bright} bold>
+                Discovered {totalCaps} {totalCaps === 1 ? 'capability' : 'capabilities'}
+              </Text>
+              <Text color={theme.colors.text.dim}> · {totalTools} tools</Text>
+            </Box>
+            {metaPill}
+          </Box>
+          {!isPending && isGrouped ? (
+            <Box flexDirection="column" paddingLeft={1} marginTop={0}>
+              {caps.slice(0, 12).map((cap) => (
+                <Box key={cap.id} flexDirection="row" alignItems="center" flexWrap="wrap">
+                  <Text
+                    color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning}
+                    bold
+                  >
+                    {cap.flag === 'read-only' ? '● ' : '◐ '}
+                  </Text>
+                  <Text color={theme.colors.text.bright} bold>
+                    {cap.id}
+                  </Text>
+                  <Text color={cap.flag === 'read-only' ? theme.colors.status.success : theme.colors.status.warning}>
+                    {' '}
+                    [{cap.flag}]
+                  </Text>
+                  {cap.tools.length > 0 && (
+                    <Text color={theme.colors.text.dim} wrap="truncate-end">
+                      {' '}
+                      — {cap.tools.join(' · ')}
+                    </Text>
+                  )}
+                </Box>
+              ))}
+              {caps.length > 12 && (
+                <Text color={theme.colors.text.dim} italic>
+                  +{caps.length - 12} more capabilities
+                </Text>
+              )}
+              <Box marginTop={0}>
+                <Text color={theme.colors.text.dim} italic wrap="truncate-end">
+                  Call get_tool_definition('tool_name') to load schema
+                </Text>
+              </Box>
+            </Box>
+          ) : (
+            <Box paddingLeft={1}>
+              <Text color={theme.colors.text.dim} wrap="truncate-end">
+                {formatCommandOutput(raw, 8)}
+              </Text>
+            </Box>
+          )}
+        </Box>
+      </Box>
     );
   }
 
@@ -567,8 +705,9 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
   // Inline result counts keep read/search rows to ONE line total.
   const inlineCount = (() => {
     if (!isSuccess || isPending || outputText.trim().length === 0) return '';
-    if (isFileRead) return `${outputText.split('\n').filter((l) => l.trim()).length} lines`;
-    if (isGrepSearch) return `${outputText.split('\n').filter((l) => l.trim()).length} matches`;
+    const count = outputText.split('\n').filter((l) => l.trim()).length;
+    if (isFileRead) return countWord(count, 'line');
+    if (isGrepSearch) return countWord(count, 'match');
     return '';
   })();
 
@@ -579,40 +718,99 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
         {!isFileDelete ? statusGlyph : null}
         <Box flexGrow={1} flexShrink={1} overflow="hidden">
           {isFileDelete ? (
-            <Text
-              color={
-                state === 'cancelled'
-                  ? theme.colors.status.warning
-                  : isSuccess
-                    ? theme.colors.status.warning
-                    : theme.colors.status.error
-              }
-              bold
-              wrap="truncate-end"
-            >
-              {statusText || `${headerText} removed`}
-            </Text>
+            hasTextHeader ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : isSuccess ? (
+              <Text color={theme.colors.status.warning} bold wrap="truncate-end">
+                {`✗ Delete ${toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText.replace(/^Delete\s+/i, '').replace(/ removed$/i, ''), context?.workspaceName)} (removed from workspace)`}
+              </Text>
+            ) : (
+              <Text color={theme.colors.status.error} bold wrap="truncate-end">
+                {statusText || `${headerText} failed`}
+              </Text>
+            )
           ) : isFileRead ? (
-            <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright} wrap="truncate-end">
-              {hasTextHeader ? event.text : `Read ${primary?.value ?? (event.metadata?.path as string) ?? headerText}`}
-              {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
-            </Text>
-          ) : isGrepSearch ? (
-            <Text color={isSuccess ? theme.colors.status.info : theme.colors.text.bright} wrap="truncate-end">
-              {hasTextHeader
-                ? event.text
-                : `${event.tool === 'glob' ? 'Glob' : 'Grep'} "${
-                    primary?.value ?? (event.metadata?.pattern as string) ?? ''
-                  }"`}
-              {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
-            </Text>
+            hasTextHeader && !isSuccess ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright}>▤ Read </Text>
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader
+                    ? toWorkspaceRelative((event.text ?? '').replace(/^Read\s+/i, ''), context?.workspaceName)
+                    : toWorkspaceRelative(
+                        primary?.value ?? (event.metadata?.path as string) ?? headerText,
+                        context?.workspaceName,
+                      )}
+                </Text>
+                {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
+              </Text>
+            )
+          ) : isGrep ? (
+            hasTextHeader && !isSuccess ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright}>⌕ Grep </Text>
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader
+                    ? (event.text ?? '').replace(/^(Grep|Search)\s+/i, '')
+                    : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
+                </Text>
+                {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
+              </Text>
+            )
+          ) : isGlob ? (
+            hasTextHeader && !isSuccess ? (
+              <Text color={theme.colors.text.bright} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright}>⬢ Glob </Text>
+                <Text color={isSuccess ? theme.colors.text.muted : theme.colors.text.bright} wrap="truncate-end">
+                  {hasTextHeader
+                    ? (event.text ?? '').replace(/^Glob\s+/i, '')
+                    : `"${primary?.value ?? (event.metadata?.pattern as string) ?? ''}"`}
+                </Text>
+                {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
+              </Text>
+            )
+          ) : isFileMutation && isSuccess ? (
+            hasTextHeader ? (
+              <Text color={theme.colors.text.muted} wrap="truncate-end">
+                {headerText}
+              </Text>
+            ) : (
+              <Text wrap="truncate-end">
+                <Text color={theme.colors.status.success}>
+                  {toolKey === 'file_write' || toolKey === 'write_file' || toolKey === 'create_file'
+                    ? '● Create '
+                    : toolKey === 'apply_patch' || toolKey === 'patch'
+                      ? '● Patch '
+                      : '● Update '}
+                </Text>
+                <Text color={theme.colors.text.muted} wrap="truncate-end">
+                  {toWorkspaceRelative(
+                    primary?.value ?? (event.metadata?.path as string) ?? headerText,
+                    context?.workspaceName,
+                  )}
+                </Text>
+              </Text>
+            )
           ) : (
             <Text
               color={
                 state === 'cancelled'
                   ? theme.colors.status.warning
                   : isSuccess
-                    ? theme.colors.text.bright
+                    ? theme.colors.text.muted
                     : theme.colors.status.error
               }
               bold={!isSuccess}
@@ -641,10 +839,19 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       ) : null}
       {/* Unified Git Native Diff / Plain Code Box (file_write, file_edit, multi_edit) */}
       {isFileMutation && !isPending && isSuccess && diffOrContent ? (
-        <FileDiffBlock diffOrContent={diffOrContent} title={primary?.value || undefined} />
+        <FileDiffBlock
+          diffOrContent={diffOrContent}
+          title={primary?.value ? toWorkspaceRelative(primary.value, context?.workspaceName) : undefined}
+        />
       ) : null}
       {/* Non-shell informational tools keep a small capped output excerpt */}
-      {!isFileMutation && !isPending && isSuccess && !isFileRead && !isGrepSearch && outputText.trim().length > 0 ? (
+      {!isFileMutation &&
+      !isPending &&
+      isSuccess &&
+      (!isFileRead || explicitlyRequested) &&
+      !isGrepSearch &&
+      toolKey !== TODO_TOOL &&
+      outputText.trim().length > 0 ? (
         <Box flexDirection="column" paddingLeft={2} marginTop={0}>
           <Text color={theme.colors.text.dim} wrap="truncate-end">
             {formatCommandOutput(outputText, GENERIC_OUTPUT_PREVIEW_LINES)}

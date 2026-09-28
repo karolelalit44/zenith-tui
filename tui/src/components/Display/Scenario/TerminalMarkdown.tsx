@@ -1,12 +1,15 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { TABLE_WIDTH_INSET } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import { highlightCode } from '../../../utils/syntaxHighlight';
-import { truncateEnd } from '../../../utils/text';
 
 interface TerminalMarkdownProps {
   content: string;
+  isRunning?: boolean;
+  maxLines?: number;
+  scrollOffset?: number;
 }
 
 interface InlineToken {
@@ -17,6 +20,9 @@ interface InlineToken {
 }
 
 function parseInlineTokens(text: string): InlineToken[] {
+  if (!text.includes('*') && !text.includes('`')) {
+    return [{ text }];
+  }
   const tokens: InlineToken[] = [];
   const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
   let lastIdx = 0;
@@ -110,6 +116,7 @@ interface TableBlock {
 /** Remove markdown inline markers so table cells render as clean monospace text. */
 function stripInlineMarkdown(text: string): string {
   return text
+    .replace(/<br\s*\/?>/gi, '\n')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/`([^`]+)`/g, '$1')
@@ -118,12 +125,12 @@ function stripInlineMarkdown(text: string): string {
 
 function parseTable(lines: string[]): TableBlock | null {
   if (lines.length < 2) return null;
-  const parseRow = (line: string) =>
-    line
-      .trim()
-      .slice(1, -1)
-      .split('|')
-      .map((c) => c.trim());
+  const parseRow = (line: string) => {
+    let clean = line.trim();
+    if (clean.startsWith('|')) clean = clean.slice(1);
+    if (clean.endsWith('|')) clean = clean.slice(0, -1);
+    return clean.split('|').map((c) => c.trim());
+  };
 
   const headers = parseRow(lines[0]);
   if (!lines[1].includes('---')) return null;
@@ -138,6 +145,148 @@ function parseTable(lines: string[]): TableBlock | null {
   return { headers, rows };
 }
 
+/**
+ * Wraps cell text into lines that fit within the specified column width.
+ * Splits on whitespace where possible; breaks long words that exceed width.
+ */
+function wrapCellText(text: string, width: number): string[] {
+  if (width <= 0) return [''];
+  if (!text) return [''];
+
+  const normalized = text.trim();
+  if (!normalized) return [''];
+
+  const rawParagraphs = normalized.split('\n');
+  const allLines: string[] = [];
+
+  for (const para of rawParagraphs) {
+    const trimmedPara = para.trim();
+    if (!trimmedPara) {
+      allLines.push('');
+      continue;
+    }
+
+    const words = trimmedPara.split(/\s+/);
+    let currentLine = '';
+
+    for (const word of words) {
+      if (!word) continue;
+
+      // If word itself is longer than width, chunk it
+      if (word.length > width) {
+        if (currentLine) {
+          allLines.push(currentLine);
+          currentLine = '';
+        }
+        let remaining = word;
+        while (remaining.length > width) {
+          allLines.push(remaining.slice(0, width));
+          remaining = remaining.slice(width);
+        }
+        currentLine = remaining;
+        continue;
+      }
+
+      if (!currentLine) {
+        currentLine = word;
+      } else if (currentLine.length + 1 + word.length <= width) {
+        currentLine += ` ${word}`;
+      } else {
+        allLines.push(currentLine);
+        currentLine = word;
+      }
+    }
+
+    if (currentLine) {
+      allLines.push(currentLine);
+    }
+  }
+
+  return allLines.length > 0 ? allLines : [''];
+}
+
+/**
+ * Computes optimal column widths given terminal constraints.
+ * Ensures columns that fit within their fair share only consume what they need,
+ * allowing wider columns to utilize the remaining available width.
+ */
+function computeColWidths(headers: string[], rows: string[][], availCellWidth: number): number[] {
+  const numCols = headers.length || 1;
+  const MIN_COL_WIDTH = 3;
+
+  const desiredWidths = headers.map((h, i) => {
+    let max = Math.max(h.length, MIN_COL_WIDTH);
+    for (const r of rows) {
+      const cell = r[i] || '';
+      const lines = cell.includes('\n') ? cell.split('\n') : [cell];
+      for (const line of lines) {
+        if (line.length > max) {
+          max = line.length;
+        }
+      }
+    }
+    return max;
+  });
+
+  const totalDesired = desiredWidths.reduce((sum, w) => sum + w, 0);
+  if (totalDesired <= availCellWidth) {
+    return desiredWidths;
+  }
+
+  const colWidths = new Array(numCols).fill(0);
+  let remainingWidth = availCellWidth;
+  let remainingCols = numCols;
+  const finalized = new Array(numCols).fill(false);
+
+  let changed = true;
+  while (changed && remainingCols > 0) {
+    changed = false;
+    const fairShare = Math.floor(remainingWidth / remainingCols);
+
+    for (let i = 0; i < numCols; i++) {
+      if (!finalized[i] && desiredWidths[i] <= fairShare) {
+        const allocated = Math.max(MIN_COL_WIDTH, desiredWidths[i]);
+        colWidths[i] = allocated;
+        remainingWidth -= allocated;
+        remainingCols--;
+        finalized[i] = true;
+        changed = true;
+      }
+    }
+  }
+
+  if (remainingCols > 0) {
+    const baseShare = Math.max(MIN_COL_WIDTH, Math.floor(remainingWidth / remainingCols));
+    let remainder = Math.max(0, remainingWidth - baseShare * remainingCols);
+
+    for (let i = 0; i < numCols; i++) {
+      if (!finalized[i]) {
+        const extra = remainder > 0 ? 1 : 0;
+        remainder = Math.max(0, remainder - 1);
+        colWidths[i] = Math.min(desiredWidths[i], baseShare + extra);
+        colWidths[i] = Math.max(MIN_COL_WIDTH, colWidths[i]);
+      }
+    }
+  }
+
+  return colWidths;
+}
+
+function formatRowLines(cells: string[], colWidths: number[]): string[] {
+  const wrappedCols = colWidths.map((width, i) => wrapCellText(cells[i] || '', width));
+  const maxLines = Math.max(1, ...wrappedCols.map((col) => col.length));
+
+  const result: string[] = [];
+  for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
+    const lineCells = colWidths.map((width, i) => {
+      const text = wrappedCols[i][lineIdx] || '';
+      return text.padEnd(width, ' ');
+    });
+    result.push(`│ ${lineCells.join(' │ ')} │`);
+  }
+  return result;
+}
+
 const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   const { theme } = useTheme();
   const { columns } = useTerminalDimensions();
@@ -145,50 +294,49 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   const headers = table.headers.map(stripInlineMarkdown);
   const rows = table.rows.map((r) => r.map(stripInlineMarkdown));
 
-  const numCols = headers.length || 1;
-  const maxTableWidth = Math.max(24, columns - 6);
+  const numCols = Math.max(headers.length, ...rows.map((r) => r.length), 1);
+  while (headers.length < numCols) headers.push('');
+
+  const maxTableWidth = Math.max(24, columns - TABLE_WIDTH_INSET);
   // Account for table borders: "│ " (2) + " │ " (3 * (numCols - 1)) + " │" (2) = 4 + 3*(numCols - 1)
   const overhead = 4 + 3 * (numCols - 1);
-  const availCellWidth = Math.max(numCols * 4, maxTableWidth - overhead);
-  const colBudget = Math.max(4, Math.floor(availCellWidth / numCols));
+  const availCellWidth = Math.max(numCols * 3, maxTableWidth - overhead);
 
-  const colWidths = headers.map((h, i) => {
-    let max = h.length;
-    rows.forEach((r) => {
-      if (r[i] && r[i].length > max) {
-        max = r[i].length;
-      }
-    });
-    return Math.max(4, Math.min(max, colBudget));
-  });
-
-  const makeRowStr = (cells: string[]) =>
-    `│ ${cells.map((cell, i) => (truncateEnd(cell || '', colWidths[i]) || '').padEnd(colWidths[i])).join(' │ ')} │`;
+  const colWidths = computeColWidths(headers, rows, availCellWidth);
 
   const topBorder = `┌─${colWidths.map((w) => '─'.repeat(w)).join('─┬─')}─┐`;
   const headerSep = `├─${colWidths.map((w) => '─'.repeat(w)).join('─┼─')}─┤`;
   const bottomBorder = `└─${colWidths.map((w) => '─'.repeat(w)).join('─┴─')}─┘`;
+
+  const headerLines = formatRowLines(headers, colWidths);
 
   return (
     <Box flexDirection="column" marginTop={1} width="100%">
       <Text color={theme.colors.border.muted} wrap="truncate-end">
         {topBorder}
       </Text>
-      <Box flexDirection="row" width="100%">
-        <Text color={theme.colors.text.bright} bold wrap="truncate-end">
-          {makeRowStr(headers)}
-        </Text>
+      <Box flexDirection="column" width="100%">
+        {headerLines.map((lineStr, lineIdx) => (
+          <Text key={lineIdx} color={theme.colors.text.bright} bold wrap="truncate-end">
+            {lineStr}
+          </Text>
+        ))}
       </Box>
       <Text color={theme.colors.border.muted} wrap="truncate-end">
         {headerSep}
       </Text>
-      {rows.map((r, idx) => (
-        <Box key={idx} flexDirection="row" width="100%">
-          <Text color={theme.colors.text.ethereal} wrap="truncate-end">
-            {makeRowStr(r)}
-          </Text>
-        </Box>
-      ))}
+      {rows.map((r, idx) => {
+        const rowLines = formatRowLines(r, colWidths);
+        return (
+          <Box key={idx} flexDirection="column" width="100%">
+            {rowLines.map((lineStr, lineIdx) => (
+              <Text key={lineIdx} color={theme.colors.text.ethereal} wrap="truncate-end">
+                {lineStr}
+              </Text>
+            ))}
+          </Box>
+        );
+      })}
       <Text color={theme.colors.border.muted} wrap="truncate-end">
         {bottomBorder}
       </Text>
@@ -196,12 +344,67 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   );
 };
 
-export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) => {
+export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
+  content,
+  isRunning = false,
+  maxLines,
+  scrollOffset,
+}) => {
   const { theme } = useTheme();
+  const { columns } = useTerminalDimensions();
+  const termCols = columns || process.stdout.columns || 80;
+  // Horizontal rules span the content column (App paddingX + widget inset).
+  const hrWidth = Math.max(20, termCols - TABLE_WIDTH_INSET);
 
   if (!content) return null;
 
-  const rawLines = content.split('\n');
+  const allRawLines = content.split('\n');
+  const shouldWindow = isRunning && Boolean(maxLines && maxLines > 0 && allRawLines.length > maxLines);
+
+  let rawLines = allRawLines;
+  let hiddenAbove = 0;
+  let hiddenBelow = 0;
+
+  if (shouldWindow && maxLines) {
+    const total = allRawLines.length;
+    const maxOffset = Math.max(0, total - maxLines);
+    const start = scrollOffset !== undefined ? Math.max(0, Math.min(maxOffset, scrollOffset)) : maxOffset;
+    const end = Math.min(total, start + maxLines);
+
+    hiddenAbove = start;
+    hiddenBelow = total - end;
+
+    let inCode = false;
+    let codeLang = '';
+    for (let i = 0; i < start; i++) {
+      const trimmed = allRawLines[i].trim();
+      if (trimmed.startsWith('```')) {
+        if (inCode) {
+          inCode = false;
+          codeLang = '';
+        } else {
+          inCode = true;
+          codeLang = trimmed.replace(/^```/, '');
+        }
+      }
+    }
+
+    const sliced = allRawLines.slice(start, end);
+    if (inCode) {
+      sliced.unshift(`\`\`\`${codeLang}`);
+    }
+    let sliceInCode = inCode;
+    for (const l of sliced) {
+      if (l.trim().startsWith('```')) {
+        sliceInCode = !sliceInCode;
+      }
+    }
+    if (sliceInCode) {
+      sliced.push(`${'`'.repeat(3)} ⋯ (continued below)`);
+    }
+    rawLines = sliced;
+  }
+
   const blocks: React.ReactNode[] = [];
   let idx = 0;
 
@@ -236,7 +439,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
         const parts: string[] = [];
         if (addedCount) parts.push(`+${addedCount}`);
         if (removedCount) parts.push(`-${removedCount}`);
-        diffStatsStr = parts.length > 0 ? `L ${parts.join(' ')} lines` : `L ${codeLines.length} lines`;
+        diffStatsStr = parts.length > 0 ? `${parts.join(' ')} lines` : `${codeLines.length} lines`;
       }
 
       const gutterWidth = Math.max(2, String(codeLines.length).length);
@@ -255,11 +458,8 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
             {/* Designer Terminal Window Header Bar */}
             <Box flexDirection="row" alignItems="center" width="100%" flexWrap="nowrap">
               <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
-                <Text color={theme.colors.decorative.trafficLight.red}>● </Text>
-                <Text color={theme.colors.decorative.trafficLight.yellow}>● </Text>
-                <Text color={theme.colors.decorative.trafficLight.green}>● </Text>
-                <Text color={theme.colors.status.info} bold wrap="truncate-end">
-                  {lang === 'DIFF' ? 'diff' : lang.toLowerCase()}
+                <Text color={theme.colors.status.info} bold>
+                  ▸ {lang === 'DIFF' ? 'diff' : lang.toLowerCase()}
                 </Text>
                 {lang === 'DIFF' && diffStatsStr ? (
                   <>
@@ -281,6 +481,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
                     lineCounter = parseInt(hunkMatch[1], 10);
                     return (
                       <Box key={cIdx} width="100%">
+                        <Text color={theme.colors.text.dim}>{' '.repeat(gutterWidth)} │ </Text>
                         <Text color={theme.colors.text.dim}>{cL}</Text>
                       </Box>
                     );
@@ -480,9 +681,29 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
       continue;
     }
 
-    if (!line.trim()) {
-      blocks.push(<Box key={`blank_${idx}`} height={1} />);
+    if (/^\s*(?:---+|\*{3,}|_{3,}|—{2,}|─{2,})\s*$/.test(line)) {
+      blocks.push(
+        <Box key={`hr_${idx}`} width="100%">
+          <Text color={theme.colors.border.muted} dimColor wrap="truncate-end">
+            {'─'.repeat(hrWidth)}
+          </Text>
+        </Box>,
+      );
       idx++;
+      continue;
+    }
+
+    if (!line.trim()) {
+      // Collapse consecutive blank lines into a single spacer and drop
+      // trailing blanks so the response body never shows double-height gaps.
+      let run = 0;
+      while (idx + run < rawLines.length && !rawLines[idx + run].trim()) {
+        run += 1;
+      }
+      if (idx + run < rawLines.length) {
+        blocks.push(<Box key={`blank_${idx}`} height={1} />);
+      }
+      idx += run;
       continue;
     }
 
@@ -502,7 +723,21 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({ content }) =
 
   return (
     <Box flexDirection="column" width="100%">
+      {hiddenAbove > 0 && (
+        <Box paddingLeft={1} marginBottom={0}>
+          <Text color={theme.colors.text.dim} dimColor italic>
+            ▲ {hiddenAbove} earlier lines (PgUp to view)
+          </Text>
+        </Box>
+      )}
       {blocks}
+      {hiddenBelow > 0 && (
+        <Box paddingLeft={1} marginTop={0}>
+          <Text color={theme.colors.text.dim} dimColor italic>
+            ▼ {hiddenBelow} lines below (PgDn to follow)
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 };

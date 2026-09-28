@@ -243,7 +243,15 @@ def update_from_event(
             "ts": ts,
         }
         if kind == EventKind.SUCCESS:
-            state.status = "completed"
+            # The manifest's `completed` flag is authoritative: a success event
+            # whose manifest says the turn used salvage/length/todo continuations
+            # is NOT a clean completion. Persisting "completed" while the
+            # manifest read "paused/finalizing" was the source of the
+            # manifest/status contradiction in the turn summary card.
+            if data.get("completed") is False:
+                state.status = "finalizing"
+            else:
+                state.status = "completed"
         elif kind == EventKind.ERROR:
             state.status = "failed"
             if state.final["message"]:

@@ -239,6 +239,10 @@ class TestInterceptedTerminals:
         assert EventKind.SUCCESS not in kinds, "SUCCESS must be intercepted"
         assert EventKind.ERROR not in kinds
         assert set(FORWARDABLE_KINDS) & set(kinds), "forwardable child events were yielded"
+        assert set(kinds) <= set(FORWARDABLE_KINDS), (
+            "run_crewmate must only forward FORWARDABLE_KINDS (THINKING is "
+            "deliberately dropped from the parent transcript)"
+        )
         assert isinstance(run.token_info, dict)
         assert {"used", "total", "percent"} <= set(run.token_info.keys())
         result = assemble_result(_make_task(), ApogeeCrewmate, run)

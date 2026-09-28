@@ -378,17 +378,13 @@ async def validate_provider(
         except Exception as exc:
             if _is_auth_rejection(exc):
                 is_auth_error = True
-                smoke_error = f"Authentication failed — {_extract_clean_message(exc)}"
-            else:
-                smoke_error = _extract_clean_message(exc) or str(exc)
+            smoke_error = _extract_clean_message(exc)
     else:
         smoke_error = "No model selected for smoke test"
     if smoke_error:
         if is_auth_error:
             _update("auth", ValidationStepStatus.FAILED, smoke_error)
             yield _step_event("auth", ValidationStepStatus.FAILED, smoke_error)
-            _update("smoke_test", ValidationStepStatus.FAILED, "Authentication failed")
-            yield _step_event("smoke_test", ValidationStepStatus.FAILED, "Authentication failed")
             yield _result_event(
                 False,
                 provider_id,
@@ -412,11 +408,13 @@ async def validate_provider(
     _update("save", ValidationStepStatus.RUNNING)
     yield _step_event("save", ValidationStepStatus.RUNNING)
     try:
+        stored = read_stored_providers(home).get(provider_id) or {}
+        model_to_save = stored.get("model") or smoke_model
         save_provider_config(
             home,
             provider=provider_id,
             api_key=api_key,
-            model=smoke_model,
+            model=model_to_save,
             base_url=base_url or None,
             max_tokens=cfg["max_tokens"],
             temperature=cfg["temperature"],

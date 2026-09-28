@@ -1,5 +1,6 @@
 import { Box, type Key, Text } from 'ink';
 import React, { useCallback } from 'react';
+import { FOOTER_EDGE_PAD } from '../../constants/layout';
 import { SESSION_STATUS_DEFAULTS } from '../../constants/statusDefaults';
 import { useProvider } from '../../hooks/useProvider';
 import { useTerminalDimensions } from '../../hooks/useTerminalDimensions';
@@ -27,7 +28,6 @@ interface CommandInputProps {
   historyUp?: () => string | undefined;
   historyDown?: () => string | undefined;
   mode?: ScenarioMode;
-  maxTokens?: number;
   /** Cumulative run/API token usage (telemetry). */
   runTokens?: number;
   /** True when cumulative run usage is estimated, not provider-reported. */
@@ -43,6 +43,8 @@ interface CommandInputProps {
   onOpenMode?: () => void;
   onClearInput?: () => void;
 
+  scrollUp?: (lines?: number) => void;
+  scrollDown?: (lines?: number) => void;
   slashMenuOpen?: boolean;
   /** Whether Calm Mode is active. */
   calmMode?: boolean;
@@ -63,7 +65,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     historyDown,
     mode = 'build',
     calmMode,
-    maxTokens = SESSION_STATUS_DEFAULTS.maxTokens,
     runTokens,
     runEstimated,
     contextPercent,
@@ -74,6 +75,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     onOpenHelp,
     onOpenMode,
     onClearInput,
+    scrollUp,
+    scrollDown,
     slashMenuOpen = false,
   }) => {
     const { theme } = useTheme();
@@ -85,13 +88,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
     const { columns } = useTerminalDimensions();
     const termCols = columns || process.stdout.columns || 80;
-    const dividerWidth = Math.max(0, termCols - 6);
-
-    const activeModelId = activeProvider.config.model || activeProvider.meta.defaultModel;
-    const activeModelInfo = activeProvider.meta.availableModels?.find((m) => m.id === activeModelId);
-    const modelContextWindow = activeModelInfo?.context_window ?? SESSION_STATUS_DEFAULTS.maxTokens;
-    const backendMaxTokens = maxTokens > 0 ? maxTokens : SESSION_STATUS_DEFAULTS.maxTokens;
-    const effectiveMaxTokens = Math.min(modelContextWindow, backendMaxTokens);
+    const dividerWidth = Math.max(0, termCols - FOOTER_EDGE_PAD);
 
     const handleSpecial = useCallback(
       (char: string, key: Key, value: string): boolean => {
@@ -100,6 +97,16 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
 
           if (key.upArrow || key.downArrow || isEnter || key.tab || key.escape) return true;
           return false;
+        }
+        if (running && !value.trim()) {
+          if (key.upArrow && scrollUp) {
+            scrollUp(3);
+            return true;
+          }
+          if (key.downArrow && scrollDown) {
+            scrollDown(3);
+            return true;
+          }
         }
         if (!value.trim() && char === '?' && onOpenHelp) {
           onOpenHelp();
@@ -169,6 +176,8 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
         onClearInput,
         onCancel,
         running,
+        scrollUp,
+        scrollDown,
         attachments,
         onRemoveAttachment,
         onClearAttachments,
@@ -212,7 +221,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
                     borderColor={theme.colors.border.muted}
                   >
                     <Text color={isFolder ? theme.colors.status.info : theme.colors.text.muted}>
-                      {isFolder ? '📁 ' : '📄 '}
+                      {isFolder ? '◧ ' : '▤ '}
                     </Text>
                     <Text italic color={theme.colors.status.accent}>
                       {att.name || att.path}
@@ -234,9 +243,9 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           )}
 
           <Box flexDirection="row" width="100%" alignItems="flex-start">
-            <Box flexShrink={0}>
+            <Box flexShrink={0} marginRight={1}>
               <Text color={focused ? theme.colors.text.emerald : theme.colors.text.muted} bold={focused}>
-                {focused ? '❯' : '◌'}{' '}
+                {focused ? '❯' : '◌'}
               </Text>
             </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1}>
@@ -273,7 +282,6 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             providerName={providerName}
             dir={workspaceName}
             branch={activeBranch}
-            effectiveMaxTokens={effectiveMaxTokens}
             runTokens={runTokens}
             runEstimated={runEstimated}
             contextPercent={contextPercent}

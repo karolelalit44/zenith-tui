@@ -55,8 +55,8 @@ describe('Composer File Attachments & UserMessageBlock', () => {
     expect(frame).toContain('agent-aegis.md');
     expect(frame).toContain('7.4 KB');
     expect(frame).toContain('server');
-    expect(frame).toContain('📄');
-    expect(frame).toContain('📁');
+    expect(frame).toContain('▤');
+    expect(frame).toContain('◧');
     expect(frame).toContain('×');
   });
 
@@ -185,7 +185,7 @@ describe('Composer File Attachments & UserMessageBlock', () => {
     expect(frame).toContain('Investigate backend architecture');
     expect(frame).not.toContain('Attached:');
     expect(frame).not.toContain('7.4 KB');
-    expect(frame).not.toContain('📄');
-    expect(frame).not.toContain('📁');
+    expect(frame).not.toContain('▤');
+    expect(frame).not.toContain('◧');
   });
 });

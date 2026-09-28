@@ -1,3 +1,6 @@
+import tempfile
+from pathlib import Path
+
 from server.toolkit.param_normalizer import canonicalize_path_values, normalize_file_params
 
 
@@ -55,42 +58,43 @@ def test_normalize_list_content_to_str():
 
 
 def test_canonicalize_relative_and_absolute_paths_are_identical():
-    ws = "/workspace"
+    ws = tempfile.mkdtemp()
     a = canonicalize_path_values({"path": "sessions.py"}, ws)
     b = canonicalize_path_values({"path": "./sessions.py"}, ws)
-    c = canonicalize_path_values({"path": "/workspace/sessions.py"}, ws)
+    c = canonicalize_path_values({"path": str(Path(ws) / "sessions.py")}, ws)
     assert a["path"] == b["path"] == c["path"]
 
 
 def test_canonicalize_dotdot_equivalent_paths_are_identical():
-    ws = "/workspace/src"
+    ws = str(Path(tempfile.mkdtemp()) / "src")
+    Path(ws).mkdir(parents=True, exist_ok=True)
     a = canonicalize_path_values({"path": "sub/../a.py"}, ws)
     b = canonicalize_path_values({"path": "a.py"}, ws)
     assert a["path"] == b["path"]
 
 
 def test_canonicalize_does_not_touch_non_path_params():
-    ws = "/workspace"
+    ws = tempfile.mkdtemp()
     res = canonicalize_path_values({"content": "hello", "old_content": "hi"}, ws)
     assert res["content"] == "hello"
     assert res["old_content"] == "hi"
 
 
 def test_canonicalize_command_param_untouched():
-    ws = "/workspace"
+    ws = tempfile.mkdtemp()
     res = canonicalize_path_values({"command": "grep -r session ."}, ws)
     assert res["command"] == "grep -r session ."
 
 
 def test_canonicalize_invalid_paths_never_collide_with_valid_or_each_other():
-    ws = "/workspace"
+    ws = tempfile.mkdtemp()
     valid = canonicalize_path_values({"path": "a.py"}, ws)
-    outside = canonicalize_path_values({"path": "/etc/passwd"}, ws)
+    outside = canonicalize_path_values({"path": "../../etc/passwd"}, ws)
     # An escaping path resolves to a stable invalid marker, distinct from valid.
     assert outside["path"] != valid["path"]
     assert outside["path"].startswith("\0nopath:")
     # Two different escaping paths stay distinct too.
-    outside2 = canonicalize_path_values({"path": "/etc/hosts"}, ws)
+    outside2 = canonicalize_path_values({"path": "../../etc/hosts"}, ws)
     assert outside["path"] != outside2["path"]
 
 

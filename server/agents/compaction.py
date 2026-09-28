@@ -12,6 +12,40 @@ from server.config.constants import (
 
 logger = logging.getLogger(__name__)
 
+# Tool results whose payload is the *content* of the task rather than a
+# bookkeeping summary. Compaction may trim these but must never replace them with
+# a one-line digest: a file's text and the task state are the two things the
+# model cannot reconstruct. Membership is decided from the structured
+# ``tool_name`` tag the agent loop stamps on every tool message — never from the
+# human-readable ``[Tool: ...]`` prefix, which is display text and may be
+# reworded at any time.
+PRESERVE_ON_COMPACT: frozenset[str] = frozenset({"file_read", "todo"})
+
+
+def _message_tool_name(msg: dict) -> str:
+    """The tool that produced *msg*, from its structured tag.
+
+    Falls back to the display prefix only for messages written before the tag
+    existed (restored sessions, hand-built test fixtures). New messages always
+    carry ``tool_name``.
+    """
+    tagged = msg.get("tool_name")
+    if isinstance(tagged, str) and tagged:
+        return tagged
+    content = msg.get("content")
+    if isinstance(content, str) and content.startswith("[Tool:"):
+        head = content[len("[Tool:") :].strip()
+        return head.split(" ", 1)[0].split("|", 1)[0].strip()
+    return ""
+
+
+def is_tool_message(msg: dict) -> bool:
+    """True when *msg* carries a tool result."""
+    if _message_tool_name(msg):
+        return True
+    content = msg.get("content")
+    return isinstance(content, str) and content.startswith("[Tool:")
+
 
 @dataclass
 class CompactionStats:
@@ -106,13 +140,18 @@ def _find_compaction_cut_budgeted(history, keep_tokens: int, count_fn) -> int:
 
 def prune_inflight_messages(
     messages: list[dict],
-    keep_latest_tools: int = 2,
+    keep_latest_tools: int,
     max_output: int = 1000,
 ) -> tuple[list[dict], CompactionStats]:
     """Prune in-flight tool results in active conversation memory.
 
     Replaces older tool results with structured digests or head-tail trimmed previews,
     protecting the latest ``keep_latest_tools`` results in full detail.
+
+    ``keep_latest_tools`` is required rather than defaulted: a default here
+    silently drifted from the value the agent loop actually passes, so the
+    signature looked configurable while the call site was fixed. Pass
+    ``COMPACTION_KEEP_LATEST_TOOLS``.
     """
     stats = CompactionStats()
     if not messages:
@@ -121,8 +160,7 @@ def prune_inflight_messages(
     # Find indices of all tool output messages
     tool_indices: list[int] = []
     for i, msg in enumerate(messages):
-        content = msg.get("content", "")
-        if isinstance(content, str) and content.startswith("[Tool:"):
+        if is_tool_message(msg):
             tool_indices.append(i)
 
     # Protect the latest `keep_latest_tools`
@@ -138,7 +176,9 @@ def prune_inflight_messages(
             orig_len = len(content)
             stats.original_chars += orig_len
 
-            if "digest" in m:
+            # Never reduce file_read or todo to hollow digests; preserve their
+            # content via head_tail_trim. Decided from the structured tool tag.
+            if "digest" in m and _message_tool_name(m) not in PRESERVE_ON_COMPACT:
                 m["content"] = m["digest"]
                 m["time"] = "compacted"
                 m["is_digested"] = True

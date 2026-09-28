@@ -149,7 +149,7 @@ class TestContextCommands:
         assert any("[Previous conversation summary]" in m.get("content", "") for m in rebuilt)
 
     @pytest.mark.asyncio
-    async def test_compact_small_session_is_a_noop(self, handler):
+    async def test_compact_small_session_always_summarizes(self, handler):
         h, events = handler
         session = await h.session_repo.create(Session(title="Compact Small"))
         for i in range(3):
@@ -163,10 +163,11 @@ class TestContextCommands:
         await h.handlers._context_compact(ws, 1, session.id)
         ended = [e for e in events if e.kind == EventKind.CONTEXT_COMPACTION_ENDED]
         assert ended and not ended[-1].data.get("failed")
-        loaded = await h.message_repo.get_by_session(session.id)
-        assert len(loaded) == 6
+        # Manual compaction always summarizes the full history even when
+        # the context fits in the window, so the summary must be set.
         updated = await h.session_repo.get(session.id)
-        assert not (updated.metadata or {}).get("summary")
+        assert (updated.metadata or {}).get("summary")
+
 
     @pytest.mark.asyncio
     async def test_compact_no_session_returns_error(self, handler):

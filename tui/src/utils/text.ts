@@ -1,21 +1,46 @@
 /** Collapsed preview length for long event messages (errors/warnings). */
 export const MAX_MESSAGE_PREVIEW_LENGTH = 200;
 
-/** Formats Zenith response time in 1-second increments (ignoring milliseconds).
+/** Formats a duration in milliseconds into a compact human string.
  *
  * Rules:
  * - Whole-second intervals (< 60s): `2 s`, `3 s`, `33 s`
+ *   Sub-second inputs floor to `1 s` so instant calls never read as zero.
  * - Minute-based intervals (>= 60s): `1.2 minutes`, `37.40 minutes`
- * - Milliseconds are ignored completely. Updates only on 1-second interval changes.
+ * - zero/negative input renders nothing (`''`) so instant calls don't
+ *   fake a duration reading.
  */
 export function formatDuration(ms: number): string {
-  const totalSec = Math.max(1, Math.floor(ms / 1000));
+  if (ms <= 0) return '';
+  const totalMs = Math.max(1, Math.round(ms));
+  const totalSec = totalMs / 1000;
   if (totalSec < 60) {
-    return `${totalSec} s`;
+    return `${Math.max(1, Math.floor(totalSec))} s`;
   }
   const mins = totalSec / 60;
   const formattedMins = mins % 1 === 0 ? mins.toFixed(1) : mins < 10 ? mins.toFixed(1) : mins.toFixed(2);
   return `${formattedMins} minutes`;
+}
+
+/** Truncates from the middle, keeping both ends readable (e.g. long model ids). */
+export function truncateMiddle(text: string, maxLength: number): string {
+  if (maxLength <= 0) return '';
+  if (text.length <= maxLength) return text;
+  if (maxLength <= 3) return '…';
+  const half = Math.floor((maxLength - 1) / 2);
+  const tailHalf = maxLength - 1 - half;
+  return `${text.slice(0, half)}…${text.slice(-tailHalf)}`;
+}
+
+/** Words whose English plural is not just `noun + s`. */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  match: 'matches',
+};
+
+/** Singular/plural count phrase: `1 line`, `3 lines`, `1 match`, `5 matches`. */
+export function countWord(count: number, noun: string): string {
+  if (count === 1) return `1 ${noun}`;
+  return `${count} ${IRREGULAR_PLURALS[noun] ?? `${noun}s`}`;
 }
 
 export function truncateEnd(text: string, maxLength: number): string {

@@ -15,10 +15,10 @@ function makeError(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
   };
 }
 
-function renderError(event: ErrorEvent) {
+function renderError(event: ErrorEvent, context: { expandedWarnings?: boolean } = {}) {
   return render(
     <ThemeProvider>
-      <ErrorBlock event={event} />
+      <ErrorBlock event={event} context={context} />
     </ThemeProvider>,
   );
 }
@@ -56,18 +56,14 @@ describe('ErrorBlock', () => {
     expect(frame).toContain('Wait for the rate limit to reset.');
   });
 
-  it('truncates long messages and expands on ctrl+e', async () => {
+  it('truncates long messages and expands on the shared expandedWarnings signal', async () => {
     const longMessage = 'x'.repeat(300);
-    const { lastFrame, stdin } = renderError(makeError({ message: longMessage }));
-    const truncated = lastFrame();
-    expect(truncated).toContain('…');
-    expect(truncated).toContain('ctrl+e to show full details');
-    expect(truncated).not.toContain('ctrl+e to hide full details');
+    const { lastFrame } = renderError(makeError({ message: longMessage }));
+    expect(lastFrame()).toContain('…');
+    expect(lastFrame()).toContain('ctrl+e to show full details');
+    expect(lastFrame()).not.toContain('ctrl+e to hide full details');
 
-    stdin.write('\x05');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const expanded = lastFrame();
+    const expanded = renderError(makeError({ message: longMessage }), { expandedWarnings: true }).lastFrame();
     expect(expanded).toContain('ctrl+e to hide full details');
     expect(expanded).not.toContain('…');
   });

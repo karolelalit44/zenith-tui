@@ -19,6 +19,16 @@ from typing import Any
 _TODO_STATUSES = ("pending", "in_progress", "completed", "blocked", "cancelled")
 _PRIORITIES = ("low", "medium", "high")
 
+# What counts as "still open work". Defined once here because the nudge path and
+# the completion path previously carried their own tuples and disagreed about
+# `blocked`: the nudge ignored it while completion counted it, so a fully blocked
+# board got neither a nudge nor a clean completion.
+#
+# `blocked` IS active — work that cannot proceed is unfinished work. Callers that
+# want only actionable items pass include_blocked=False.
+ACTIVE_TODO_STATUSES: frozenset[str] = frozenset({"pending", "in_progress"})
+ACTIONABLE_TODO_STATUSES: frozenset[str] = ACTIVE_TODO_STATUSES | {"blocked"}
+
 _TODO_STATUS_MARKERS = {
     "pending": "[ ]",
     "in_progress": "[~]",
@@ -28,12 +38,28 @@ _TODO_STATUS_MARKERS = {
 }
 
 
+def normalize_status(status: str | None) -> str:
+    """Normalize user- or model-provided status into canonical TodoStatus."""
+    s = str(status or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if s in ("todo", "pending", "open", "queued", "not_started"):
+        return "pending"
+    if s in ("in_progress", "inprogress", "running", "active", "working"):
+        return "in_progress"
+    if s in ("completed", "done", "success", "finished", "resolved", "closed"):
+        return "completed"
+    if s in ("blocked", "waiting", "paused", "stalled"):
+        return "blocked"
+    if s in ("cancelled", "canceled", "aborted", "failed", "rejected"):
+        return "cancelled"
+    return "pending"
+
+
 def render_todo_markdown(entries: list[dict] | list[TodoEntry]) -> str:
     """Render structured todos into the canonical ``todo.md`` artifact."""
     lines = ["# Todos", ""]
     for entry in entries:
         data = entry.to_dict() if isinstance(entry, TodoEntry) else entry
-        status = str(data.get("status") or "pending")
+        status = normalize_status(str(data.get("status") or "pending"))
         marker = _TODO_STATUS_MARKERS.get(status, "[ ]")
         title = str(data.get("title") or "untitled")
         suffix = ""
@@ -73,7 +99,7 @@ class TodoEntry:
         return TodoEntry(
             id=str(data.get("id") or ""),
             title=str(data.get("title") or ""),
-            status=str(data.get("status") or "pending"),
+            status=normalize_status(str(data.get("status") or "pending")),
             priority=str(data.get("priority") or "medium"),
             order=int(data.get("order") or 0),
             depends_on=[str(x) for x in (data.get("depends_on") or [])],
@@ -101,10 +127,11 @@ class TodoState:
         notes: str = "",
         existing_id: str | None = None,
     ) -> TodoEntry:
+        norm_status = normalize_status(status)
         if existing_id and existing_id in self._entries:
             entry = self._entries[existing_id]
             entry.title = title
-            entry.status = status if status in _TODO_STATUSES else entry.status
+            entry.status = norm_status
             entry.priority = priority if priority in _PRIORITIES else entry.priority
             if depends_on is not None:
                 entry.depends_on = list(depends_on)
@@ -118,7 +145,7 @@ class TodoState:
         entry = TodoEntry(
             id=tid,
             title=title,
-            status=status if status in _TODO_STATUSES else "pending",
+            status=norm_status,
             priority=priority if priority in _PRIORITIES else "medium",
             order=len(self._entries),
             depends_on=list(depends_on or []),
@@ -141,7 +168,7 @@ class TodoState:
         if title is not None:
             entry.title = title
         if status is not None:
-            entry.status = status if status in _TODO_STATUSES else entry.status
+            entry.status = normalize_status(status)
         if priority is not None:
             entry.priority = priority if priority in _PRIORITIES else entry.priority
         if notes is not None:
@@ -162,6 +189,24 @@ class TodoState:
 
     def list(self) -> list[TodoEntry]:
         return sorted(self._entries.values(), key=lambda e: e.order)
+
+    def active(self, *, include_blocked: bool = True) -> list[TodoEntry]:
+        """Entries still representing open work, in board order.
+
+        One definition of "active" for every caller. ``include_blocked`` is True
+        by default because a blocked task is unfinished work: excluding it from
+        completion reporting is what previously let a fully blocked board report
+        as finished.
+        """
+        statuses = ACTIONABLE_TODO_STATUSES if include_blocked else ACTIVE_TODO_STATUSES
+        return [e for e in self.list() if e.status in statuses]
+
+    def has_active(self, *, include_blocked: bool = True) -> bool:
+        return bool(self.active(include_blocked=include_blocked))
+
+    def is_resolved(self) -> bool:
+        """True when nothing on the board is outstanding."""
+        return not self.active()
 
     def snapshot(self) -> list[dict[str, Any]]:
         return [e.to_dict() for e in self.list()]
@@ -192,6 +237,26 @@ def get_todo_state(session_id: str) -> TodoState:
             state = TodoState(session_id)
             _STORE[session_id] = state
         return state
+
+
+def reset_todo_state(session_id: str) -> None:
+    """Clear the session board at turn entry.
+
+    The board's lifetime is the request's, not the session's. Without this, a
+    finished checklist from the previous request is still on the board when the
+    next one starts: the nudge logic reads it as outstanding work, the client
+    re-pins it above the composer, and both surfaces claim the new request is
+    carrying someone else's work.
+
+    A session that genuinely spans requests re-establishes its checklist with an
+    explicit ``todo`` call. Carry-over must be asked for, never inferred.
+    """
+    if not session_id:
+        return
+    with _LOCK:
+        state = _STORE.get(session_id)
+        if state is not None:
+            state.reset()
 
 
 

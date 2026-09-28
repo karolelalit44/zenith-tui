@@ -17,7 +17,6 @@ from server.config.constants import (
     COST_CLASS_HIGH,
     DEFAULT_BASH_TIMEOUT_MS,
     LATENCY_CLASS_HIGH,
-    PERMISSION_COMMAND,
     RISK_MEDIUM,
     TOOL_DOMAIN_EXECUTION,
 )
@@ -93,6 +92,127 @@ def _assess_enumeration(command: str, workspace_root: str) -> str | None:
             "scope to a subdirectory, or pipe through 'head'."
         )
 
+_DIRECT_FILE_READ_POSIX = re.compile(
+    r"^\s*cat\s+['\"]?([^\s|><;]+)['\"]?\s*$",
+    re.IGNORECASE,
+)
+_DIRECT_FILE_READ_WINDOWS = re.compile(
+    r"^\s*(?:cat|type|Get-Content|gc)\s+['\"]?([^\s|><;]+)['\"]?(?:\s+-(?:TotalCount|First|Head)\s+\d+)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _assess_direct_file_read(command: str) -> str | None:
+    stripped = command.strip()
+    pattern = _DIRECT_FILE_READ_WINDOWS if _is_windows() else _DIRECT_FILE_READ_POSIX
+    m = pattern.match(stripped)
+    if m:
+        path = m.group(1)
+        return (
+            f"Refused: Do not use shell commands to read files ('{path}'). "
+            f"Use the dedicated 'file_read' tool with path='{path}'."
+        )
+    return None
+
+
+# ---- Dedicated-tool bypass guard (WP: tool calling over bash) ---------------
+#
+# Every file-system operation has a dedicated tool. Shell equivalents bypass
+# ignore rules, structured metadata, caching, and safety checks. They are
+# refused with an actionable redirect to the canonical tool.
+
+# list_dir / glob bypass via shell directory listing
+_LIST_DIR_BYPASS = re.compile(
+    r"^\s*(?:ls|dir|ll|gci|Get-ChildItem|Get-Item)\b",
+    re.IGNORECASE,
+)
+# file viewing bypass (head/tail/bat/less/more beyond cat/type)
+_FILE_VIEW_BYPASS = re.compile(
+    r"^\s*(?:head|tail|less|more|bat|Get-Content|gc)\b",
+    re.IGNORECASE,
+)
+# Numeric-only flag tail e.g. `head -200` / `-n 10` truncates a piped or inline
+# stream — that is not viewing a file. Only a non-flag, non-numeric operand
+# (a real path) merits a file_read redirect.
+_FILE_VIEW_OPERAND = re.compile(r"[^\s|;<>]+")
+_FILE_VIEW_NUMERIC = re.compile(r"^\d+(?:\.\d+)?$")
+# code search bypass via shell grep
+_GREP_BYPASS = re.compile(
+    r"^\s*(?:grep|egrep|fgrep|rg|ag|ack|Select-String|findstr)\b",
+    re.IGNORECASE,
+)
+# glob/find bypass via shell file discovery
+_GLOB_BYPASS = re.compile(
+    r"^\s*find\b.*-name\b",
+    re.IGNORECASE,
+)
+# file creation via shell redirection / New-Item / touch / echo >
+_SHELL_WRITE_BYPASS = re.compile(
+    r"^\s*(?:New-Item|touch|Set-Content|Add-Content|Out-File)\b",
+    re.IGNORECASE,
+)
+_ECHO_REDIRECT_BYPASS = re.compile(
+    r"^\s*(?:echo|Write-Output|printf)\b[^|;]*[>]{1,2}\s*\S+",
+    re.IGNORECASE,
+)
+_SED_AWK_INPLACE_BYPASS = re.compile(
+    r"^\s*(?:sed|awk)\b[^|;]*\s-i\b",
+    re.IGNORECASE,
+)
+
+
+def _assess_dedicated_tool_bypass(command: str) -> str | None:
+    stripped = command.strip()
+    if not stripped:
+        return None
+    # Check every pipeline/chain segment so `echo hi; ls` or `a | grep x` cannot bypass.
+    segments = [s.strip() for s in re.split(r"[|;&]+", stripped) if s.strip()]
+    for seg in segments:
+        if _LIST_DIR_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'ls/dir/Get-ChildItem/Get-Item' for listing. "
+                "Use dedicated 'list_dir' for a single directory or 'glob' for pattern search. "
+                "Example: list_dir(path='server') or glob(pattern='**/*.py', path='server')."
+            )
+        if _FILE_VIEW_BYPASS.match(seg):
+            # `head file.txt` / `tail log.txt` (path operand) bypasses
+            # file_read. `head -200` / `tail -n 5` (numeric flags only)
+            # truncates a stream and is legitimate. For `Get-Content
+            # file.txt -Tail 5`, the first non-flag token is the path.
+            # Refuse if ANY non-flag operand is non-numeric (a real path).
+            operands = [t for t in _FILE_VIEW_OPERAND.findall(seg)[1:] if not t.startswith("-")]
+            if not any(not _FILE_VIEW_NUMERIC.match(o) for o in operands):
+                continue
+            path = next(o for o in operands if not _FILE_VIEW_NUMERIC.match(o))
+            return (
+                f"Refused: Do not use shell file viewers for reading. "
+                f"Use dedicated 'file_read' tool. Example: file_read(path='{path}')."
+            )
+        if _GREP_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'grep/rg/ag/Select-String' for code search. "
+                "Use dedicated 'grep' tool. Example: grep(pattern='def foo', path='server', include='*.py')."
+            )
+        if _GLOB_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'find -name' for file discovery. "
+                "Use dedicated 'glob' tool. Example: glob(pattern='**/*.py', path='server')."
+            )
+        if _SHELL_WRITE_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'New-Item/touch/Set-Content/Out-File' for file creation. "
+                "Use dedicated 'file_write' (new file) or 'file_edit' (existing file)."
+            )
+        if _ECHO_REDIRECT_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell redirection 'echo > file' for file creation. "
+                "Use dedicated 'file_write' tool. Example: file_write(path='path/to/file', content='...')."
+            )
+        if _SED_AWK_INPLACE_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'sed -i / awk -i' for file editing. "
+                "Use dedicated 'file_edit' tool with old_content/new_content."
+            )
     return None
 
 
@@ -108,7 +228,6 @@ class BashTool(BaseTool):
     read_only = False
     timeout_ms = DEFAULT_BASH_TIMEOUT_MS
     concurrency_group = CONCURRENCY_GROUP_SHELL
-    permission_scope = PERMISSION_COMMAND
     domains = (TOOL_DOMAIN_EXECUTION,)
     search_terms = (
         "shell",
@@ -150,6 +269,9 @@ class BashTool(BaseTool):
         run_in_background = params.get("run_in_background", False)
         if not command.strip():
             return ToolResult(success=False, error="No command provided")
+        dedicated = _assess_dedicated_tool_bypass(command)
+        if dedicated:
+            return ToolResult(success=False, error=dedicated)
         refusal = _assess_enumeration(command, workspace_root)
         if refusal:
             from server.workspace.index import get_workspace_stats
@@ -162,6 +284,9 @@ class BashTool(BaseTool):
             except Exception:
                 detail = ""
             return ToolResult(success=False, error=f"{refusal}{detail}")
+        read_refusal = _assess_direct_file_read(command)
+        if read_refusal:
+            return ToolResult(success=False, error=read_refusal)
         if run_in_background:
             return await self._start_background(command, workdir, params.get("description", ""))
         return await self._execute_streamed(command, workdir, timeout)

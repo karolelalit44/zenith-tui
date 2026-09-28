@@ -58,6 +58,11 @@ def make_error_response(request_id: str | int, code: int, message: str, data: An
 
 
 def serialize_event(event: Event) -> str:
-    return JsonRpcNotification(
-        params=event.model_dump(exclude={"metadata", "parent_event_id"})
-    ).model_dump_json()
+    params = event.model_dump(exclude={"metadata", "parent_event_id"})
+    seq = event.metadata.get("sequence")
+    if isinstance(seq, int):
+        # The per-session monotonic counter (websocket.next_sequence) is the
+        # authoritative total order. Expose it on the wire so clients can
+        # sequence events explicitly instead of inferring order by arrival.
+        params["sequence"] = seq
+    return JsonRpcNotification(params=params).model_dump_json()

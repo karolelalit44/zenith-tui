@@ -7,6 +7,7 @@ from .registry import ToolRegistry
 from .registry_validation import validate_registry
 from .resolver import DISCOVERY_TOOLS, SchemaResolver, build_mode_tool_seed
 from .schema_metrics import estimate_tool_schema_tokens, measure_registry_schema_tokens
+from .tools.apply_patch import ApplyPatchTool
 from .tools.bash import BashTool
 from .tools.file_delete import FileDeleteTool
 from .tools.file_edit import FileEditTool
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DISCOVERY_TOOLS",
+    "ApplyPatchTool",
     "BaseTool",
     "BashTool",
     "DiscoverCapabilitiesTool",
@@ -66,6 +68,7 @@ def create_default_registry(
         SafetyCheckMiddleware,
     )
     from .middleware.plan_write import PlanWriteGuard
+    from .middleware.read_only import ReadOnlyModeGuard
 
     registry = ToolRegistry()
     registry.register_middleware(LoggingMiddleware())
@@ -74,6 +77,7 @@ def create_default_registry(
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
     registry.register(FileEditTool())
+    registry.register(ApplyPatchTool())
     registry.register(FileDeleteTool())
     registry.register(GlobTool())
     registry.register(GrepTool())
@@ -106,9 +110,15 @@ def create_default_registry(
 
         registry.register_middleware(HookMiddleware(HookRunner(hooks)))
     registry.register_middleware(SafetyCheckMiddleware())
+    # Hard execution gate for primary read-only investigation: blocks
+    # non-read-only tools (file_write/file_edit/apply_patch/...) even when a
+    # text-fenced call sneaks past tool_choice="none" (G1).
+    registry.register_middleware(ReadOnlyModeGuard(registry))
     validation_errors = validate_registry(registry)
     if validation_errors:
-        logger.warning("Tool registry validation failed at startup:")
         for error in validation_errors:
-            logger.warning("  %s", error)
+            logger.error("  %s", error)
+        raise ValueError(
+            "Tool registry validation failed: " + "; ".join(validation_errors)
+        )
     return registry

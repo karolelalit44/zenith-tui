@@ -1,8 +1,10 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { SPINNER_FRAMES } from '../../../constants/animation';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
+import { stripAnsi } from '../../../utils/ansi';
+import { toWorkspaceRelative } from '../../../utils/workspacePath';
+import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 import { formatErrorSummary } from './errorSummary';
 
@@ -13,7 +15,6 @@ export interface DirectoryListingCardProps {
   elapsedMs: number;
   context?: EventRenderContext;
   metaPill: React.ReactNode;
-  tick: number;
 }
 
 interface ParsedEntry {
@@ -23,6 +24,8 @@ interface ParsedEntry {
 }
 
 const MAX_DISPLAY_ENTRIES = 18;
+const COMPACT_THRESHOLD = 8;
+const COMPACT_CHIP_LIMIT = 8;
 
 function getFileExtension(filename: string): string {
   const dotIndex = filename.lastIndexOf('.');
@@ -81,7 +84,7 @@ function parseDirectoryEntries(
 }
 
 export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.memo(
-  ({ event, isPending, state, metaPill, tick }) => {
+  ({ event, isPending, state, metaPill, context }) => {
     const { theme } = useTheme();
 
     const rawPath =
@@ -92,17 +95,25 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
       (event.metadata?.path as string) ||
       '.';
 
-    const displayPath = rawPath === '.' ? './' : rawPath.endsWith('/') ? rawPath : `${rawPath}/`;
+    const relPath = toWorkspaceRelative(rawPath, context?.workspaceName);
+    const normalizedFinal = relPath.replace(/\\/g, '/');
+    const displayPath =
+      normalizedFinal === '.' ? './' : normalizedFinal.endsWith('/') ? normalizedFinal : `${normalizedFinal}/`;
 
-    const rawOutput = event.output || (typeof event.metadata?.output === 'string' ? event.metadata.output : '') || '';
+    const rawOutput = stripAnsi(
+      event.output || (typeof event.metadata?.output === 'string' ? event.metadata.output : '') || '',
+    );
 
     const { dirs, files, totalDirs, totalFiles } = parseDirectoryEntries(rawOutput, event.metadata);
     const allEntries = [...dirs, ...files];
 
+    const ok = state === 'success';
     const visibleEntries = allEntries.slice(0, MAX_DISPLAY_ENTRIES);
     const overflowCount = Math.max(0, allEntries.length - MAX_DISPLAY_ENTRIES);
+    const isCompact = !isPending && ok && allEntries.length > COMPACT_THRESHOLD;
+    const compactEntries = isCompact ? allEntries.slice(0, COMPACT_CHIP_LIMIT) : [];
+    const compactOverflow = isCompact ? Math.max(0, allEntries.length - COMPACT_CHIP_LIMIT) : 0;
 
-    const ok = state === 'success';
     const borderColor = isPending
       ? theme.colors.status.info
       : state === 'failed'
@@ -151,7 +162,7 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
             <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
               {isPending ? (
                 <Text color={theme.colors.status.info} bold>
-                  {SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}{' '}
+                  <Spinner suffix=" " />
                 </Text>
               ) : state === 'cancelled' ? (
                 <Text color={theme.colors.status.warning} bold>
@@ -159,7 +170,7 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
                 </Text>
               ) : (
                 <Text color={theme.colors.status.accent} bold>
-                  📁{' '}
+                  ◧{' '}
                 </Text>
               )}
 
@@ -201,7 +212,7 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
             </Box>
           )}
 
-          {/* Directory Content List */}
+          {/* Directory Content List — tree for ≤8 entries, compact chips for >8 */}
           {!isPending && ok && (
             <Box flexDirection="column" paddingLeft={1} marginTop={0} marginBottom={0}>
               {visibleEntries.length === 0 ? (
@@ -210,41 +221,62 @@ export const DirectoryListingCard: React.FC<DirectoryListingCardProps> = React.m
                     (empty directory)
                   </Text>
                 </Box>
-              ) : (
-                visibleEntries.map((entry, idx) => {
-                  const isLast = idx === visibleEntries.length - 1 && overflowCount === 0;
-                  const branchGlyph = isLast ? '└── ' : '├── ';
-
-                  return (
-                    <Box key={`${entry.name}-${idx}`} flexDirection="row" alignItems="center">
-                      <Text color={theme.colors.border.muted}>{branchGlyph}</Text>
-                      {entry.isDir ? (
-                        <>
-                          <Text color={theme.colors.status.info}>📁 </Text>
-                          <Text color={theme.colors.status.info} bold wrap="truncate-end">
-                            {entry.name}
-                          </Text>
-                        </>
-                      ) : (
-                        <>
-                          <Text color={theme.colors.text.muted}>📄 </Text>
-                          <Text color={getFileColor(entry.extension)} wrap="truncate-end">
-                            {entry.name}
-                          </Text>
-                        </>
-                      )}
-                    </Box>
-                  );
-                })
-              )}
-
-              {overflowCount > 0 && (
-                <Box flexDirection="row" alignItems="center">
-                  <Text color={theme.colors.border.muted}>└── </Text>
-                  <Text color={theme.colors.text.dim} italic>
-                    +{overflowCount} more entries
-                  </Text>
+              ) : isCompact ? (
+                <Box flexDirection="row" flexWrap="wrap" paddingLeft={1}>
+                  {compactEntries.map((entry, idx) => (
+                    <React.Fragment key={`${entry.name}-${idx}`}>
+                      {idx > 0 && <Text color={theme.colors.text.dim}> · </Text>}
+                      <Text
+                        color={entry.isDir ? theme.colors.status.info : getFileColor(entry.extension)}
+                        bold={entry.isDir}
+                      >
+                        {entry.name}
+                      </Text>
+                    </React.Fragment>
+                  ))}
+                  {compactOverflow > 0 && (
+                    <Text color={theme.colors.text.dim} italic>
+                      {' '}
+                      · +{compactOverflow} more
+                    </Text>
+                  )}
                 </Box>
+              ) : (
+                <>
+                  {visibleEntries.map((entry, idx) => {
+                    const isLast = idx === visibleEntries.length - 1 && overflowCount === 0;
+                    const branchGlyph = isLast ? '└── ' : '├── ';
+
+                    return (
+                      <Box key={`${entry.name}-${idx}`} flexDirection="row" alignItems="center">
+                        <Text color={theme.colors.border.muted}>{branchGlyph}</Text>
+                        {entry.isDir ? (
+                          <>
+                            <Text color={theme.colors.status.info}>◧ </Text>
+                            <Text color={theme.colors.status.info} bold wrap="truncate-end">
+                              {entry.name}
+                            </Text>
+                          </>
+                        ) : (
+                          <>
+                            <Text color={theme.colors.text.muted}>▤ </Text>
+                            <Text color={getFileColor(entry.extension)} wrap="truncate-end">
+                              {entry.name}
+                            </Text>
+                          </>
+                        )}
+                      </Box>
+                    );
+                  })}
+                  {overflowCount > 0 && (
+                    <Box flexDirection="row" alignItems="center">
+                      <Text color={theme.colors.border.muted}>└── </Text>
+                      <Text color={theme.colors.text.dim} italic>
+                        +{overflowCount} more entries
+                      </Text>
+                    </Box>
+                  )}
+                </>
               )}
             </Box>
           )}

@@ -11,6 +11,8 @@ Covers:
 - parent todo lifecycle is untouched by child missions.
 """
 
+import logging
+
 import pytest
 
 from server.agents.delegation.agent_definition import build_custom_definition
@@ -124,6 +126,61 @@ def test_explore_returns_structured_summary_within_cap(config, temp_dir):
     assert meta["proposed_count"] == 1
     assert meta["crewmate_name"] == "Apogee"
     assert meta["tokens_used"] > 0
+
+
+def test_explore_budget_floored_by_measured_ttft(config, temp_dir, caplog):
+    """A slow provider's measured TTFT floors the mission wall clock so one
+    hung leg cannot burn the whole (static) quick budget before the first tool
+    turn.
+    """
+    provider = _CrewmateScriptedProvider()
+    provider._last_ttft_ms = 90_000
+    with caplog.at_level(logging.INFO, logger="server.toolkit.tools.explore_tool"):
+        result = _run(
+            _tool(config, provider).execute(
+                {"objective": "where does compaction gate", "thoroughness": "quick"},
+                str(temp_dir),
+            )
+        )
+    assert result.success is True
+    assert (
+        "Explore budget floor applied thoroughness=quick base=150s floor=210s ttft_ms=90000"
+        in caplog.text
+    )
+
+
+def test_explore_budget_unchanged_without_ttft_measurement(config, temp_dir, caplog):
+    """No measured TTFT (cold provider or non-latency-tracking base) → static
+    budget stands; getattr guard must not crash a mission on the first read.
+    """
+    provider = _CrewmateScriptedProvider()
+    assert not hasattr(provider, "_last_ttft_ms")
+    with caplog.at_level(logging.INFO, logger="server.toolkit.tools.explore_tool"):
+        result = _run(
+            _tool(config, provider).execute(
+                {"objective": "where does compaction gate", "thoroughness": "quick"},
+                str(temp_dir),
+            )
+        )
+    assert result.success is True
+    assert "Explore budget floor applied" not in caplog.text
+
+
+def test_explore_budget_floor_capped_by_ceiling(config, temp_dir, caplog):
+    """An extreme TTFT measurement is clamped by the hard ceiling so the
+    mission wall clock does not stretch without bound."""
+    provider = _CrewmateScriptedProvider()
+    provider._last_ttft_ms = 900_000  # 900s — would produce floor=1830 without cap
+    with caplog.at_level(logging.INFO, logger="server.toolkit.tools.explore_tool"):
+        result = _run(
+            _tool(config, provider).execute(
+                {"objective": "where does compaction gate", "thoroughness": "quick"},
+                str(temp_dir),
+            )
+        )
+    assert result.success is True
+    assert "Explore budget floor applied" in caplog.text
+    assert "floor=420s" in caplog.text
 
 
 def test_child_transcript_stays_out_of_parent_context(config, temp_dir):
@@ -384,3 +441,113 @@ def test_parallel_fanout_runs_batch_and_merges_duplicates(config, temp_dir):
     # point of fan-out dedupe is avoiding duplicate spend.
     child_missions = [p for p in provider.prompts if "OUTPUT CONTRACT" in p]
     assert len(child_missions) == 2, f"expected 2 crewmate missions, got {len(child_missions)}"
+
+
+def test_explore_tool_registered_in_server_registry(temp_dir):
+    """Ensure ExploreTool is registered when create_default_registry is passed config."""
+    from server.config.settings import AppSettings
+    from server.toolkit import create_default_registry
+
+    config = AppSettings(
+        workspace_root=str(temp_dir),
+        explore_delegation="tool",
+    )
+    registry = create_default_registry(config=config)
+    explore_tool = registry.get("explore")
+    assert explore_tool is not None
+    assert explore_tool.name == "explore"
+
+
+def test_mission_lifecycle_forwarded_ordered_child_transcript_excluded(config, temp_dir):
+    """The captain-level delegation lifecycle crosses the boundary in order,
+    while the child's raw transcript stays isolated (S2/D5)."""
+    provider = _CrewmateScriptedProvider()
+    result = _run(_tool(config, provider).execute({"objective": "trace state"}, str(temp_dir)))
+
+    from server.domain.events import EventKind
+
+    lifecycle = result.metadata.get("orchestration_events")
+    assert isinstance(lifecycle, list) and lifecycle, "orchestration_events must be populated"
+    kinds = [entry["kind"] for entry in lifecycle]
+
+    allowed = {str(EventKind.CAPTAIN_ORCHESTRATION)}
+    for kind in (EventKind.CREWMATE_SPAWNED, EventKind.CREWMATE_STATUS, EventKind.CREWMATE_COMPLETE, EventKind.CREWMATE_FAILED):
+        allowed.add(str(kind))
+    assert set(kinds) <= allowed, f"child transcript leaked: {set(kinds) - allowed}"
+
+    assert lifecycle[0]["kind"] == str(EventKind.CAPTAIN_ORCHESTRATION)
+    assert str(EventKind.CREWMATE_SPAWNED) in kinds
+    assert str(EventKind.CREWMATE_COMPLETE) in kinds
+    complete_idx = kinds.index(str(EventKind.CREWMATE_COMPLETE))
+    assert complete_idx + 1 < len(kinds)
+    assert kinds[complete_idx + 1] == str(EventKind.CAPTAIN_ORCHESTRATION)
+    assert kinds[-1] == str(EventKind.CAPTAIN_ORCHESTRATION)
+
+
+def test_post_execution_hooks_replay_ordered_lifecycle(config, temp_dir):
+    """post_execution_hooks replays the captured lifecycle in exact order, not
+    just the last snapshot."""
+    import asyncio
+
+    from server.domain.events import EventKind
+    from server.toolkit.base import ToolResult
+    from server.toolkit.executor import post_execution_hooks
+
+    meta = {
+        "orchestration_events": [
+            {"kind": str(EventKind.CAPTAIN_ORCHESTRATION), "data": {"stage": "thinking", "message": "t"}},
+            {"kind": str(EventKind.CREWMATE_SPAWNED), "data": {"crewmate_id": "apogee:abc", "name": "Apogee"}},
+            {"kind": str(EventKind.CAPTAIN_ORCHESTRATION), "data": {"stage": "complete", "message": "c"}},
+        ]
+    }
+    result = ToolResult(success=True, output="ok", metadata=meta, error="")
+
+    async def collect():
+        return await post_execution_hooks("explore", {}, result, str(temp_dir), "s1")
+
+    events = asyncio.run(collect())
+    assert [e.kind for e in events] == [
+        EventKind.CAPTAIN_ORCHESTRATION,
+        EventKind.CREWMATE_SPAWNED,
+        EventKind.CAPTAIN_ORCHESTRATION,
+    ]
+    assert [e.data.get("stage") for e in events if e.kind == EventKind.CAPTAIN_ORCHESTRATION] == [
+        "thinking",
+        "complete",
+    ]
+
+
+def test_post_execution_hooks_replay_lifecycle_on_failed_mission(config, temp_dir):
+    """Failed explore missions still replay the captured lifecycle in order.
+
+    The success guard was deliberately removed so the pinned orchestration
+    card can show the failure narrative (spawn → fail) instead of going
+    silently blank. The frontend already handles this: PinnedOrchestrationCard
+    renders hasFailedCrew / FAILED badges and error lines.
+    """
+    import asyncio
+
+    from server.domain.events import EventKind
+    from server.toolkit.base import ToolResult
+    from server.toolkit.executor import post_execution_hooks
+
+    meta = {
+        "orchestration_events": [
+            {"kind": str(EventKind.CAPTAIN_ORCHESTRATION), "data": {"stage": "thinking", "message": "t"}},
+            {"kind": str(EventKind.CREWMATE_SPAWNED), "data": {"crewmate_id": "apogee:abc", "name": "Apogee"}},
+            {"kind": str(EventKind.CREWMATE_FAILED), "data": {"crewmate_id": "apogee:abc", "error": "boom"}},
+        ]
+    }
+    result = ToolResult(success=False, output="failed", metadata=meta, error="boom")
+
+    async def collect():
+        return await post_execution_hooks("explore", {}, result, str(temp_dir), "s1")
+
+    events = asyncio.run(collect())
+    assert [e.kind for e in events] == [
+        EventKind.CAPTAIN_ORCHESTRATION,
+        EventKind.CREWMATE_SPAWNED,
+        EventKind.CREWMATE_FAILED,
+    ]
+    assert events[-1].data.get("crewmate_id") == "apogee:abc"
+

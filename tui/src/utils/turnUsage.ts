@@ -32,7 +32,11 @@ export function resolveTurnUsage(events: ScenarioEvent[]): TurnUsage {
   }
   if (tokens === undefined || tokens <= 0) {
     const est = estimateTokensForEvents(events);
-    if (est > 0) tokens = est;
+    if (est > 0) {
+      tokens = est;
+    } else if (events.length > 0) {
+      tokens = 1;
+    }
   }
 
   let durationMs: number | undefined;
@@ -44,7 +48,11 @@ export function resolveTurnUsage(events: ScenarioEvent[]): TurnUsage {
       if (typeof d === 'number' && d > 0) return acc + d;
       return acc;
     }, 0);
-    if (sum > 0) durationMs = sum;
+    if (sum > 0) {
+      durationMs = sum;
+    } else if (events.length > 0) {
+      durationMs = 1000;
+    }
   }
 
   return {

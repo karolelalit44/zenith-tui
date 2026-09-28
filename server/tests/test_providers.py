@@ -199,3 +199,32 @@ class TestReasoningEffort:
     def test_capabilities_exposed_on_provider(self):
         provider = LLMProvider(name="openai", model="gpt-4o", api_key="k")
         assert provider.capabilities.thinking is True or provider.capabilities.thinking is False
+
+
+class TestMessageSanitization:
+    def test_sanitize_messages_removes_internal_keys(self):
+        from server.providers.llm_provider import _sanitize_messages_for_llm
+
+        raw_messages = [
+            {
+                "role": "user",
+                "content": "Hello",
+                "digest": "glob: ok",
+                "is_digested": True,
+                "time": "compacted",
+                "extra": 123,
+            },
+            {
+                "role": "assistant",
+                "content": "Hi",
+                "tool_calls": [{"id": "1", "type": "function", "function": {"name": "f"}}],
+                "metadata": {"foo": "bar"},
+            },
+        ]
+        clean = _sanitize_messages_for_llm(raw_messages)
+        assert clean[0] == {"role": "user", "content": "Hello"}
+        assert clean[1] == {
+            "role": "assistant",
+            "content": "Hi",
+            "tool_calls": [{"id": "1", "type": "function", "function": {"name": "f"}}],
+        }

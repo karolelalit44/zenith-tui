@@ -95,7 +95,41 @@ describe('rawEventMapper success tokenInfo', () => {
     expect(evt.tokenInfo?.windowEstimated).toBeUndefined();
     expect(evt.tokenInfo?.estimated).toBe(false);
   });
+
+  it('maps completed, finishReason, truncated, and manifest fields when present on success event', () => {
+    const evt = mapRawEvent(
+      'success',
+      {
+        message: 'Partial completed',
+        completed: false,
+        finish_reason: 'length',
+        truncated: true,
+        manifest: {
+          created: ['foo.txt'],
+          modified: [],
+          remaining: ['bar.txt'],
+          completed: false,
+          stalled: true,
+          files: [{ path: 'foo.txt', exists: true, size: 42 }],
+        },
+      },
+      'evt_partial_succ',
+    );
+
+    expect(evt.kind).toBe('success');
+    if (evt.kind !== 'success') return;
+    expect(evt.completed).toBe(false);
+    expect(evt.finishReason).toBe('length');
+    expect(evt.truncated).toBe(true);
+    expect(evt.manifest).toBeDefined();
+    expect(evt.manifest?.completed).toBe(false);
+    expect(evt.manifest?.stalled).toBe(true);
+    expect(evt.manifest?.created).toEqual(['foo.txt']);
+    expect(evt.manifest?.remaining).toEqual(['bar.txt']);
+    expect(evt.manifest?.files).toEqual([{ path: 'foo.txt', exists: true, size: 42 }]);
+  });
 });
+
 
 describe('rawEventMapper progress (QA-7)', () => {
   it('maps progress events derived from executed tool activity', () => {

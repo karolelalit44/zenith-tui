@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
 
+from server.agents.todo_state import reset_todo_state
 from server.config.constants import (
     BUILD_MODE,
+    COMPACTION_KEEP_LATEST_TOOLS,
     DEFAULT_FILE_READ_LINES,
+    MAX_ACTIVE_TOOLS_PER_TURN,
     MAX_STEPS_DEFAULT,
-    MAX_STEPS_PROMPT,
     MAX_TOOL_OUTPUT_BASELINE,
     PLAN_MODE,
     SALVAGE_DIGEST_MAX_ITEMS,
@@ -30,6 +34,7 @@ from server.toolkit.param_normalizer import normalize_file_params
 from server.toolkit.registry import ToolRegistry
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
+from ..toolkit.base import ToolResult
 from ..toolkit.executor import (
     build_tool_metadata,
     execute_tool,
@@ -38,13 +43,13 @@ from ..toolkit.executor import (
     validate_tool_calls,
     validate_tool_rejection,
 )
-from ..toolkit.base import ToolResult
-from .compaction import compact_tool_output
+from .compaction import compact_tool_output, prune_inflight_messages
 from .context import ContextManager
 from .llm_stream import StreamState, stream_completion
 from .prompts import compose_system_context, default_template_sections
 from .run_state import _activity_label
 from .session_workspace import (
+    evict_file_cache,
     get_cached_read,
     get_read_history,
     is_identical_replay,
@@ -53,6 +58,21 @@ from .session_workspace import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Stand-in for an assistant turn that carries neither text nor tool calls.
+# Providers (OpenRouter, OpenAI) reject such a turn with "model output must
+# contain either output text or tool calls", so an empty reasoning-only or
+# dup-skipped turn is replaced by this before dispatch.
+#
+# Deliberately NOT "...": a bare ellipsis is a legitimate terse model answer, and
+# listing it as the sanitizer's own output value in _DEGENERATE_TOKENS meant a
+# model that answered with an ellipsis had its answer silently dropped.
+EMPTY_ASSISTANT_TURN = "[empty assistant turn]"
+
+# Shortest boundary repetition treated as a real overlap when stitching a
+# length-truncated answer to its continuation. Below this a match is far more
+# likely to be coincidence than repetition.
+_MIN_CONTINUATION_OVERLAP = 4
 
 _DEGENERATE_TOKENS = {
     "[tool calls]",
@@ -65,6 +85,105 @@ def _is_degenerate_message(text: str | None) -> bool:
     if not text or not str(text).strip():
         return True
     return str(text).strip().lower() in _DEGENERATE_TOKENS
+
+
+def _merge_continuation(prefix: str, continuation: str) -> str:
+    """Merge a continuation string into a prefix, trimming any overlapping boundary repetition."""
+    if not prefix:
+        return continuation
+    if not continuation:
+        return prefix
+    max_k = min(len(prefix), len(continuation), 200)
+    # Test every overlap length, shortest included: a provider that repeats only
+    # a few characters at the seam used to fall through to verbatim concatenation
+    # and duplicate that fragment in the user's answer. The floor of 4 keeps a
+    # coincidental single character match from eating real text.
+    for k in range(max_k, _MIN_CONTINUATION_OVERLAP - 1, -1):
+        if prefix.endswith(continuation[:k]):
+            return prefix + continuation[k:]
+    return prefix + continuation
+
+
+def _tool_call_name(tc: Any) -> str:
+    """The function name of one history tool_call.
+
+    Live native calls use OpenAI's ``{function: {name}}`` shape; persisted
+    history uses the domain ``ToolCall`` ``{name}`` shape. Accept both, plus the
+    attribute form, because a resumed session mixes all three.
+    """
+    if isinstance(tc, dict):
+        return str((tc.get("function") or {}).get("name") or tc.get("name") or "")
+    inner = getattr(tc, "function", None)
+    name = getattr(inner, "name", None) if inner is not None else None
+    return str(name or getattr(tc, "name", "") or "")
+
+
+def _iter_tool_call_names(msg: dict) -> Iterator[str]:
+    for tc in msg.get("tool_calls") or []:
+        name = _tool_call_name(tc)
+        if name:
+            yield name
+
+
+def _strip_unoffered_tool_calls(
+    messages: list[dict], offered: set[str]
+) -> list[dict] | None:
+    """Drop ``tool_calls`` whose function is absent from *offered*.
+
+    Returns ``None`` when nothing needed stripping, so the caller can keep the
+    original list identity. A tool result stays behind as an ordinary user
+    message: it is conversation context, not a schema object, and dropping it
+    would throw away what the tool actually reported.
+
+    An assistant turn left with no tool_calls and no text is not dispatchable —
+    providers reject a turn that is neither — so it is given the same neutral
+    marker the empty-turn sanitizer uses.
+    """
+    result: list[dict] = []
+    changed = False
+    for msg in messages:
+        calls = msg.get("tool_calls") or []
+        if not calls:
+            result.append(msg)
+            continue
+        kept = [tc for tc in calls if _tool_call_name(tc) in offered]
+        if len(kept) == len(calls):
+            result.append(msg)
+            continue
+        changed = True
+        replacement = dict(msg)
+        if kept:
+            replacement["tool_calls"] = kept
+        else:
+            replacement.pop("tool_calls", None)
+            if not (replacement.get("content") or "").strip():
+                replacement["content"] = EMPTY_ASSISTANT_TURN
+        result.append(replacement)
+    return result if changed else None
+
+
+def _todo_nudge_text(active_tasks: list[Any]) -> str:
+    """Nudge text for an outstanding checklist.
+
+    Blocked items get their own instruction. Telling the model to "execute the
+    next step" about a task it cannot execute is how a blocked board stalls: the
+    nudge fires, the model has nothing to do, and the turn ends with the item
+    still blocked and no instruction to resolve it.
+    """
+    summary = ", ".join(f"{t.id}: {t.title}" for t in active_tasks[:3])
+    blocked = [t for t in active_tasks if getattr(t, "status", "") == "blocked"]
+    if blocked:
+        blocked_summary = ", ".join(f"{t.id}: {t.title}" for t in blocked[:3])
+        return (
+            f"Your task checklist still has work outstanding (active: {summary}). "
+            f"Blocked and needing resolution first: {blocked_summary}. "
+            "Resolve the blocker (gather the missing input, or mark the task cancelled "
+            "with a note) before executing the remaining steps."
+        )
+    return (
+        f"Please proceed with the task checklist (active: {summary}). "
+        "Execute the next step using the available tools."
+    )
 
 
 class SimpleLoop:
@@ -99,7 +218,11 @@ class SimpleLoop:
 
     @staticmethod
     def _salvage_digest(messages: list[dict]) -> str:
-        digs = [str(m.get("digest")) for m in messages if isinstance(m, dict) and m.get("digest")]
+        digs = [
+            str(m.get("salvage_digest") or m.get("digest"))
+            for m in messages
+            if isinstance(m, dict) and (m.get("salvage_digest") or m.get("digest"))
+        ]
         if not digs:
             return ""
         shown = digs[-SALVAGE_DIGEST_MAX_ITEMS:]
@@ -138,7 +261,10 @@ class SimpleLoop:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.warning("Salvage completion failed (%s); using deterministic digest", e)
+            # %r, not %s: asyncio.TimeoutError stringifies to "" so the old
+            # "%s" form produced a context-free "Salvage completion failed ()"
+            # line in prod logs.
+            logger.warning("Salvage completion failed (%r); using deterministic digest", e)
         else:
             raw = (result or "").strip()
             clean, attempted_calls = UnifiedResponseFormatter.process_response(raw)
@@ -240,6 +366,12 @@ class SimpleLoop:
         system_prompt = "\n\n".join(compose_system_context(sections))
 
         resolver = SchemaResolver(self.tool_registry, seed=build_mode_tool_seed(allowed_tools))
+        if self.tool_registry and prompt:
+            for tool_name in self.tool_registry.list_tools_for_mode(mode):
+                if len(resolver.active_names()) >= MAX_ACTIVE_TOOLS_PER_TURN:
+                    break
+                if re.search(r"\b" + re.escape(tool_name) + r"\b", prompt, re.IGNORECASE):
+                    resolver.request_tool(tool_name)
         registered_tools = set(resolver.active_names())
         openai_tools = resolver.openai_tools(mode)
 
@@ -287,6 +419,12 @@ class SimpleLoop:
 
         start_time = time.time()
         iteration = 0
+        # Board lifetime equals request lifetime. Without this the previous
+        # request's checklist is still on the board here, so its items drive this
+        # turn's nudges and completion reporting, and the client re-pins a
+        # finished board above the composer. A session that spans requests
+        # re-establishes its checklist with an explicit todo call.
+        reset_todo_state(session_id)
         created_files: set[str] = set()
         files_edited: list[str] = []
         executed_calls: set[tuple[str, str]] = set()
@@ -302,6 +440,12 @@ class SimpleLoop:
         reflimit = int(getattr(self.config, "agent_reflection_limit", 0) or 4)
         progress_steps: list[dict] = []
         max_steps = int(getattr(self.config, "agent_max_steps", 0) or MAX_STEPS_DEFAULT)
+        nudges = 0
+        length_continuations = 0
+        silent_continuations = 0
+        pending_continuation_text = ""
+        length_truncated = False
+        last_finish_reason: FinishReason = FinishReason.STOP
 
         def _param_detail(params: dict) -> str:
             if not isinstance(params, dict):
@@ -312,6 +456,18 @@ class SimpleLoop:
                     flat = " ".join(val.strip().split())
                     return flat[:48] + ("\u2026" if len(flat) > 48 else "")
             return ""
+
+        # Progress must only ever advance: adding a new *active* step grows the
+        # step count while the done count is unchanged, which naively regressed
+        # the percent (a mid-run "96%" snapping back to "92%" in the TUI).
+        last_progress_pct = 0
+
+        def _progress_percent(done: int, total: int) -> int:
+            nonlocal last_progress_pct
+            pct = round(done * 100 / max(1, total))
+            pct = max(pct, last_progress_pct)
+            last_progress_pct = pct
+            return pct
 
         def _emit_progress(tool_name: str, success: bool, detail: str = "") -> Event:
             label = _activity_label(tool_name, len(progress_steps) + 1, detail)
@@ -330,7 +486,7 @@ class SimpleLoop:
                     }
                 )
             done = sum(1 for s in progress_steps if s["status"] == "done")
-            percent = round(done * 100 / max(1, len(progress_steps)))
+            percent = _progress_percent(done, len(progress_steps))
             return r.progress(
                 percent, label, session_id, iteration=iteration, steps=list(progress_steps)
             )
@@ -339,7 +495,7 @@ class SimpleLoop:
             label = _activity_label(tool_name, len(progress_steps) + 1, detail)
             progress_steps.append({"label": label, "status": "active", "tool": tool_name})
             done = sum(1 for s in progress_steps if s["status"] == "done")
-            percent = round(done * 100 / max(1, len(progress_steps)))
+            percent = _progress_percent(done, len(progress_steps))
             return r.progress(
                 percent, label, session_id, iteration=iteration, steps=list(progress_steps)
             )
@@ -361,10 +517,6 @@ class SimpleLoop:
                 )
                 yield r.warning("Request cancelled", session_id, code="CANCELLED")
                 return
-            nudge_step = max_steps - 5 if max_steps > 5 else max_steps - 1
-            if iteration > 0 and iteration == nudge_step:
-                messages.append({"role": "user", "content": MAX_STEPS_PROMPT})
-                yield r.warning(MAX_STEPS_PROMPT, session_id, code="MAX_STEPS")
 
             token_info = self.context_manager.get_token_info(messages, model)
             if token_info.percent >= self.config.context_compaction_threshold:
@@ -387,9 +539,74 @@ class SimpleLoop:
             stream_state = StreamState()
             context_exceeded = False
             turn_errored = False
+            dispatch_messages, _ = prune_inflight_messages(
+                messages, keep_latest_tools=COMPACTION_KEEP_LATEST_TOOLS
+            )
+            # Sanitize assistant messages that have empty content and no tool_calls.
+            # Providers (OpenRouter, OpenAI) reject requests containing such turns
+            # with "model output must contain either output text or tool calls".
+            # These arise from reasoning-only turns, rate-limit retry truncations,
+            # or iterations where the assistant turn was dup-skipped. Replace with
+            # a minimal placeholder that preserves the conversation structure.
+            sanitized_dispatch = []
+            for _msg in dispatch_messages:
+                if (
+                    _msg.get("role") == "assistant"
+                    and not (_msg.get("content") or "").strip()
+                    and not _msg.get("tool_calls")
+                ):
+                    m_copy = dict(_msg)
+                    m_copy["content"] = EMPTY_ASSISTANT_TURN
+                    sanitized_dispatch.append(m_copy)
+                else:
+                    sanitized_dispatch.append(_msg)
+            dispatch_messages = sanitized_dispatch
+            # G5: a dispatched history must never reference a tool that is not
+            # in the offered function list. Strict providers validate the
+            # request against that list and reject the whole turn before any
+            # post-parse escalation could run, so a name that has gone missing
+            # (tool removed, mode switched, session resumed against an older
+            # catalog) kills the turn outright.
+            #
+            # Two cases, both handled:
+            #   1. The tool IS available for this mode but was not seeded yet —
+            #      promote it into the active set and keep the history intact.
+            #   2. The tool is NOT available at all — no promotion can save it,
+            #      so the dangling tool_call is stripped from the history.
+            if self.tool_registry and resolver:
+                mode_available = set(self.tool_registry.list_tools_for_mode(mode))
+                promotable: list[str] = []
+                for _msg in dispatch_messages:
+                    for _fname in _iter_tool_call_names(_msg):
+                        if _fname in mode_available and _fname not in promotable:
+                            promotable.append(_fname)
+                if promotable and resolver.request_tools(promotable):
+                    openai_tools = resolver.openai_tools(mode)
+
+                offered = {
+                    (t.get("function") or {}).get("name")
+                    for t in (openai_tools or [])
+                    if isinstance(t, dict)
+                }
+                offered.discard(None)
+                if offered:
+                    stripped = _strip_unoffered_tool_calls(dispatch_messages, offered)
+                    if stripped is not None:
+                        if stripped is not dispatch_messages:
+                            logger.info(
+                                "Stripped %d tool_call(s) absent from the offered function "
+                                "list before dispatch",
+                                sum(
+                                    1
+                                    for a, b in zip(dispatch_messages, stripped)
+                                    if len(a.get("tool_calls") or [])
+                                    != len(b.get("tool_calls") or [])
+                                ),
+                            )
+                        dispatch_messages = stripped
             async for event in stream_completion(
                 self.provider,
-                messages,
+                dispatch_messages,
                 openai_tools,
                 session_id,
                 iteration,
@@ -430,11 +647,91 @@ class SimpleLoop:
                 continue
 
             finish_reason = getattr(self.provider, "_last_finish_reason", FinishReason.STOP)
+            last_finish_reason = finish_reason
             response_text = stream_state.response_text
             native_tool_calls = getattr(self.provider, "_last_native_tool_calls", [])
             clean_response, tool_calls = UnifiedResponseFormatter.process_response(
                 response_text, native_tool_calls or None
             )
+
+            if finish_reason == FinishReason.LENGTH:
+                has_partial_tool = bool(
+                    (native_tool_calls and len(native_tool_calls) > 0)
+                    or (
+                        not tool_calls
+                        and response_text
+                        and any(
+                            marker in response_text
+                            for marker in ("```tool", '{"tool"', "<tool_call>")
+                        )
+                    )
+                )
+                # Complete text-parsed tool calls are not partial — execute them
+                # normally instead of discarding and re-prompting.
+                if tool_calls and not has_partial_tool:
+                    pass
+                elif length_continuations < 5:
+                    length_continuations += 1
+                    logger.info(
+                        "LLM output truncated (finish_reason=LENGTH) on iteration %d; continuing emission (continuation %d/5)",
+                        iteration,
+                        length_continuations,
+                    )
+                    if has_partial_tool:
+                        content_to_append = (
+                            response_text.strip()
+                            if (response_text and response_text.strip())
+                            else "[tool call truncated]"
+                        )
+                        messages.append({"role": "assistant", "content": content_to_append})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your response was cut off before the tool call was complete. "
+                                    "Please emit the tool call now."
+                                ),
+                            }
+                        )
+                    else:
+                        pending_continuation_text = _merge_continuation(
+                            pending_continuation_text, clean_response or response_text or ""
+                        )
+                        content_to_append = (
+                            response_text.strip()
+                            if (response_text and response_text.strip())
+                            else "[response truncated]"
+                        )
+                        messages.append({"role": "assistant", "content": content_to_append})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your response reached the token limit and was cut off. "
+                                    "Please continue directly from where you left off without repeating any prior text."
+                                ),
+                            }
+                        )
+                    await asyncio.sleep(0)
+                    continue
+                else:
+                    logger.warning(
+                        "Reached maximum length continuations (%d) on iteration %d",
+                        length_continuations,
+                        iteration,
+                    )
+                    length_truncated = True
+                    yield r.warning(
+                        "Response reached output token limit and continuation cap was reached.",
+                        session_id,
+                        code="LENGTH_LIMIT",
+                    )
+
+            if pending_continuation_text:
+                clean_response = _merge_continuation(pending_continuation_text, clean_response or "")
+                pending_continuation_text = ""
+                if finish_reason == FinishReason.STOP:
+                    length_continuations = 0
 
             current_turn_emitted = False
             if (
@@ -447,18 +744,146 @@ class SimpleLoop:
                 )
                 self._last_emitted_message = clean_response
                 current_turn_emitted = True
-
-            if finish_reason == FinishReason.LENGTH:
-                continue
             if not tool_calls:
-                break  # emergent stop
+                # When the provider explicitly signals tool_calls as the stop
+                # reason but the parser extracted nothing (e.g. streaming race,
+                # malformed argument JSON, or a placeholder tool name), the model
+                # intended to use a tool. Stopping here would silently swallow the
+                # intent and produce a half-answer. Instead, append what we have
+                # and continue so the model gets another chance to emit the call.
+                if finish_reason == FinishReason.TOOL_CALLS:
+                    logger.warning(
+                        "finish_reason=tool_calls but no tool calls parsed for session %s "
+                        "(iteration %d); continuing to let model retry",
+                        session_id,
+                        iteration,
+                    )
+                    content_to_append = (
+                        response_text.strip()
+                        if (response_text and response_text.strip())
+                        else "[response truncated]"
+                    )
+                    messages.append({"role": "assistant", "content": content_to_append})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your response was cut off before the tool call was complete. "
+                                "Please emit the tool call now."
+                            ),
+                        }
+                    )
+                    continue
 
+                from server.agents.todo_state import get_todo_state
+
+                todo = get_todo_state(session_id)
+                has_active_todos = todo.has_active()
+
+                if (
+                    has_active_todos
+                    and nudges < 2
+                    and iteration < max_steps - 1
+                ):
+                    nudges += 1
+                    active_tasks = todo.active()
+                    if active_tasks:
+                        nudge_content = _todo_nudge_text(active_tasks)
+                    else:
+                        nudge_content = "Please proceed with the next step or task."
+                    messages.append({"role": "assistant", "content": response_text or ""})
+                    messages.append({"role": "user", "content": nudge_content})
+                    continue
+
+                # Silent no-tool turn: the model ended with no tool call AND
+                # produced no message text (e.g. a reasoning-only trailer from
+                # a reason-then-act model). That is NOT a final answer — the
+                # user would receive nothing. Bounded continuation lets the
+                # model emit its actual answer or next tool call.
+                if (
+                    not current_turn_emitted
+                    and not self._last_emitted_message
+                    and silent_continuations < 2
+                ):
+                    silent_continuations += 1
+                    logger.info(
+                        "No tool call and no emitted text on iteration %d; "
+                        "continuing to let the model produce its answer (silent continuation %d/2)",
+                        iteration,
+                        silent_continuations,
+                    )
+                    messages.append({"role": "assistant", "content": response_text or ""})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your last turn ended without any response text or tool call. "
+                                "Continue and provide your final answer to the user's request "
+                                "now, or emit the next tool call."
+                            ),
+                        }
+                    )
+                    continue
+
+                break  # emergent stop — purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
+
+            mode_available: set[str] = set()
+            blocked: list[str] = []
             if self.tool_registry:
+                mode_available = set(self.tool_registry.list_tools_for_mode(mode))
+                escalate: list[str] = []
+                kept_calls: list[dict] = []
                 for tc in tool_calls:
                     t_name = tc.get("tool")
-                    if t_name and self.tool_registry.get(t_name):
-                        resolver.request_tool(t_name)
+                    if not t_name:
+                        continue
+                    if (
+                        t_name not in mode_available
+                        and self.tool_registry.get(t_name) is not None
+                    ):
+                        # Registered, but not usable in the current mode.
+                        # Surface it instead of silently promoting a schema
+                        # that can never execute.
+                        blocked.append(t_name)
+                        continue
+                    kept_calls.append(tc)
+                    escalate.append(t_name)
+                    if t_name == "get_tool_definition":
+                        requested = (tc.get("params") or {}).get("tool_name")
+                        # Only auto-promote tools the current mode actually
+                        # permits; a mode-restricted schema would be filtered out
+                        # of the delivered schemas anyway (G2).
+                        if requested and requested in mode_available:
+                            escalate.append(requested)
+                tool_calls = kept_calls
+                if blocked:
+                    yield r.warning(
+                        f"Tools not available in '{mode}' mode: {', '.join(sorted(set(blocked)))} "
+                        "(registered but mode-restricted; call omitted).",
+                        session_id,
+                        code="MODE_RESTRICTED",
+                    )
+                if not tool_calls:
+                    # Every call this turn was mode-blocked (or empty): record
+                    # the assistant content, feed the rejection notice back so
+                    # the model knows why nothing ran, then continue.
+                    messages.append({"role": "assistant", "content": response_text or ""})
+                    if blocked:
+                        messages.append({"role": "user", "content": (
+                            f"[Tool rejected] {', '.join(sorted(set(blocked)))} is not available in "
+                            f"'{mode}' mode. Available tools for {mode}: "
+                            f"{', '.join(sorted(mode_available))}."
+                        )})
+                    stall_count += 1
+                    if stall_count >= 2:
+                        stalled = True
+                        break
+                    continue
+                # Batch-escalate every legitimate call at once so FIFO eviction
+                # can never strand one tool of a multi-call turn (G3).
+                resolver.request_tools(escalate)
             registered_tools = set(resolver.active_names())
+            openai_tools = resolver.openai_tools(mode)
 
             valid_calls, invalid_calls = validate_tool_calls(tool_calls, registered_tools)
             if invalid_calls:
@@ -486,9 +911,23 @@ class SimpleLoop:
                 continue
 
             messages.append({"role": "assistant", "content": response_text or ""})
+            # Surface mode-restricted calls now that the assistant content has
+            # been recorded, preserving assistant -> user ordering.
+            if blocked:
+                available = (
+                    ', '.join(sorted(mode_available))
+                    if mode_available
+                    else 'none (tool registry unavailable)'
+                )
+                messages.append({"role": "user", "content": (
+                    f"[Tool rejected] {', '.join(sorted(set(blocked)))} is not available in "
+                    f"'{mode}' mode. Available tools for {mode}: {available}."
+                )})
 
             executed_any_call_this_turn = False
             has_rejected_call_this_turn = False
+            turn_had_success = False
+            skipped_dup_calls: list[str] = []
             for tc in valid_calls:
                 tool_name = tc.get("tool")
                 if not tool_name:
@@ -501,6 +940,30 @@ class SimpleLoop:
                     current_turn_emitted
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
+
+                if is_dup and has_substantive_answer:
+                    from .loop import _params_label
+
+                    label = _params_label(tool_params, tool_name)
+                    tag = f"{tool_name}({label})" if label else tool_name
+                    skipped_dup_calls.append(tag)
+                    continue
+
+                if sig == last_doom_sig:
+                    doom_run += 1
+                else:
+                    doom_run = 1
+                    last_doom_sig = sig
+                if doom_run >= self._doom_threshold():
+                    yield r.warning(
+                        f"No new tool work for several consecutive iterations: the same tool call "
+                        f"(same name and input) has repeated {doom_run} times in a row. "
+                        "The turn is stopping so a human can approve or end it.",
+                        session_id,
+                        code="DOOM_LOOP",
+                    )
+                    doomed = True
+                    break
 
                 # file_read dedup runs BEFORE the silent is_dup-continue. A read
                 # whose range is already covered this session (exact duplicate or
@@ -555,45 +1018,29 @@ class SimpleLoop:
                                 executed_any_call_this_turn = True
                                 stall_count = 0
                                 consecutive_failures = 0
+                                turn_had_success = True
                                 any_tool_succeeded = True
                                 read_files.add(read_path)
                                 record_read(session_id, read_path)
+                                cached_result = ToolResult(
+                                    success=True, output=cached, metadata=metadata
+                                )
+                                transcript_result = cached_result
+                                content = format_tool_result(tool_name, transcript_result)
                                 messages.append(
                                     {
                                         "role": "user",
-                                        "content": (
-                                            f"[Tool: file_read | Status: SUCCESS] "
-                                            f"(range already read this turn from unchanged "
-                                            f"'{read_path}'; full content is above — do not "
-                                            "read again.)"
-                                        ),
-                                        "digest": "file_read: ok",
+                                        "content": content,
+                                        "tool_name": tool_name,
+                                        "salvage_digest": "file_read: ok",
                                     }
                                 )
                                 continue
-                        # Cache miss or stale: the file may have changed since the last
-                        # read. Force execution even if is_dup is set — the LLM must be
-                        # able to read files it just edited.
-                        is_dup = False
-
-                if is_dup and has_substantive_answer:
-                    continue
-
-                if sig == last_doom_sig:
-                    doom_run += 1
-                else:
-                    doom_run = 1
-                    last_doom_sig = sig
-                if doom_run >= self._doom_threshold():
-                    yield r.warning(
-                        f"No new tool work for several consecutive iterations: the same tool call "
-                        f"(same name and input) has repeated {doom_run} times in a row. "
-                        "The turn is stopping so a human can approve or end it.",
-                        session_id,
-                        code="DOOM_LOOP",
-                    )
-                    doomed = True
-                    break
+                        if stat is not None:
+                            # Cache miss or stale: the file may have changed since the last
+                            # read. Force execution even if is_dup is set — the LLM must be
+                            # able to read files it just edited.
+                            is_dup = False
 
                 if is_dup:
                     from .loop import _params_label
@@ -612,22 +1059,14 @@ class SimpleLoop:
                             ),
                         }
                     )
+                    has_rejected_call_this_turn = True
                     continue
 
                 reject_msg = validate_tool_rejection(
                     tool_name, tool_params, created_files, self.config.workspace_root
                 )
                 if reject_msg:
-                    consecutive_failures += 1
                     has_rejected_call_this_turn = True
-                    if consecutive_failures >= reflimit:
-                        yield r.error(
-                            f"Too many errors ({consecutive_failures}).",
-                            session_id,
-                            code="REFLECTION_LIMIT",
-                            recoverable=True,
-                        )
-                        return
                     yield r.warning(
                         f"Tool '{tool_name}' rejected: {reject_msg}",
                         session_id,
@@ -638,7 +1077,14 @@ class SimpleLoop:
 
                 target = tool_params.get("filepath") or tool_params.get("path") or ""
 
-                if tool_name == "file_write" and target and (target in created_files or self._replay_write(session_id, tool_params)):
+                # Normalize both the check target and created_files keys to
+                # resolved absolute paths so "./src/foo.py" and "src/foo.py"
+                # cannot bypass the in-turn rewrite block.
+                if target:
+                    target_abs = str((Path(self.config.workspace_root) / target).resolve())
+                else:
+                    target_abs = target
+                if tool_name == "file_write" and target and (target_abs in created_files or target in created_files or self._replay_write(session_id, tool_params)):
                     warn_msg = f"File rewrite blocked: '{target}' was already written this turn. Read it first, then use file_edit."
                     yield r.warning(warn_msg, session_id, code="REWRITE_BLOCKED")
                     messages.append({"role": "user", "content": warn_msg})
@@ -702,26 +1148,31 @@ class SimpleLoop:
                 executed_any_call_this_turn = True
                 stall_count = 0
                 if result.success:
-                    consecutive_failures = 0
+                    turn_had_success = True
                     any_tool_succeeded = True
                     p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
+                        created_files.add(str((Path(self.config.workspace_root) / p).resolve()))
                         created_files.add(p)
-                    if tool_name in ("file_write", "file_edit") and p:
-                        files_edited.append(p)
+                    if tool_name in ("file_write", "file_edit", "file_delete", "apply_patch"):
+                        if p:
+                            files_edited.append(p)
+                            abs_p = str((Path(self.config.workspace_root) / p).resolve())
+                            evict_file_cache(session_id, abs_p)
+                            evict_file_cache(session_id, p)
+                        if tool_name == "apply_patch" and result.metadata and "files" in result.metadata:
+                            for f in result.metadata["files"]:
+                                files_edited.append(f)
+                                abs_f = str((Path(self.config.workspace_root) / f).resolve())
+                                evict_file_cache(session_id, abs_f)
+                                evict_file_cache(session_id, f)
+                        executed_calls = {
+                            s for s in executed_calls
+                            if s[0] not in ("glob", "grep", "dir_list", "list_dir", "bash")
+                        }
                     if tool_name == "file_read" and p:
                         read_files.add(p)
                         record_read(session_id, p)
-                else:
-                    consecutive_failures += 1
-                    if consecutive_failures >= reflimit:
-                        yield r.error(
-                            f"Too many errors ({consecutive_failures}).",
-                            session_id,
-                            code="REFLECTION_LIMIT",
-                            recoverable=True,
-                        )
-                        return
 
                 for ev in await post_execution_hooks(
                     tool_name, tool_params, result, self.config.workspace_root, session_id
@@ -746,23 +1197,106 @@ class SimpleLoop:
                             f"\n[read receipt: '{p}' lines in context: {ranges}"
                             f" / {total} total. Re-read only unlisted ranges.]"
                         )
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": content,
-                        "digest": f"{tool_name}: {'ok' if result.success else 'error'}",
-                    }
-                )
+                msg_entry: dict[str, Any] = {
+                    "role": "user",
+                    "content": content,
+                    # Structured tag so compaction can tell what produced this
+                    # message without parsing the human-readable "[Tool: ...]"
+                    # prefix. The prefix stays display text only.
+                    "tool_name": tool_name,
+                    "salvage_digest": f"{tool_name}: {'ok' if result.success else 'error'}",
+                }
+                if tool_name in ("glob", "grep") and result.success:
+                    from server.toolkit.digest import format_tool_digest
+
+                    msg_entry["digest"] = format_tool_digest(tool_name, tool_params, result)
+                messages.append(msg_entry)
+            if executed_any_call_this_turn or has_rejected_call_this_turn:
+                if turn_had_success:
+                    consecutive_failures = 0
+                    nudges = 0
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= reflimit:
+                        yield r.error(
+                            f"Too many errors ({consecutive_failures}).",
+                            session_id,
+                            code="REFLECTION_LIMIT",
+                            recoverable=True,
+                        )
+                        return
             if doomed:
                 break
             if not executed_any_call_this_turn:
                 if has_rejected_call_this_turn:
                     continue
+                # When the provider signals finish_reason=TOOL_CALLS, valid calls
+                # were parsed, but every one was silently skipped as a duplicate,
+                # the model is stuck re-deriving work already in the history. A
+                # short transitional message ("I'll investigate…") must not be
+                # treated as a final answer in this case — count it as a stall and
+                # let the model try again with a reminder.
+                # Note: this does NOT apply when finish_reason=STOP (text-parsed
+                # tool calls), which is the AC-1 case where a real answer + a stray
+                # dup should still produce a clean emergent stop.
+                if finish_reason == FinishReason.TOOL_CALLS and valid_calls:
+                    logger.info(
+                        "All %d valid tool call(s) silently dup-skipped with "
+                        "finish_reason=TOOL_CALLS for session %s (iteration %d); "
+                        "counting as stall to prevent false emergent stop",
+                        len(valid_calls),
+                        session_id,
+                        iteration,
+                    )
+                    stall_count += 1
+                    if stall_count >= 2:
+                        yield r.warning(
+                            "No new tool work for several consecutive iterations; finalizing turn.",
+                            session_id,
+                            code="STALL",
+                        )
+                        stalled = True
+                        break
+                    dup_desc = (
+                        f"the tool call(s): {', '.join(skipped_dup_calls)}"
+                        if skipped_dup_calls
+                        else "those tool calls"
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Those actions ({dup_desc}) are already complete. "
+                                "Do not repeat them. Synthesize and provide your final answer now "
+                                "based on the information gathered."
+                            ),
+                        }
+                    )
+                    continue
                 has_substantive_answer = bool(
                     current_turn_emitted
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
-                if has_substantive_answer:
+                if (
+                    has_substantive_answer
+                ):
+                    from server.agents.todo_state import get_todo_state
+
+                    todo = get_todo_state(session_id)
+                    has_active_todos = mode != PLAN_MODE and todo.has_active()
+                    if (
+                        has_active_todos
+                        and nudges < 2
+                        and iteration < max_steps - 1
+                    ):
+                        nudges += 1
+                        active_tasks = todo.active()
+                        if active_tasks:
+                            nudge_content = _todo_nudge_text(active_tasks)
+                        else:
+                            nudge_content = "Please proceed with the next step or task."
+                        messages.append({"role": "user", "content": nudge_content})
+                        continue
                     break
                 stall_count += 1
                 if stall_count >= 2:
@@ -774,31 +1308,67 @@ class SimpleLoop:
                     stalled = True
                     break
 
+        if pending_continuation_text:
+            if not self._last_emitted_message or len(pending_continuation_text) > len(self._last_emitted_message):
+                self._last_emitted_message = pending_continuation_text
+            pending_continuation_text = ""
+
+        token_info = self.context_manager.get_token_info(messages, model)
+        from server.agents.todo_state import get_todo_state
+
+        todo = get_todo_state(session_id)
+        has_pending_todos = mode != PLAN_MODE and todo.has_active()
+        has_mutation = bool(created_files or files_edited)
+        has_file_work = has_mutation
+        # Purely model-dependent completion: no hard-coded length/mutation/citation
+        # checks — harness is thin deterministic executor around emergent model signal
+        # (Pi Codex OpenCode invariant: continue iff tool_calls present).
+        substantive_answer = bool(
+            self._last_emitted_message
+            and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
+        )
+        # Salvage only for deterministic guards (stall/doom/length), not for
+        # incomplete research — that is handled by the emergent nudge above.
         salvaged = False
         if (stalled or doomed or iteration >= max_steps) and len(
             (self._last_emitted_message or "").strip()
         ) < SUMMARY_MIN_CHARS:
+            salvage_reason = "no recent progress" if stalled else "repetition limit"
             async for ev in self._salvage_final_answer(
                 session_id=session_id,
                 messages=messages,
-                reason="no recent progress" if stalled else "repetition limit",
+                reason=salvage_reason,
                 iteration=iteration,
             ):
                 yield ev
             salvaged = True
 
-        token_info = self.context_manager.get_token_info(messages, model)
-        # A successful tool call (e.g. bash creating files) is real work even
-        # when it isn't a tracked file_write/file_edit — never report "Turn
-        # finished" (implying nothing happened) when a tool actually succeeded.
-        has_file_work = bool(created_files or files_edited or any_tool_succeeded)
-        substantive_answer = bool(
-            self._last_emitted_message
-            and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
-        )
         is_stalled = bool(stalled or doomed)
-        completed = False if is_stalled else bool(salvaged or has_file_work or iteration > 0 or substantive_answer)
-        message = "Request processed with best-effort summary" if salvaged else ("Request processed successfully" if has_file_work else "Turn finished")
+        is_length_truncated = bool(last_finish_reason == FinishReason.LENGTH or length_truncated)
+        is_step_limited = bool(iteration >= max_steps)
+
+        # Honest turn completion — purely model-dependent, thin harness:
+        # Completed iff model finished without deterministic guard violation.
+        # No hard-coded has_mutation/has_todo_success/substantive length check.
+        if is_length_truncated or is_stalled or has_pending_todos or is_step_limited:
+            completed = False
+        else:
+            completed = True
+
+        if is_length_truncated:
+            message = "Response truncated by token limit (finish_reason=length)"
+        elif salvaged:
+            message = "Request processed with best-effort summary"
+        elif has_pending_todos:
+            message = "Turn finished with active tasks remaining"
+        elif is_stalled:
+            message = "Turn stalled without progress"
+        elif is_step_limited and not completed:
+            message = "Turn reached maximum step limit"
+        elif has_file_work:
+            message = "Request processed successfully"
+        else:
+            message = "Turn finished"
 
         _scan = None
         if mode == PLAN_MODE:
@@ -835,20 +1405,27 @@ class SimpleLoop:
         written = set(created_files) | set(files_edited)
         verified = bool(written and any(f in read_files for f in written))
 
+        remaining_reasons = []
+        if _scan and "plan.md" in _scan.get("missing", []):
+            remaining_reasons.append("Plan artifacts not written: " + ", ".join(_scan["missing"]) + ".")
+        if is_length_truncated:
+            remaining_reasons.append("Response truncated by token limit.")
+        if has_pending_todos:
+            remaining_reasons.append("Active tasks remain on checklist.")
+
         manifest_data = {
             "completed": completed,
             "stalled": is_stalled,
-            "remaining": (
-                ["Plan artifacts not written: " + ", ".join(_scan["missing"]) + "."]
-                if _scan and "plan.md" in _scan.get("missing", [])
-                else []
-            ),
+            "remaining": remaining_reasons,
             "answered": substantive_answer or salvaged,
             "created": sorted(created_files),
             "modified": files_edited,
             "verified": verified,
             "any_tool_succeeded": any_tool_succeeded,
             "summary": self._last_emitted_message or "",
+            "finish_reason": (
+                last_finish_reason.value if hasattr(last_finish_reason, "value") else str(last_finish_reason)
+            ),
         }
         if _scan:
             manifest_data["plan_artifacts"] = _scan
@@ -881,6 +1458,11 @@ class SimpleLoop:
             elapsed_ms=elapsed_ms,
         )
         success_event.data["manifest"] = manifest_data
+        success_event.data["completed"] = completed
+        success_event.data["finish_reason"] = (
+            last_finish_reason.value if hasattr(last_finish_reason, "value") else str(last_finish_reason)
+        )
+        success_event.data["truncated"] = is_length_truncated
         yield success_event
 
     def _doom_threshold(self) -> int:
@@ -896,7 +1478,13 @@ class SimpleLoop:
         if not target:
             return False
         try:
+            resolved_p = (Path(self.config.workspace_root) / target).resolve()
+            if not resolved_p.is_file():
+                return False
             content = params.get("content", "")
+            raw = resolved_p.read_text(encoding="utf-8", errors="replace")
+            if raw != content:
+                return False
             return bool(is_identical_replay(session_id, target, content))
         except Exception:
             return False

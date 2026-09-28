@@ -47,3 +47,42 @@ export function getWorkspaceFolderName(workspacePath?: string): string {
 
   return lastSegment;
 }
+
+/** Convert an absolute or mixed-separator path to workspace-relative for display.
+ *  Keeps already-relative paths normalized; absolute paths under the workspace are
+ *  stripped to `server/...`, others are shortened to last 2 segments to avoid
+ *  leaking `D:/vdo/...` in the timeline.
+ */
+export function toWorkspaceRelative(inputPath: string, workspaceRoot?: string): string {
+  if (!inputPath) return '';
+  const normalized = normalizePath(inputPath);
+  if (!workspaceRoot) {
+    // No workspace context — if absolute, shorten to last 2 segments
+    if (/^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('/')) {
+      const parts = normalized.split('/').filter(Boolean);
+      if (parts.length > 2) return parts.slice(-2).join('/');
+      return normalized;
+    }
+    return normalized;
+  }
+  const wsNormalized = normalizePath(workspaceRoot);
+  const lowerNorm = normalized.toLowerCase();
+  const lowerWs = wsNormalized.toLowerCase();
+  if (lowerNorm.startsWith(lowerWs + '/')) {
+    const rel = normalized.slice(wsNormalized.length + 1);
+    return rel || './';
+  }
+  // Also try parent of tui/server subpackage
+  const wsParent = normalizePath(path.dirname(wsNormalized));
+  if (wsParent && lowerNorm.startsWith(wsParent.toLowerCase() + '/')) {
+    const rel = normalized.slice(wsParent.length + 1);
+    // Only use if it looks like a workspace file (starts with server/, tui/, etc.)
+    if (/^(server|tui|scripts|posts|ISSUE)\//i.test(rel)) return rel;
+  }
+  if (/^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('/')) {
+    const parts = normalized.split('/').filter(Boolean);
+    if (parts.length > 2) return parts.slice(-2).join('/');
+    return normalized;
+  }
+  return normalized;
+}

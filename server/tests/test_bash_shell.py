@@ -91,6 +91,12 @@ async def test_bash_tool_cwd_is_workspace(temp_dir):
     marker = temp_dir / "cwd_marker.txt"
     marker.write_text("here", encoding="utf-8")
     tool = BashTool(timeout=30)
-    result = await tool.execute({"command": "Get-ChildItem -Name"}, str(temp_dir))
+    # Get-ChildItem is now routed to dedicated list_dir/glob tools; verify bash
+    # still honors workdir via a non-file-listing command (Get-Location).
+    result = await tool.execute({"command": "(Get-Location).Path"}, str(temp_dir))
     assert result.success
-    assert "cwd_marker.txt" in result.output
+    assert temp_dir.name in result.output or str(temp_dir) in result.output
+    # dedicated tool bypass: shell listing must be refused
+    refused = await tool.execute({"command": "Get-ChildItem -Name"}, str(temp_dir))
+    assert not refused.success
+    assert "list_dir" in refused.error or "glob" in refused.error

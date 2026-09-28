@@ -34,6 +34,10 @@ class Session(BaseModel):
     parent_session_id: str | None = None
     child_session_ids: list[str] = Field(default_factory=list)
     plan_output: str = ""
+    # When the plan became the session's adopted build context. The column name
+    # is historical: Zenith has no approval flow, so this never records a user
+    # decision. It is set either by config (auto_approve_plan) or by the
+    # build adopting the plan on first use. Do not read it as consent.
     plan_approved_at: datetime | None = None
     message_count: int = 0
     total_tokens: int = 0
