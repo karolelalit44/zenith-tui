@@ -32,8 +32,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from server.agents.compaction import (
+    PRESERVE_ON_COMPACT,
     _find_compaction_cut_budgeted,
+    _message_tool_name,
     head_tail_trim,
+    is_tool_message,
 )
 from server.agents.context import ContextManager, _adaptive_reserve, _get_model_context_window
 from server.agents.summarizer import ConversationSummarizer
@@ -164,20 +167,18 @@ def prune_tool_outputs(
                     break
     else:
         tool_msg_indices = [
-            idx
-            for idx, m in enumerate(messages)
-            if isinstance(m.get("content", ""), str) and m.get("content", "").startswith("[Tool:")
+            idx for idx, m in enumerate(messages) if is_tool_message(m)
         ]
         boundary = tool_msg_indices[-2] if len(tool_msg_indices) > 2 else 0
 
     for msg in messages[:boundary]:
         content = msg.get("content", "")
-        if not isinstance(content, str) or not content.startswith("[Tool:"):
+        if not isinstance(content, str) or not is_tool_message(msg):
             continue
         if msg.get("time") == "compacted":
             continue
         orig_len = len(content)
-        if "digest" in msg and not content.startswith(("[Tool: file_read", "[Tool: todo")):
+        if "digest" in msg and _message_tool_name(msg) not in PRESERVE_ON_COMPACT:
             msg["content"] = msg["digest"]
             msg["time"] = "compacted"
             msg["is_digested"] = True
@@ -204,8 +205,8 @@ def compact_live_tail(messages: list[dict]) -> None:
     """Compress the live turn tail in place before replay after compaction."""
     for msg in messages:
         content = msg.get("content", "")
-        if msg.get("role") == "user" and isinstance(content, str) and content.startswith("[Tool:"):
-            if "digest" in msg and not content.startswith(("[Tool: file_read", "[Tool: todo")):
+        if msg.get("role") == "user" and isinstance(content, str) and is_tool_message(msg):
+            if "digest" in msg and _message_tool_name(msg) not in PRESERVE_ON_COMPACT:
                 msg["content"] = msg["digest"]
                 msg["time"] = "compacted"
             elif len(content) > TAIL_TRIM_MAX_CHARS:

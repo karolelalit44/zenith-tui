@@ -1,13 +1,12 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { contentWidth as computeContentWidth } from '../../../constants/layout';
+import { MAX_TODO_ROWS } from '../../../constants/todo';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoStatus } from '../../../types/scenario';
 import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
 import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, TodoStatusGlyph } from './todoStatus';
-
-export const MAX_VISIBLE_TODOS = 10;
 
 /**
  * Strict three-column table: serial (1,2,3) | title (middle, bigger) |
@@ -27,7 +26,7 @@ export const TodoBoardBlock: React.FC<TodoBoardBlockProps> = React.memo(({ event
   const contentWidth = computeContentWidth(termCols);
 
   const all = event.board ?? [];
-  const items = all.slice(0, MAX_VISIBLE_TODOS);
+  const items = all.slice(0, MAX_TODO_ROWS);
   const hidden = all.length - items.length;
 
   const titleColor = (status: TodoStatus): string =>

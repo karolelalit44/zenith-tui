@@ -170,9 +170,17 @@ def _iter_source_files(root: Path, base: Path, matcher: ZenithIgnoreMatcher):
                 continue
             if rel is not None and matcher.is_ignored(rel):
                 continue
-            if Path(entry.path).suffix.lower() in _BINARY_EXTENSIONS:
+            candidate = Path(entry.path)
+            if candidate.suffix.lower() in _BINARY_EXTENSIONS:
                 continue
-            yield Path(entry.path)
+            # The extension check above is a cheap pre-filter, not a verdict: an
+            # extensionless binary (a Windows .exe with no suffix, a data blob, a
+            # Makefile) passes it and would then be decoded with
+            # errors="replace" and scanned as text, putting mojibake into match
+            # output. The single-file path already sniffs content; the walk must
+            # too, or a recursive grep reports binary content as a text hit.
+            if not _is_binary_file(candidate):
+                yield candidate
         stack.extend(reversed(dirs))
 
 

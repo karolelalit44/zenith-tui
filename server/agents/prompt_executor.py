@@ -402,6 +402,36 @@ class PromptExecutor:
         if self._active_task and (not self._active_task.done()):
             self._active_task.cancel()
 
+    async def cancel_active_and_wait(self, timeout: float = 5.0) -> bool:
+        """Cancel the in-flight turn and wait for it to actually stop.
+
+        Returns True when the task is confirmed finished. Cancellation is
+        cooperative: ``cancel()`` only requests it, so a superseding prompt that
+        starts before the old turn unwinds runs two turns of the same session
+        concurrently — interleaved tool output, interleaved history writes, and
+        the new turn's ``reset_todo_state`` clearing the board the old turn is
+        still reading. Awaiting the task is what makes the handover exclusive.
+
+        A turn that has not unwound within *timeout* is logged and reported as
+        still running: the caller must not assume the board is its own.
+        """
+        task = self._active_task
+        if task is None or task.done():
+            return True
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+            pass
+        if task.done():
+            return True
+        logger.error(
+            "Previous turn did not stop within %.1fs; overlapping turns may "
+            "corrupt shared session state",
+            timeout,
+        )
+        return False
+
     def run(
         self,
         session_id: str,
@@ -536,18 +566,20 @@ class PromptExecutor:
 
     async def _load_plan_context(self, session_id: str, mode: str) -> tuple[str, bool, str | None]:
         plan_context = ""
-        plan_approved = False
+        plan_adopted = False
         if mode == BUILD_MODE:
             try:
                 session = await self._session_repo.get(session_id)
                 if session and session.plan_output:
                     plan_context = session.plan_output
-                    plan_approved = session.plan_approved_at is not None
+                    # Historical column name; see Session.plan_approved_at. This
+                    # means "adopted", never "a user approved it".
+                    plan_adopted = session.plan_approved_at is not None
                     logger.info(
-                        "Plan context loaded: %d chars for build session %s (approved=%s)",
+                        "Plan context loaded: %d chars for build session %s (adopted=%s)",
                         len(plan_context),
                         session_id,
-                        plan_approved,
+                        plan_adopted,
                     )
             except Exception:
                 logger.warning("Failed to load plan context for session %s", session_id)
@@ -555,32 +587,35 @@ class PromptExecutor:
         if mode == PLAN_MODE and self._config.plan_model:
             plan_model_override = self._config.plan_model
             logger.info("Plan mode model override: %s", plan_model_override)
-        return plan_context, plan_approved, plan_model_override
+        return plan_context, plan_adopted, plan_model_override
 
-    async def _maybe_emit_plan_ready(
+    async def _adopt_plan_and_notify(
         self,
         session_id: str,
         mode: str,
         content: str,
         plan_context: str,
-        plan_approved: bool,
+        plan_adopted: bool,
         manager,
         collected_events: list[Event],
     ) -> tuple[int, bool]:
-        """Emit PLAN_READY for informational display when a build depends on an
-        unapproved plan, then auto-approve it.
+        """Adopt the session plan on first build use, announcing it for display.
 
-        Approvals are no longer requested interactively; the build proceeds.
-        Returns ``(0, plan_approved)``.
+        There is no approval gate here and never was: Zenith has no interactive
+        approval flow. The first build request that carries a plan adopts it, so
+        a later turn can tell an adopted plan from one that was never used.
+        ``PLAN_READY`` is purely an informational display event.
+
+        Returns ``(0, plan_adopted)``.
         """
         if (
             mode == BUILD_MODE
             and plan_context
-            and (not plan_approved)
+            and (not plan_adopted)
             and (not self._config.auto_approve_plan)
             and (not (content and content.strip()))
         ):
-            logger.info("Emitting PLAN_READY for session %s", session_id)
+            logger.info("Emitting PLAN_READY and adopting plan for session %s", session_id)
             plan_ready_event = Event(
                 kind=EventKind.PLAN_READY,
                 data={"plan": plan_context, "session_id": session_id},
@@ -594,13 +629,10 @@ class PromptExecutor:
                 if session:
                     session.plan_approved_at = datetime.now()
                     await self._session_repo.update(session)
-                plan_approved = True
-                logger.info("Plan auto-approved for session %s", session_id)
             except Exception:
-                logger.warning("Failed to persist plan approval for session %s", session_id)
-                plan_approved = True
-            return 0, plan_approved
-        return 0, plan_approved
+                logger.warning("Failed to persist plan adoption for session %s", session_id)
+            return 0, True
+        return 0, plan_adopted
 
     async def _persist_plan_output(self, session_id: str, response_text: str) -> None:
         try:
@@ -808,15 +840,15 @@ class PromptExecutor:
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
-            plan_context, plan_approved, plan_model_override = await self._load_plan_context(
+            plan_context, plan_adopted, plan_model_override = await self._load_plan_context(
                 session_id, mode
             )
-            _, plan_approved = await self._maybe_emit_plan_ready(
+            _, plan_adopted = await self._adopt_plan_and_notify(
                 session_id,
                 mode,
                 content,
                 plan_context,
-                plan_approved,
+                plan_adopted,
                 manager,
                 collected_events,
             )
@@ -840,7 +872,7 @@ class PromptExecutor:
             crewmate_handoff = (
                 mode == BUILD_MODE
                 and plan_context
-                and plan_approved
+                and plan_adopted
                 and bool(getattr(mode_config, "crewmate", False))
             )
 

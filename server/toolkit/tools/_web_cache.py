@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections import OrderedDict
-from dataclasses import dataclass, field
 import time
 import urllib.parse
+from collections import OrderedDict
+from dataclasses import dataclass, field
 
 _DEFAULT_MAX_DOCUMENTS = 20
 
@@ -63,7 +63,7 @@ class WebDocumentCache:
         clean = query.strip()
         if clean.startswith("[ref:") and clean.endswith("]"):
             clean = clean[5:-1].strip()
-        if clean.startswith("ref_") or clean.startswith("doc_"):
+        if clean.startswith(("ref_", "doc_")):
             ref_key = clean if clean.startswith("ref_") else f"ref_{clean}"
             if ref_key in self._ref_to_url:
                 return self._ref_to_url[ref_key]

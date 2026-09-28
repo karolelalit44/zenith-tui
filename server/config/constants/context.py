@@ -19,6 +19,11 @@ HARD_STOP_USAGE_RATIO = 0.95
 CONTEXT_EXHAUSTED_MESSAGE = "Context window exhausted even after summarization"
 CONTEXT_EXHAUSTED_HINT = "Start a new session to free up context."
 COMPACTION_KEEP_TAIL = 8
+# How many of the most recent tool results survive in-flight pruning at full
+# fidelity. One constant, read by both the pruner and the agent loop, so the two
+# cannot drift: a default that silently differs from the caller's argument looks
+# configured but is not.
+COMPACTION_KEEP_LATEST_TOOLS = 6
 # Recent-history budget for compaction: keep this many tokens of the tail when
 # folding the older prefix into the summary. The band is clamped to the input
 # budget so small windows never request more than the context can hold.

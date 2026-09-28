@@ -191,8 +191,8 @@ class WebsearchTool(BaseTool):
                 gathered = await asyncio.gather(*tasks)
                 all_results = [(q, res[0]) for q, res in zip(query_list, gathered)]
                 source = gathered[0][1] if gathered else "federated"
-        except ValueError as val_err:
-            raise val_err
+        except ValueError:
+            raise
         except Exception as e:
             return ToolResult(success=False, error=f"Search failed: {e}")
 

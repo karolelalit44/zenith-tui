@@ -95,6 +95,9 @@ class JobOutputTool(BaseTool):
             "truncated": truncated,
             "offset": offset,
             "next_offset": next_offset,
+            # Distinct from `truncated`, which means "this page is a slice".
+            # This means the job's own retained output lost its middle.
+            "output_truncated": bool(job.output_truncated),
         }
         if not job.done:
             return ToolResult(success=True, output=output, metadata=base_meta)

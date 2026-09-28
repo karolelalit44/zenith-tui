@@ -7,6 +7,8 @@ import type {
   TimelineEntry,
 } from '../types/scenario';
 
+type Crewmate = CrewmateAgent;
+
 export const MAX_TIMELINE_ENTRIES = 12;
 
 export interface ConsolidatedOrchestration extends CaptainOrchestrationEvent {
@@ -87,6 +89,32 @@ export function consolidateOrchestrationEvents(events: ScenarioEvent[]): Consoli
   }
 
   // 2. Fold raw crewmate events into crewmate states and timeline
+  //
+  // Every lifecycle branch below goes through upsertCrewmate so a status,
+  // complete or failed event always lands on a row. The id format has changed
+  // once already (bare definition id -> "<definition>:<task8>"), and a persisted
+  // session can straddle that change; if only some branches adopted an unknown
+  // id, the straddling session produced exactly the phantom rows the composite
+  // id was introduced to remove — a timeline entry for a mission with no card,
+  // or a card frozen at "working" because its completion went nowhere.
+  const upsertCrewmate = (id: string | undefined, seed: Partial<Crewmate> & { status: CrewmateStatus }) => {
+    if (!id) return undefined;
+    const existing = crewmatesMap.get(id);
+    if (existing) {
+      Object.assign(existing, seed);
+      return existing;
+    }
+    const created: Crewmate = {
+      name: id,
+      role: 'Specialist',
+      task: 'Delegated mission',
+      ...seed,
+      id,
+    };
+    crewmatesMap.set(id, created);
+    return created;
+  };
+
   for (const e of events) {
     if (e.kind === 'crewmate_spawned') {
       const id = e.crewmateId || `cm_${e.id}`;
@@ -111,21 +139,12 @@ export function consolidateOrchestrationEvents(events: ScenarioEvent[]): Consoli
       }
     } else if (e.kind === 'crewmate_status') {
       const id = e.crewmateId;
-      const existing = crewmatesMap.get(id);
+      const existing =
+        crewmatesMap.get(id ?? '') ?? upsertCrewmate(id, { status: (e.status as CrewmateStatus) || 'working' });
       if (existing) {
         existing.status = (e.status as CrewmateStatus) || existing.status;
         if (e.activity) existing.activity = e.activity;
         if (typeof e.progress === 'number') existing.progress = e.progress;
-      } else if (id) {
-        crewmatesMap.set(id, {
-          id,
-          name: id,
-          role: 'Specialist',
-          task: 'Delegated mission',
-          status: (e.status as CrewmateStatus) || 'working',
-          activity: e.activity,
-          progress: e.progress,
-        });
       }
 
       if (e.activity) {
@@ -140,14 +159,9 @@ export function consolidateOrchestrationEvents(events: ScenarioEvent[]): Consoli
         }
       }
     } else if (e.kind === 'crewmate_complete') {
-      const id = e.crewmateId;
-      const existing = crewmatesMap.get(id);
-      if (existing) {
-        existing.status = 'completed';
-        existing.progress = 100;
-        if (e.resultSummary) existing.resultSummary = e.resultSummary;
-      }
-      const agentName = existing?.name || id;
+      const existing = upsertCrewmate(e.crewmateId, { status: 'completed', progress: 100 });
+      if (existing && e.resultSummary) existing.resultSummary = e.resultSummary;
+      const agentName = existing?.name || e.crewmateId;
       const msg = `${agentName} ✔ ${e.resultSummary || 'Task completed'}`;
       if (!timelineEntries.some((t) => t.message === msg)) {
         timelineEntries.push({
@@ -157,13 +171,9 @@ export function consolidateOrchestrationEvents(events: ScenarioEvent[]): Consoli
         });
       }
     } else if (e.kind === 'crewmate_failed') {
-      const id = e.crewmateId;
-      const existing = crewmatesMap.get(id);
-      if (existing) {
-        existing.status = 'failed';
-        if (e.error) existing.error = e.error;
-      }
-      const agentName = existing?.name || id;
+      const existing = upsertCrewmate(e.crewmateId, { status: 'failed' });
+      if (existing && e.error) existing.error = e.error;
+      const agentName = existing?.name || e.crewmateId;
       const msg = `${agentName} ✗ ${e.error || 'Mission failed'}`;
       if (!timelineEntries.some((t) => t.message === msg)) {
         timelineEntries.push({

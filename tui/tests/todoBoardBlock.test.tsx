@@ -1,6 +1,7 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { TodoBoardBlock } from '../src/components/Display/Scenario/TodoBoardBlock';
+import { MAX_TODO_ROWS } from '../src/constants/todo';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../src/types/scenario';
 import { type ConsolidatedTodoBoard, consolidateTodoBoardEvents } from '../src/utils/todoBoard';
@@ -87,14 +88,15 @@ describe('TodoBoardBlock', () => {
     expect(frame).not.toContain('T1-S1');
   });
 
-  it('caps the list at 10 rows and reports the remainder', () => {
-    const board = Array.from({ length: 13 }, (_, i) => item(`T${i + 1}`, `Task ${i + 1}`, 'todo'));
+  it('caps the list at the shared row limit and reports the remainder', () => {
+    const total = 13;
+    const board = Array.from({ length: total }, (_, i) => item(`T${i + 1}`, `Task ${i + 1}`, 'todo'));
     const frame = frameFor(boardEvent(board));
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= MAX_TODO_ROWS; i++) {
       expect(frame).toContain(`Task ${i}`);
     }
-    expect(frame).not.toContain('Task 11');
-    expect(frame).toContain('+3 more…');
+    expect(frame).not.toContain(`Task ${MAX_TODO_ROWS + 1}`);
+    expect(frame).toContain(`+${total - MAX_TODO_ROWS} more`);
   });
 
   it('truncates long titles to the terminal width', () => {

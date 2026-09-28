@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import builtins
 import json
 import logging
 import os
@@ -927,7 +928,7 @@ class LLMProvider(BaseProvider):
                         anext(stream),
                         timeout=min(ZENITH_STREAM_TTFT_TIMEOUT, remaining),
                     )
-                except asyncio.TimeoutError as te:
+                except builtins.TimeoutError as te:
                     # First-chunk stall: could be TTFT or exhausted total budget (when remaining < TTFT).
                     if remaining <= ZENITH_STREAM_TTFT_TIMEOUT:
                         raise ProviderError(
@@ -1003,7 +1004,7 @@ class LLMProvider(BaseProvider):
                             chunk = await asyncio.wait_for(
                                 anext(stream), timeout=remaining
                             )
-                        except asyncio.TimeoutError as te:
+                        except builtins.TimeoutError as te:
                             raise ProviderError(
                                 f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
                                 provider=self.name,
@@ -1049,7 +1050,7 @@ class LLMProvider(BaseProvider):
                         chunk = await asyncio.wait_for(
                             anext(stream), timeout=remaining
                         )
-                    except asyncio.TimeoutError as te:
+                    except builtins.TimeoutError as te:
                         raise ProviderError(
                             f"Stream exceeded {ZENITH_STREAM_TIMEOUT:.0f}s total timeout after {attempt} attempt(s)",
                             provider=self.name,
@@ -1062,7 +1063,7 @@ class LLMProvider(BaseProvider):
                 raise
             except asyncio.CancelledError:
                 raise
-            except asyncio.TimeoutError:
+            except builtins.TimeoutError:
                 raise ProviderError(
                     f"Stream did not open within {ZENITH_STREAM_TTFT_TIMEOUT:.0f}s",
                     provider=self.name,

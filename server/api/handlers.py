@@ -543,7 +543,7 @@ class MethodHandlers:
         try:
             executor = self._session_executors.get(session_id)
             if executor:
-                executor.cancel_active()
+                await executor.cancel_active_and_wait()
             executor = PromptExecutor(
                 self.config,
                 provider,
@@ -666,7 +666,7 @@ class MethodHandlers:
                     )
                 )
         except Exception as e:
-            logger.exception("Compaction failed for session %s: %s", session_id, e)
+            logger.exception("Compaction failed for session %s", session_id)
             await ws.send_text(
                 make_error_response(rid, -32603, f"Compaction failed: {e}")
             )

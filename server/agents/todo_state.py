@@ -19,6 +19,16 @@ from typing import Any
 _TODO_STATUSES = ("pending", "in_progress", "completed", "blocked", "cancelled")
 _PRIORITIES = ("low", "medium", "high")
 
+# What counts as "still open work". Defined once here because the nudge path and
+# the completion path previously carried their own tuples and disagreed about
+# `blocked`: the nudge ignored it while completion counted it, so a fully blocked
+# board got neither a nudge nor a clean completion.
+#
+# `blocked` IS active — work that cannot proceed is unfinished work. Callers that
+# want only actionable items pass include_blocked=False.
+ACTIVE_TODO_STATUSES: frozenset[str] = frozenset({"pending", "in_progress"})
+ACTIONABLE_TODO_STATUSES: frozenset[str] = ACTIVE_TODO_STATUSES | {"blocked"}
+
 _TODO_STATUS_MARKERS = {
     "pending": "[ ]",
     "in_progress": "[~]",
@@ -180,6 +190,24 @@ class TodoState:
     def list(self) -> list[TodoEntry]:
         return sorted(self._entries.values(), key=lambda e: e.order)
 
+    def active(self, *, include_blocked: bool = True) -> list[TodoEntry]:
+        """Entries still representing open work, in board order.
+
+        One definition of "active" for every caller. ``include_blocked`` is True
+        by default because a blocked task is unfinished work: excluding it from
+        completion reporting is what previously let a fully blocked board report
+        as finished.
+        """
+        statuses = ACTIONABLE_TODO_STATUSES if include_blocked else ACTIVE_TODO_STATUSES
+        return [e for e in self.list() if e.status in statuses]
+
+    def has_active(self, *, include_blocked: bool = True) -> bool:
+        return bool(self.active(include_blocked=include_blocked))
+
+    def is_resolved(self) -> bool:
+        """True when nothing on the board is outstanding."""
+        return not self.active()
+
     def snapshot(self) -> list[dict[str, Any]]:
         return [e.to_dict() for e in self.list()]
 
@@ -209,6 +237,26 @@ def get_todo_state(session_id: str) -> TodoState:
             state = TodoState(session_id)
             _STORE[session_id] = state
         return state
+
+
+def reset_todo_state(session_id: str) -> None:
+    """Clear the session board at turn entry.
+
+    The board's lifetime is the request's, not the session's. Without this, a
+    finished checklist from the previous request is still on the board when the
+    next one starts: the nudge logic reads it as outstanding work, the client
+    re-pins it above the composer, and both surfaces claim the new request is
+    carrying someone else's work.
+
+    A session that genuinely spans requests re-establishes its checklist with an
+    explicit ``todo`` call. Carry-over must be asked for, never inferred.
+    """
+    if not session_id:
+        return
+    with _LOCK:
+        state = _STORE.get(session_id)
+        if state is not None:
+            state.reset()
 
 
 

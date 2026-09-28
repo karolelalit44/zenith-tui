@@ -1,6 +1,8 @@
-import pytest
 from pathlib import Path
 
+import pytest
+
+from server.toolkit.registry import current_tool_session_id
 from server.toolkit.tools.apply_patch import ApplyPatchTool
 from server.toolkit.tools.file_delete import FileDeleteTool
 from server.toolkit.tools.file_edit import FileEditTool
@@ -8,8 +10,6 @@ from server.toolkit.tools.file_read import FileReadTool
 from server.toolkit.tools.file_write import FileWriteTool
 from server.toolkit.tools.glob import GlobTool
 from server.toolkit.tools.grep import GrepTool
-from server.agents.session_workspace import get_cached_read, record_read
-from server.toolkit.registry import current_tool_session_id
 
 
 @pytest.fixture
@@ -147,14 +147,21 @@ class TestWriteAndRewriteResilience:
         assert raw == b"\xef\xbb\xbfUpdated1\r\nUpdated2"
 
     @pytest.mark.asyncio
-    async def test_write_to_ignored_path_allowed(self, temp_workspace):
+    async def test_write_to_ignored_path_blocked(self, temp_workspace):
+        # Ignored paths are hidden from every discovery tool, so a writer must
+        # refuse rather than overwrite a vendored/generated file the model cannot
+        # even see. The refusal names .zenithignore instead of claiming the file is
+        # missing: a false "not found" sends the agent hunting for a file that is
+        # right there on disk.
         tool = FileWriteTool()
         result = await tool.execute(
             {"path": "package-lock.json", "content": '{"version": "2.0.0"}'},
             str(temp_workspace),
         )
-        assert result.success
-        assert (temp_workspace / "package-lock.json").read_text() == '{"version": "2.0.0"}'
+        assert not result.success
+        assert ".zenithignore" in result.error
+        assert "not found" not in result.error.lower()
+        assert not (temp_workspace / "package-lock.json").exists()
 
 
 class TestEditResilience:
@@ -220,6 +227,99 @@ class TestEditResilience:
         assert result.metadata.get("match") == "trimmed"
         assert "return 100;" in target.read_text(encoding="utf-8")
 
+    @pytest.mark.asyncio
+    async def test_edit_does_not_rewrite_untouched_line_endings(self, temp_workspace):
+        # A one-line edit must splice only the replaced range. Restyling the
+        # whole file turns a targeted change into a whole-file diff and breaks
+        # line-ending-sensitive tooling.
+        target = temp_workspace / "mixed.txt"
+        target.write_bytes(b"alpha\r\nbeta\ngamma\r\ndelta")
+
+        tool = FileEditTool()
+        result = await tool.execute(
+            {"path": "mixed.txt", "old_content": "gamma", "new_content": "GAMMA"},
+            str(temp_workspace),
+        )
+        assert result.success
+        assert target.read_bytes() == b"alpha\r\nbeta\nGAMMA\r\ndelta"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_absent_trailing_newline(self, temp_workspace):
+        target = temp_workspace / "no_newline.txt"
+        target.write_bytes(b"abc")
+
+        tool = FileEditTool()
+        result = await tool.execute(
+            {"path": "no_newline.txt", "old_content": "c", "new_content": "C"},
+            str(temp_workspace),
+        )
+        assert result.success
+        assert target.read_bytes() == b"abC"
+
+    @pytest.mark.asyncio
+    async def test_edit_splices_mid_line_fragment(self, temp_workspace):
+        target = temp_workspace / "call.txt"
+        target.write_text("foo(bar, baz)\n", encoding="utf-8")
+
+        tool = FileEditTool()
+        result = await tool.execute(
+            {"path": "call.txt", "old_content": "bar", "new_content": "QUX"},
+            str(temp_workspace),
+        )
+        assert result.success
+        assert target.read_text(encoding="utf-8") == "foo(QUX, baz)\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_refuses_non_utf8_without_mutating(self, temp_workspace):
+        # errors="replace" would silently turn every invalid byte into U+FFFD
+        # and report success. Refusing is the only lossless option.
+        target = temp_workspace / "latin1.py"
+        original = b"x = 1  # caf\xe9\ny = 2\n"
+        target.write_bytes(original)
+
+        tool = FileEditTool()
+        result = await tool.execute(
+            {"path": "latin1.py", "old_content": "y = 2", "new_content": "y = 3"},
+            str(temp_workspace),
+        )
+        assert not result.success
+        assert "utf-8" in result.error.lower()
+        assert target.read_bytes() == original
+
+    @pytest.mark.asyncio
+    async def test_edit_to_ignored_path_blocked(self, temp_workspace):
+        ignored = temp_workspace / "ignored_folder"
+        ignored.mkdir()
+        target = ignored / "keep.txt"
+        target.write_text("original\n", encoding="utf-8")
+
+        tool = FileEditTool()
+        result = await tool.execute(
+            {
+                "path": "ignored_folder/keep.txt",
+                "old_content": "original",
+                "new_content": "clobbered",
+            },
+            str(temp_workspace),
+        )
+        assert not result.success
+        assert ".zenithignore" in result.error
+        assert "not found" not in result.error.lower()
+        assert target.read_text(encoding="utf-8") == "original\n"
+
+    @pytest.mark.asyncio
+    async def test_delete_to_ignored_path_blocked(self, temp_workspace):
+        ignored = temp_workspace / "ignored_folder"
+        ignored.mkdir()
+        target = ignored / "keep.txt"
+        target.write_text("original\n", encoding="utf-8")
+
+        tool = FileDeleteTool()
+        result = await tool.execute({"path": "ignored_folder/keep.txt"}, str(temp_workspace))
+        assert not result.success
+        assert ".zenithignore" in result.error
+        assert target.exists()
+
 
 class TestApplyPatchResilience:
     @pytest.mark.asyncio
@@ -271,6 +371,209 @@ class TestApplyPatchResilience:
         # The add was NEVER performed because of atomic dry-run validation
         assert not (temp_workspace / "should_not_exist.py").exists()
         assert (temp_workspace / "intact.py").read_text(encoding="utf-8") == "def intact(): pass\n"
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_to_ignored_path_blocked(self, temp_workspace):
+        ignored = temp_workspace / "ignored_folder"
+        ignored.mkdir()
+        target = ignored / "pkg.js"
+        target.write_text("module.exports = 1\n", encoding="utf-8")
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: ignored_folder/pkg.js\n"
+            "@@\n"
+            "-module.exports = 1\n"
+            "+module.exports = 2\n"
+            "*** End Patch"
+        )
+        tool = ApplyPatchTool()
+        result = await tool.execute({"patch": patch}, str(temp_workspace))
+        assert not result.success
+        assert ".zenithignore" in result.error
+        assert target.read_text(encoding="utf-8") == "module.exports = 1\n"
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_preserves_per_line_endings(self, temp_workspace):
+        # A file that mixes LF and CRLF must not be restyled wholesale by a
+        # one-hunk patch, including the context lines the chunk quotes.
+        target = temp_workspace / "mixed.py"
+        target.write_bytes(b"a\r\nb\nc\r\nd\r\n")
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: mixed.py\n"
+            "@@\n"
+            " b\n"
+            "-c\n"
+            "+C\n"
+            "*** End Patch"
+        )
+        tool = ApplyPatchTool()
+        result = await tool.execute({"patch": patch}, str(temp_workspace))
+        assert result.success
+        assert target.read_bytes() == b"a\r\nb\nC\r\nd\r\n"
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_appends_with_add_only_hunk(self, temp_workspace):
+        # A hunk whose lines are all "+" replaces nothing (old_lines == []) and
+        # appends. This shape reaches a different branch than a replace hunk and
+        # must not be reported as a failed patch.
+        target = temp_workspace / "appended.py"
+        target.write_text("def a():\n    pass\n", encoding="utf-8")
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: appended.py\n"
+            "@@\n"
+            "+def b():\n"
+            "+    pass\n"
+            "*** End Patch"
+        )
+        tool = ApplyPatchTool()
+        result = await tool.execute({"patch": patch}, str(temp_workspace))
+        assert result.success, result.error
+        assert target.read_text(encoding="utf-8") == "def a():\n    pass\ndef b():\n    pass\n"
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_append_only_hunk_keeps_file_terminator_style(
+        self, temp_workspace
+    ):
+        target = temp_workspace / "crlf_append.py"
+        target.write_bytes(b"a\r\nb\r\n")
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: crlf_append.py\n"
+            "@@\n"
+            "+c\n"
+            "*** End Patch"
+        )
+        tool = ApplyPatchTool()
+        result = await tool.execute({"patch": patch}, str(temp_workspace))
+        assert result.success, result.error
+        assert target.read_bytes() == b"a\r\nb\r\nc\r\n"
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_append_only_hunk_closes_unterminated_last_line(
+        self, temp_workspace
+    ):
+        # The last line ends at EOF with no terminator; without an explicit close
+        # the first appended line is glued onto it, corrupting both. The appended
+        # group keeps the file's no-trailing-newline state.
+        target = temp_workspace / "no_newline_append.py"
+        target.write_bytes(b"def a():\n    pass")
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: no_newline_append.py\n"
+            "@@\n"
+            "+def b():\n"
+            "+    pass\n"
+            "*** End Patch"
+        )
+        tool = ApplyPatchTool()
+        result = await tool.execute({"patch": patch}, str(temp_workspace))
+        assert result.success, result.error
+        assert target.read_bytes() == b"def a():\n    pass\ndef b():\n    pass"
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_refuses_non_utf8_without_mutating(self, temp_workspace):
+        target = temp_workspace / "latin1.py"
+        original = b"p = 1  # caf\xe9\nq = 2\n"
+        target.write_bytes(original)
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: latin1.py\n"
+            "@@\n"
+            "-p = 1  # caf\xe9\n"
+            "+P = 1\n"
+            "*** End Patch"
+        )
+        tool = ApplyPatchTool()
+        result = await tool.execute({"patch": patch}, str(temp_workspace))
+        assert not result.success
+        assert "utf-8" in result.error.lower()
+        assert target.read_bytes() == original
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_rolls_back_when_later_op_fails(
+        self, temp_workspace, monkeypatch
+    ):
+        # Reporting failure while leaving earlier hunks on disk is worse than
+        # failing: the model retries and then fails on context mismatch.
+        first = temp_workspace / "first.py"
+        first.write_text("A\n", encoding="utf-8")
+        second = temp_workspace / "second.py"
+        second.write_text("B\n", encoding="utf-8")
+        created = temp_workspace / "created.py"
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Add File: created.py\n"
+            "+new\n"
+            "*** Update File: first.py\n"
+            "@@\n"
+            "-A\n"
+            "+A2\n"
+            "*** Update File: second.py\n"
+            "@@\n"
+            "-B\n"
+            "+B2\n"
+            "*** End Patch"
+        )
+
+        real_write_bytes = Path.write_bytes
+
+        def failing_write(self, data):
+            if self.name == "second.py":
+                raise OSError("simulated write failure")
+            return real_write_bytes(self, data)
+
+        monkeypatch.setattr(Path, "write_bytes", failing_write)
+        tool = ApplyPatchTool()
+        result = await tool.execute({"patch": patch}, str(temp_workspace))
+
+        assert not result.success
+        assert "restored" in result.error.lower()
+        assert first.read_text(encoding="utf-8") == "A\n"
+        assert second.read_text(encoding="utf-8") == "B\n"
+        assert not created.exists()
+
+    @pytest.mark.asyncio
+    async def test_apply_patch_read_cache_invalidated_without_session(
+        self, temp_workspace
+    ):
+        # Read slices are cached per absolute path. Invalidation must not be
+        # gated on the session contextvar, or a delegated/background write
+        # leaves the primary session serving pre-write content.
+        target = temp_workspace / "cached.py"
+        target.write_text("value = 1\n", encoding="utf-8")
+
+        session = "cache-invalidation-session"
+        current_tool_session_id.set(session)
+        try:
+            read_tool = FileReadTool()
+            first = await read_tool.execute({"path": "cached.py"}, str(temp_workspace))
+            assert first.success
+            assert "value = 1" in first.output
+
+            # Write from outside any session context.
+            current_tool_session_id.set(None)
+            write_tool = FileWriteTool()
+            written = await write_tool.execute(
+                {"path": "cached.py", "content": "value = 2\n", "overwrite": True},
+                str(temp_workspace),
+            )
+            assert written.success
+
+            current_tool_session_id.set(session)
+            second = await read_tool.execute({"path": "cached.py"}, str(temp_workspace))
+            assert second.success
+            assert "value = 2" in second.output
+        finally:
+            current_tool_session_id.set(None)
 
     @pytest.mark.asyncio
     async def test_apply_patch_move_file(self, temp_workspace):
@@ -402,7 +705,7 @@ class TestContextLifecycleAndDriftResilience:
             )
 
         # Prune with keep_latest_tools=3
-        pruned, stats = prune_inflight_messages(messages, keep_latest_tools=3)
+        pruned, _stats = prune_inflight_messages(messages, keep_latest_tools=3)
 
         # The file_read message at index 0 must NOT be collapsed to a hollow digest
         file_read_msg = pruned[0]["content"]

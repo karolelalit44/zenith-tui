@@ -3,19 +3,17 @@ from __future__ import annotations
 import base64
 import logging
 import re
-from dataclasses import dataclass
 from typing import Any
 
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     COST_CLASS_MEDIUM,
-    DEFAULT_USER_AGENT,
     LATENCY_CLASS_HIGH,
     RISK_LOW,
     TOOL_DOMAIN_WEB,
     is_http_url,
 )
-from server.config.environment import ZENITH_WEBFETCH_MAX_BYTES, ZENITH_WEBFETCH_TIMEOUT
+from server.config.environment import ZENITH_WEBFETCH_MAX_BYTES
 
 from ..base import BaseTool, ToolResult
 from ._html_text import html_to_markdown, html_to_plain_text
@@ -25,6 +23,7 @@ from ._transport import (
     SSRFSecurityError,
     TransportSecurityError,
     secure_fetch,
+    validate_url_target,
 )
 from ._web_cache import CachedDocument, get_web_cache
 
@@ -32,71 +31,11 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_CHARS = ZENITH_WEBFETCH_MAX_BYTES
 
-
-@dataclass
-class FetchResult:
-    """Result of a pure fetch + convert-to-Markdown operation (opencode-style).
-
-    Never contains raw HTML; the page is always converted to clean Markdown and
-    truncated to ``max_chars``.
-    """
-
-    url: str
-    content_type: str
-    chars: int
-    markdown: str
-    truncated: bool
-
-
-async def fetch_page(
-    url: str,
-    *,
-    max_chars: int = _DEFAULT_MAX_CHARS,
-    timeout: int | None = None,
-    user_agent: str = DEFAULT_USER_AGENT,
-    secure: bool = False,
-) -> FetchResult:
-    """Fetch *url* and convert it to Markdown — pure fetch + convert, no LLM extraction.
-
-    Matches opencode's ``tool/webfetch.ts``: a plain GET plus HTML→Markdown
-    conversion capped at ``max_chars``. Raises on transport/HTTP errors; parse
-    failures degrade gracefully to the raw (truncated) text.
-    """
-    if secure:
-        resp = await secure_fetch(url, timeout=timeout, user_agent=user_agent)
-        content_type = resp.content_type
-        raw = resp.text
-        final_url = resp.url
-    else:
-        import httpx
-
-        if timeout is None:
-            timeout = ZENITH_WEBFETCH_TIMEOUT
-        async with httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=True,
-            headers={"User-Agent": user_agent},
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-        content_type = response.headers.get("content-type", "").lower()
-        raw = response.text
-        final_url = url
-
-    if "html" in content_type:
-        markdown = html_to_markdown(raw, max_chars=max_chars, base_url=final_url)
-    else:
-        markdown = raw[:max_chars]
-    truncated = len(markdown) >= max_chars and len(raw) > max_chars
-    if truncated:
-        markdown += f"\n\n[...truncated at {max_chars} chars; fetched page was {len(raw)} chars]"
-    return FetchResult(
-        url=final_url,
-        content_type=content_type,
-        chars=len(raw),
-        markdown=markdown,
-        truncated=truncated,
-    )
+# Every outbound request in this module goes through ``secure_fetch`` in
+# ``_transport``, which validates the target against blocked subnets before the
+# request and again on every redirect hop. There is deliberately no second,
+# "simple" fetch path and no flag to opt out of validation: a bypass that is only
+# reachable by passing an argument is a bypass that eventually gets passed.
 
 
 class WebfetchTool(BaseTool):
@@ -198,6 +137,19 @@ class WebfetchTool(BaseTool):
                 success=False,
                 error=f"Only http/https URLs are supported: {resolved_url}",
             )
+
+        # Validate on every request, before the cache is consulted. A cache hit
+        # performs no network I/O, so this is not about the fetch — it is that a
+        # document which entered the cache while its target was reachable must
+        # stop being served the moment that stops being true (DNS rebound to
+        # loopback, a host re-pointed at the metadata endpoint). The cache is a
+        # content store, never an authority on whether a target is allowed.
+        try:
+            await validate_url_target(resolved_url)
+        except SSRFSecurityError as e:
+            return ToolResult(success=False, error=f"Security error: {e}")
+        except ValueError as e:
+            return ToolResult(success=False, error=f"Invalid URL: {e}")
 
         # 1. Retrieve from session cache or perform secure fetch
         doc: CachedDocument | None = cache.get(resolved_url)
@@ -357,8 +309,7 @@ class WebfetchTool(BaseTool):
                     error="start_line and end_line must be positive integers",
                 )
 
-            if start_line < 1:
-                start_line = 1
+            start_line = max(start_line, 1)
             if end_line < start_line:
                 return ToolResult(
                     success=False,

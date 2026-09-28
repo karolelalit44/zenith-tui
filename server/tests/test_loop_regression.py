@@ -7,6 +7,7 @@ Covers:
 """
 
 import itertools
+
 import pytest
 
 from server.agents.loop import AgentLoop, _params_label

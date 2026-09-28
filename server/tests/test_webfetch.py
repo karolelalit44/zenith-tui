@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import base64
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from server.toolkit.tools._transport import (
     SSRFSecurityError,
     TransportResponse,
 )
 from server.toolkit.tools._web_cache import get_web_cache
-from server.toolkit.tools.webfetch import FetchResult, WebfetchTool, fetch_page
+from server.toolkit.tools.webfetch import WebfetchTool
 
 
 @pytest.fixture(autouse=True)

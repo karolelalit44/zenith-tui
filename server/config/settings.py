@@ -162,15 +162,27 @@ class AppSettings(BaseModel):
     context_compaction_threshold: float = DEFAULTS.context_compaction_threshold
     async_summary_enabled: bool = DEFAULTS.async_summary_enabled
     auto_approve_plan: bool = Field(
-        default=False, description="Skip user confirmation when running a plan in build mode"
+        default=False,
+        description=(
+            "Adopt a plan the moment it is produced. When false, the first build "
+            "request that carries a plan adopts it instead. Either way the plan is "
+            "adopted without asking — this flag only moves *when*."
+        ),
     )
     auto_overwrite: bool = Field(
         default=True,
-        description="Automatically allow overwriting existing files without confirmation",
+        description=(
+            "Allow file_write to replace an existing file without the caller "
+            "passing overwrite=true. When false, overwrites are refused."
+        ),
     )
     auto_risky: bool = Field(
         default=True,
-        description="Automatically allow risky operations (file deletion, risky commands) without confirmation",
+        description=(
+            "Allow irreversible operations (file_delete) to proceed. When false, "
+            "destructive file operations are refused. This is a hard policy "
+            "switch, not a confirmation prompt."
+        ),
     )
     repo_map_enabled: bool = Field(
         default=True,

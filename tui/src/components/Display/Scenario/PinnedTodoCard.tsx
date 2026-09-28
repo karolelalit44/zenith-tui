@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import React from 'react';
 import { contentWidth as computeContentWidth } from '../../../constants/layout';
+import { MAX_TODO_ROWS } from '../../../constants/todo';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../../../types/scenario';
@@ -8,7 +9,6 @@ import type { ConsolidatedTodoBoard } from '../../../utils/todoBoard';
 import { Spinner } from '../../ui/Spinner';
 import { TODO_SN_WIDTH, TODO_STATUS_WIDTH, TodoStatusGlyph } from './todoStatus';
 
-const MAX_PINNED_TODOS = 5;
 const PROGRESS_BAR_WIDTH = 8;
 
 export interface PinnedTodoCardProps {
@@ -45,8 +45,9 @@ export const PinnedTodoCard: React.FC<PinnedTodoCardProps> = React.memo(
     const filledWidth = Math.max(0, Math.min(PROGRESS_BAR_WIDTH, rawFilled));
     const emptyWidth = PROGRESS_BAR_WIDTH - filledWidth;
 
-    // Limit visible items to MAX_PINNED_TODOS
-    const items = all.slice(0, MAX_PINNED_TODOS);
+    // Limit visible items to MAX_TODO_ROWS (shared with the in-stream board so
+    // both surfaces render the same board the same way)
+    const items = all.slice(0, MAX_TODO_ROWS);
     const hiddenCount = all.length - items.length;
 
     const borderColor = isRunning ? colors.border.active : colors.border.muted;

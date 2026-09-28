@@ -26,19 +26,33 @@ class ReadOnlyModeGuard(ToolMiddleware):
     def __init__(self, registry: ToolRegistry) -> None:
         self._registry = registry
         self.blocked_calls = 0
+        self._allowed_cache: frozenset[str] | None = None
 
     @property
     def allowed(self) -> frozenset[str]:
-        return frozenset(
-            name for name in self._registry.list_tools()
-            if getattr(self._registry.get(name), "read_only", False)
-        ) | {
-            DISCOVER_CAPABILITIES_TOOL,
-            GET_TOOL_DEFINITION_TOOL,
-        }
+        """Names permitted in READ_ONLY_MODE.
 
-    def clear_cache(self) -> None:
-        pass
+        Cached because this is consulted on every tool call. The registry is
+        populated once during startup and does not change afterwards, so an
+        unconditional memo is correct; ``invalidate()`` exists for the case where
+        a tool is registered after the middleware is constructed.
+        """
+        cached = self._allowed_cache
+        if cached is None:
+            cached = frozenset(
+                name
+                for name in self._registry.list_tools()
+                if getattr(self._registry.get(name), "read_only", False)
+            ) | {
+                DISCOVER_CAPABILITIES_TOOL,
+                GET_TOOL_DEFINITION_TOOL,
+            }
+            self._allowed_cache = cached
+        return cached
+
+    def invalidate(self) -> None:
+        """Drop the memoized set so the next access rebuilds it."""
+        self._allowed_cache = None
 
     async def before_execute(
         self, name: str, params: dict[str, Any], ctx: ToolContext

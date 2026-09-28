@@ -52,6 +52,22 @@ CREWMATE_CONTEXT_BUDGET_TOKENS = 64_000
 DELEGATION_CACHE_TTL_SECONDS = 300
 WORKING_EVENT_CAP = 3
 
+
+def crewmate_id(definition_id: str, task_id: str) -> str:
+    """The persisted identity of one delegated mission.
+
+    Format: ``"<definition_id>:<first 8 chars of task_id>"``. The task half is
+    what makes two concurrent missions by the same specialist distinct — keying
+    on the definition alone collapsed them into duplicate phantom rows.
+
+    This value is written into persisted session history and re-read on resume,
+    so the format is a storage contract, not a display string. Build it here and
+    nowhere else; readers must tolerate rows written by an older format (a bare
+    ``definition_id``), which is why the client's crewmate fold adopts an id it
+    has not seen rather than dropping the event.
+    """
+    return f"{definition_id}:{task_id[:8]}"
+
 # AgentResult.status -> TUI CrewmateStatus
 CREWMATE_STATUS_BY_RESULT = {
     "completed": "completed",
@@ -159,7 +175,7 @@ class CaptainOrchestrator:
         error: str | None = None,
     ) -> dict:
         payload: dict = {
-            "id": f"{definition.id}:{task.task_id[:8]}",
+            "id": crewmate_id(definition.id, task.task_id),
             "name": definition.name,
             "role": definition.role,
             "task": task.objective[:ACTIVITY_MAX_CHARS],
@@ -182,7 +198,7 @@ class CaptainOrchestrator:
                 # Same composite crewmate id as _crewmate(): lifecycle events and
                 # the captain_orchestration crewmates list must key on one id or
                 # the frontend folds them into duplicate phantom rows.
-                "crewmate_id": f"{definition.id}:{task.task_id[:8]}",
+                "crewmate_id": crewmate_id(definition.id, task.task_id),
                 "name": definition.name,
                 "role": definition.role,
                 "task_id": task.task_id,
@@ -256,7 +272,9 @@ class CaptainOrchestrator:
             parent_task_id=parent_task_id,
             depth=depth + 1,
         )
-        crewmate_id = f"{definition.id}:{task.task_id[:8]}"
+        # Local is `cm_id`, not `crewmate_id`, so it cannot shadow the
+        # module-level crewmate_id() builder used elsewhere in this file.
+        cm_id = crewmate_id(definition.id, task.task_id)
 
         # ---- duplicate detection --------------------------------------- #
         signature = task_signature(content, definition.id, parent_session_id)
@@ -274,7 +292,7 @@ class CaptainOrchestrator:
                     {
                         "id": task.task_id[:8],
                         "title": content[:ACTIVITY_MAX_CHARS],
-                        "assignedCrewmate": crewmate_id,
+                        "assignedCrewmate": cm_id,
                         "status": "completed",
                     }
                 ],
@@ -293,7 +311,7 @@ class CaptainOrchestrator:
             yield Event(
                 kind=EventKind.CREWMATE_COMPLETE,
                 data={
-                    "crewmate_id": crewmate_id,
+                    "crewmate_id": cm_id,
                     "task_id": task.task_id,
                     "result_summary": result.summary[:ACTIVITY_MAX_CHARS],
                     "status": result.status,
@@ -328,7 +346,7 @@ class CaptainOrchestrator:
             plan_item = {
                 "id": task.task_id[:8],
                 "title": content[:ACTIVITY_MAX_CHARS],
-                "assignedAgent": crewmate_id,
+                "assignedAgent": cm_id,
                 "status": "in_progress",
                 "details": definition.description[:ACTIVITY_MAX_CHARS],
             }
@@ -384,7 +402,7 @@ class CaptainOrchestrator:
                             progress=50,
                         )
                         timeline.append(_timeline_entry(activity))
-                        yield self._status_event(crewmate_id, "working", activity, 50)
+                        yield self._status_event(cm_id, "working", activity, 50)
                         yield self._orchestration_event(
                             parent_session_id,
                             "working",
@@ -487,7 +505,7 @@ class CaptainOrchestrator:
                 yield Event(
                 kind=EventKind.CREWMATE_COMPLETE,
                 data={
-                    "crewmate_id": crewmate_id,
+                    "crewmate_id": cm_id,
                     "task_id": task.task_id,
                     "result_summary": result.summary[:ACTIVITY_MAX_CHARS],
                     "status": result.status,
@@ -498,7 +516,7 @@ class CaptainOrchestrator:
                 yield Event(
                     kind=EventKind.CREWMATE_FAILED,
                     data={
-                        "crewmate_id": crewmate_id,
+                        "crewmate_id": cm_id,
                         "task_id": task.task_id,
                         "error": (result.error or result.summary)[:ACTIVITY_MAX_CHARS],
                     },
@@ -552,18 +570,41 @@ class CaptainOrchestrator:
                     evidence.append(f"[notes] {text}")
             if sum(len(e) for e in evidence) > 12_000:
                 break
-        # A "completed" label must not be granted from unanchored model notes:
-        # require at least one concrete tool result (file read, search, ...) in
-        # the evidence the salvage summary is derived from.
-        if not evidence or tool_evidence == 0:
+        if not evidence:
             return ""
+        # A "completed" label must not be granted from unanchored model notes:
+        # at least one concrete tool result (file read, search, ...) must back
+        # the report.
+        #
+        # Notes-only evidence still gets a report, explicitly marked unverified.
+        # Suppressing it entirely re-created the very failure this pass exists to
+        # prevent — a timed-out mission reporting nothing at all — and the
+        # anchoring rule is better served by labelling the output than by
+        # discarding it.
+        unanchored = tool_evidence == 0
+        if unanchored:
+            logger.info(
+                "Salvaging mission %.80s from %d unanchored note(s) — no tool result "
+                "backed this report",
+                objective,
+                len(evidence),
+            )
         prompt = (
             "A delegated investigation was cut off by its time budget. Using "
             "ONLY the gathered evidence below, write the final report for this "
             f"objective: {objective}\n"
-            "Be concrete (file paths, symbols). State what remains unknown.\n\n"
-            + "\n".join(evidence)
+            "Be concrete (file paths, symbols). State what remains unknown.\n"
         )
+        if unanchored:
+            prompt += (
+                "IMPORTANT: the evidence below is the interrupted agent's own "
+                "reasoning notes. No tool output backs it, so every claim below is "
+                "UNVERIFIED. Say so explicitly in the report and mark it as "
+                "notes-only.\n\n"
+            )
+        else:
+            prompt += "\n"
+        prompt += "\n".join(evidence)
         try:
             async with asyncio.timeout(ZENITH_SALVAGE_TIMEOUT):
                 raw = await provider.complete([{"role": "user", "content": prompt}])
@@ -579,7 +620,13 @@ class CaptainOrchestrator:
             )
             return ""
         text = (raw or "").strip()
-        return text if len(text) >= 40 else ""
+        if len(text) < 40:
+            return ""
+        if unanchored:
+            # Prefix rather than trust the model to self-label: the label is what
+            # tells the captain this report has no tool output behind it.
+            return f"[UNVERIFIED — notes only, no tool output gathered]\n{text}"
+        return text
 
     async def _create_child_session(self, parent_id: str) -> str:
         """Isolated child session (CrewmateLoop pattern)."""

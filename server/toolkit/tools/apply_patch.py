@@ -1,21 +1,39 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from difflib import unified_diff
+import logging
 import os
 import re
+from dataclasses import dataclass, field
+from difflib import unified_diff
+from pathlib import Path
 from typing import Any
 
-from server.agents.session_workspace import evict_file_cache, record_write
+from server.agents.session_workspace import evict_read_cache_path, record_write
 from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     TOOL_DOMAIN_EDIT,
 )
 from server.toolkit.registry import current_tool_session_id
+from server.workspace.ignore import (
+    blocked_as_missing,
+    get_matcher,
+    mutation_refusal,
+)
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
+from ._line_endings import (
+    dominant_terminator,
+    line_body,
+    line_terminator,
+    split_physical_lines,
+    terminated,
+)
 from .file_mutation_queue import FILE_MUTATION_QUEUE
+
+logger = logging.getLogger(__name__)
+
+_BOM = b"\xef\xbb\xbf"
 
 
 @dataclass
@@ -67,11 +85,7 @@ def _strip_envelope(patch_text: str) -> list[str]:
     first_directive = -1
     for i, line in enumerate(lines):
         s = line.strip()
-        if (
-            s.startswith("*** Add File:")
-            or s.startswith("*** Update File:")
-            or s.startswith("*** Delete File:")
-        ):
+        if s.startswith(("*** Add File:", "*** Update File:", "*** Delete File:")):
             first_directive = i
             break
     if first_directive != -1:
@@ -152,7 +166,7 @@ def parse_patch(patch_text: str) -> list[PatchHunk]:
                         end_of_file = True
                         i += 1
                         break
-                    if cur_s.startswith("***") or cur_s.startswith("@@"):
+                    if cur_s.startswith(("***", "@@")):
                         break
                     if cur.startswith(" "):
                         old_lines.append(cur[1:])
@@ -213,23 +227,30 @@ def _normalize_unicode(text: str) -> str:
 
 
 def _matches_slice(
-    lines: list[str],
+    bodies: list[str],
+    order: list[int],
     pattern: list[str],
     offset: int,
     comparator: Any,
 ) -> bool:
     for idx, pat_line in enumerate(pattern):
-        if not comparator(lines[offset + idx], pat_line):
+        if not comparator(bodies[order[offset + idx]], pat_line):
             return False
     return True
 
 
 def _seek(
-    lines: list[str],
+    bodies: list[str],
+    order: list[int],
     pattern: list[str],
     start: int,
     eof: bool = False,
 ) -> int:
+    """First position in *order* whose line window matches *pattern*.
+
+    Comparators are tried in order of decreasing strictness, so an exact
+    whitespace match always wins over a normalized one.
+    """
     if not pattern:
         return -1
     comparators = [
@@ -239,33 +260,61 @@ def _seek(
         lambda l, r: _normalize_unicode(l.strip()) == _normalize_unicode(r.strip()),
     ]
     p_len = len(pattern)
+    n = len(order)
     for comp in comparators:
-        if eof:
-            offset = len(lines) - p_len
-            if offset >= start and offset >= 0:
-                if _matches_slice(lines, pattern, offset, comp):
-                    return offset
-        for offset in range(start, len(lines) - p_len + 1):
-            if _matches_slice(lines, pattern, offset, comp):
+        if eof and n - p_len >= start >= 0 and _matches_slice(
+            bodies, order, pattern, n - p_len, comp
+        ):
+            return n - p_len
+        for offset in range(start, n - p_len + 1):
+            if _matches_slice(bodies, order, pattern, offset, comp):
                 return offset
     return -1
 
 
-def derive_updated_content(
-    path: str, chunks: list[UpdateChunk], original: str
-) -> str:
-    lines = original.split("\n")
-    had_trailing_newline = len(lines) > 1 and lines[-1] == ""
-    if had_trailing_newline:
-        lines.pop()
+def _narrow_unchanged_context(
+    old_lines: list[str], new_lines: list[str]
+) -> int:
+    """Strip context lines a chunk quotes but does not change.
 
-    replacements: list[tuple[int, int, list[str]]] = []
+    Exact equality only, so a line the model deliberately re-indented is still
+    rewritten. Leaving the matches in place means their original terminators
+    survive verbatim, which is what stops a one-hunk patch from restyling a file
+    that mixes LF and CRLF. Never empties both sides, so a chunk that really
+    does delete every line still deletes them. Returns the number of leading
+    lines dropped, which shifts the replaced range's start.
+    """
+    lead = 0
+    while len(old_lines) > 1 and len(new_lines) > 1 and old_lines[0] == new_lines[0]:
+        old_lines.pop(0)
+        new_lines.pop(0)
+        lead += 1
+    while len(old_lines) > 1 and len(new_lines) > 1 and old_lines[-1] == new_lines[-1]:
+        old_lines.pop()
+        new_lines.pop()
+    return lead
+
+
+def derive_updated_lines(
+    path: str, chunks: list[UpdateChunk], physical: list[str]
+) -> list[str]:
+    """Apply *chunks* to *physical* and return the new physical lines.
+
+    Lines are tracked by their index into *physical* rather than by value, so
+    every line the patch does not touch is re-emitted byte-for-byte. That keeps
+    per-line endings (including files that mix LF and CRLF) intact instead of
+    normalizing the whole file to one style.
+    """
+    bodies = [line_body(line) for line in physical]
+    order: list[int] = list(range(len(physical)))
+
+    replacements: list[tuple[int, int, list[str], str]] = []
     line_idx = 0
 
     for chunk in chunks:
         search_start = line_idx
         if chunk.change_context:
-            ctx_found = _seek(lines, [chunk.change_context], line_idx)
+            ctx_found = _seek(bodies, order, [chunk.change_context], line_idx)
             if ctx_found == -1:
                 raise ValueError(
                     f"Failed to find context '{chunk.change_context}' in {path}"
@@ -273,35 +322,77 @@ def derive_updated_content(
             search_start = ctx_found
 
         if not chunk.old_lines:
-            replacements.append((len(lines), 0, chunk.new_lines))
+            # Append-only hunk: no line is replaced, so the inserted group sits
+            # after the last line and inherits that line's ending.
+            replacements.append(
+                (
+                    len(order),
+                    0,
+                    chunk.new_lines,
+                    line_terminator(physical[-1]) if physical else "",
+                )
+            )
             continue
 
         old_lines = list(chunk.old_lines)
         new_lines = list(chunk.new_lines)
-        found = _seek(lines, old_lines, search_start, chunk.end_of_file)
+        found = _seek(bodies, order, old_lines, search_start, chunk.end_of_file)
         if found == -1 and old_lines and old_lines[-1] == "":
             old_lines.pop()
             if new_lines and new_lines[-1] == "":
                 new_lines.pop()
-            found = _seek(lines, old_lines, line_idx, chunk.end_of_file)
+            found = _seek(bodies, order, old_lines, line_idx, chunk.end_of_file)
 
         if found == -1:
             expected = "\n".join(chunk.old_lines)
-            raise ValueError(f"Failed to find expected lines in {path}:\n{expected}")
+            raise ValueError(
+                f"Failed to find expected lines in {path}:\n{expected}"
+            )
 
-        replacements.append((found, len(old_lines), new_lines))
-        line_idx = found + len(old_lines)
+        consumed = len(old_lines)
+        lead = _narrow_unchanged_context(old_lines, new_lines)
+        start = found + lead
+        # Inherit the ending of the line being replaced so a patched line keeps
+        # the style of the line it took the place of.
+        term_hint = (
+            line_terminator(physical[order[start]])
+            if start < len(order) and isinstance(order[start], int)
+            else ""
+        )
+        replacements.append((start, len(old_lines), new_lines, term_hint))
+        line_idx = found + consumed
 
-    updated = list(lines)
-    for start, remove_count, insert_lines in sorted(
+    slots: list[int | tuple[list[str], str]] = list(order)
+    for start, remove_count, insert_lines, term_hint in sorted(
         replacements, key=lambda r: r[0], reverse=True
     ):
-        updated[start : start + remove_count] = insert_lines
+        slots[start : start + remove_count] = [(insert_lines, term_hint)]
 
-    if had_trailing_newline:
-        updated.append("")
-
-    return "\n".join(updated)
+    # An inserted group takes the ending already in force around it, and the
+    # file's trailing-newline state is carried by the surviving last line.
+    eof_newline = bool(physical) and line_terminator(physical[-1]) != ""
+    out: list[str] = []
+    for i, slot in enumerate(slots):
+        if isinstance(slot, int):
+            out.append(physical[slot])
+            continue
+        insert_lines, term_hint = slot
+        next_term = ""
+        for later in slots[i + 1 :]:
+            if isinstance(later, int):
+                next_term = line_terminator(physical[later])
+                break
+        prev_term = line_terminator(out[-1]) if out else ""
+        term = term_hint or prev_term or next_term or dominant_terminator(physical)
+        tail_newline = bool(next_term) or i < len(slots) - 1 or eof_newline
+        if insert_lines and out and not prev_term:
+            # The last surviving line ended at EOF with no terminator, so the
+            # first inserted line would be glued onto it. Close it first.
+            out[-1] += term
+        out.extend(
+            terminated("\n".join(insert_lines), term, tail_newline=tail_newline)
+        )
+    return out
 
 
 class ApplyPatchTool(BaseTool):
@@ -354,6 +445,7 @@ class ApplyPatchTool(BaseTool):
         # Phase 1: Dry run validation and derivation
         prepared_operations: list[dict[str, Any]] = []
         combined_diffs: list[str] = []
+        matcher = get_matcher(workspace_root)
 
         for hunk in hunks:
             resolved = validate_path(hunk.path, workspace_root)
@@ -362,6 +454,12 @@ class ApplyPatchTool(BaseTool):
                     success=False,
                     error=f"Path escapes workspace boundary: {hunk.path}",
                 )
+            # Ignored paths are invisible to every other tool, so a patch must
+            # not be able to create, rewrite or delete them.
+            if blocked_as_missing(matcher, hunk.path):
+                return ToolResult(success=False, error=mutation_refusal(hunk.path))
+            if hunk.move_to and blocked_as_missing(matcher, hunk.move_to):
+                return ToolResult(success=False, error=mutation_refusal(hunk.move_to))
 
             if hunk.action == "add":
                 content = hunk.content or ""
@@ -390,11 +488,10 @@ class ApplyPatchTool(BaseTool):
                         success=False,
                         error=f"Cannot delete nonexistent file: {hunk.path}",
                     )
-                old_content = ""
                 try:
                     old_content = resolved.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    pass
+                except OSError:
+                    old_content = ""
                 diff = "".join(
                     unified_diff(
                         old_content.splitlines(keepends=True),
@@ -428,17 +525,26 @@ class ApplyPatchTool(BaseTool):
                         )
 
                 raw_bytes = resolved.read_bytes()
-                has_bom = raw_bytes.startswith(b"\xef\xbb\xbf")
-                if has_bom:
-                    raw_bytes = raw_bytes[3:]
-                has_crlf = b"\r\n" in raw_bytes
-                original_text = raw_bytes.decode("utf-8", errors="replace").replace(
-                    "\r\n", "\n"
-                )
-
+                has_bom = raw_bytes.startswith(_BOM)
+                body = raw_bytes[3:] if has_bom else raw_bytes
                 try:
-                    updated_text = derive_updated_content(
-                        hunk.path, hunk.chunks, original_text
+                    original_text = body.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"{hunk.path} is not valid UTF-8 (invalid byte at offset "
+                            f"{exc.start}); refusing to patch so existing bytes are never "
+                            "substituted. Re-encode the file as UTF-8 first."
+                        ),
+                    )
+
+                # Match on logical lines but keep every untouched physical line
+                # verbatim, so a file mixing LF and CRLF is not restyled wholesale.
+                physical = split_physical_lines(original_text)
+                try:
+                    updated_physical = derive_updated_lines(
+                        hunk.path, hunk.chunks, physical
                     )
                 except Exception as e:
                     return ToolResult(
@@ -446,19 +552,15 @@ class ApplyPatchTool(BaseTool):
                         error=f"Patch hunk failed for {hunk.path}: {e}",
                     )
 
-                final_text = (
-                    updated_text.replace("\n", "\r\n") if has_crlf else updated_text
-                )
+                final_text = "".join(updated_physical)
                 out_bytes = (
-                    b"\xef\xbb\xbf" + final_text.encode("utf-8")
-                    if has_bom
-                    else final_text.encode("utf-8")
+                    (_BOM if has_bom else b"") + final_text.encode("utf-8")
                 )
 
                 diff = "".join(
                     unified_diff(
                         original_text.splitlines(keepends=True),
-                        updated_text.splitlines(keepends=True),
+                        final_text.splitlines(keepends=True),
                         fromfile=f"a/{hunk.path}",
                         tofile=f"b/{hunk.move_to or hunk.path}",
                     )
@@ -480,6 +582,36 @@ class ApplyPatchTool(BaseTool):
         session_id = current_tool_session_id.get() or ""
         affected_files: list[str] = []
 
+        # Rollback ledger. Every path this patch will touch is snapshotted during
+        # the dry run, so a failure part-way through can put the workspace back
+        # exactly as it was. Reporting failure while leaving hunks 1..n applied
+        # is worse than failing: the model retries a patch whose hunks are already
+        # on disk and then fails on context mismatch.
+        snapshots: list[tuple[Path, bytes | None]] = []
+        for op in prepared_operations:
+            for path in (op["resolved"], op.get("move_resolved")):
+                if path is None:
+                    continue
+                if any(path is seen for seen, _ in snapshots):
+                    continue
+                snapshots.append((path, path.read_bytes() if path.exists() else None))
+
+        def _rollback() -> tuple[list[str], list[str]]:
+            restored: list[str] = []
+            failed: list[str] = []
+            for path, original_bytes in reversed(snapshots):
+                try:
+                    if original_bytes is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(original_bytes)
+                    restored.append(str(path))
+                except OSError as rollback_err:
+                    failed.append(str(path))
+                    logger.error("Rollback failed for %s: %s", path, rollback_err)
+            return restored, failed
+
         try:
             async with FILE_MUTATION_QUEUE.mutation(workspace_root):
                 for op in prepared_operations:
@@ -491,15 +623,14 @@ class ApplyPatchTool(BaseTool):
                         res_path.parent.mkdir(parents=True, exist_ok=True)
                         res_path.write_bytes(op["bytes"])
                         affected_files.append(rel_path)
+                        evict_read_cache_path(str(res_path))
                         if session_id:
-                            evict_file_cache(session_id, str(res_path))
                             record_write(session_id, rel_path, op["content"])
 
                     elif action == "delete":
                         res_path.unlink(missing_ok=True)
                         affected_files.append(rel_path)
-                        if session_id:
-                            evict_file_cache(session_id, str(res_path))
+                        evict_read_cache_path(str(res_path))
 
                     elif action == "update":
                         target_res = op["move_resolved"] or res_path
@@ -510,12 +641,11 @@ class ApplyPatchTool(BaseTool):
 
                         if op["move_resolved"] and op["move_resolved"] != res_path:
                             res_path.unlink(missing_ok=True)
-                            if session_id:
-                                evict_file_cache(session_id, str(res_path))
+                            evict_read_cache_path(str(res_path))
 
                         affected_files.append(target_path)
+                        evict_read_cache_path(str(target_res))
                         if session_id:
-                            evict_file_cache(session_id, str(target_res))
                             record_write(session_id, target_path, op["content"])
 
             summary_msg = f"Applied patch to {len(affected_files)} file(s):\n" + "\n".join(
@@ -531,7 +661,28 @@ class ApplyPatchTool(BaseTool):
                 },
             )
         except Exception as e:
-            return ToolResult(
-                success=False,
-                error=f"Filesystem mutation failed during patch application: {e}",
+            restored, unrestored = _rollback()
+            for path, _ in snapshots:
+                evict_read_cache_path(str(path))
+            if unrestored:
+                # Never let a partial restore read as a clean failure: the model
+                # would retry a patch whose hunks may already be on disk.
+                detail = (
+                    f"Filesystem mutation failed during patch application: {e}. "
+                    f"ROLLBACK INCOMPLETE — {len(restored)} file(s) were restored, but these "
+                    f"could not be: {', '.join(unrestored)}. Inspect them before retrying."
+                )
+            else:
+                detail = (
+                    f"Filesystem mutation failed during patch application: {e}. "
+                    f"The workspace was restored to its pre-patch state "
+                    f"({len(restored)} file(s) rolled back) — re-read the files before retrying."
+                )
+            logger.error(
+                "apply_patch failed on %s: %s (rolled back %d, unrestored %d)",
+                ", ".join(affected_files) or "<none>",
+                e,
+                len(restored),
+                len(unrestored),
             )
+            return ToolResult(success=False, error=detail)

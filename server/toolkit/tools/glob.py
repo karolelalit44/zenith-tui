@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from server.workspace.search import RipgrepBackend, _find_rg
 
 from ..base import BaseTool, ToolResult
 from .grep import _iter_source_files, _matches_glob, _safe_rel
+
+logger = logging.getLogger(__name__)
 
 
 def _pattern_is_unscoped(pattern: str) -> bool:
@@ -133,14 +136,30 @@ class GlobTool(BaseTool):
             for file_name in files:
                 file_path = Path(file_name)
                 if not file_path.is_absolute():
-                    if (search_path / file_path).exists():
-                        file_path = search_path / file_path
-                    elif (base / file_path).exists():
-                        file_path = base / file_path
+                    # Resolve against the root the backend was actually invoked
+                    # with. Probing a second base and taking whichever happens to
+                    # exist made the result — and the ignore decision computed
+                    # from it — depend on filesystem layout rather than on the
+                    # search the caller asked for.
+                    candidate = search_path / file_path
+                    if candidate.exists():
+                        file_path = candidate
+                    else:
+                        fallback = base / file_path
+                        if fallback.exists():
+                            logger.info(
+                                "glob backend returned %s, which does not exist under "
+                                "the search path; resolved against the workspace root",
+                                file_name,
+                            )
+                            file_path = fallback
                 try:
                     relative_path = file_path.resolve().relative_to(base)
                 except ValueError:
-                    relative_path = file_path
+                    # Outside the workspace: not ours to report, and reporting it
+                    # would leak a path the ignore rules never got to judge.
+                    logger.info("glob dropped out-of-workspace result: %s", file_path)
+                    continue
                 if not matcher.is_ignored(relative_path):
                     matched_rel_paths.append(relative_path)
                 else:

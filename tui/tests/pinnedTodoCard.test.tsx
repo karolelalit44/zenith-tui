@@ -1,6 +1,7 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { PinnedTodoCard } from '../src/components/Display/Scenario/PinnedTodoCard';
+import { MAX_TODO_ROWS } from '../src/constants/todo';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import type { TodoItem, TodoStatus } from '../src/types/scenario';
 import type { ConsolidatedTodoBoard } from '../src/utils/todoBoard';
@@ -83,15 +84,17 @@ describe('PinnedTodoCard', () => {
     expect(firstLine).toContain('─╮');
   });
 
-  it('caps visible items at 5 and displays overflow count', () => {
-    const items = Array.from({ length: 8 }, (_, i) => makeItem(`T${i + 1}`, `Item ${i + 1}`, i < 2 ? 'done' : 'todo'));
+  it('caps visible items at the shared row limit and displays overflow count', () => {
+    const items = Array.from({ length: 11 }, (_, i) => makeItem(`T${i + 1}`, `Item ${i + 1}`, i < 2 ? 'done' : 'todo'));
     const frame = renderCard(makeBoard(items));
 
-    expect(frame).toContain('(2/8)');
+    expect(frame).toContain('(2/11)');
     expect(frame).toContain('Item 1');
-    expect(frame).toContain('Item 5');
-    expect(frame).not.toContain('Item 6');
-    expect(frame).toContain('+3 more todos…');
+    expect(frame).toContain(`Item ${MAX_TODO_ROWS}`);
+    expect(frame).not.toContain(`Item ${MAX_TODO_ROWS + 1}`);
+    // The overflow line is truncated to the terminal width, so assert the
+    // count and prefix rather than the full sentence.
+    expect(frame).toContain(`+${11 - MAX_TODO_ROWS} more todos`);
     // Rows use positional serials, never backend ids.
     expect(frame).not.toContain('T1');
     expect(frame).not.toContain('T5');

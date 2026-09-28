@@ -124,13 +124,10 @@ async def _do_startup() -> None:
         _handler = ZenithHandler(
             config=config, home=home, registry=registry, tool_registry=tool_registry
         )
-        from server.toolkit.registry_validation import validate_registry
-
-        validation_errors = validate_registry(tool_registry)
-        if validation_errors:
-            logger.error("Tool registry validation failed at startup:")
-            for error in validation_errors:
-                logger.error("  %s", error)
+        # Registry validation is not repeated here: create_default_registry above
+        # already ran it and raised on any error, so a second warn-and-continue
+        # pass could only ever observe an empty error list. Raising in the factory
+        # is the single policy — an invalid tool must stop startup, not be logged.
         # Intentional method wrap (pre-existing pattern); mypy dislikes it.
         _handler.handlers.dispatch = wrap_handler(_handler.handlers.dispatch)  # type: ignore[method-assign]
         logger.info("Handler initialized — server ready")

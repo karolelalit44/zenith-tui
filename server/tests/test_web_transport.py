@@ -1,6 +1,5 @@
 """Tests for the secure transport layer and SSRF firewall (_transport.py)."""
 
-import ipaddress
 import pytest
 
 from server.toolkit.tools._transport import (
@@ -9,9 +8,7 @@ from server.toolkit.tools._transport import (
     PayloadTooLargeError,
     RedirectSecurityError,
     SSRFSecurityError,
-    TransportResponse,
     is_cloudflare_challenge,
-    is_ip_blocked,
     secure_fetch,
     validate_url_target,
 )

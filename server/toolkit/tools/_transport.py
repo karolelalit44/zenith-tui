@@ -189,11 +189,11 @@ def is_cloudflare_challenge(status_code: int, headers: dict[str, str], body_samp
     lower_headers = {k.lower(): v.lower() for k, v in headers.items()}
     if lower_headers.get("cf-mitigated") == "challenge":
         return True
-    if "cf-ray" in lower_headers and status_code == 403:
-        if "challenge" in body_sample.lower() or "cf-chl-opt" in body_sample.lower():
-            return True
-    return False
-
+    return (
+        "cf-ray" in lower_headers
+        and status_code == 403
+        and ("challenge" in body_sample.lower() or "cf-chl-opt" in body_sample.lower())
+    )
 
 async def secure_fetch(
     url: str,

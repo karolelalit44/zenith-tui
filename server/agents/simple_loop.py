@@ -5,12 +5,14 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
 
+from server.agents.todo_state import reset_todo_state
 from server.config.constants import (
     BUILD_MODE,
+    COMPACTION_KEEP_LATEST_TOOLS,
     DEFAULT_FILE_READ_LINES,
     MAX_ACTIVE_TOOLS_PER_TURN,
     MAX_STEPS_DEFAULT,
@@ -32,6 +34,7 @@ from server.toolkit.param_normalizer import normalize_file_params
 from server.toolkit.registry import ToolRegistry
 from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
+from ..toolkit.base import ToolResult
 from ..toolkit.executor import (
     build_tool_metadata,
     execute_tool,
@@ -40,7 +43,6 @@ from ..toolkit.executor import (
     validate_tool_calls,
     validate_tool_rejection,
 )
-from ..toolkit.base import ToolResult
 from .compaction import compact_tool_output, prune_inflight_messages
 from .context import ContextManager
 from .llm_stream import StreamState, stream_completion
@@ -53,17 +55,29 @@ from .session_workspace import (
     is_identical_replay,
     is_range_covered,
     record_read,
-    record_write,
-    slice_served_count,
 )
 
 logger = logging.getLogger(__name__)
+
+# Stand-in for an assistant turn that carries neither text nor tool calls.
+# Providers (OpenRouter, OpenAI) reject such a turn with "model output must
+# contain either output text or tool calls", so an empty reasoning-only or
+# dup-skipped turn is replaced by this before dispatch.
+#
+# Deliberately NOT "...": a bare ellipsis is a legitimate terse model answer, and
+# listing it as the sanitizer's own output value in _DEGENERATE_TOKENS meant a
+# model that answered with an ellipsis had its answer silently dropped.
+EMPTY_ASSISTANT_TURN = "[empty assistant turn]"
+
+# Shortest boundary repetition treated as a real overlap when stitching a
+# length-truncated answer to its continuation. Below this a match is far more
+# likely to be coincidence than repetition.
+_MIN_CONTINUATION_OVERLAP = 4
 
 _DEGENERATE_TOKENS = {
     "[tool calls]",
     "[thinking]",
     "[no output]",
-    "...",  # sanitized placeholder for empty assistant turn (see prune_inflight_messages)
 }
 
 
@@ -80,10 +94,96 @@ def _merge_continuation(prefix: str, continuation: str) -> str:
     if not continuation:
         return prefix
     max_k = min(len(prefix), len(continuation), 200)
-    for k in range(max_k, 15, -1):
+    # Test every overlap length, shortest included: a provider that repeats only
+    # a few characters at the seam used to fall through to verbatim concatenation
+    # and duplicate that fragment in the user's answer. The floor of 4 keeps a
+    # coincidental single character match from eating real text.
+    for k in range(max_k, _MIN_CONTINUATION_OVERLAP - 1, -1):
         if prefix.endswith(continuation[:k]):
             return prefix + continuation[k:]
     return prefix + continuation
+
+
+def _tool_call_name(tc: Any) -> str:
+    """The function name of one history tool_call.
+
+    Live native calls use OpenAI's ``{function: {name}}`` shape; persisted
+    history uses the domain ``ToolCall`` ``{name}`` shape. Accept both, plus the
+    attribute form, because a resumed session mixes all three.
+    """
+    if isinstance(tc, dict):
+        return str((tc.get("function") or {}).get("name") or tc.get("name") or "")
+    inner = getattr(tc, "function", None)
+    name = getattr(inner, "name", None) if inner is not None else None
+    return str(name or getattr(tc, "name", "") or "")
+
+
+def _iter_tool_call_names(msg: dict) -> Iterator[str]:
+    for tc in msg.get("tool_calls") or []:
+        name = _tool_call_name(tc)
+        if name:
+            yield name
+
+
+def _strip_unoffered_tool_calls(
+    messages: list[dict], offered: set[str]
+) -> list[dict] | None:
+    """Drop ``tool_calls`` whose function is absent from *offered*.
+
+    Returns ``None`` when nothing needed stripping, so the caller can keep the
+    original list identity. A tool result stays behind as an ordinary user
+    message: it is conversation context, not a schema object, and dropping it
+    would throw away what the tool actually reported.
+
+    An assistant turn left with no tool_calls and no text is not dispatchable —
+    providers reject a turn that is neither — so it is given the same neutral
+    marker the empty-turn sanitizer uses.
+    """
+    result: list[dict] = []
+    changed = False
+    for msg in messages:
+        calls = msg.get("tool_calls") or []
+        if not calls:
+            result.append(msg)
+            continue
+        kept = [tc for tc in calls if _tool_call_name(tc) in offered]
+        if len(kept) == len(calls):
+            result.append(msg)
+            continue
+        changed = True
+        replacement = dict(msg)
+        if kept:
+            replacement["tool_calls"] = kept
+        else:
+            replacement.pop("tool_calls", None)
+            if not (replacement.get("content") or "").strip():
+                replacement["content"] = EMPTY_ASSISTANT_TURN
+        result.append(replacement)
+    return result if changed else None
+
+
+def _todo_nudge_text(active_tasks: list[Any]) -> str:
+    """Nudge text for an outstanding checklist.
+
+    Blocked items get their own instruction. Telling the model to "execute the
+    next step" about a task it cannot execute is how a blocked board stalls: the
+    nudge fires, the model has nothing to do, and the turn ends with the item
+    still blocked and no instruction to resolve it.
+    """
+    summary = ", ".join(f"{t.id}: {t.title}" for t in active_tasks[:3])
+    blocked = [t for t in active_tasks if getattr(t, "status", "") == "blocked"]
+    if blocked:
+        blocked_summary = ", ".join(f"{t.id}: {t.title}" for t in blocked[:3])
+        return (
+            f"Your task checklist still has work outstanding (active: {summary}). "
+            f"Blocked and needing resolution first: {blocked_summary}. "
+            "Resolve the blocker (gather the missing input, or mark the task cancelled "
+            "with a note) before executing the remaining steps."
+        )
+    return (
+        f"Please proceed with the task checklist (active: {summary}). "
+        "Execute the next step using the available tools."
+    )
 
 
 class SimpleLoop:
@@ -319,6 +419,12 @@ class SimpleLoop:
 
         start_time = time.time()
         iteration = 0
+        # Board lifetime equals request lifetime. Without this the previous
+        # request's checklist is still on the board here, so its items drive this
+        # turn's nudges and completion reporting, and the client re-pins a
+        # finished board above the composer. A session that spans requests
+        # re-establishes its checklist with an explicit todo call.
+        reset_todo_state(session_id)
         created_files: set[str] = set()
         files_edited: list[str] = []
         executed_calls: set[tuple[str, str]] = set()
@@ -359,8 +465,7 @@ class SimpleLoop:
         def _progress_percent(done: int, total: int) -> int:
             nonlocal last_progress_pct
             pct = round(done * 100 / max(1, total))
-            if pct < last_progress_pct:
-                pct = last_progress_pct
+            pct = max(pct, last_progress_pct)
             last_progress_pct = pct
             return pct
 
@@ -434,7 +539,9 @@ class SimpleLoop:
             stream_state = StreamState()
             context_exceeded = False
             turn_errored = False
-            dispatch_messages, _ = prune_inflight_messages(messages, keep_latest_tools=6)
+            dispatch_messages, _ = prune_inflight_messages(
+                messages, keep_latest_tools=COMPACTION_KEEP_LATEST_TOOLS
+            )
             # Sanitize assistant messages that have empty content and no tool_calls.
             # Providers (OpenRouter, OpenAI) reject requests containing such turns
             # with "model output must contain either output text or tool calls".
@@ -449,35 +556,54 @@ class SimpleLoop:
                     and not _msg.get("tool_calls")
                 ):
                     m_copy = dict(_msg)
-                    m_copy["content"] = "..."
+                    m_copy["content"] = EMPTY_ASSISTANT_TURN
                     sanitized_dispatch.append(m_copy)
                 else:
                     sanitized_dispatch.append(_msg)
             dispatch_messages = sanitized_dispatch
-            # G5: pre-scan the dispatch history for native tool_calls that
-            # reference a registered-but-not-yet-active tool and escalate those
-            # BEFORE the provider call. Strict providers validate the request
-            # against the offered function list, so a history that calls an
-            # unseeded tool (e.g. file_delete from a prior session) would be
-            # rejected before our post-parse escalation could ever run.
+            # G5: a dispatched history must never reference a tool that is not
+            # in the offered function list. Strict providers validate the
+            # request against that list and reject the whole turn before any
+            # post-parse escalation could run, so a name that has gone missing
+            # (tool removed, mode switched, session resumed against an older
+            # catalog) kills the turn outright.
+            #
+            # Two cases, both handled:
+            #   1. The tool IS available for this mode but was not seeded yet —
+            #      promote it into the active set and keep the history intact.
+            #   2. The tool is NOT available at all — no promotion can save it,
+            #      so the dangling tool_call is stripped from the history.
             if self.tool_registry and resolver:
                 mode_available = set(self.tool_registry.list_tools_for_mode(mode))
-                history_hits: list[str] = []
+                promotable: list[str] = []
                 for _msg in dispatch_messages:
-                    for _tc in _msg.get("tool_calls") or []:
-                        # Live native calls use OpenAI's {function:{name}}
-                        # shape; persisted history uses the domain ToolCall
-                        # {name} shape. Accept both.
-                        if isinstance(_tc, dict):
-                            _fname = (_tc.get("function") or {}).get("name") or _tc.get("name")
-                        else:
-                            _fname = getattr(_tc, "function", {}).get("name")
-                        if _fname and _fname in mode_available:
-                            history_hits.append(_fname)
-                if history_hits:
-                    promoted = resolver.request_tools(history_hits)
-                    if promoted:
-                        openai_tools = resolver.openai_tools(mode)
+                    for _fname in _iter_tool_call_names(_msg):
+                        if _fname in mode_available and _fname not in promotable:
+                            promotable.append(_fname)
+                if promotable and resolver.request_tools(promotable):
+                    openai_tools = resolver.openai_tools(mode)
+
+                offered = {
+                    (t.get("function") or {}).get("name")
+                    for t in (openai_tools or [])
+                    if isinstance(t, dict)
+                }
+                offered.discard(None)
+                if offered:
+                    stripped = _strip_unoffered_tool_calls(dispatch_messages, offered)
+                    if stripped is not None:
+                        if stripped is not dispatch_messages:
+                            logger.info(
+                                "Stripped %d tool_call(s) absent from the offered function "
+                                "list before dispatch",
+                                sum(
+                                    1
+                                    for a, b in zip(dispatch_messages, stripped)
+                                    if len(a.get("tool_calls") or [])
+                                    != len(b.get("tool_calls") or [])
+                                ),
+                            )
+                        dispatch_messages = stripped
             async for event in stream_completion(
                 self.provider,
                 dispatch_messages,
@@ -652,9 +778,7 @@ class SimpleLoop:
                 from server.agents.todo_state import get_todo_state
 
                 todo = get_todo_state(session_id)
-                has_active_todos = bool(
-                    todo and any(e.status in ("pending", "in_progress") for e in todo.list())
-                )
+                has_active_todos = todo.has_active()
 
                 if (
                     has_active_todos
@@ -662,17 +786,9 @@ class SimpleLoop:
                     and iteration < max_steps - 1
                 ):
                     nudges += 1
-                    active_tasks = (
-                        [e for e in todo.list() if e.status in ("pending", "in_progress")]
-                        if todo
-                        else []
-                    )
+                    active_tasks = todo.active()
                     if active_tasks:
-                        active_summary = ", ".join(f"{t.id}: {t.title}" for t in active_tasks[:3])
-                        nudge_content = (
-                            f"Please proceed with the task checklist (active: {active_summary}). "
-                            "Execute the next step using the available tools."
-                        )
+                        nudge_content = _todo_nudge_text(active_tasks)
                     else:
                         nudge_content = "Please proceed with the next step or task."
                     messages.append({"role": "assistant", "content": response_text or ""})
@@ -721,13 +837,15 @@ class SimpleLoop:
                     t_name = tc.get("tool")
                     if not t_name:
                         continue
-                    if t_name not in mode_available:
-                        if self.tool_registry.get(t_name) is not None:
-                            # Registered, but not usable in the current mode.
-                            # Surface it instead of silently promoting a schema
-                            # that can never execute.
-                            blocked.append(t_name)
-                            continue
+                    if (
+                        t_name not in mode_available
+                        and self.tool_registry.get(t_name) is not None
+                    ):
+                        # Registered, but not usable in the current mode.
+                        # Surface it instead of silently promoting a schema
+                        # that can never execute.
+                        blocked.append(t_name)
+                        continue
                     kept_calls.append(tc)
                     escalate.append(t_name)
                     if t_name == "get_tool_definition":
@@ -872,14 +990,6 @@ class SimpleLoop:
                             session_id, abs_path, read_offset, read_limit,
                             mtime_ns=stat.st_mtime_ns, size=stat.st_size,
                         ):
-                            already_read = slice_served_count(
-                                session_id,
-                                abs_path,
-                                read_offset,
-                                read_limit,
-                                stat.st_mtime_ns,
-                                stat.st_size,
-                            ) > 0
                             cached = get_cached_read(
                                 session_id,
                                 abs_path,
@@ -921,6 +1031,7 @@ class SimpleLoop:
                                     {
                                         "role": "user",
                                         "content": content,
+                                        "tool_name": tool_name,
                                         "salvage_digest": "file_read: ok",
                                     }
                                 )
@@ -1089,6 +1200,10 @@ class SimpleLoop:
                 msg_entry: dict[str, Any] = {
                     "role": "user",
                     "content": content,
+                    # Structured tag so compaction can tell what produced this
+                    # message without parsing the human-readable "[Tool: ...]"
+                    # prefix. The prefix stays display text only.
+                    "tool_name": tool_name,
                     "salvage_digest": f"{tool_name}: {'ok' if result.success else 'error'}",
                 }
                 if tool_name in ("glob", "grep") and result.success:
@@ -1162,32 +1277,22 @@ class SimpleLoop:
                     current_turn_emitted
                     and len((clean_response or "").strip()) >= SUMMARY_MIN_CHARS
                 )
-                if has_substantive_answer:
+                if (
+                    has_substantive_answer
+                ):
                     from server.agents.todo_state import get_todo_state
 
                     todo = get_todo_state(session_id)
-                    has_active_todos = bool(
-                        mode != PLAN_MODE
-                        and todo
-                        and any(e.status in ("pending", "in_progress") for e in todo.list())
-                    )
+                    has_active_todos = mode != PLAN_MODE and todo.has_active()
                     if (
                         has_active_todos
                         and nudges < 2
                         and iteration < max_steps - 1
                     ):
                         nudges += 1
-                        active_tasks = (
-                            [e for e in todo.list() if e.status in ("pending", "in_progress")]
-                            if todo
-                            else []
-                        )
+                        active_tasks = todo.active()
                         if active_tasks:
-                            active_summary = ", ".join(f"{t.id}: {t.title}" for t in active_tasks[:3])
-                            nudge_content = (
-                                f"Please proceed with the task checklist (active: {active_summary}). "
-                                "Execute the next step using the available tools."
-                            )
+                            nudge_content = _todo_nudge_text(active_tasks)
                         else:
                             nudge_content = "Please proceed with the next step or task."
                         messages.append({"role": "user", "content": nudge_content})
@@ -1212,11 +1317,7 @@ class SimpleLoop:
         from server.agents.todo_state import get_todo_state
 
         todo = get_todo_state(session_id)
-        has_pending_todos = bool(
-            mode != PLAN_MODE
-            and todo
-            and any(e.status in ("pending", "in_progress", "blocked") for e in todo.list())
-        )
+        has_pending_todos = mode != PLAN_MODE and todo.has_active()
         has_mutation = bool(created_files or files_edited)
         has_file_work = has_mutation
         # Purely model-dependent completion: no hard-coded length/mutation/citation

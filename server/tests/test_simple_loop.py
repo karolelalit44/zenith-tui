@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from server.agents.simple_loop import SimpleLoop
+from server.agents.simple_loop import EMPTY_ASSISTANT_TURN, SimpleLoop
 from server.config.providers import ProviderConfig
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
@@ -629,15 +629,20 @@ async def test_dispatch_sanitization_does_not_mutate_original_messages(test_conf
         events.append(ev)
 
     assert provider.call_count == 2
-    # In call 2, the dispatched assistant message from turn 1 should be sanitized to "..."
+    # In call 2, the dispatched assistant message from turn 1 should carry the
+    # neutral placeholder (not the old "...", which is a legitimate answer).
     dispatched_assistant = [m for m in provider.dispatched[1] if m.get("role") == "assistant"]
-    assert any(m.get("content") == "..." for m in dispatched_assistant)
-    # The message in agent's in-flight messages should have remained with its original content
-    # (not mutated in place)
-    raw_in_flight_assistants = [m for m in agent.context_manager.build_messages([], "", "", "test-model") if False]
-    # Verify the sanitization produced new copied dicts rather than mutating
-    sanitized_item = next(m for m in dispatched_assistant if m.get("content") == "...")
-    assert sanitized_item["content"] == "..."
+    assert any(m.get("content") == EMPTY_ASSISTANT_TURN for m in dispatched_assistant)
+    # The sanitized turn is a copy: the call-1 dispatch is untouched, proving the
+    # in-memory message objects were not mutated in place.
+    first_call_assistant = [
+        m for m in provider.dispatched[0] if m.get("role") == "assistant"
+    ]
+    assert all(m.get("content") != EMPTY_ASSISTANT_TURN for m in first_call_assistant)
+    sanitized_item = next(
+        m for m in dispatched_assistant if m.get("content") == EMPTY_ASSISTANT_TURN
+    )
+    assert sanitized_item["content"] == EMPTY_ASSISTANT_TURN
 
 
 @pytest.mark.asyncio
@@ -968,7 +973,6 @@ async def test_history_native_tool_call_escalates_registered_tool_before_provide
     escalate it BEFORE the provider call so a strict provider isn't handed a
     history that calls a function absent from the offered list."""
     from server.domain.enums import FinishReason
-    from server.domain.message import Message
 
     class _G5Provider(BaseProvider):
         def __init__(self):

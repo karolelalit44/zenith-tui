@@ -61,7 +61,7 @@ def _build_env_section(workspace_root: str, mode: str) -> str:
             "The bash tool runs in bash. Use bash syntax; never Windows PowerShell "
             "cmdlets. Write commands for bash."
         )
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     date_str = now.strftime("%Y-%m-%d")
     year_str = str(now.year)
     return (

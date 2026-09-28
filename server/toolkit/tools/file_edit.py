@@ -1,18 +1,39 @@
 from __future__ import annotations
 
+import logging
 from difflib import unified_diff
 from typing import Any
 
-from server.agents.session_workspace import evict_file_cache, record_write
+from server.agents.session_workspace import evict_read_cache_path, record_write
 from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     TOOL_DOMAIN_EDIT,
 )
 from server.toolkit.registry import current_tool_session_id
+from server.workspace.ignore import blocked_as_missing, get_matcher, mutation_refusal
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
+from ._line_endings import (
+    crlf_normalized_with_offsets,
+    local_terminator,
+    map_offset,
+    terminated,
+)
 from .file_mutation_queue import FILE_MUTATION_QUEUE
+
+logger = logging.getLogger(__name__)
+
+_BOM = b"\xef\xbb\xbf"
+
+# Match ladders, tried in order. Each entry is (label, key) where ``key``
+# normalizes one line for comparison. "exact" keeps the historical behaviour of
+# comparing the whole normalized blob; the rest progressively relax whitespace.
+_MATCH_LADDER: tuple[tuple[str, str], ...] = (
+    ("exact", ""),
+    ("trimmed", "rstrip"),
+    ("whitespace_normalized", "strip"),
+)
 
 
 def _unified_patch(rel_path: str, before: str, after: str) -> str:
@@ -24,6 +45,67 @@ def _unified_patch(rel_path: str, before: str, after: str) -> str:
             tofile=f"b/{rel_path}",
         )
     )
+
+
+def _norm_line(line: str, mode: str) -> str:
+    if mode == "rstrip":
+        return line.rstrip()
+    if mode == "strip":
+        return line.strip()
+    return line
+
+
+def _exact_spans(haystack: str, needle: str) -> list[tuple[int, int]]:
+    """Every substring occurrence of *needle*, as char spans.
+
+    Substring (not whole-line) matching is deliberate: it is what lets the model
+    replace a fragment in the middle of a line.
+    """
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while True:
+        idx = haystack.find(needle, start)
+        if idx == -1:
+            return spans
+        spans.append((idx, idx + len(needle)))
+        start = idx + max(1, len(needle))
+
+
+def _line_spans(haystack: str, needle: str, mode: str) -> list[tuple[int, int]]:
+    """Every whole-line window equal to *needle* under *mode*, as char spans.
+
+    The span covers the matched lines and the newlines between them but not the
+    newline that follows the last one, so a line replacement leaves the file's
+    line structure intact.
+    """
+    hay_lines = haystack.split("\n")
+    old_lines = needle.split("\n")
+    width = len(old_lines)
+    if width == 0 or width > len(hay_lines):
+        return []
+    target = [_norm_line(line, mode) for line in old_lines]
+    spans: list[tuple[int, int]] = []
+    for i in range(len(hay_lines) - width + 1):
+        if [_norm_line(line, mode) for line in hay_lines[i : i + width]] == target:
+            start = sum(len(line) + 1 for line in hay_lines[:i])
+            end = start + sum(len(line) + 1 for line in hay_lines[i : i + width]) - 1
+            spans.append((start, end))
+    return spans
+
+
+def _splice_text(original: str, start: int, end: int, replacement: str) -> str:
+    """Replace ``original[start:end]``, re-terminating *replacement* locally.
+
+    Everything outside the replaced range is copied verbatim, so per-line
+    endings, blank-line runs and the trailing-newline state of the rest of the
+    file are preserved exactly. Only a replacement that lands at EOF needs to
+    close its own last line; otherwise the untouched text starting at *end*
+    already supplies the line break, and adding another would double it.
+    """
+    term = local_terminator(original, start)
+    tail_newline = end >= len(original) and original.endswith(("\n", "\r"))
+    inserted = terminated(replacement, term, tail_newline=tail_newline)
+    return original[:start] + "".join(inserted) + original[end:]
 
 
 class FileEditTool(BaseTool):
@@ -69,6 +151,8 @@ class FileEditTool(BaseTool):
         resolved = validate_path(rel_path, workspace_root)
         if resolved is None:
             return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
+        if blocked_as_missing(get_matcher(workspace_root), rel_path):
+            return ToolResult(success=False, error=mutation_refusal(rel_path))
         if not resolved.exists():
             return ToolResult(success=False, error=f"File not found: {rel_path}")
         old = params.get("old_content", "")
@@ -79,134 +163,97 @@ class FileEditTool(BaseTool):
         fuzzy = bool(
             params.get("fuzzyMatch") or params.get("fuzzy_match") or params.get("fuzzy") or False
         )
+        ladder = _MATCH_LADDER if fuzzy else _MATCH_LADDER[:2]
 
         try:
             async with FILE_MUTATION_QUEUE.mutation(workspace_root):
                 raw = resolved.read_bytes()
-                has_bom = raw.startswith(b"\xef\xbb\xbf")
-                if has_bom:
-                    raw = raw[3:]
-                has_crlf = b"\r\n" in raw
-                content = raw.decode("utf-8", errors="replace")
+                has_bom = raw.startswith(_BOM)
+                body = raw[3:] if has_bom else raw
+                try:
+                    original = body.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"{rel_path} is not valid UTF-8 (invalid byte at offset {exc.start}); "
+                            "refusing to edit so existing bytes are never substituted. Re-encode "
+                            "the file as UTF-8 first."
+                        ),
+                    )
 
-                norm_content = content.replace("\r\n", "\n")
-                norm_old = old.replace("\r\n", "\n")
-                norm_new = new.replace("\r\n", "\n")
+                # Match on CRLF-normalized text so LF `old_content` still matches a
+                # CRLF file, then map every span back onto the original bytes.
+                haystack, offsets = crlf_normalized_with_offsets(original)
+                norm_old, _ = crlf_normalized_with_offsets(old)
+                spans: list[tuple[int, int]] = []
+                match_kind = ""
+                for label, mode in ladder:
+                    found = (
+                        _exact_spans(haystack, norm_old)
+                        if mode == ""
+                        else _line_spans(haystack, norm_old, mode)
+                    )
+                    if found:
+                        spans = [
+                            (map_offset(original, offsets, s), map_offset(original, offsets, e))
+                            for s, e in found
+                        ]
+                        match_kind = label
+                        break
 
-                count = norm_content.count(norm_old)
-                if count == 1:
-                    new_norm_content = norm_content.replace(norm_old, norm_new, 1)
-                    changes = 1
-                    match_kind = "exact"
-                elif count > 1:
-                    if replace_all:
-                        new_norm_content = norm_content.replace(norm_old, norm_new)
-                        changes = count
-                        match_kind = "exact"
-                    else:
-                        return ToolResult(
-                            success=False,
-                            error=f"Ambiguous: found {count} matches. Provide more surrounding context or set replaceAll: true.",
-                        )
-                else:
-                    # Exact match failed: try line-trimmed matching (ignoring trailing whitespace)
-                    lines = norm_content.split("\n")
-                    old_lines = norm_old.split("\n")
-                    new_lines = norm_new.split("\n")
-                    old_len = len(old_lines)
-                    trimmed_old = [l.rstrip() for l in old_lines]
+                if not spans:
+                    preview = old[:80] + ("..." if len(old) > 80 else "")
+                    hint = (
+                        "Read the file first and copy old_content exactly, add more surrounding "
+                        "context, or set fuzzyMatch: true to allow whitespace-normalized matching."
+                        if fuzzy
+                        else "Read the file first and copy old_content exactly, or add more surrounding context."
+                    )
+                    return ToolResult(
+                        success=False,
+                        error=f"Content not found in file (exact match only): {preview}. {hint}",
+                    )
 
-                    matches: list[int] = []
-                    if old_len <= len(lines):
-                        for i in range(len(lines) - old_len + 1):
-                            window = [l.rstrip() for l in lines[i : i + old_len]]
-                            if window == trimmed_old:
-                                matches.append(i)
+                if len(spans) > 1 and not replace_all:
+                    kind = "exact" if match_kind == "exact" else f"{match_kind} "
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"Ambiguous: found {len(spans)} {kind}matches. Provide more "
+                            "surrounding context or set replaceAll: true."
+                        ),
+                    )
 
-                    if len(matches) == 1:
-                        idx = matches[0]
-                        updated_lines = lines[:idx] + new_lines + lines[idx + old_len :]
-                        new_norm_content = "\n".join(updated_lines)
-                        changes = 1
-                        match_kind = "trimmed"
-                    elif len(matches) > 1 and replace_all:
-                        updated_lines = list(lines)
-                        for idx in reversed(matches):
-                            updated_lines = updated_lines[:idx] + new_lines + updated_lines[idx + old_len :]
-                        new_norm_content = "\n".join(updated_lines)
-                        changes = len(matches)
-                        match_kind = "trimmed"
-                    elif len(matches) > 1:
-                        return ToolResult(
-                            success=False,
-                            error=f"Ambiguous: found {len(matches)} line-trimmed matches. Provide more surrounding context or set replaceAll: true.",
-                        )
-                    else:
-                        if not fuzzy:
-                            preview = old[:80] + ("..." if len(old) > 80 else "")
-                            return ToolResult(
-                                success=False,
-                                error=f"Content not found in file (exact match only): {preview}. Read the file first and copy old_content exactly, add more surrounding context, or set fuzzyMatch: true to allow whitespace-normalized matching.",
-                            )
-                        stripped_old = [l.strip() for l in old_lines]
-                        norm_matches: list[int] = []
-                        if old_len <= len(lines):
-                            for i in range(len(lines) - old_len + 1):
-                                window = [l.strip() for l in lines[i : i + old_len]]
-                                if window == stripped_old:
-                                    norm_matches.append(i)
-                        if len(norm_matches) == 1:
-                            idx = norm_matches[0]
-                            updated_lines = lines[:idx] + new_lines + lines[idx + old_len :]
-                            new_norm_content = "\n".join(updated_lines)
-                            changes = 1
-                            match_kind = "whitespace_normalized"
-                        elif len(norm_matches) > 1 and replace_all:
-                            updated_lines = list(lines)
-                            for idx in reversed(norm_matches):
-                                updated_lines = updated_lines[:idx] + new_lines + updated_lines[idx + old_len :]
-                            new_norm_content = "\n".join(updated_lines)
-                            changes = len(norm_matches)
-                            match_kind = "whitespace_normalized"
-                        elif len(norm_matches) > 1:
-                            return ToolResult(
-                                success=False,
-                                error=f"Ambiguous: found {len(norm_matches)} whitespace-normalized matches. Provide more surrounding context or set replaceAll: true.",
-                            )
-                        else:
-                            preview = old[:80] + ("..." if len(old) > 80 else "")
-                            return ToolResult(
-                                success=False,
-                                error=f"Content not found in file (exact match only): {preview}. Read the file first and copy old_content exactly, or add more surrounding context.",
-                            )
+                # Apply back-to-front so earlier spans keep their offsets valid.
+                new_text = original
+                for start, end in reversed(spans):
+                    new_text = _splice_text(new_text, start, end, new)
 
-                final_text = (
-                    new_norm_content.replace("\n", "\r\n")
-                    if has_crlf
-                    else new_norm_content
-                )
-                out_bytes = (
-                    b"\xef\xbb\xbf" + final_text.encode("utf-8")
-                    if has_bom
-                    else final_text.encode("utf-8")
-                )
+                out_bytes = (_BOM if has_bom else b"") + new_text.encode("utf-8")
                 resolved.write_bytes(out_bytes)
 
+                # Read slices are cached per absolute path, so invalidation is
+                # global and unconditional: a write from a delegated, background
+                # or resumed session must still invalidate the primary session.
+                evict_read_cache_path(str(resolved))
                 session_id = current_tool_session_id.get() or ""
                 if session_id:
-                    evict_file_cache(session_id, str(resolved))
-                    record_write(session_id, rel_path, final_text)
+                    record_write(session_id, rel_path, new_text)
 
+                logger.info(
+                    "Edited %s (%d %s match%s)", rel_path, len(spans), match_kind,
+                    "" if len(spans) == 1 else "es",
+                )
                 return ToolResult(
                     success=True,
                     output=f"Edited {rel_path}",
                     metadata={
                         "path": str(resolved),
-                        "changes": changes,
+                        "changes": len(spans),
                         "match": match_kind,
-                        "diff": _unified_patch(rel_path, content, final_text),
+                        "diff": _unified_patch(rel_path, original, new_text),
                     },
                 )
         except Exception as e:
             return ToolResult(success=False, error=str(e))
-

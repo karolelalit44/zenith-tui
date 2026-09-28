@@ -1,8 +1,9 @@
+import { MAX_TODO_ACTIVITY_ENTRIES } from '../constants/todo';
 import type { ScenarioEvent, TodoBoardChange, TodoBoardEvent, TodoItem, TodoStatus } from '../types/scenario';
 
 const TODO_BOARD_KIND = 'todo_board';
 
-export const MAX_ACTIVITY_ENTRIES = 6;
+export { MAX_TODO_ACTIVITY_ENTRIES };
 
 export interface TodoBoardActivityEntry {
   action: TodoBoardEvent['action'];
@@ -27,12 +28,12 @@ function buildPendingBoard(
       rawStatus === 'completed' || rawStatus === 'done'
         ? 'done'
         : rawStatus === 'in_progress' || rawStatus === 'in-progress'
-        ? 'in_progress'
-        : rawStatus === 'blocked'
-        ? 'blocked'
-        : rawStatus === 'cancelled' || rawStatus === 'canceled'
-        ? 'cancelled'
-        : 'todo';
+          ? 'in_progress'
+          : rawStatus === 'blocked'
+            ? 'blocked'
+            : rawStatus === 'cancelled' || rawStatus === 'canceled'
+              ? 'cancelled'
+              : 'todo';
     return {
       id: String(t.id || `t${idx + 1}`),
       title: String(t.title || ''),
@@ -56,16 +57,20 @@ function buildPendingBoard(
 }
 
 /**
- * Fold every `todo_board` emission into a single stable board card.
+ * Fold every `todo_board` emission in one turn into a single stable board card.
  *
  * The live stream emits a full snapshot per transition, so the UI must not
- * render N rows — it renders ONE card whose board is the union of every item
- * ever seen, each carrying its latest status. For a single simulation this
- * equals the latest snapshot; for a combined simulation (e.g. the showcase)
- * it keeps todos from every half visible in one window, ordered by the latest
- * snapshot then any earlier-only items. The card is also enriched with a
- * bounded activity log of the lifecycle transitions. Returns `null` when no
- * todo_board events are present.
+ * render N rows — it renders ONE card carrying the LATEST snapshot's board
+ * verbatim (`last.board`). Earlier snapshots contribute only the bounded
+ * activity log of lifecycle transitions.
+ *
+ * This is deliberately latest-snapshot, not a union of every item ever seen.
+ * A union would resurrect items a later `todo` write had already removed, and
+ * would carry a previous turn's finished items into a new one. The card is
+ * scoped to a single turn by its caller; do not feed it events from several
+ * turns and expect per-turn isolation.
+ *
+ * Returns `null` when no `todo_board` events are present.
  */
 export function consolidateTodoBoardEvents(events: ScenarioEvent[]): ConsolidatedTodoBoard | null {
   // Find index of the latest explicit todo_board event
@@ -117,7 +122,7 @@ export function consolidateTodoBoardEvents(events: ScenarioEvent[]): Consolidate
 
   for (const evt of present) {
     const message = evt.message ?? '';
-    if (activity.length >= MAX_ACTIVITY_ENTRIES) {
+    if (activity.length >= MAX_TODO_ACTIVITY_ENTRIES) {
       activity.shift();
     }
     activity.push({ action: evt.action, message, change: evt.change });

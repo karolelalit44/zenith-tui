@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, patch
 
 from server.toolkit.tools._web_cache import get_web_cache
 from server.toolkit.tools.websearch import WebsearchTool

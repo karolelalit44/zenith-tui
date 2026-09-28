@@ -1,22 +1,19 @@
-"""Tests for command safety assessment and permission-tier gating."""
+"""Tests for destructive-command blocking.
+
+Zenith performs no permission gating, so ``assess_command`` answers exactly one
+question: is this command blocked outright? Everything that is merely unusual —
+network access, package installs, environment mutation — is permitted, and these
+tests pin that down so a future "let's gate this too" change is a visible
+behaviour change rather than a silent one.
+"""
 
 import pytest
 
 from server.toolkit.command_safety import assess_command
 
 
-class TestCommandSafetyAssessment:
-    """Validates assess_command against safe, medium-risk, network, and destructive commands."""
-
-    def test_empty_or_whitespace_command(self):
-        assessment = assess_command("")
-        assert assessment.is_risky is False
-        assert assessment.risk_level == "safe"
-        assert assessment.tier == "read_only"
-
-        assessment = assess_command("   \n\t  ")
-        assert assessment.is_risky is False
-        assert assessment.risk_level == "safe"
+class TestDestructiveBlocking:
+    """The one rule that executes: destructive commands are refused."""
 
     @pytest.mark.parametrize(
         "cmd",
@@ -29,9 +26,8 @@ class TestCommandSafetyAssessment:
     )
     def test_inherently_destructive_commands_are_blocked(self, cmd):
         assessment = assess_command(cmd)
-        assert assessment.is_risky is True
-        assert assessment.risk_level == "high"
-        assert assessment.tier == "destructive"
+        assert assessment.is_destructive is True
+        assert assessment.reason
 
     @pytest.mark.parametrize(
         "cmd",
@@ -53,9 +49,17 @@ class TestCommandSafetyAssessment:
     )
     def test_dangerous_patterns_are_blocked(self, cmd):
         assessment = assess_command(cmd)
-        assert assessment.is_risky is True
-        assert assessment.risk_level == "high"
-        assert assessment.tier == "destructive"
+        assert assessment.is_destructive is True
+        assert assessment.reason
+
+    def test_destructive_command_is_found_behind_a_pipeline(self):
+        # The leftmost program decides, so `ls | rm -rf /` must still be caught
+        # by the pattern table even though `ls` alone is harmless.
+        assert assess_command("ls | rm -rf /").is_destructive is True
+
+
+class TestNothingElseIsGated:
+    """No permission tiers exist. These commands run."""
 
     @pytest.mark.parametrize(
         "cmd",
@@ -65,28 +69,14 @@ class TestCommandSafetyAssessment:
             "git log -n 5",
             "git show HEAD",
             "git branch --list",
-        ],
-    )
-    def test_git_readonly_subcommands_auto_approve(self, cmd):
-        assessment = assess_command(cmd)
-        assert assessment.is_risky is False
-        assert assessment.risk_level == "safe"
-        assert assessment.tier == "read_only"
-
-    @pytest.mark.parametrize(
-        "cmd",
-        [
             "git fetch origin",
             "git pull origin main",
             "git clone https://github.com/repo.git",
+            "git push origin main",
         ],
     )
-    def test_git_network_subcommands_require_approval(self, cmd):
-        assessment = assess_command(cmd)
-        assert assessment.is_risky is True
-        assert assessment.risk_level == "medium"
-        assert assessment.requires_approval is True
-        assert assessment.tier == "network"
+    def test_git_commands_are_not_gated(self, cmd):
+        assert assess_command(cmd).is_destructive is False
 
     @pytest.mark.parametrize(
         "cmd",
@@ -97,12 +87,8 @@ class TestCommandSafetyAssessment:
             "scp file.txt user@remote:/tmp",
         ],
     )
-    def test_network_commands_require_approval(self, cmd):
-        assessment = assess_command(cmd)
-        assert assessment.is_risky is True
-        assert assessment.risk_level == "medium"
-        assert assessment.requires_approval is True
-        assert assessment.tier == "network"
+    def test_network_commands_are_not_gated(self, cmd):
+        assert assess_command(cmd).is_destructive is False
 
     @pytest.mark.parametrize(
         "cmd",
@@ -118,12 +104,8 @@ class TestCommandSafetyAssessment:
             "set SECRET_KEY=xyz",
         ],
     )
-    def test_medium_risk_patterns_require_approval(self, cmd):
-        assessment = assess_command(cmd)
-        assert assessment.is_risky is True
-        assert assessment.risk_level == "medium"
-        assert assessment.requires_approval is True
-        assert assessment.tier == "workspace_write"
+    def test_package_installs_and_env_changes_are_not_gated(self, cmd):
+        assert assess_command(cmd).is_destructive is False
 
     @pytest.mark.parametrize(
         "cmd",
@@ -137,30 +119,12 @@ class TestCommandSafetyAssessment:
             "whoami",
             "pwd",
             "echo hello",
+            "custom_build_tool --flag",
+            "",
+            "   \n\t  ",
         ],
     )
-    def test_readonly_commands_are_safe(self, cmd):
+    def test_ordinary_commands_are_not_gated(self, cmd):
         assessment = assess_command(cmd)
-        assert assessment.is_risky is False
-        assert assessment.risk_level == "safe"
-        assert assessment.tier == "read_only"
-
-    @pytest.mark.parametrize(
-        "pipeline",
-        [
-            "ls | grep py",
-            "cat file.txt | head -n 10",
-            "grep pattern app.py | sort | uniq",
-        ],
-    )
-    def test_pure_readonly_pipelines_are_safe(self, pipeline):
-        assessment = assess_command(pipeline)
-        assert assessment.is_risky is False
-        assert assessment.risk_level == "safe"
-        assert assessment.tier == "read_only"
-
-    def test_unknown_commands_default_to_workspace_write(self):
-        assessment = assess_command("custom_build_tool --flag")
-        assert assessment.is_risky is False
-        assert assessment.risk_level == "safe"
-        assert assessment.tier == "workspace_write"
+        assert assessment.is_destructive is False
+        assert assessment.reason == ""

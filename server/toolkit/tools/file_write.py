@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from server.agents.session_workspace import evict_file_cache, record_write
+from server.agents.session_workspace import evict_read_cache_path, record_write
 from server.config.constants import (
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     FILE_ALREADY_EXISTS_ERROR,
@@ -10,6 +10,7 @@ from server.config.constants import (
     TOOL_DOMAIN_EDIT,
 )
 from server.toolkit.registry import current_tool_session_id
+from server.workspace.ignore import blocked_as_missing, get_matcher, mutation_refusal
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -64,6 +65,8 @@ class FileWriteTool(BaseTool):
                 success=False,
                 error=f"Path escapes workspace boundary: {rel_path}. Use relative paths within the project.",
             )
+        if blocked_as_missing(get_matcher(workspace_root), rel_path):
+            return ToolResult(success=False, error=mutation_refusal(rel_path))
         content = params.get("content", "")
         overwrite = params.get(FILE_OVERWRITE_PARAM, False)
         existed = resolved.exists()
@@ -104,13 +107,12 @@ class FileWriteTool(BaseTool):
                 resolved.parent.mkdir(parents=True, exist_ok=True)
                 resolved.write_bytes(out_bytes)
 
+            # Read slices are cached per absolute path, so invalidation is global
+            # and unconditional: a write from a delegated, background or resumed
+            # session must still invalidate the primary session's cached slice.
+            evict_read_cache_path(str(resolved))
             session_id = current_tool_session_id.get() or ""
             if session_id:
-                # _STORE (write records) is keyed by the raw relative path.
-                # _READ_CACHE (read slices) is absolute-keyed; evict both so
-                # subsequent reads (inside or outside simple_loop) get fresh data.
-                evict_file_cache(session_id, rel_path)
-                evict_file_cache(session_id, str(resolved))
                 record_write(session_id, rel_path, content)
 
             action = "Updated" if existed else "Created"

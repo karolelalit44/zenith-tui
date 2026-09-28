@@ -4,14 +4,14 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from server.agents.session_workspace import evict_file_cache
+from server.agents.session_workspace import evict_read_cache_path
 from server.config.constants import (
     BUILD_MODE,
     CONCURRENCY_GROUP_WORKSPACE_MUTATION,
     RISK_MEDIUM,
     TOOL_DOMAIN_EDIT,
 )
-from server.toolkit.registry import current_tool_session_id
+from server.workspace.ignore import blocked_as_missing, get_matcher, mutation_refusal
 
 from ..base import BaseTool, ToolResult
 from ..path_validator import validate_path
@@ -56,6 +56,8 @@ class FileDeleteTool(BaseTool):
         resolved = validate_path(rel_path, workspace_root)
         if resolved is None:
             return ToolResult(success=False, error=f"Path escapes workspace boundary: {rel_path}")
+        if blocked_as_missing(get_matcher(workspace_root), rel_path):
+            return ToolResult(success=False, error=mutation_refusal(rel_path))
         if not resolved.exists():
             return ToolResult(success=False, error=f"Not found: {rel_path}")
         try:
@@ -65,9 +67,7 @@ class FileDeleteTool(BaseTool):
                 if resolved.is_dir():
                     removed = _count_entries(resolved)
                     shutil.rmtree(resolved)
-                    session_id = current_tool_session_id.get() or ""
-                    if session_id:
-                        evict_file_cache(session_id, str(resolved))
+                    evict_read_cache_path(str(resolved))
                     return ToolResult(
                         success=True,
                         output=f"Deleted directory '{rel_path}' ({removed} entries)",
@@ -79,9 +79,7 @@ class FileDeleteTool(BaseTool):
                 except Exception:
                     pass
                 resolved.unlink()
-                session_id = current_tool_session_id.get() or ""
-                if session_id:
-                    evict_file_cache(session_id, str(resolved))
+                evict_read_cache_path(str(resolved))
                 return ToolResult(
                     success=True,
                     output=f"Deleted {rel_path}",

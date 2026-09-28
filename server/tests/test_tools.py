@@ -3,6 +3,7 @@ import platform
 import sys
 import time
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -580,6 +581,86 @@ class TestBackgroundJobs:
         elapsed = time.monotonic() - start
         assert elapsed < 5, f"foreground command returned too slowly: {elapsed:.1f}s"
 
+    @pytest.mark.asyncio
+    async def test_multibyte_output_does_not_claim_false_truncation(self, temp_dir):
+        # The flag must come from the decoded text _truncate inspected. Measuring
+        # the raw bytes instead raised it on multi-byte output that was never cut,
+        # and job_output then told the model its middle had been dropped.
+        from server.toolkit.tools.background import (
+            MAX_RETAINED_OUTPUT_CHARS,
+            BackgroundJobManager,
+        )
+
+        script = temp_dir / "emit_multibyte.py"
+        script.write_text(
+            "import sys\n"
+            "sys.stdout.buffer.write(('\\u4e2d' * 700_000).encode('utf-8'))\n",
+            encoding="utf-8",
+        )
+
+        manager = BackgroundJobManager()
+        job = await manager.start(f"{_python_cmd()} {script}", str(temp_dir))
+        for _ in range(300):
+            if job.done:
+                break
+            await asyncio.sleep(0.1)
+        assert job.done, "background job never completed"
+
+        assert len(job.stdout.encode("utf-8")) > MAX_RETAINED_OUTPUT_CHARS
+        assert job.output_truncated is False
+        assert "[output truncated:" not in job.stdout
+        output = manager.get_output(job.id)
+        assert output is not None
+        assert "middle was dropped" not in output
+
+    @pytest.mark.asyncio
+    async def test_genuinely_truncated_output_is_flagged(self, temp_dir):
+        from server.toolkit.tools.background import BackgroundJobManager
+
+        script = temp_dir / "emit_big.py"
+        script.write_text(
+            "import sys\nsys.stdout.write('a' * 3_000_000)\n", encoding="utf-8"
+        )
+
+        manager = BackgroundJobManager()
+        job = await manager.start(f"{_python_cmd()} {script}", str(temp_dir))
+        for _ in range(300):
+            if job.done:
+                break
+            await asyncio.sleep(0.1)
+        assert job.done, "background job never completed"
+
+        assert job.output_truncated is True
+        assert "[output truncated:" in job.stdout
+        output = manager.get_output(job.id)
+        assert output is not None
+        assert "middle was dropped" in output
+
+    def test_finished_jobs_are_evicted_past_the_retained_total(self):
+        from server.toolkit.tools.background import (
+            MAX_RETAINED_TOTAL_CHARS,
+            BackgroundJob,
+            BackgroundJobManager,
+        )
+
+        manager = BackgroundJobManager()
+        for i in range(4):
+            job = BackgroundJob(
+                id=f"j{i}",
+                command="c",
+                description="d",
+                process=Mock(),
+                working_dir=".",
+            )
+            job.stdout = "x" * (MAX_RETAINED_TOTAL_CHARS // 2)
+            job.done = True
+            manager._jobs[job.id] = job
+
+        assert manager._retained_chars() > MAX_RETAINED_TOTAL_CHARS
+        manager._evict_if_over_capacity()
+        assert manager._retained_chars() <= MAX_RETAINED_TOTAL_CHARS
+        assert "j3" in manager._jobs
+
 
 class TestFileReadTool:
     @pytest.mark.asyncio
@@ -939,9 +1020,9 @@ class TestDefaultRegistry:
 class TestTodoToolStatusNormalization:
     @pytest.mark.asyncio
     async def test_synonyms_normalized_in_todo_write_and_update(self, temp_dir):
-        from server.toolkit.tools.todo import TodoTool
-        from server.toolkit.registry import current_tool_session_id
         from server.agents.todo_state import get_todo_state
+        from server.toolkit.registry import current_tool_session_id
+        from server.toolkit.tools.todo import TodoTool
 
         tool = TodoTool()
         token = current_tool_session_id.set("test_session_norm")

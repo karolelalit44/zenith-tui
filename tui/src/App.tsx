@@ -298,16 +298,29 @@ export const App: React.FC = () => {
   }, [footerContext, contextInfo, liveSuccessTokenInfo]);
 
   // Derive the active todo board from the live event stream, or fall back to
-  // the latest turn's todo board if live stream has not emitted one yet.
-  const activeTodoBoard = useMemo(() => {
+  // the latest turn's todo board if the live stream has not emitted one yet.
+  // Scoped to the latest turn for the same reason as activeOrchestration below:
+  // an older turn's finished checklist must not stay pinned above the composer
+  // during an unrelated request, which reads as "this new request is carrying
+  // someone else's completed work".
+  //
+  // Resolved in one pass: the memo returns both the board and whether it should
+  // be shown. A board with nothing outstanding is history, not live state, so
+  // once the turn has ended it is history and stays in the scrollback.
+  const todoPanel = useMemo(() => {
     const liveBoard = consolidateTodoBoardEvents(events);
-    if (liveBoard?.board && liveBoard.board.length > 0) return liveBoard;
-    for (let i = turns.length - 1; i >= 0; i--) {
-      const turnBoard = consolidateTodoBoardEvents(turns[i].events);
-      if (turnBoard?.board && turnBoard.board.length > 0) return turnBoard;
+    let board: typeof liveBoard = liveBoard;
+    if (!board?.board || board.board.length === 0) {
+      if (turns.length === 0) return null;
+      const turnBoard = consolidateTodoBoardEvents(turns[turns.length - 1].events);
+      board = turnBoard?.board && turnBoard.board.length > 0 ? turnBoard : null;
     }
-    return null;
-  }, [events, turns]);
+    if (!board) return null;
+    const hasOutstanding = board.board.some(
+      (t) => t.status === 'todo' || t.status === 'in_progress' || t.status === 'blocked',
+    );
+    return { board, show: isRunning || hasOutstanding };
+  }, [events, turns, isRunning]);
 
   // Derive the active orchestration from the live event stream, or fall back to
   // the latest turn's orchestration if live stream has not emitted one yet.
@@ -916,9 +929,9 @@ export const App: React.FC = () => {
               </Box>
             )}
 
-            {activeTodoBoard && (
+            {todoPanel?.show && (
               <Box marginBottom={1} width="100%">
-                <PinnedTodoCard event={activeTodoBoard} isRunning={isRunning} activeActivity={activeTaskActivity} />
+                <PinnedTodoCard event={todoPanel.board} isRunning={isRunning} activeActivity={activeTaskActivity} />
               </Box>
             )}
 

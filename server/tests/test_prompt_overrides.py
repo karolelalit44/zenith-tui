@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 from pathlib import Path
 
@@ -237,8 +238,11 @@ class TestPromptCancel:
         ws2 = _fake_ws(captured2)
         await h.handlers._cancel_prompt(ws2, 2, session.id)
         assert json.loads(captured2["text"])["result"]["cancelled"] is True
-        await asyncio.sleep(0.05)
         task = h.handlers._session_executors[session.id]._active_task
+        # Await the task rather than sleeping: cancellation is cooperative, so a
+        # fixed sleep passes or fails depending on how busy the loop is.
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5.0)
         assert task.done()
         assert task.cancelled()
 
@@ -250,6 +254,51 @@ class TestPromptCancel:
         ws = _fake_ws(captured)
         await h.handlers._cancel_prompt(ws, 3, session.id)
         assert json.loads(captured["text"])["result"]["cancelled"] is False
+
+    @pytest.mark.asyncio
+    async def test_superseding_prompt_waits_for_previous_turn_to_stop(self, handler):
+        # Cancellation is cooperative. If the replacement turn starts before the
+        # old one unwinds, two turns of one session run concurrently: interleaved
+        # tool output and history writes, and the new turn's reset_todo_state
+        # clearing the board the old turn is still reading.
+        h, _ = handler
+        session = await h.session_repo.create(Session(title="Supersede Test"))
+        captured = {}
+        await h.handlers._prompt(
+            _fake_ws(captured), 10, {"content": "first", "mode": "build", "provider": "test"},
+            session.id,
+        )
+        await asyncio.sleep(0.05)
+        first = h.handlers._session_executors[session.id]._active_task
+        assert not first.done()
+
+        captured2 = {}
+        await h.handlers._prompt(
+            _fake_ws(captured2), 11, {"content": "second", "mode": "build", "provider": "test"},
+            session.id,
+        )
+
+        assert first.done(), "superseding prompt started before the old turn stopped"
+        second = h.handlers._session_executors[session.id]._active_task
+        assert second is not first
+        h.handlers._session_executors[session.id].cancel_active()
+        await asyncio.sleep(0.05)
+
+    @pytest.mark.asyncio
+    async def test_cancel_active_and_wait_reports_stopped(self, test_config, storage_home):
+        executor = _make_executor(test_config, RecordingProvider(slow=True), storage_home)
+
+        async def _forever():
+            await asyncio.sleep(60)
+
+        executor._active_task = asyncio.create_task(_forever())
+        assert await executor.cancel_active_and_wait() is True
+        assert executor._active_task.done()
+
+    @pytest.mark.asyncio
+    async def test_cancel_active_and_wait_no_task_is_stopped(self, test_config, storage_home):
+        executor = _make_executor(test_config, RecordingProvider(), storage_home)
+        assert await executor.cancel_active_and_wait() is True
 
 
 class TestAttachmentGuards:
