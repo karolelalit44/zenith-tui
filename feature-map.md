@@ -1,89 +1,94 @@
-# Feature Inventory
+# Zenith Feature Map
 
-| Feature | SubFeature | Resides In | Purpose | Dependencies |
-|--------|-------------|------------|---------|--------------|
-| Terminal Chat UI | Slash Commands | TUI | Provide quick system actions via `/` commands | Agent Loop, Command Registry |
-| Terminal Chat UI | Streaming Output | TUI | Deliver real-time LLM responses to the terminal | WebSocket Client, Agent Loop |
-| Terminal Chat UI | Prompt History | TUI | Navigate and reuse previous prompt inputs | Input Buffer |
-| Terminal Chat UI | Context Menu / File Picker | TUI | Browse and attach workspace files into context | File Explorer, Workspace Index |
-| Terminal Chat UI | Multi-Line Input | TUI | Edit multi-line prompts with cursor navigation and shortcuts | Terminal Keyboard, Text Buffer |
-| Terminal Chat UI | Mention Autocomplete | TUI | Autocomplete `@` file paths and symbols inline | File Explorer, Workspace Index |
-| Terminal Chat UI | Terminal Markdown | TUI | Render syntax-highlighted markdown and code blocks | ANSI Engine |
-| Terminal Chat UI | Theme System | TUI | Switch terminal color palettes with swatch previews | User Profile, Settings |
-| Terminal Chat UI | Scroll Engine | TUI | Scroll viewport with visual top/bottom indicators | Terminal Dimensions |
-| Terminal Chat UI | Overlay Manager | TUI | Manage focus and stacking for modal dialogs | React Ink |
-| Terminal Chat UI | Error Boundary | TUI | Catch React crashes and display diagnostic cards | Theme System |
-| Calm Mode | View Toggle | TUI | Hide intermediate tool steps for a minimal terminal view | User Profile, Scenario Renderer |
-| Operating Modes | Plan Mode Prompt | Server | Restrict agent to read-only analysis without file changes | Prompt Templates, LLM Provider |
-| Operating Modes | Build Mode Prompt | Server | Enable full filesystem mutations and command execution | Prompt Templates, LLM Provider |
-| Operating Modes UI | Mode Selector | TUI | Toggle between Plan and Build modes via hotkeys | Mode Data, WebSocket Transport |
-| Operating Modes UI | Plan Ready Block | TUI | Display structured plans awaiting user execution approval | Mode Selector, Agent Loop |
-| Agent Orchestrator | Captain Orchestrator | Server | Coordinate specialist agents and synthesize deliverables | Task Envelope, LLM Provider |
-| Agent Orchestrator UI | Captain Block & Pinned Card | TUI | Display live multi-agent delegation status and progress | WebSocket Transport, Captain Orchestrator |
-| Specialist Delegation | Scout Runner | Server | Spawn isolated scout loops for repository exploration | Specialist Registry, Agent Loop |
-| Specialist Delegation UI | Explore Crew Card | TUI | Visualize background explorer agents and findings | WebSocket Transport, Specialist Delegation |
-| Agent Loop | Execution Engine | Server | Orchestrate prompt building, response parsing, and tool calls | LLM Provider, Toolkit |
-| Agent Loop | Reasoning Stream | Server | Parse `<thought>` and reasoning tokens in real time | LLM Provider, Event Adapter |
-| Agent Loop UI | Thinking Block | TUI | Display collapsible animated thinking blocks | Theme System, Reasoning Stream |
-| Agent Loop | Loop Detection & Recovery | Server | Detect repetitive tool-call loops and trigger salvage pass | Agent Loop, Run State |
-| Agent Loop UI | Turn Manifest Card | TUI | Summarize changed files, executed commands, and deliverables | Scenario Renderer, Agent Loop |
-| Tool Engine | Tool Registry | Server | Discover, validate, and register available agent tools | Toolkit Catalog |
-| Tool Engine | Tool Execution Engine | Server | Safely execute tools and capture stdout/stderr | Command Safety, Path Validator |
-| Tool Engine | Result Handling | Server | Normalize and truncate tool outputs for the LLM | LLM Provider, Token Counter |
-| Tool Engine | Tool Safety Guardrails | Server | Prevent malicious commands and unauthorized file deletions | Shell AST Validator |
-| Tool Engine | Auto-Linting Middleware | Server | Run linters on mutated files and feed diagnostics to agent | Toolkit Middleware |
-| Tool Engine UI | Tool Trace & Step Card | TUI | Render tool execution steps, statuses, and expandable logs | Scenario Renderer, Tool Engine |
-| Bash Tool | Shell Execution Engine | Server | Execute shell commands in a managed process session | Process Pool, Command Safety |
-| Bash Tool UI | Command Step Card | TUI | Render command cards with exit codes and output drawers | Terminal Markdown, Bash Tool |
-| Background Jobs | Job Spawner & Process Pool | Server | Spawn and manage asynchronous long-running background tasks | Process Pool |
-| Background Jobs UI | Job Output & Kill Cards | TUI | Display background job status and output streams | WebSocket Transport, Background Jobs |
-| File Read Tool | Content & Outline Reader | Server | Read file contents, slices, or structural outlines | Workspace Index |
-| File Write Tool | Atomic File Creator | Server | Create new files or overwrite files atomically | Storage Layer |
-| File Edit Tool | Chunk Patcher Engine | Server | Apply contiguous chunk replacements with exact matching | Storage Layer, Auto-Linting |
-| File Mutation Queue | Atomic Batch Committer | Server | Queue and coordinate multiple file mutations atomically | Storage Layer |
-| File Diff UI | File Diff Block | TUI | Render syntax-highlighted unified diffs of file edits | Terminal Markdown, File Edit Tool |
-| File Delete Tool | Boundary Validator & Deleter | Server | Safely delete files within workspace boundaries | Path Validator |
-| Code Search Tool | Grep & Glob Search | Server | Perform regex content searches and wildcard path matching | Workspace Index |
-| Directory Listing Tool | Filesystem Tree Traversal | Server | Traverse and format filesystem directory trees | Workspace Index |
-| Directory Listing UI | Directory Listing Card | TUI | Render tree-structured directory hierarchies in chat | Scenario Renderer, Directory Listing Tool |
-| Web Tools | Web Search & Web Fetch | Server | Query search engines and fetch readable web markdown | HTTP Client, HTML Parser |
-| Todo Tool | Task State Manager | Server | Track agent task items, active statuses, and completions | Todo State, Storage Layer |
-| Todo Tool UI | Pinned Todo Card & Board | TUI | Render interactive checklists and persistent progress cards | Scenario Renderer, Todo Tool |
-| Prompt Planning | Prompt Templates | Server | Reusable prompt skeletons for system, plan, and build flows | LLM Provider |
-| Prompt Planning | Dynamic Context Injection | Server | Inject session history, repo map, and tool docs into prompts | Session Management, Workspace |
-| Prompt Planning | Plan Generation | Server | Generate structured, executable action plans | LLM Provider, Prompt Templates |
-| LLM Provider | Provider Registry | Server | Register, configure, and switch LLM services | Configuration Layer |
-| LLM Provider | Streaming Support | Server | Stream token-by-token responses and thoughts from providers | HTTP/SSE Client |
-| LLM Provider | Error Handling & Retries | Server | Retry logic and back-off for rate limits and network errors | Base Provider |
-| LLM Provider | Token Counting | Server | Measure prompt, completion, and cache tokens consumed | Provider Registry |
-| LLM Provider UI | Provider Picker & Flow | TUI | Select, configure, and validate active LLM providers | Provider Registry, WebSocket Transport |
-| LLM Provider UI | Model Selection Screen | TUI | List available models with context limits and capabilities | Provider Selection UI |
-| LLM Provider UI | Setup Wizard | TUI | Guide first-run onboarding, provider setup, and key entry | User Profile, Provider Selection UI |
-| LLM Provider UI | API Key Prompt | TUI | Securely capture and validate provider API keys | Provider Selection UI |
-| LLM Provider UI | Local LLM Form | TUI | Configure local endpoints for Ollama and LM Studio | Provider Selection UI |
-| LLM Provider UI | Token Usage Modal | TUI | Display token metrics, estimated costs, and session usage | Token Counting, Token Usage Service |
-| LLM Provider UI | Context Inspector Modal | TUI | Visualize context occupancy and token limits | Token Estimation Service |
-| Session Management | Session Store | Server | Persist conversations, tool calls, and run states to disk | Storage Layer |
-| Session Management UI | Session Browser Modal | TUI | Browse, resume, or delete saved conversation sessions | Session Store, WebSocket Transport |
-| Session Management | Compaction Engine | Server | Prune old turns and build summaries when token limits near | Storage Layer, LLM Provider |
-| Session Management UI | Compaction Modal & Flow | TUI | Display visual indicators and modals during context compaction | Compaction Engine, WebSocket Transport |
-| Session Management | Running Summary Service | Server | Continuously maintain a rolling narrative of conversation turns | LLM Provider, Session Store |
-| Session Management UI | Final Summary Card | TUI | Display concise turn summaries and key decisions taken | Scenario Renderer, Running Summary |
-| Session Management | Export / Import Service | Server | Backup and export session conversations to JSON or Markdown | Storage Layer |
-| Session Management UI | Markdown Exporter | TUI | Export current conversation to markdown files | Session Management |
-| Session Management | Session Status Tracker | Server | Track active, paused, compacted, or error states | Run State |
-| Session Management UI | Session Status Line | TUI | Persistent status bar with model, branch, and health indicators | Session Status, Git Context |
-| Workspace Intelligence | Repository Map | Server | Generate AST-based outlines of symbols across the workspace | Tree-Sitter / Parser |
-| Workspace Intelligence | Workspace Search | Server | Fast indexed text and symbol search across the codebase | Workspace Index |
-| Workspace Intelligence | Git Integration | Server | Inspect git branch, commit log, status, and diffs | Git CLI |
-| Workspace Intelligence UI | Git Status Line | TUI | Display branch name and dirty working tree status | Git Integration, Status Line |
-| Workspace Intelligence | Ignore Rules Engine | Server | Filter files using `.zenithignore` and `.gitignore` rules | Path Validator |
-| Workspace Intelligence | LSP Client | Server | Connect to language servers for diagnostics and definitions | LSP Transport |
-| Workspace Intelligence | MCP Hub | Server | Connect to external Model Context Protocol servers for tools | MCP Transport |
-| Transport & Infrastructure | WebSocket Server | Server | Full-duplex WebSocket server for events and streaming | FastAPI, Uvicorn |
-| Transport & Infrastructure | WebSocket Client | TUI | Reconnecting client for real-time bi-directional messaging | Transport Layer |
-| Transport & Infrastructure | Event Pipeline | Server | Translate internal domain events into wire protocol events | Domain Events |
-| Transport & Infrastructure | Event Mapper | TUI | Map incoming wire events to UI blocks and state updates | Backend Scenario Provider |
-| Transport & Infrastructure | Server CLI | Server | Command-line interface to start, inspect, and test server | Click, Uvicorn |
-| Transport & Infrastructure | User Profile Store | Server | Persist developer preferences and overrides in JSON files | Storage Layer |
-| Transport & Infrastructure UI | User Profile Service | TUI | Manage developer settings, tool auto-approval, and theme | User Profile Store |
+Inventory of every capability in the Zenith codebase, where it resides, and what it depends on.
+
+| Feature | Sub-Level / Component | Resides In | Description (One-Liner) | Depends On |
+| :--- | :--- | :--- | :--- | :--- |
+| **Captain Orchestrator** | Task Envelope & Delegation Engine | `Server` | Coordinates specialist agents, plans work breakdown, and synthesizes final deliverables. | Specialist Delegation, Provider Registry |
+| **Captain Orchestrator UI** | Captain Block & Pinned Orchestration Card | `TUI` | Displays real-time multi-agent delegation status, active specialist, and sub-task progress. | Captain Orchestrator, WebSocket Client |
+| **Specialist Delegation** | Scout & Specialist Runners | `Server` | Spawns isolated specialist loops for codebase exploration, deep search, and inspection. | Agent Loop, Session Persistence |
+| **Specialist Delegation UI** | Explore Crew Card | `TUI` | Visualizes background explorer agents and their findings in the terminal. | Specialist Delegation, WebSocket Client |
+| **Agent Loop** | Turn Execution & Message Cycle | `Server` | Orchestrates LLM prompt construction, response parsing, tool calling, and state updates. | Provider Registry, Tool Execution |
+| **Reasoning Stream** | Stream Parser & Event Dispatcher | `Server` | Extracts `<thought>` and reasoning tokens from LLM output in real time. | Response Streaming, Event Adapter |
+| **Reasoning Stream UI** | Thinking Block | `TUI` | Displays collapsible, animated terminal blocks for live model reasoning. | Reasoning Stream, Theme System |
+| **Operating Modes** | Plan Mode Prompt & Guardrails | `Server` | Restricts the agent to read-only tools and analysis plans without modifying files. | Prompt Templates, Tool Execution |
+| **Operating Modes** | Build Mode Prompt & Execution | `Server` | Enables full filesystem mutations, command executions, and implementation tools. | Prompt Templates, Tool Execution |
+| **Operating Modes UI** | Mode Select Screen & Indicator | `TUI` | Lets users toggle between Plan and Build modes with hotkeys and visual badges. | Operating Modes, WebSocket Client |
+| **Plan Ready** | Plan Ready Block | `TUI` | Informational display of the session plan when a build first adopts it. Zenith has no interactive approval gate — the block never blocks execution. | Plan Generation, Operating Modes UI |
+| **Loop Detection & Recovery** | Stagnation Detector & Salvage Pass | `Server` | Detects repetitive tool-call loops and triggers self-correction or recovery prompts. | Agent Loop, Session Status |
+| **Turn Manifest** | Turn Manifest Card | `TUI` | Summarizes changed files, executed commands, and key deliverables per turn. | Agent Loop, Scenario Renderer |
+| **Prompt Templates** | Reusable Prompt Skeletons | `Server` | Reusable prompt skeletons for system, plan, and build flows, composed per turn. | Provider Registry |
+| **Dynamic Context Injection** | Session History, Repo Map & Tool Docs | `Server` | Injects session history, repository map, and live tool documentation into the system prompt. | Session Persistence, Repository Map |
+| **Plan Generation** | Structured Plan Writer | `Server` | Captures the model's structured plan output as the session's build context. | Prompt Templates, Session Persistence |
+| **Tool Catalog** | Tool Registry & Schema Token Counter | `Server` | Registers available capabilities and measures the token cost of their schemas. | Provider Registry |
+| **Capability Discovery** | Discover Capabilities & Get Tool Definition | `Server` | The two registered tools that let the agent list and inspect tools it has not been offered. | Tool Catalog |
+| **Tool Execution** | Tool Execution Engine | `Server` | Safely executes a resolved tool call and captures its result, metadata, and duration. | Command Safety, Path Validator |
+| **Result Handling** | Output Normalization & Truncation | `Server` | Normalizes and truncates tool output to a per-tool budget before it reaches the model. | Provider Registry, Token Tracking |
+| **Command Safety** | Destructive-Command Blocker | `Server` | Hard-blocks destructive shell commands by program name and pattern. There are no permission tiers and no approval flow — a command is either blocked outright or it runs. | Tool Execution |
+| **Ignore Rules Engine** | `.zenithignore` Parser | `Server` | Treats ignored paths as nonexistent across read, write, edit, delete and patch; a refused mutation names the ignore rule rather than reporting a missing file. | Tool Execution |
+| **Auto-Linting** | Post-Mutation Linter Middleware | `Server` | Automatically runs configured linters on changed files and feeds errors back to the agent. | Tool Execution |
+| **Bash Tool** | Command Runner & Shell Session | `Server` | Executes shell commands in a managed process with timeout and output capture. | Command Safety, Background Jobs |
+| **Background Jobs** | Job Spawner & Process Pool | `Server` | Launches asynchronous background tasks that continue running across turns. | Bash Tool |
+| **Background Jobs** | Job Output & Kill Tools | `Server` | Inspects or terminates a job; retained output is bounded per stream and in aggregate, and a job whose middle was dropped is flagged as such. | Background Jobs |
+| **Background Jobs UI** | Job Output & Kill Cards | `TUI` | Displays background job status, retained output, and a kill control. | Background Jobs, WebSocket Client |
+| **File Read Tool** | File Content & Outline Reader | `Server` | Reads full files, slices line ranges, or generates structural outlines, with per-slice read caching. | Repository Map |
+| **File Write Tool** | Atomic File Creator | `Server` | Creates new files or completely overwrites existing files atomically. | File Mutation Queue |
+| **File Edit Tool** | Chunk Patcher & Replacement Engine | `Server` | Applies search-and-replace with a widening match ladder, splicing only the matched range so untouched line endings survive byte-for-byte. | File Mutation Queue, Auto-Linting |
+| **Apply Patch Tool** | Multi-File Patch Applier | `Server` | Applies Add/Update/Delete hunks across several files behind a dry run, with a per-path snapshot and rollback when a later hunk fails. | File Mutation Queue |
+| **File Mutation Queue** | Mutation Queue & Atomic Commit | `Server` | Serializes concurrent filesystem mutations per workspace so a mutation cannot be interleaved. | Tool Execution |
+| **File Delete Tool** | Safe File Removal | `Server` | Safely deletes files and directories after validating repository boundaries. | Ignore Rules Engine, File Mutation Queue |
+| **Code Search Tools** | Grep & Glob Matching | `Server` | Performs regex content searches and wildcard path matching, skipping binary content. | Workspace Search |
+| **Directory Listing Tool** | Filesystem Explorer | `Server` | Traverses directory trees with depth control and formatting. | Workspace Search |
+| **Web Tools** | Web Search & Web Fetch | `Server` | Queries search engines and fetches pages into readable markdown. Every request, cache hits included, passes the SSRF guard first. | WebSocket Server, Ignore Rules Engine |
+| **Todo Tool** | Tool Handler & State Manager | `Server` | Manages agent todo items, active task status, and completion state. A board's lifetime is the request, not the session, so a new turn starts clean. | Session Status |
+| **Tool Trace UI** | Tool Trace & Step Card | `TUI` | Renders tool execution steps, statuses, and expandable logs for any tool. | Tool Execution, Scenario Renderer |
+| **Bash Tool UI** | Command Step Card | `TUI` | Renders shell command cards with exit codes and an output drawer. | Bash Tool, Terminal Markdown |
+| **File Diff UI** | File Diff Block | `TUI` | Renders syntax-highlighted unified diffs of file creations and modifications. | File Edit Tool, Terminal Markdown |
+| **Directory Listing UI** | Directory Listing Card | `TUI` | Renders tree-structured directory hierarchies directly in the chat view. | Directory Listing Tool, Scenario Renderer |
+| **Todo Tool UI** | Pinned Todo Card & Board Block | `TUI` | Renders interactive checklists and progress cards; both surfaces share one row limit so they cannot disagree. | Todo Tool, Scenario Renderer |
+| **Session Persistence** | Session File & Store Repository | `Server` | Saves and loads complete conversation history, tool calls, and run states to disk. | User Profile Store |
+| **Session Browser UI** | Session Browser Modal | `TUI` | Lists past sessions with metadata, allowing switching, resuming, or deletion. | Session Persistence, WebSocket Client |
+| **Session Compaction** | Context Pruning Engine | `Server` | Truncates old message turns and builds compaction summaries when token limits near. Tool payloads the model cannot reconstruct — file contents and task state — are never reduced to digests. | Token Tracking, Agent Loop |
+| **Session Compaction UI** | Compaction Modal & Flow Block | `TUI` | Displays visual indicators and progress blocks during automated context compaction. | Session Compaction, WebSocket Client |
+| **Running Summary** | Incremental Summarizer Service | `Server` | Continuously maintains a condensed narrative of previous turns to preserve context. | Session Persistence, Provider Registry |
+| **Running Summary UI** | Final Summary Card | `TUI` | Presents concise turn summaries and key decisions taken by the agent. | Running Summary, Scenario Renderer |
+| **Session Export** | Session Exporter Service | `Server` | Formats and exports conversation sessions into JSON or Markdown files. | Session Persistence |
+| **Session Export UI** | Markdown Exporter | `TUI` | Client-side export utility generating downloadable markdown logs of current chat. | Session Export |
+| **Session Status** | Session State & Lifecycle Tracker | `Server` | Tracks active, paused, compacted, or error states across the current session. | Session Persistence, Agent Loop |
+| **Session Status UI** | Session Status Line | `TUI` | Persistent status bar showing current mode, active model, branch, and health. | Session Status, Git Context UI |
+| **Repository Map** | Codebase Tree & Symbol Mapper | `Server` | Builds a compact AST-based outline of definitions and symbols across the repo. | Tree-Sitter |
+| **Workspace Search** | Indexed Workspace Query Engine | `Server` | Fast text and path indexing for lightning-quick repository queries. | Ignore Rules Engine |
+| **Git Integration** | Git Command & Diff Inspector | `Server` | Inspects repository branch, commit history, working tree status, and diffs. | Git CLI |
+| **Git Context UI** | Git Status Service | `TUI` | Displays current git branch and dirty working tree indicators in the status bar. | Git Integration, Session Status UI |
+| **File Picker UI** | File Picker Modal & Search List | `TUI` | Fuzzy-searchable modal to browse and select workspace files to attach into context. | Directory Listing Tool, Workspace Search |
+| **Provider Registry** | Multi-Provider Engine | `Server` | Manages connections to Anthropic, OpenAI, Gemini, and custom OpenAI-compatible endpoints. | User Profile Store |
+| **Response Streaming** | Token-by-Token Delivery | `Server + TUI` | Streams model output incrementally to the terminal, closing the thinking block the moment content begins and dropping private trailing reasoning. | Provider Registry, WebSocket Server |
+| **Provider Retries** | Error Handling & Back-off | `Server` | Retries transient provider failures such as rate limits, stream stalls, and network errors. | Provider Registry |
+| **Token Tracking** | Token Counter & Usage Store | `Server` | Measures prompt, completion, and cache tokens consumed per turn and session. | Provider Registry |
+| **Provider Selection UI** | Provider Picker & Flow | `TUI` | Interactive screen to select, configure, and switch active LLM providers. | Provider Registry, WebSocket Client |
+| **Model Picker UI** | Model Selection Screen | `TUI` | Lists supported models with context window limits and capabilities for selection. | Provider Selection UI |
+| **Setup Wizard UI** | First-Run Onboarding Flow | `TUI` | Guides new users through provider selection, API key entry, and initial setup. | Provider Selection UI |
+| **API Key Prompt UI** | Secure Key Input Screen | `TUI` | Securely prompts for and validates provider API keys during setup or switching. | Provider Selection UI |
+| **Local LLM UI** | Local Endpoint Form | `TUI` | Dedicated configuration UI for Ollama, LM Studio, and custom local servers. | Provider Selection UI |
+| **Token Usage UI** | Usage Modal & Cost Breakdown | `TUI` | Displays token usage statistics, estimated costs, and cumulative session metrics. | Token Tracking |
+| **Context Gauge** | Token Estimation Service | `TUI` | Computes live occupancy percentage of the active model's maximum context window. | Token Tracking |
+| **Context Modal UI** | Context Inspector Modal | `TUI` | Visualizes context window consumption broken down by system, tools, and history. | Context Gauge, Session Compaction |
+| **Command Palette** | Slash Command Registry & Palette | `TUI` | Lists and triggers slash commands (`/plan`, `/build`, `/model`, `/help`, …). | Composer |
+| **Composer** | Multi-Line Text Input Buffer | `TUI` | Supports multi-line prompt editing, cursor navigation, and submission shortcuts. | Terminal Keyboard |
+| **Mention Autocomplete** | @-Mention Dropdown | `TUI` | Autocompletes file paths and symbols inline as the user types `@` in the composer. | File Picker UI, Composer |
+| **Prompt History** | Input History Navigator | `TUI` | Cycles through previous user prompts using arrow keys in the composer. | Composer |
+| **Terminal Markdown** | ANSI & Syntax Highlighting Engine | `TUI` | Renders rich markdown, code blocks, bullet points, and headers in the terminal. | ANSI Engine |
+| **Theme System** | Color Palettes & Swatches | `TUI` | Provides multiple terminal themes with previews. | User Profile Service |
+| **Settings Modal** | User Preferences Modal | `TUI` | Toggles auto-approve tools, collapsed thinking blocks, and active theme. | User Profile Service |
+| **Help Modal** | Keybinding & Command Reference | `TUI` | Displays keyboard shortcuts, available slash commands, and navigation tips. | Command Palette |
+| **Overlay Manager** | Modal & Screen Stack Hook | `TUI` | Manages keyboard focus and rendering priority across stacked modals and dialogs. | React Ink |
+| **Scroll Engine** | Terminal Scroll State & Indicator | `TUI` | Handles mouse-wheel and keyboard scrolling with visual top/bottom indicators. | Terminal Dimensions |
+| **Error Handling UI** | Error Boundary & Warning Blocks | `TUI` | Catches React rendering crashes and formats server error payloads cleanly. | Theme System |
+| **Calm Mode** | Minimalist View Setting | `TUI` | Hides intermediate tool executions to provide a distraction-free conversation view. | Scenario Renderer |
+| **WebSocket Server** | FastAPI WebSocket Transport | `Server` | High-performance full-duplex socket for real-time events, streams, and commands. | Event Adapter |
+| **WebSocket Client** | Reconnecting WebSocket Service | `TUI` | Manages connection lifecycle, auto-reconnect, and heartbeat with the server. | WebSocket Server |
+| **Event Adapter** | Domain Event Serializer | `Server` | Translates internal domain events into standardized JSON event payloads, stripping internal metadata. | Domain Events |
+| **Raw Event Mapper** | Scenario & UI Event Dispatcher | `TUI` | Maps incoming server events to interactive UI blocks, cards, and state changes. | Event Adapter, Scenario Renderer |
+| **Server CLI** | Click Command Line Interface | `Server` | Provides terminal commands to run the server, inspect status, and list tools. | WebSocket Server, Tool Catalog |
+| **User Profile Store** | Profile & Settings Persistence | `Server` | Persists user settings, theme preferences, and developer overrides in JSON storage. | Storage Layer |
+| **User Profile Service** | Client Profile Cache & Sync | `TUI` | Reads and writes user preferences locally with fallback to defaults. | User Profile Store |
