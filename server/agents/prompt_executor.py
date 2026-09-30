@@ -1000,10 +1000,11 @@ class PromptExecutor:
                                         output_tokens=completion_t // _step_count,
                                         cache_read_tokens=cache_read_t // _step_count,
                                         cache_creation_tokens=cache_creation_t // _step_count,
-                                        step_index=s,
-                                        estimated=estimated,
-                                        context_occupancy=used if s == _step_count else 0,
-                                    )
+                                    step_index=s,
+                                    estimated=estimated,
+                                    context_occupancy=used if s == _step_count else 0,
+                                    diagnostics=ti.get("diagnostics"),
+                                )
                             elif not token_usage_recorded:
                                 await token_repo.record(
                                     session_id=session_id,
@@ -1019,6 +1020,7 @@ class PromptExecutor:
                                     cache_creation_tokens=cache_creation_t,
                                     estimated=estimated,
                                     context_occupancy=used,
+                                    diagnostics=ti.get("diagnostics"),
                                 )
                             token_usage_recorded = True
                             logger.info(

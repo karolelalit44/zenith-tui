@@ -44,6 +44,10 @@ class SchemaResolver:
         self._always_on: tuple[str, ...] = tuple(DISCOVERY_TOOLS) + tuple(seed or [])
         self._max_tools = max_tools
         self._active: OrderedDict[str, None] = OrderedDict()
+        # Token measurement walks every active schema through the tokenizer, and
+        # the active set changes on every escalation mid-turn. Memoising on the
+        # exact set means the common no-change case is a tuple compare.
+        self._schema_token_cache: tuple[tuple[str, ...], str, int] | None = None
         for name in seed or []:
             self.request_tool(name)
 
@@ -110,12 +114,23 @@ class SchemaResolver:
         return schemas_to_openai_tools(self.schemas(mode))
 
     def schema_tokens(self, model: str) -> int:
+        """Tokens the offered tool schemas consume on every request.
+
+        Not part of any message, so it is invisible to message-level token
+        counting while occupying the context window on every call. Callers that
+        gate on occupancy must fold this in.
+        """
         if self.registry is None:
             return 0
+        active = tuple(self._active)
+        cached = self._schema_token_cache
+        if cached is not None and cached[0] == active and cached[1] == model:
+            return cached[2]
         total = 0
-        for name in self._active:
+        for name in active:
             tool = self.registry.get(name)
             if tool is None:
                 continue
             total += estimate_tool_schema_tokens(tool.get_schema(), tool.description, model)
+        self._schema_token_cache = (active, model, total)
         return total

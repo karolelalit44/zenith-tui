@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,16 +12,24 @@ from server.config.constants import (
     DEFAULT_CONTEXT_WINDOW,
     HARD_STOP_USAGE_RATIO,
     LARGE_CONTEXT_WINDOW,
+    MIN_MENTIONED_SYMBOL_LEN,
     MIN_OUTPUT_RESERVE_TOKENS,
+    REPO_MAP_MAX_TOKENS,
+    REPO_MAP_MIN_TOKENS,
     SESSION_STATE_MARKER,
     SUMMARY_FRAMING_TOKENS,
 )
 from server.config.settings import AppSettings
 from server.domain.message import Message
-from server.providers.token_counter import TokenCounter
+from server.providers.token_counter import ContextUsage, TokenCounter, UsageAnchor
 from server.storage import load_catalog
 
 logger = logging.getLogger(__name__)
+
+# How much of the tail to scan for mentioned symbols. Bounded so a long session
+# does not turn map rendering into a text scan, and recent enough that the map
+# tracks what the model is doing now rather than what it did an hour ago.
+_MENTION_SCAN_MESSAGES = 12
 
 _E2E_INSTRUMENT = bool(os.environ.get("ZENITH_E2E_INSTRUMENT", ""))
 
@@ -84,6 +93,38 @@ def _adaptive_reserve(model: str, context_window: int) -> int:
     return min(reserve, max(0, context_window - 500))
 
 
+# A path-shaped run of text: a segment that contains a separator and ends in a
+# plausible source extension. Used to recover the files a conversation has
+# already been working in, which is the strongest signal the map can rank on.
+_PATH_RE = re.compile(
+    r"[\w./\\-]*[\w-]+\.(?:py|pyi|ts|tsx|js|jsx|mjs|cjs|go|rs|java|rb|c|cc|cpp|h|hpp"
+    r"|cs|kt|swift|scala|php|sh|sql|md|toml|ya?ml|json)\b"
+)
+
+
+def mentioned_paths(history: list[Message], limit: int = 64) -> list[str]:
+    """Paths the conversation has referred to, most recent first.
+
+    Ranked by recency because the file being edited now matters more than the
+    one from the previous task, which may still be mentioned twenty messages
+    back and would otherwise hold the map's attention permanently.
+    """
+    seen: set[str] = set()
+    found: list[str] = []
+    for msg in reversed(history):
+        if not msg.content:
+            continue
+        for match in _PATH_RE.findall(msg.content):
+            normalised = match.replace("\\", "/").lstrip("./")
+            if normalised in seen:
+                continue
+            seen.add(normalised)
+            found.append(normalised)
+            if len(found) >= limit:
+                return found
+    return found
+
+
 @dataclass
 class TokenBreakdown:
     """Deterministic token accounting for a composed message list."""
@@ -121,6 +162,7 @@ class TokenInfo:
     total: int
     percent: float
     window_estimated: bool = False
+    usage_source: str = "estimated"
 
 
 class ContextManager:
@@ -131,9 +173,46 @@ class ContextManager:
         self._last_t0_len = 0
         self._window_estimated = False
         self._repo_map_cache: str | None = None
+        self._repo_map: Any | None = None
+        self._repo_map_history: list[Message] = []
+        # Provider-reported occupancy of a prefix of the message list currently
+        # being composed. Cleared by build_messages, because a rebuilt list
+        # shares no prefix with the one the provider last saw.
+        self._usage_anchor: UsageAnchor | None = None
 
     def set_aux_tokens(self, tokens: int) -> None:
+        """Set the token cost of the request parts that are not messages.
+
+        This is the tool-schema block: it occupies the context window on every
+        request yet appears in no message, so without it every occupancy figure
+        is a lower bound. Callers should refresh it whenever the offered tool
+        set changes.
+        """
         self._aux_tokens = max(0, int(tokens))
+
+    @property
+    def aux_tokens(self) -> int:
+        return self._aux_tokens
+
+    def record_usage_anchor(self, message_count: int, tokens: int) -> None:
+        """Anchor occupancy on a provider-reported request.
+
+        ``message_count`` is the length of the list that request was built from.
+        Everything before it is billed by the provider; everything after is this
+        turn's own growth and is estimated on top. The current tool-schema budget
+        is recorded with it so the schema block is not billed twice.
+        """
+        tokens = int(tokens or 0)
+        if tokens <= 0:
+            return
+        self._usage_anchor = UsageAnchor(
+            index=max(0, int(message_count)),
+            tokens=tokens,
+            aux_tokens=self._aux_tokens,
+        )
+
+    def clear_usage_anchor(self) -> None:
+        self._usage_anchor = None
 
     @property
     def context_window_estimated(self) -> bool:
@@ -152,20 +231,64 @@ class ContextManager:
         explicit = getattr(self.config, "repo_map_tokens", None)
         if explicit is not None:
             return int(explicit)
+        # Share of the window, bounded. The map is the cheapest way to stop the
+        # model opening the wrong file, and its value is in symbol density, so it
+        # is worth scaling with the room available — but not linearly: past a few
+        # thousand tokens the tree stops adding information and only costs
+        # prefix-cache for a map nothing reads to the end of.
         context_window = self._resolve_context_window(model)
-        return min(1024, max(100, int(context_window * 0.05)))
+        return max(REPO_MAP_MIN_TOKENS, min(context_window // 8, REPO_MAP_MAX_TOKENS))
 
-    def get_repo_map(self, model: str = "", force_refresh: bool = False) -> str:
+    def _mentioned_symbols(self, history: list[Message]) -> set[str]:
+        """Identifiers the conversation has recently used by name.
+
+        The ranking signal that costs nothing to compute and beats structural
+        centrality: a file defining the symbol just mentioned is the file the
+        model is about to need. Restricted to the assistant's own recent text —
+        the model's own names, not the user's prose, which mentions files rather
+        than symbols and would bias the map toward whatever was last discussed.
+        """
+        if not history:
+            return set()
+        pattern = re.compile(rf"\b[A-Za-z_][A-Za-z0-9_]{{{MIN_MENTIONED_SYMBOL_LEN - 1},}}\b")
+        found: set[str] = set()
+        for msg in history[-_MENTION_SCAN_MESSAGES:]:
+            if msg.role != "assistant" or not msg.content:
+                continue
+            found.update(pattern.findall(msg.content))
+        return found
+
+    def get_repo_map(
+        self,
+        model: str = "",
+        chat_files: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> str:
         if not getattr(self.config, "repo_map_enabled", True):
             return ""
-        if self._repo_map_cache is not None and not force_refresh:
-            return self._repo_map_cache
-        from server.workspace.repo_map import RepoMap
+        if self._repo_map is None:
+            from server.workspace.repo_map import RepoMap
+
+            # Held for the manager's lifetime: a fresh instance per call threw
+            # away the parsed symbol graph and the file list, so every miss paid
+            # for a full tree-sitter pass over the tree.
+            self._repo_map = RepoMap(self.config.workspace_root)
+        repo = self._repo_map
+
+        fresh = not force_refresh and self._repo_map_cache is not None
+        if fresh and not repo.is_stale():
+            return self._repo_map_cache or ""
 
         tokens = self._resolve_repo_map_tokens(model)
-        repo = RepoMap(self.config.workspace_root)
-        self._repo_map_cache = repo.get_repo_map(max_tokens=tokens, force_refresh=force_refresh)
-        return self._repo_map_cache
+        mentioned = self._mentioned_symbols(self._repo_map_history)
+        self._repo_map_cache = repo.get_repo_map(
+            max_tokens=tokens,
+            chat_files=chat_files,
+            mentioned=mentioned,
+            force_refresh=force_refresh,
+        )
+        repo.note_rendered()
+        return self._repo_map_cache or ""
 
     def build_messages(
         self,
@@ -184,11 +307,20 @@ class ContextManager:
         reserve = _adaptive_reserve(model, max_tokens)
         budget = max_tokens - reserve
         self._last_t0_len = 1 if use_system_prompt else 0
+        # A freshly composed list shares no prefix with whatever the provider
+        # last billed, so any prior anchor is stale by construction.
+        self._usage_anchor = None
         messages: list[dict] = []
         pbuf = _prompt_buffer(system_prompt)
         if repo_map is None:
-            if getattr(self.config, "repo_map_enabled", True) and bool(history):
-                repo_map = self.get_repo_map(model)
+            # The map is the model's only orientation on a repository it has never
+            # seen, which is the first turn more than any other. It used to be
+            # withheld until history existed, on the reasoning that it cost
+            # tokens — but the turn that needs it most is the one with no
+            # history to spend them on.
+            if getattr(self.config, "repo_map_enabled", True):
+                self._repo_map_history = history
+                repo_map = self.get_repo_map(model, chat_files=mentioned_paths(history))
             else:
                 repo_map = ""
 
@@ -196,7 +328,7 @@ class ContextManager:
             system_tokens = self.token_counter.count(system_prompt, model)
             messages.append({"role": "system", "content": system_prompt})
             used = system_tokens
-            if repo_map and bool(history):
+            if repo_map:
                 map_content = f"<repo_map>\n{repo_map}\n</repo_map>"
                 map_tokens = self.token_counter.count(map_content, model)
                 messages.append({"role": "system", "content": map_content})
@@ -274,7 +406,7 @@ class ContextManager:
         messages.extend(entry for entry, _tokens, _owns_tool_calls in retained)
         if not use_system_prompt:
             parts = [system_prompt]
-            if repo_map and bool(history):
+            if repo_map:
                 parts.append(f"<repo_map>\n{repo_map}\n</repo_map>")
             parts.append(new_prompt)
             new_entry = {"role": "user", "content": "\n\n".join(parts)}
@@ -310,29 +442,39 @@ class ContextManager:
         return used >= total * HARD_STOP_USAGE_RATIO
 
     def get_token_info(self, messages: list[dict], model: str) -> TokenInfo:
-        used = self.usage_tokens_composed(messages, model)
+        usage = self.measure(messages, model)
         total = self._resolve_context_window(model)
-        remaining = max(0, total - used)
-        percent = used / total if total > 0 else 0.0
+        remaining = max(0, total - usage.tokens)
+        percent = usage.tokens / total if total > 0 else 0.0
         return TokenInfo(
-            used=used,
+            used=usage.tokens,
             remaining=remaining,
             total=total,
             percent=percent,
             window_estimated=self._window_estimated,
+            usage_source=usage.source,
         )
 
     def usage_tokens(self, messages: list[dict], model: str) -> int:
-        """Composed-context occupancy (alias of :meth:`usage_tokens_composed`)."""
-        return self.usage_tokens_composed(messages, model)
+        """Composed-context occupancy in tokens."""
+        return self.measure(messages, model).tokens
 
-    def usage_tokens_composed(self, messages: list[dict], model: str) -> int:
-        """Deterministic composed-context occupancy in tokens.
+    def measure(self, messages: list[dict], model: str) -> ContextUsage:
+        """Occupancy of one composed message list.
 
-        Counts the actual message list with the local token counter plus the
-        aux (tool-schema) budget. Never includes cumulative provider usage.
+        Deterministic given the same inputs: the provider anchor, when one
+        exists, describes a specific prefix of this exact list, and everything
+        else is counted locally. Cumulative per-turn provider usage is never
+        consulted — it bills every step of a turn against one number and
+        describes no single message list, so using it as occupancy would make
+        the threshold fire on tokens the window never held.
         """
-        return self.token_counter.count_messages(messages, model) + self._aux_tokens
+        return self.token_counter.measure_messages(
+            messages,
+            model,
+            anchor=self._usage_anchor,
+            aux_tokens=self._aux_tokens,
+        )
 
     def count_tokens(self, text: str, model: str) -> int:
         return self.token_counter.count(text, model)

@@ -27,30 +27,15 @@ class ConversationSummarizer:
         model: str,
         session_id: str = "",
         previous_summary: str | None = None,
-        prefix: list[dict] | None = None,
         focus: str | None = None,
         event_sink: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> str:
         if not messages:
             return ""
-        conversation = "\n".join(f"[{m.role}]: {m.content}" for m in messages if m.content)
+        conversation = self._serialize(messages)
         prompt = self._build_prompt(conversation, previous_summary, focus)
         try:
-            kwargs: dict[str, Any] = {}
-            provider: Any = self.provider
-            if (
-                self.config.weak_model
-                and "model" in inspect.signature(provider.complete).parameters
-            ):
-                kwargs["model"] = self.config.weak_model
-            # Prepend an identical cache prefix (system prompt + cached tiers) so
-            # the compaction call reuses the main request's prompt cache instead
-            # of invalidating it (Gap #5).
-            request = list(prefix or []) + [{"role": "user", "content": prompt}]
-            result = await asyncio.wait_for(
-                provider.complete(request, **kwargs),
-                timeout=ZENITH_SUMMARIZER_TIMEOUT,
-            )
+            result = await self._complete_isolated(prompt, model)
         except TimeoutError:
             logger.warning("Summarization timed out, using fallback")
             await self._report_degraded(event_sink, session_id)
@@ -60,6 +45,46 @@ class ConversationSummarizer:
             await self._report_degraded(event_sink, session_id)
             result = self._fallback(messages)
         return (result or "").strip()
+
+    async def _complete_isolated(self, prompt: str, model: str) -> str:
+        """Run the fold as a standalone request that cannot disturb the turn.
+
+        Three things make this safe rather than merely convenient:
+
+        * **Same model as the turn.** The summary is the only record of the tool
+          state and reasoning that produced the current work. A cheaper model
+          loses exactly the details a later turn needs, so the fold runs on
+          ``model`` and constrains the output length instead.
+        * **Its own prompt.** The fold prompt is not a prefix of the agent
+          prompt, so it can never *read* the turn's cached prefix, and it is
+          short enough that the provider will not retain a reusable entry for
+          it. A cache write here is pure waste on a cache that never hits.
+        * **Turn usage preserved.** ``complete()`` resets the provider's
+          cumulative ledger; left alone that would zero the running turn's
+          spend and under-report every total at the end of it.
+        """
+        provider: Any = self.provider
+        accepts_model = "model" in inspect.signature(provider.complete).parameters
+        kwargs: dict[str, Any] = {"model": model} if accepts_model else {}
+        request = [{"role": "user", "content": prompt}]
+
+        async def _call() -> str:
+            guard = getattr(provider, "preserve_usage_ledger", None)
+            if guard is None:
+                return await provider.complete(request, **kwargs)
+            with guard():
+                return await provider.complete(request, **kwargs)
+
+        return await asyncio.wait_for(_call(), timeout=ZENITH_SUMMARIZER_TIMEOUT)
+
+    def _serialize(self, messages: list[Message]) -> str:
+        """Flatten messages into the transcript the fold prompt embeds.
+
+        Tool-call structure is not preserved here. The fold's job is to carry
+        *state* forward, and it reads that state from the work_state and
+        decisions it returns, not from a transcript it cannot act on.
+        """
+        return "\n".join(f"[{m.role}]: {m.content}" for m in messages if m.content)
 
     @staticmethod
     async def _report_degraded(

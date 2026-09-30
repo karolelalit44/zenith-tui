@@ -104,7 +104,14 @@ def test_build_messages_injects_repo_map(sample_workspace):
     assert messages[-1]["content"] == "hi"
 
 
-def test_build_messages_does_not_inject_repo_map_on_fresh_session(sample_workspace):
+def test_build_messages_injects_repo_map_on_a_fresh_session(sample_workspace):
+    """The first turn is when the map matters most, so it is not withheld.
+
+    It used to be dropped until history existed, to save the tokens it costs.
+    But the turn with no history is the one where the model has no idea where it
+    is, and a map that arrives only once the model has already started guessing
+    arrives after the guess has shaped its next move.
+    """
     config = _make_config(sample_workspace)
     cm = ContextManager(config)
     messages = cm.build_messages(
@@ -114,8 +121,9 @@ def test_build_messages_does_not_inject_repo_map_on_fresh_session(sample_workspa
         model="test-model",
         repo_map="src/main.py:\n main (line 1)",
     )
-    assert len(messages) == 2
-    assert all("<repo_map>" not in m["content"] for m in messages)
+    assert len(messages) == 3
+    assert any("<repo_map>" in m["content"] for m in messages)
+    assert messages[0]["content"] == "SYS"
     assert messages[-1]["content"] == "hi"
 
 
@@ -251,14 +259,31 @@ def test_repo_map_invalidates_on_file_change(sample_workspace):
 
 
 def test_auto_repo_map_budget_scales_with_context():
+    """An eighth of the window, floored and capped.
+
+    Scales because the map's value is symbol density and its cost is paid from
+    the same window; floored so a small-window model still gets orientation at
+    all; capped because past a few thousand tokens the tree stops adding
+    information and only costs prefix-cache for a map nothing reads to the end.
+    """
+    from server.config.constants.context import REPO_MAP_MAX_TOKENS, REPO_MAP_MIN_TOKENS
+
     config = _make_config(
         Path("."), max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_tokens=None
     )
-    cm = ContextManager(config)
-    assert cm._resolve_repo_map_tokens("test-model") == 1024
+    assert ContextManager(config)._resolve_repo_map_tokens("test-model") == REPO_MAP_MAX_TOKENS
+
     config = _make_config(Path("."), max_context_tokens=8000, repo_map_tokens=None)
+    assert ContextManager(config)._resolve_repo_map_tokens("test-model") == REPO_MAP_MIN_TOKENS
+
+    config = _make_config(Path("."), max_context_tokens=32_000, repo_map_tokens=None)
+    assert ContextManager(config)._resolve_repo_map_tokens("test-model") == 4000
+
+
+def test_explicit_repo_map_budget_overrides_the_derived_one(sample_workspace):
+    config = _make_config(sample_workspace, repo_map_tokens=77)
     cm = ContextManager(config)
-    assert cm._resolve_repo_map_tokens("test-model") == 400
+    assert cm._resolve_repo_map_tokens("test-model") == 77
 
 
 def test_build_messages_skips_map_when_explicit_empty(sample_workspace):

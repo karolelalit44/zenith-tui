@@ -6,8 +6,8 @@ Thematic definitions live in the sibling submodules:
     server  - HTTP/WebSocket server + entry-point constants    (leaf)
     web     - web research / LLM provider / validation         (leaf)
     agent   - agent loop, mode, and session constants          (leaf)
-    context - context window, compaction, and loop-step knobs  (→ web)
-    tools   - tool registry, toolkit, and crewmate metadata    (→ context)
+    context - context window, compaction, and loop-step knobs  (â†’ web)
+    tools   - tool registry, toolkit, and crewmate metadata    (â†’ context)
 """
 
 from .agent import (
@@ -59,7 +59,11 @@ from .context import (
     LARGE_CONTEXT_WINDOW,
     MAX_OUTPUT_TOKENS_CLAMP,
     MAX_STEPS_DEFAULT,
+    MIN_MENTIONED_SYMBOL_LEN,
     MIN_OUTPUT_RESERVE_TOKENS,
+    MIN_OUTPUT_TOKENS_FLOOR,
+    REPO_MAP_MAX_TOKENS,
+    REPO_MAP_MIN_TOKENS,
     SKIP_WARNING_CAP,
     SMALL_CONTEXT_WINDOW,
     STALL_FINALIZE_AFTER_ITERATIONS,
@@ -111,6 +115,7 @@ from .tools import (
     ENRICH_DELIVERABLE_VERBS,
     ENRICH_SKIP_MIN_CHARS,
     ENRICH_TIMEOUT_ENV,
+    EXPECTED_HASH_PARAM,
     EXPLORE_BRIEF_MAX_CHARS,
     EXPLORE_BUDGET_WINDOW_SECONDS,
     EXPLORE_BUDGETS,
@@ -138,7 +143,6 @@ from .tools import (
     FILE_READ_TOOL,
     FILE_STAT_TOOL,
     FILE_WRITE_TOOL,
-    EXPECTED_HASH_PARAM,
     GET_TOOL_DEFINITION_TOOL,
     GLOB_MAX_OUTPUT_CHARS,
     GLOB_MAX_RESULTS,
@@ -263,6 +267,7 @@ __all__ = [
     "ENRICH_SKIP_MIN_CHARS",
     "ENRICH_TIMEOUT_ENV",
     "EPHEMERAL_TOOL_WINDOW_SIZE",
+    "EXPECTED_HASH_PARAM",
     "EXPLORE_BRIEF_MAX_CHARS",
     "EXPLORE_BUDGETS",
     "EXPLORE_BUDGET_WINDOW_SECONDS",
@@ -279,9 +284,11 @@ __all__ = [
     "EXPLORE_TOKEN_BUDGET_ENV",
     "EXPLORE_TOOL",
     "FILE_ALREADY_EXISTS_ERROR",
+    "FILE_COPY_TOOL",
     "FILE_DELETE_TOOL",
     "FILE_EDIT_TOOL",
     "FILE_EXISTS_ERROR_MARKER",
+    "FILE_MOVE_TOOL",
     "FILE_MUTATING_TOOLS",
     "FILE_MUTATION_TOOLS",
     "FILE_OVERWRITE_PARAM",
@@ -289,9 +296,6 @@ __all__ = [
     "FILE_READ_TOOL",
     "FILE_STAT_TOOL",
     "FILE_WRITE_TOOL",
-    "FILE_COPY_TOOL",
-    "FILE_MOVE_TOOL",
-    "EXPECTED_HASH_PARAM",
     "GET_TOOL_DEFINITION_TOOL",
     "GLOB_MAX_OUTPUT_CHARS",
     "GLOB_MAX_RESULTS",
@@ -318,7 +322,9 @@ __all__ = [
     "MAX_TOOL_NAME_LENGTH",
     "MAX_TOOL_OUTPUT_BASELINE",
     "MAX_TOOL_OUTPUT_TIERS",
+    "MIN_MENTIONED_SYMBOL_LEN",
     "MIN_OUTPUT_RESERVE_TOKENS",
+    "MIN_OUTPUT_TOKENS_FLOOR",
     "MIN_REQUEST_INTERVAL_ENV",
     "PLAN_MODE",
     "POLL_TOOLS",
@@ -326,6 +332,8 @@ __all__ = [
     "PROGRESS_DETAIL_MAX_CHARS",
     "READ_ONLY_MODE",
     "READ_ONLY_TOOLS",
+    "REPO_MAP_MAX_TOKENS",
+    "REPO_MAP_MIN_TOKENS",
     "REQUEST_THROTTLE_JITTER",
     "RISK_HIGH",
     "RISK_LOW",

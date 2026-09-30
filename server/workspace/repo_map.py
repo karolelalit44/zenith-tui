@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,17 @@ DEFINITION_QUERIES: dict[str, str | list[str]] = {
     ],
 }
 
+# Ranking weights. Named constants rather than literals in ``_rank_files`` so the
+# relationship between them stays readable: one mentioned symbol is worth about
+# as much as a few central definitions, and an open file outranks both.
+MENTIONED_SYMBOL_BOOST = 10.0
+CHAT_FILE_MULTIPLIER = 3.0
+
+# How long a rendered map may be reused before it is re-derived even if nothing
+# in the tree appears to have moved. The snapshot check catches content edits;
+# this catches everything the snapshot cannot see (a new branch, a changed
+# ignore file, an in-flight write whose mtime has not landed).
+MAP_REFRESH_TTL_SECONDS = 120.0
 
 
 class RepoMap:
@@ -88,6 +100,8 @@ class RepoMap:
         self._symbol_cache: dict[str, dict[str, Any]] = {}
         self._language_cache: dict[str, Any] = {}
         self._file_cache: list[Path] | None = None
+        self._rendered_at: float | None = None
+        self._rendered_snapshot: str | None = None
         self._token_counter = TokenCounter()
         self._matcher = get_matcher(workspace_root)
 
@@ -299,11 +313,32 @@ class RepoMap:
                     references[sym["name"]].add(rel)
         return (dict(defines), dict(references))
 
-    def _rank_files(self, all_files: list[Path], chat_files: list[str] | None = None) -> list[str]:
+    def _rank_files(
+        self,
+        all_files: list[Path],
+        chat_files: list[str] | None = None,
+        mentioned: set[str] | None = None,
+    ) -> list[str]:
+        """Order files by how likely the conversation is to need them.
+
+        Three signals, in increasing order of how much they should move a file:
+
+        * **Definition count and reference count.** Structural centrality — the
+          baseline every file starts from.
+        * **Named in the conversation.** A symbol the model just used is the one
+          it is about to need the definition of. Boosted per matched name
+          rather than as a blanket multiplier so that a file defining one
+          mentioned symbol does not leapfrog a file defining five.
+        * **Already open.** A file in the chat is being worked on right now.
+          Multiplicative, because it is the strongest signal and should hold
+          even against a file with far more central definitions.
+        """
         if not all_files:
             return []
         defines, references = self._build_reference_graph(all_files)
+        open_files = self._match_tracked_files(chat_files)
         file_scores: dict[str, float] = {}
+        wanted = mentioned or set()
         for file_path in all_files:
             rel = file_path.relative_to(self.root).as_posix()
             score = 1.0
@@ -312,11 +347,48 @@ class RepoMap:
             for name in names_defined:
                 referencing_files = references.get(name, set())
                 score += len(referencing_files) * 0.5
-            if chat_files and rel in chat_files:
-                score *= 3.0
+            if wanted:
+                score += len(names_defined & wanted) * float(MENTIONED_SYMBOL_BOOST)
+            if rel in open_files:
+                score *= float(CHAT_FILE_MULTIPLIER)
             file_scores[rel] = score
         ranked = sorted(file_scores.items(), key=lambda x: -x[1])
         return [rel for rel, _ in ranked]
+
+    def _match_tracked_files(self, paths: list[str] | None) -> set[str]:
+        """Resolve conversation-mentioned paths to the repository's own paths.
+
+        A path taken from a message can be absolute, Windows-separated, prefixed
+        with ``./`` or written from the model's point of view rather than the
+        repository's. Matching on the string alone therefore misses the exact case
+        the signal exists for. Falls back to a unique suffix, then to a unique
+        basename, so a mention of ``server/agents/context.py`` still matches when
+        the conversation said ``context.py``.
+        """
+        if not paths:
+            return set()
+        tracked = [f.relative_to(self.root).as_posix() for f in self._iter_files()]
+        suffixes: dict[str, list[str]] = {}
+        basenames: dict[str, list[str]] = {}
+        for rel in tracked:
+            suffixes.setdefault(rel, []).append(rel)
+            basenames.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
+
+        resolved: set[str] = set()
+        for raw in paths:
+            candidate = raw.replace("\\", "/").lstrip("./")
+            if candidate in suffixes:
+                resolved.add(candidate)
+                continue
+            tail = [rel for rel in tracked if rel.endswith("/" + candidate)]
+            if len(tail) == 1:
+                resolved.add(tail[0])
+                continue
+            name = candidate.rsplit("/", 1)[-1]
+            same_name = basenames.get(name, [])
+            if len(same_name) == 1:
+                resolved.add(same_name[0])
+        return resolved
 
     def get_structure(self, max_depth: int = 3) -> dict[str, Any]:
         structure: dict[str, Any] = {"name": self.root.name, "type": "directory", "children": []}
@@ -455,10 +527,40 @@ class RepoMap:
     def get_file_count(self) -> int:
         return len(self._iter_files())
 
+    def is_stale(self, now: float | None = None) -> bool:
+        """Whether a previously rendered map should be re-derived.
+
+        Two independent conditions, because a content fingerprint alone is not
+        enough:
+
+        * **The tree moved.** A cheap fingerprint over path/mtime/size plus HEAD,
+          so an edit anywhere invalidates the map without re-parsing anything.
+        * **The fingerprint is old.** Covers what the fingerprint cannot see: a
+          branch switch, a changed ignore rule, a write whose mtime has not
+          landed yet. A time-based backstop is what makes a fingerprint-based
+          check eventually correct instead of eventually wrong.
+
+        The TTL is a bound on how stale the map can get, not a refresh interval —
+        a repo nobody is editing costs one fingerprint scan per window, not one
+        tree-sitter pass.
+        """
+        if self._rendered_at is None or self._rendered_snapshot is None:
+            return True
+        current = now if now is not None else time.time()
+        if current - self._rendered_at >= MAP_REFRESH_TTL_SECONDS:
+            return True
+        return self._snapshot() != self._rendered_snapshot
+
+    def note_rendered(self, now: float | None = None) -> None:
+        """Record that the current tree produced the caller's cached map."""
+        self._rendered_at = now if now is not None else time.time()
+        self._rendered_snapshot = self._snapshot()
+
     def get_repo_map(
         self,
         max_tokens: int = 1024,
         chat_files: list[str] | None = None,
+        mentioned: set[str] | None = None,
         force_refresh: bool = False,
     ) -> str:
         if force_refresh:
@@ -479,7 +581,7 @@ class RepoMap:
                 lines.pop()
             return "\n".join(lines)
 
-        ranked_files = self._rank_files(all_files, chat_files)
+        ranked_files = self._rank_files(all_files, chat_files, mentioned)
         blocks = self._build_symbol_blocks(ranked_files, max_files=len(ranked_files))
         fitted = self._fit_blocks_to_budget(blocks, base_text, max_tokens)
         if fitted:

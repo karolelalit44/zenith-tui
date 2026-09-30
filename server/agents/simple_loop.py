@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -46,6 +46,7 @@ from ..toolkit.executor import (
 )
 from .compaction import compact_tool_output, prune_inflight_messages
 from .context import ContextManager
+from .context_diagnostics import ContextDiagnostics
 from .llm_stream import StreamState, stream_completion
 from .prompts import compose_system_context, default_template_sections
 from .run_state import _activity_label
@@ -136,8 +137,8 @@ def _strip_unoffered_tool_calls(
     message: it is conversation context, not a schema object, and dropping it
     would throw away what the tool actually reported.
 
-    An assistant turn left with no tool_calls and no text is not dispatchable —
-    providers reject a turn that is neither — so it is given the same neutral
+    An assistant turn left with no tool_calls and no text is not dispatchable â€”
+    providers reject a turn that is neither â€” so it is given the same neutral
     marker the empty-turn sanitizer uses.
     """
     result: list[dict] = []
@@ -211,6 +212,12 @@ class SimpleLoop:
         self._cancel_sequence: int = -1
         self._salvage_instruction: str = getattr(config, "salvage_instruction", SALVAGE_INSTRUCTION) or SALVAGE_INSTRUCTION
         self._heavy_tools_summarized: int = 0
+        # Per-turn measurement. Held on the instance rather than passed down
+        # because compaction can be driven directly (manual compaction, the
+        # salvage path, tests) without going through the turn loop, and every
+        # one of those still has to land its counts somewhere. Reset per turn so
+        # a reused loop cannot attribute one turn's numbers to the next.
+        self._diagnostics = ContextDiagnostics()
 
 
     @property
@@ -375,6 +382,7 @@ class SimpleLoop:
                     resolver.request_tool(tool_name)
         registered_tools = set(resolver.active_names())
         openai_tools = resolver.openai_tools(mode)
+        self._sync_tool_tokens(resolver, model)
 
         messages = self.context_manager.build_messages(
             history,
@@ -430,6 +438,7 @@ class SimpleLoop:
         files_edited: list[str] = []
         executed_calls: set[tuple[str, str]] = set()
         executed_call_status: dict[tuple[str, str], bool] = {}
+        diagnostics = self._diagnostics = ContextDiagnostics()
         read_files: set[str] = set()
         any_tool_succeeded = False
         stall_count = 0
@@ -540,9 +549,14 @@ class SimpleLoop:
             stream_state = StreamState()
             context_exceeded = False
             turn_errored = False
-            dispatch_messages, _ = prune_inflight_messages(
+            dispatch_messages, prune_stats = prune_inflight_messages(
                 messages, keep_latest_tools=COMPACTION_KEEP_LATEST_TOOLS
             )
+            # Counted once per dispatch, not per message: the prune pass is
+            # idempotent, so re-reading the same already-degraded array would
+            # keep reporting the same saving on every step of the turn.
+            if prune_stats.tokens_saved:
+                diagnostics.ladder_saved_tokens = prune_stats.tokens_saved
             # Sanitize assistant messages that have empty content and no tool_calls.
             # Providers (OpenRouter, OpenAI) reject requests containing such turns
             # with "model output must contain either output text or tool calls".
@@ -570,9 +584,9 @@ class SimpleLoop:
             # catalog) kills the turn outright.
             #
             # Two cases, both handled:
-            #   1. The tool IS available for this mode but was not seeded yet —
+            #   1. The tool IS available for this mode but was not seeded yet â€”
             #      promote it into the active set and keep the history intact.
-            #   2. The tool is NOT available at all — no promotion can save it,
+            #   2. The tool is NOT available at all â€” no promotion can save it,
             #      so the dangling tool_call is stripped from the history.
             if self.tool_registry and resolver:
                 mode_available = set(self.tool_registry.list_tools_for_mode(mode))
@@ -583,6 +597,7 @@ class SimpleLoop:
                             promotable.append(_fname)
                 if promotable and resolver.request_tools(promotable):
                     openai_tools = resolver.openai_tools(mode)
+                    self._sync_tool_tokens(resolver, model)
 
                 offered = {
                     (t.get("function") or {}).get("name")
@@ -605,6 +620,7 @@ class SimpleLoop:
                                 ),
                             )
                         dispatch_messages = stripped
+            usage_before = dict(getattr(self.provider, "_cumulative_usage", {}) or {})
             async for event in stream_completion(
                 self.provider,
                 dispatch_messages,
@@ -619,6 +635,8 @@ class SimpleLoop:
                 if event.kind == EventKind.ERROR:
                     turn_errored = True
                 yield event
+            self._anchor_step_usage(len(dispatch_messages), usage_before)
+            diagnostics.record_cache_usage(getattr(self.provider, "_cumulative_usage", None))
             if turn_errored:
                 yield r.turn_manifest(
                     {
@@ -667,7 +685,7 @@ class SimpleLoop:
                         )
                     )
                 )
-                # Complete text-parsed tool calls are not partial — execute them
+                # Complete text-parsed tool calls are not partial â€” execute them
                 # normally instead of discarding and re-prompting.
                 if tool_calls and not has_partial_tool:
                     pass
@@ -798,7 +816,7 @@ class SimpleLoop:
 
                 # Silent no-tool turn: the model ended with no tool call AND
                 # produced no message text (e.g. a reasoning-only trailer from
-                # a reason-then-act model). That is NOT a final answer — the
+                # a reason-then-act model). That is NOT a final answer â€” the
                 # user would receive nothing. Bounded continuation lets the
                 # model emit its actual answer or next tool call.
                 if (
@@ -826,7 +844,7 @@ class SimpleLoop:
                     )
                     continue
 
-                break  # emergent stop — purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
+                break  # emergent stop â€” purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
 
             mode_available: set[str] = set()
             blocked: list[str] = []
@@ -969,7 +987,7 @@ class SimpleLoop:
                 # file_read dedup runs BEFORE the silent is_dup-continue. A read
                 # whose range is already covered this session (exact duplicate or
                 # overlapping) is served straight from the read cache. Transparent
-                # to the user (a normal tool_result fires) — only the LLM sees a
+                # to the user (a normal tool_result fires) â€” only the LLM sees a
                 # compact notice. This is what keeps the turn alive: an exact-duplicate
                 # re-read of an unchanged file no longer terminates the turn early via
                 # the "is_dup and has_substantive_answer" silent-skip path below.
@@ -1039,7 +1057,7 @@ class SimpleLoop:
                                 continue
                         if stat is not None:
                             # Cache miss or stale: the file may have changed since the last
-                            # read. Force execution even if is_dup is set — the LLM must be
+                            # read. Force execution even if is_dup is set â€” the LLM must be
                             # able to read files it just edited.
                             is_dup = False
 
@@ -1147,6 +1165,7 @@ class SimpleLoop:
                     metadata=metadata,
                 )
                 yield _emit_progress(tool_name, result.success, detail)
+                diagnostics.record_tool_call(tool_name, sig[1])
                 executed_calls.add(sig)
                 executed_call_status[sig] = result.success
                 executed_any_call_this_turn = True
@@ -1204,10 +1223,14 @@ class SimpleLoop:
                 msg_entry: dict[str, Any] = {
                     "role": "user",
                     "content": content,
-                    # Structured tag so compaction can tell what produced this
-                    # message without parsing the human-readable "[Tool: ...]"
-                    # prefix. The prefix stays display text only.
+                    # Structured tags so compaction can decide what produced this
+                    # message and whether it succeeded without parsing the
+                    # human-readable "[Tool: ...]" prefix. The prefix stays
+                    # display text only: it is model-facing and may be reworded,
+                    # and a bounding rule keyed on prose silently breaks the day
+                    # someone improves the wording.
                     "tool_name": tool_name,
+                    "tool_status": "ok" if result.success else "error",
                     "salvage_digest": f"{tool_name}: {'ok' if result.success else 'error'}",
                 }
                 if tool_name in ("glob", "grep") and result.success:
@@ -1237,8 +1260,8 @@ class SimpleLoop:
                 # When the provider signals finish_reason=TOOL_CALLS, valid calls
                 # were parsed, but every one was silently skipped as a duplicate,
                 # the model is stuck re-deriving work already in the history. A
-                # short transitional message ("I'll investigate…") must not be
-                # treated as a final answer in this case — count it as a stall and
+                # short transitional message ("I'll investigateâ€¦") must not be
+                # treated as a final answer in this case â€” count it as a stall and
                 # let the model try again with a reminder.
                 # Note: this does NOT apply when finish_reason=STOP (text-parsed
                 # tool calls), which is the AC-1 case where a real answer + a stray
@@ -1325,14 +1348,14 @@ class SimpleLoop:
         has_mutation = bool(created_files or files_edited)
         has_file_work = has_mutation
         # Purely model-dependent completion: no hard-coded length/mutation/citation
-        # checks — harness is thin deterministic executor around emergent model signal
+        # checks â€” harness is thin deterministic executor around emergent model signal
         # (Pi Codex OpenCode invariant: continue iff tool_calls present).
         substantive_answer = bool(
             self._last_emitted_message
             and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
         )
         # Salvage only for deterministic guards (stall/doom/length), not for
-        # incomplete research — that is handled by the emergent nudge above.
+        # incomplete research â€” that is handled by the emergent nudge above.
         salvaged = False
         if (stalled or doomed or iteration >= max_steps) and len(
             (self._last_emitted_message or "").strip()
@@ -1351,7 +1374,7 @@ class SimpleLoop:
         is_length_truncated = bool(last_finish_reason == FinishReason.LENGTH or length_truncated)
         is_step_limited = bool(iteration >= max_steps)
 
-        # Honest turn completion — purely model-dependent, thin harness:
+        # Honest turn completion â€” purely model-dependent, thin harness:
         # Completed iff model finished without deterministic guard violation.
         # No hard-coded has_mutation/has_todo_success/substantive length check.
         if is_length_truncated or is_stalled or has_pending_todos or is_step_limited:
@@ -1455,9 +1478,14 @@ class SimpleLoop:
                 "cached_tokens": cum_usage.get("cached_tokens", 0),
                 "cache_creation_tokens": cum_usage.get("cache_creation_tokens", 0),
                 "estimated": is_estimated,
+                "usageSource": token_info.usage_source,
+                "toolTokens": self.context_manager.aux_tokens,
                 "windowEstimated": bool(
                     getattr(self.context_manager, "context_window_estimated", False)
                 ),
+                "diagnostics": diagnostics.as_dict(),
+                "reinvocationRate": diagnostics.reinvocation_rate,
+                "cacheHitRate": diagnostics.cache_hit_rate,
             },
             elapsed_ms=elapsed_ms,
         )
@@ -1476,6 +1504,40 @@ class SimpleLoop:
             return DOOM_LOOP_THRESHOLD
         except Exception:
             return 3
+
+    def _sync_tool_tokens(self, resolver: SchemaResolver, model: str) -> None:
+        """Fold the offered tool schemas into context occupancy.
+
+        The schema block occupies the context window on every request but is
+        part of no message, so any occupancy measure that counts messages alone
+        is a lower bound. It has to be refreshed whenever the offered set
+        changes, which mid-turn means every escalation.
+        """
+        try:
+            self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
+        except Exception as exc:  # measurement must never break a turn
+            logger.debug("Tool-schema token measurement failed for %s: %s", model, exc)
+
+    def _anchor_step_usage(self, request_size: int, before: dict) -> None:
+        """Anchor context occupancy on the step that just completed.
+
+        The provider reports what one request actually cost, which is a truer
+        number than anything a local estimate can produce. The turn's running
+        total cannot serve that purpose â€” it sums every step and describes no
+        single message list â€” so the delta across this step is what gets
+        anchored, and everything the step appended is estimated on top.
+        """
+        after = getattr(self.provider, "_cumulative_usage", {}) or {}
+        if not isinstance(after, dict):
+            return
+        total = sum(
+            int(after.get(k, 0) or 0) - int(before.get(k, 0) or 0)
+            for k in ("prompt_tokens", "completion_tokens")
+        )
+        try:
+            self.context_manager.record_usage_anchor(request_size, total)
+        except Exception as exc:  # anchoring is an optimisation, never a blocker
+            logger.debug("Usage anchoring failed: %s", exc)
 
     def _replay_write(self, session_id: str, params: dict) -> bool:
         target = params.get("filepath") or params.get("path") or ""
@@ -1561,6 +1623,7 @@ class SimpleLoop:
             )
             if not outcome.failed and not outcome.skipped:
                 self._summary = outcome.summary or self._summary
+                self._diagnostics.record_fold()
             for ev in emitted:
                 yield ev
         except Exception as exc:

@@ -32,16 +32,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from server.agents.compaction import (
-    PRESERVE_ON_COMPACT,
+    CompactionStats,
     _find_compaction_cut_budgeted,
-    _message_tool_name,
-    head_tail_trim,
+    bound_tool_message,
     is_tool_message,
+    merge_compaction_stats,
 )
 from server.agents.context import ContextManager, _adaptive_reserve, _get_model_context_window
 from server.agents.summarizer import ConversationSummarizer
 from server.config.constants import (
-    CHARS_PER_TOKEN,
     COMPACTION_KEEP_BUDGET_RATIO,
     COMPACTION_KEEP_MAX_TOKENS,
     COMPACTION_KEEP_MIN_TOKENS,
@@ -147,11 +146,11 @@ def prune_tool_outputs(
     max_output: int = TOOL_PREVIEW_MAX_CHARS,
     force_intraturn: bool = False,
 ) -> dict:
-    """Compress old tool-result messages in a message list (in place).
+    """Bound old tool-result messages in a message list, in place.
 
-    Keeps the most recent turns/tool results intact and replaces older ones
-    with their digest (when present) or a head-tail trimmed preview. Idempotent:
-    already-compacted messages are skipped.
+    Selection of *which* messages are old enough to bound lives here; what
+    bounding means lives in :func:`bound_tool_message`, shared with the in-flight
+    pass and the live-tail pass so the three cannot drift.
     """
     stats: dict = {"count": 0, "chars_removed": 0, "tokens_saved": 0}
     if not messages:
@@ -166,75 +165,27 @@ def prune_tool_outputs(
                     boundary = i + 1
                     break
     else:
-        tool_msg_indices = [
-            idx for idx, m in enumerate(messages) if is_tool_message(m)
-        ]
+        tool_msg_indices = [idx for idx, m in enumerate(messages) if is_tool_message(m)]
         boundary = tool_msg_indices[-2] if len(tool_msg_indices) > 2 else 0
 
+    total = CompactionStats()
     for msg in messages[:boundary]:
-        content = msg.get("content", "")
-        if not isinstance(content, str) or not is_tool_message(msg):
+        if not is_tool_message(msg):
             continue
-        if msg.get("time") == "compacted":
-            continue
-        orig_len = len(content)
-        if "digest" in msg and _message_tool_name(msg) not in PRESERVE_ON_COMPACT:
-            msg["content"] = msg["digest"]
-            msg["time"] = "compacted"
-            msg["is_digested"] = True
-            chars_diff = max(0, orig_len - len(msg["content"]))
+        before = total.tokens_saved
+        merge_compaction_stats(total, bound_tool_message(msg, max_output))
+        if total.tokens_saved != before:
             stats["count"] += 1
-            stats["chars_removed"] += chars_diff
-            stats["tokens_saved"] += chars_diff // CHARS_PER_TOKEN
-        else:
-            lines = content.split("\n", 1)
-            head = lines[0]
-            rest = lines[1] if len(lines) > 1 else ""
-            if len(rest) > max_output:
-                compacted_rest, _ = head_tail_trim(rest, max_output)
-                msg["content"] = head + "\n" + compacted_rest if rest else head
-                msg["time"] = "compacted"
-                chars_diff = max(0, orig_len - len(msg["content"]))
-                stats["count"] += 1
-                stats["chars_removed"] += chars_diff
-                stats["tokens_saved"] += chars_diff // CHARS_PER_TOKEN
+    stats["chars_removed"] = total.chars_removed
+    stats["tokens_saved"] = total.tokens_saved
     return stats
 
 
 def compact_live_tail(messages: list[dict]) -> None:
-    """Compress the live turn tail in place before replay after compaction."""
+    """Bound the live turn tail in place before replay after compaction."""
     for msg in messages:
-        content = msg.get("content", "")
-        if msg.get("role") == "user" and isinstance(content, str) and is_tool_message(msg):
-            if "digest" in msg and _message_tool_name(msg) not in PRESERVE_ON_COMPACT:
-                msg["content"] = msg["digest"]
-                msg["time"] = "compacted"
-            elif len(content) > TAIL_TRIM_MAX_CHARS:
-                lines = content.split("\n", 1)
-                head = lines[0]
-                rest = lines[1] if len(lines) > 1 else ""
-                trimmed_rest, _ = head_tail_trim(rest, TAIL_TRIM_MAX_CHARS)
-                msg["content"] = head + "\n" + trimmed_rest if rest else head
-                msg["time"] = "compacted"
-
-
-def _cache_prefix_for(messages: list[dict]) -> list[dict]:
-    """Longest cache-stable prefix of a composed message array.
-
-    Returns the messages up to and including the last ``cache_control``
-    breakpoint marker (end of the deepest cached tier). When the array has no
-    markers (e.g. non-caching provider or a bare history list) an empty prefix is
-    returned so callers fall back to the plain summarizer request.
-    """
-    if not messages:
-        return []
-    last_marker = -1
-    for i, m in enumerate(messages):
-        if isinstance(m, dict) and m.get("cache_control"):
-            last_marker = i
-    if last_marker < 0:
-        return []
-    return [dict(m) for m in messages[: last_marker + 1]]
+        if msg.get("role") == "user" and is_tool_message(msg):
+            bound_tool_message(msg, TAIL_TRIM_MAX_CHARS)
 
 
 @dataclass
@@ -488,7 +439,6 @@ class CompactionService:
                         model,
                         session_id=session_id,
                         previous_summary=previous_summary,
-                        prefix=_cache_prefix_for(messages or []),
                         focus=focus,
                         event_sink=lambda msg, code: _surface_summary_degraded(
                             emit, session_id, msg, code, outcome

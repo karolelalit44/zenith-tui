@@ -87,11 +87,19 @@ class TestConversationSummarizer:
         assert "auth module" in out or "creating auth.py" in out
 
     @pytest.mark.asyncio
-    async def test_weak_model_override(self, temp_dir):
+    async def test_fold_runs_on_the_turn_model(self, temp_dir):
+        """The fold runs on the model that produced the work, not a cheaper one.
+
+        The summary is the only record of the tool state and reasoning a later
+        turn has to build on, so downgrading the summarizer discards exactly the
+        detail the fold exists to preserve. ``weak_model`` stays configured for
+        the work it is actually suited to (classification, fetch summarization)
+        and must not be applied here.
+        """
         provider = _EchoProvider()
         s = ConversationSummarizer(self._config(temp_dir, weak_model="weak-1"), provider)
-        await s.summarize(self._msgs(), "test-model")
-        assert provider.last_model == "weak-1"
+        await s.summarize(self._msgs(), "turn-model")
+        assert provider.last_model == "turn-model"
 
     @pytest.mark.asyncio
     async def test_focus_instructions_in_fresh_prompt(self, temp_dir):

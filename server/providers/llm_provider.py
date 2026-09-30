@@ -9,7 +9,8 @@ import os
 import random
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 
 from server.config.constants import (
     ANSI_RE,
@@ -802,6 +803,21 @@ class LLMProvider(BaseProvider):
 
     def _reset_cumulative_usage(self) -> None:
         self._cumulative_usage = {}
+
+    @contextmanager
+    def preserve_usage_ledger(self) -> Iterator[None]:
+        """Keep the turn's cumulative usage intact across a nested sub-request.
+
+        ``complete()`` starts a fresh usage ledger because it is normally a
+        standalone call. Utility work that runs *inside* a turn — compaction
+        summarization, for one — must not silently zero the turn's spend, so the
+        caller wraps the sub-request in this.
+        """
+        saved = dict(self._cumulative_usage)
+        try:
+            yield
+        finally:
+            self._cumulative_usage = saved
 
     def _accumulate_usage(self, usage: dict) -> None:
         for k in (
