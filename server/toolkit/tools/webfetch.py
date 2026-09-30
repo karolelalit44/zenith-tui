@@ -1,23 +1,38 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
+import mimetypes
+import os
 import re
+import urllib.parse
 from typing import Any
 
+from server.agents.session_workspace import evict_read_cache_path, record_write
 from server.config.constants import (
     CONCURRENCY_GROUP_READONLY,
     COST_CLASS_MEDIUM,
+    DEFAULT_WEBDOWNLOAD_MAX_BYTES,
+    FILE_ALREADY_EXISTS_ERROR,
     LATENCY_CLASS_HIGH,
     RISK_LOW,
     TOOL_DOMAIN_WEB,
     is_http_url,
 )
-from server.config.environment import ZENITH_WEBFETCH_MAX_BYTES
+from server.config.environment import (
+    ZENITH_WEBDOWNLOAD_MAX_BYTES,
+    ZENITH_WEBFETCH_MAX_BYTES,
+)
+from server.toolkit.path_validator import validate_path
+from server.toolkit.registry import current_tool_session_id
+from server.workspace.ignore import blocked_as_missing, get_matcher, mutation_refusal
 
 from ..base import BaseTool, ToolResult
+from ..journal import JOURNAL
 from ._html_text import html_to_markdown, html_to_plain_text
 from ._transport import (
+    MAX_PAYLOAD_BYTES,
     PayloadTooLargeError,
     RedirectSecurityError,
     SSRFSecurityError,
@@ -30,6 +45,86 @@ from ._web_cache import CachedDocument, get_web_cache
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_CHARS = ZENITH_WEBFETCH_MAX_BYTES
+_DEFAULT_MAX_DOWNLOAD_BYTES = ZENITH_WEBDOWNLOAD_MAX_BYTES or DEFAULT_WEBDOWNLOAD_MAX_BYTES
+
+_MIME_EXTENSIONS: dict[str, str] = {
+    "application/pdf": ".pdf",
+    "application/zip": ".zip",
+    "application/gzip": ".tar.gz",
+    "application/x-tar": ".tar",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "audio/ogg": ".ogg",
+    "audio/mp4": ".m4a",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/quicktime": ".mov",
+    "text/html": ".html",
+    "text/markdown": ".md",
+    "text/plain": ".txt",
+    "application/json": ".json",
+}
+
+
+def infer_download_filename(
+    url: str,
+    headers: dict[str, str] | None = None,
+    content_type: str = "",
+) -> str:
+    headers = headers or {}
+    cd = headers.get("content-disposition") or headers.get("Content-Disposition") or ""
+    filename = ""
+    if cd:
+        fn_match = re.search(r"filename\*\s*=\s*(?:UTF-8''|utf-8'')?([^;]+)", cd, re.IGNORECASE)
+        if fn_match:
+            filename = urllib.parse.unquote(fn_match.group(1).strip(" \"'"))
+        else:
+            fn_match = re.search(r'filename\s*=\s*"?([^";]+)"?', cd, re.IGNORECASE)
+            if fn_match:
+                filename = fn_match.group(1).strip()
+
+    if not filename:
+        parsed = urllib.parse.urlsplit(url)
+        path = parsed.path.rstrip("/")
+        if path:
+            candidate = os.path.basename(path)
+            candidate = urllib.parse.unquote(candidate)
+            if candidate:
+                filename = candidate
+
+    clean_mime = content_type.split(";")[0].strip().lower()
+    ext = _MIME_EXTENSIONS.get(clean_mime) or mimetypes.guess_extension(clean_mime) or ""
+    if not filename:
+        filename = f"download{ext}"
+    elif ext and not os.path.splitext(filename)[1]:
+        filename = f"{filename}{ext}"
+
+    filename = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", filename).strip(". ")
+    if not filename or filename.upper() in ("CON", "PRN", "AUX", "NUL", "COM1", "COM2", "LPT1"):
+        filename = f"downloaded_file{ext}"
+    return filename
+
+
+def _extract_pdf_text(data: bytes) -> str:
+    try:
+        import pypdf
+
+        reader = pypdf.PdfReader(io.BytesIO(data))
+        parts: list[str] = []
+        for i, page in enumerate(reader.pages):
+            txt = (page.extract_text() or "").strip()
+            if txt:
+                parts.append(f"## Page {i + 1}\n\n{txt}")
+        return "\n\n".join(parts)
+    except Exception as e:
+        logger.debug("PDF text extraction failed: %s", e)
+        return ""
+
 
 # Every outbound request in this module goes through ``secure_fetch`` in
 # ``_transport``, which validates the target against blocked subnets before the
@@ -41,10 +136,10 @@ _DEFAULT_MAX_CHARS = ZENITH_WEBFETCH_MAX_BYTES
 class WebfetchTool(BaseTool):
     name = "webfetch"
     description = (
-        "Fetch a web URL and inspect its content in clean Markdown or text. "
-        "Supports targeted line slicing (start_line, end_line) and in-page pattern search (pattern). "
-        "Use websearch to discover sources first; use webfetch to read specific pages. "
-        "Never use for local files (use file_read)."
+        "Fetch a web URL to inspect its content in clean Markdown or text, or download files "
+        "(PDF, image, audio, video, archives, datasets, or any web resource) directly to the workspace "
+        "using 'download_path'. Supports targeted line slicing (start_line, end_line) and in-page "
+        "pattern search (pattern). Never use for local files (use file_read)."
     )
     capability_id = "web_fetch"
     read_only = True
@@ -56,6 +151,12 @@ class WebfetchTool(BaseTool):
         "url",
         "http",
         "download",
+        "download_file",
+        "pdf",
+        "image",
+        "audio",
+        "video",
+        "media",
         "page",
         "link",
         "read",
@@ -77,8 +178,34 @@ class WebfetchTool(BaseTool):
                 "url": {
                     "type": "string",
                     "description": (
-                        "URL to fetch (http/https only) or reference token (e.g. 'ref_doc_1')"
+                        "URL to fetch or download (http/https only) or reference token (e.g. 'ref_doc_1')"
                     ),
+                },
+                "download_path": {
+                    "type": "string",
+                    "description": (
+                        "Workspace-relative file or directory path where fetched content should be saved "
+                        "(e.g. 'downloads/report.pdf', 'assets/image.png', 'audio/track.mp3', 'video/clip.mp4'). "
+                        "If a directory is specified (or ends with '/'), the filename is inferred from URL or headers."
+                    ),
+                },
+                "download": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, forces saving the fetched content to disk. If download_path is omitted, "
+                        "saves to the workspace using an inferred filename from the URL."
+                    ),
+                    "default": False,
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "If true, overwrites an existing file at download_path. Defaults to false.",
+                    "default": False,
+                },
+                "max_bytes": {
+                    "type": "integer",
+                    "description": "Maximum payload bytes allowed to download/fetch (defaults to 100MB for downloads)",
+                    "minimum": 1000,
                 },
                 "start_line": {
                     "type": "integer",
@@ -151,13 +278,42 @@ class WebfetchTool(BaseTool):
         except ValueError as e:
             return ToolResult(success=False, error=f"Invalid URL: {e}")
 
-        # 1. Retrieve from session cache or perform secure fetch
+        # Check if download is requested
+        download_path = (
+            params.get("download_path")
+            or params.get("save_path")
+            or params.get("output_path")
+            or (params.get("path") if params.get("url") != params.get("path") else None)
+        )
+        download_flag = bool(params.get("download", False))
+        is_download = bool(download_path or download_flag)
+        overwrite = bool(params.get("overwrite", False))
+
+        max_bytes_param = params.get("max_bytes")
+        try:
+            max_payload_bytes = (
+                int(max_bytes_param)
+                if max_bytes_param is not None
+                else (_DEFAULT_MAX_DOWNLOAD_BYTES if is_download else MAX_PAYLOAD_BYTES)
+            )
+        except (TypeError, ValueError):
+            max_payload_bytes = _DEFAULT_MAX_DOWNLOAD_BYTES if is_download else MAX_PAYLOAD_BYTES
+
         doc: CachedDocument | None = cache.get(resolved_url)
         as_text = bool(params.get("as_text", False))
 
-        if doc is None:
+        body_bytes: bytes | None = doc.raw_bytes if (doc and doc.raw_bytes) else None
+        content_type: str = doc.content_type if doc else ""
+        headers: dict[str, str] = doc.headers if doc else {}
+        resp_url: str = doc.url if doc else resolved_url
+
+        if body_bytes is None:
             try:
-                resp = await secure_fetch(resolved_url)
+                resp = await secure_fetch(
+                    resolved_url,
+                    format="binary" if is_download else "markdown",
+                    max_payload_bytes=max_payload_bytes,
+                )
             except SSRFSecurityError as e:
                 return ToolResult(success=False, error=f"Security error: {e}")
             except PayloadTooLargeError as e:
@@ -169,65 +325,286 @@ class WebfetchTool(BaseTool):
             except Exception as e:
                 return ToolResult(success=False, error=f"Failed to fetch {resolved_url}: {e}")
 
+            body_bytes = resp.body_bytes
+            content_type = resp.content_type
+            headers = resp.headers
+            resp_url = resp.url
+
+        # Handle file download if requested
+        if is_download:
+            if download_path:
+                dp = str(download_path).strip()
+                validated_existing = validate_path(dp, workspace_root)
+                if dp.endswith(("/", "\\")) or (validated_existing and validated_existing.is_dir()):
+                    fname = infer_download_filename(resp_url, headers, content_type)
+                    rel_target = os.path.join(dp, fname).replace("\\", "/")
+                else:
+                    rel_target = dp
+            else:
+                fname = infer_download_filename(resp_url, headers, content_type)
+                rel_target = fname
+
+            resolved_target = validate_path(rel_target, workspace_root)
+            if resolved_target is None:
+                return ToolResult(
+                    success=False,
+                    error=f"Path escapes workspace boundary: {rel_target}. Use relative paths within the project.",
+                )
+
+            if blocked_as_missing(get_matcher(workspace_root), rel_target):
+                return ToolResult(success=False, error=mutation_refusal(rel_target))
+
+            existed = resolved_target.exists()
+            if existed and not overwrite:
+                return ToolResult(
+                    success=False,
+                    error=FILE_ALREADY_EXISTS_ERROR.format(
+                        path=rel_target, overwrite_param="overwrite"
+                    ),
+                )
+
+            before_bytes: bytes | None = None
+            if existed:
+                try:
+                    before_bytes = resolved_target.read_bytes()
+                except OSError:
+                    before_bytes = None
+
+            try:
+                resolved_target.parent.mkdir(parents=True, exist_ok=True)
+                resolved_target.write_bytes(body_bytes)
+            except OSError as e:
+                return ToolResult(
+                    success=False,
+                    error=f"Failed to write downloaded content to '{rel_target}': {e}",
+                )
+
+            session_id = current_tool_session_id.get()
+            if session_id:
+                evict_read_cache_path(str(resolved_target))
+                try:
+                    text_summary = body_bytes.decode("utf-8")
+                except Exception:
+                    text_summary = f"<binary {content_type} {len(body_bytes)} bytes>"
+                record_write(session_id, rel_target, text_summary)
+                JOURNAL.record(
+                    session_id,
+                    tool="webfetch",
+                    path=resolved_target,
+                    action="modify" if existed else "create",
+                    before=before_bytes,
+                    after=body_bytes,
+                    extra={"url": resp_url},
+                )
+
+            doc = cache.put(
+                url=resp_url,
+                content_type=content_type,
+                markdown=f"# Downloaded: {rel_target}\n\n- Source: {resp_url}\n- Size: {len(body_bytes)} bytes\n- Content-Type: {content_type}",
+                chars=len(body_bytes),
+                raw_bytes=body_bytes,
+                headers=headers,
+            )
+
+            return ToolResult(
+                success=True,
+                output=(
+                    f"Successfully downloaded {resp_url} to '{rel_target}' "
+                    f"({content_type}, {len(body_bytes)} bytes)."
+                ),
+                metadata={
+                    "url": resp_url,
+                    "path": rel_target,
+                    "bytes": len(body_bytes),
+                    "content_type": content_type,
+                    "downloaded": True,
+                    "ref": doc.ref_id,
+                },
+            )
+
+        # If document not yet in cache, process and populate cache
+        if doc is None:
             # Multimodal image handling
-            if resp.is_image or resp.content_type.startswith("image/"):
-                b64 = base64.b64encode(resp.body_bytes).decode("ascii")
-                data_uri = f"data:{resp.content_type};base64,{b64}"
+            if content_type.startswith("image/"):
+                b64 = base64.b64encode(body_bytes).decode("ascii")
+                data_uri = f"data:{content_type};base64,{b64}"
                 doc = cache.put(
-                    url=resp.url,
-                    content_type=resp.content_type,
-                    markdown=f"![Image]({resp.url})",
-                    chars=len(resp.body_bytes),
+                    url=resp_url,
+                    content_type=content_type,
+                    markdown=f"![Image]({resp_url})",
+                    chars=len(body_bytes),
                     is_image=True,
                     base64_data=data_uri,
+                    raw_bytes=body_bytes,
+                    headers=headers,
                 )
+                suggested = infer_download_filename(resp_url, headers, content_type)
                 return ToolResult(
                     success=True,
                     output=(
-                        f"Image fetched successfully ({resp.content_type}, {len(resp.body_bytes)} bytes).\n"
-                        f"Data URI: {data_uri[:100]}... [total base64 length: {len(b64)}]"
+                        f"Image fetched successfully ({content_type}, {len(body_bytes)} bytes).\n"
+                        f"Data URI: {data_uri[:100]}... [total base64 length: {len(b64)}]\n"
+                        f"To save this image to workspace, re-invoke with download_path='{suggested}'."
                     ),
                     metadata={
-                        "url": resp.url,
-                        "content_type": resp.content_type,
+                        "url": resp_url,
+                        "content_type": content_type,
                         "is_image": True,
                         "base64": b64,
-                        "bytes": len(resp.body_bytes),
+                        "bytes": len(body_bytes),
                         "ref": doc.ref_id,
                     },
                 )
 
-            # Block binary downloads
-            if any(
-                b in resp.content_type
+            # Audio handling
+            if content_type.startswith("audio/"):
+                doc = cache.put(
+                    url=resp_url,
+                    content_type=content_type,
+                    markdown=f"# Audio File: {resp_url} ({len(body_bytes)} bytes)",
+                    chars=len(body_bytes),
+                    raw_bytes=body_bytes,
+                    headers=headers,
+                )
+                suggested = infer_download_filename(resp_url, headers, content_type)
+                return ToolResult(
+                    success=True,
+                    output=(
+                        f"Audio content fetched successfully ({content_type}, {len(body_bytes)} bytes).\n"
+                        f"To save this audio file to workspace, re-invoke with download_path='audio/{suggested}'."
+                    ),
+                    metadata={
+                        "url": resp_url,
+                        "content_type": content_type,
+                        "bytes": len(body_bytes),
+                        "is_audio": True,
+                        "ref": doc.ref_id,
+                    },
+                )
+
+            # Video handling
+            if content_type.startswith("video/"):
+                doc = cache.put(
+                    url=resp_url,
+                    content_type=content_type,
+                    markdown=f"# Video File: {resp_url} ({len(body_bytes)} bytes)",
+                    chars=len(body_bytes),
+                    raw_bytes=body_bytes,
+                    headers=headers,
+                )
+                suggested = infer_download_filename(resp_url, headers, content_type)
+                return ToolResult(
+                    success=True,
+                    output=(
+                        f"Video content fetched successfully ({content_type}, {len(body_bytes)} bytes).\n"
+                        f"To save this video file to workspace, re-invoke with download_path='video/{suggested}'."
+                    ),
+                    metadata={
+                        "url": resp_url,
+                        "content_type": content_type,
+                        "bytes": len(body_bytes),
+                        "is_video": True,
+                        "ref": doc.ref_id,
+                    },
+                )
+
+            # PDF handling
+            if content_type == "application/pdf" or resp_url.lower().endswith(".pdf"):
+                pdf_text = _extract_pdf_text(body_bytes)
+                suggested = infer_download_filename(resp_url, headers, content_type)
+                if pdf_text.strip():
+                    doc = cache.put(
+                        url=resp_url,
+                        content_type=content_type,
+                        markdown=pdf_text,
+                        chars=len(pdf_text),
+                        raw_bytes=body_bytes,
+                        headers=headers,
+                    )
+                else:
+                    doc = cache.put(
+                        url=resp_url,
+                        content_type=content_type,
+                        markdown=f"# PDF Document: {resp_url} ({len(body_bytes)} bytes)\n\n(No extractable text)",
+                        chars=len(body_bytes),
+                        raw_bytes=body_bytes,
+                        headers=headers,
+                    )
+                    return ToolResult(
+                        success=True,
+                        output=(
+                            f"PDF document fetched ({content_type}, {len(body_bytes)} bytes), "
+                            "but contains no extractable text. "
+                            f"To download the PDF to disk, re-invoke with download_path='{suggested}'."
+                        ),
+                        metadata={
+                            "url": resp_url,
+                            "content_type": content_type,
+                            "bytes": len(body_bytes),
+                            "is_pdf": True,
+                            "ref": doc.ref_id,
+                        },
+                    )
+
+            # Other binary formats (archives, executables, octet-stream, etc.)
+            elif any(
+                b in content_type
                 for b in (
-                    "application/pdf",
                     "application/zip",
                     "application/gzip",
                     "application/octet-stream",
                     "application/x-tar",
+                    "application/x-rar",
+                    "application/x-7z-compressed",
                 )
             ):
-                return ToolResult(
-                    success=False,
-                    error=(
-                        f"Unsupported binary document format '{resp.content_type}'. "
-                        "Zenith webfetch extracts HTML, Markdown, and plain text documents."
-                    ),
+                suggested = infer_download_filename(resp_url, headers, content_type)
+                doc = cache.put(
+                    url=resp_url,
+                    content_type=content_type,
+                    markdown=f"# Binary File: {resp_url} ({content_type}, {len(body_bytes)} bytes)",
+                    chars=len(body_bytes),
+                    raw_bytes=body_bytes,
+                    headers=headers,
                 )
-
-            # Convert to Markdown or plain text
-            if "html" in resp.content_type or resp.content_type in ("text/html", "application/xhtml+xml"):
-                markdown = html_to_plain_text(resp.text) if as_text else html_to_markdown(resp.text, base_url=resp.url)
+                return ToolResult(
+                    success=True,
+                    output=(
+                        f"Binary archive/content fetched successfully ({content_type}, {len(body_bytes)} bytes).\n"
+                        f"To save this file to workspace, re-invoke with download_path='{suggested}'."
+                    ),
+                    metadata={
+                        "url": resp_url,
+                        "content_type": content_type,
+                        "bytes": len(body_bytes),
+                        "is_binary": True,
+                        "ref": doc.ref_id,
+                    },
+                )
             else:
-                markdown = resp.text
+                # HTML, Markdown, or plain text
+                try:
+                    text_str = body_bytes.decode("utf-8")
+                except Exception:
+                    text_str = body_bytes.decode("utf-8", errors="replace")
 
-            doc = cache.put(
-                url=resp.url,
-                content_type=resp.content_type,
-                markdown=markdown,
-                chars=len(resp.text),
-            )
+                if "html" in content_type or content_type in ("text/html", "application/xhtml+xml"):
+                    markdown = (
+                        html_to_plain_text(text_str)
+                        if as_text
+                        else html_to_markdown(text_str, base_url=resp_url)
+                    )
+                else:
+                    markdown = text_str
+
+                doc = cache.put(
+                    url=resp_url,
+                    content_type=content_type,
+                    markdown=markdown,
+                    chars=len(text_str),
+                    raw_bytes=body_bytes,
+                    headers=headers,
+                )
 
         # 2. Mode A: In-page pattern search (find_in_page)
         pattern = params.get("pattern", "").strip() if params.get("pattern") else ""
@@ -326,7 +703,7 @@ class WebfetchTool(BaseTool):
             header = (
                 f"# Content of {doc.url} (Reference: {doc.ref_id})\n"
                 f"Showing lines {start_line}-{clamped_end} of {doc.total_lines} total lines "
-                f"({sum(len(l) for l in sliced)} characters):\n\n"
+                f"({sum(len(line_item) for line_item in sliced)} characters):\n\n"
             )
             return ToolResult(
                 success=True,

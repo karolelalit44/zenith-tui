@@ -5,7 +5,7 @@ import { WEBFETCH_TOOL, WEBSEARCH_TOOL } from '../../../constants/toolDisplay';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { ToolStepEvent } from '../../../types/scenario';
 import { stripAnsi } from '../../../utils/ansi';
-import { countWord, formatDuration, truncateMiddle } from '../../../utils/text';
+import { countWord, formatBytes, formatDuration, truncateMiddle } from '../../../utils/text';
 import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 
@@ -352,6 +352,51 @@ export const WebResearchCard: React.FC<{
             <Box flexGrow={1} />
             {metaRow('')}
           </Box>
+        </Box>
+      );
+    }
+
+    // Download mode
+    const isDownloaded = Boolean(event.metadata?.downloaded || event.params?.download_path || event.params?.download);
+    if (isDownloaded && isSuccess) {
+      const destPath = String(event.metadata?.path || event.params?.download_path || 'file');
+      const bytes = typeof event.metadata?.bytes === 'number' ? (event.metadata.bytes as number) : undefined;
+      const sizeStr = bytes !== undefined ? formatBytes(bytes) : '';
+      if (isCalm) {
+        return (
+          <Box flexDirection="column" width="100%" marginBottom={ROW_GAP} paddingX={1}>
+            <Box flexDirection="row" alignItems="center">
+              <Text color={dim} dimColor>
+                · download {destPath}{sizeStr ? ` · ${sizeStr}` : ''}
+              </Text>
+              {metaRow('')}
+            </Box>
+          </Box>
+        );
+      }
+      return (
+        <Box flexDirection="column" width="100%" marginBottom={1} paddingX={1}>
+          <Box flexDirection="row" alignItems="center">
+            <Text color={success} bold>
+              ●{' '}
+            </Text>
+            <Text color={dim}>download</Text>
+            <Box marginLeft={1} paddingX={1} backgroundColor={shade}>
+              <Text color={bright} bold wrap="truncate-end">
+                {truncateMiddle(destPath, 36)}
+              </Text>
+            </Box>
+            {sizeStr ? <Text color={dim}> · {sizeStr}</Text> : null}
+            <Box flexGrow={1} />
+            {metaRow('')}
+          </Box>
+          {url ? (
+            <Box paddingLeft={2}>
+              <Text color={dim} dimColor italic wrap="truncate-end">
+                from {truncateMiddle(url, 64)}
+              </Text>
+            </Box>
+          ) : null}
         </Box>
       );
     }

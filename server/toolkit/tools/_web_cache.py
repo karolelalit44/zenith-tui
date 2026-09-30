@@ -21,6 +21,8 @@ class CachedDocument:
     timestamp: float = field(default_factory=time.time)
     is_image: bool = False
     base64_data: str | None = None
+    raw_bytes: bytes | None = None
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def total_lines(self) -> int:
@@ -86,6 +88,8 @@ class WebDocumentCache:
         chars: int | None = None,
         is_image: bool = False,
         base64_data: str | None = None,
+        raw_bytes: bytes | None = None,
+        headers: dict[str, str] | None = None,
     ) -> CachedDocument:
         norm = self._normalize_url(url)
         ref_id = self.register_ref(url)
@@ -100,6 +104,8 @@ class WebDocumentCache:
             timestamp=time.time(),
             is_image=is_image,
             base64_data=base64_data,
+            raw_bytes=raw_bytes,
+            headers=headers or {},
         )
         if norm in self._cache:
             self._cache.move_to_end(norm)
