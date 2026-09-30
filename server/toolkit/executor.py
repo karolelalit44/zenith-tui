@@ -16,7 +16,6 @@ from server.config.constants import (
     FILE_READ_MAX_OUTPUT_CHARS,
     FILE_READ_TOOL,
     FILE_WRITE_TOOL,
-    MAX_TOOL_METADATA_PREVIEW_CHARS,
     MAX_TOOL_OUTPUT_BASELINE,
     MAX_TOOL_OUTPUT_TIERS,
     TERMINAL_TOOL,
@@ -104,6 +103,66 @@ def _dynamic_max_output(context_window: int | None = None) -> int:
     return MAX_TOOL_OUTPUT_BASELINE
 
 
+# Tools whose output is a verbatim terminal capture. Only these may have ANSI
+# escapes removed before the model sees them: anywhere else the escapes are part
+# of the payload, and stripping them desynchronises the model's copy from disk.
+TERMINAL_OUTPUT_TOOLS = frozenset({BASH_TOOL, "job_output"})
+
+# Scalar fields the model is allowed to see. The previous rule was a total
+# character budget, under which a single long value silently discarded every
+# other field — a unified diff reliably exceeded it, so file_edit and apply_patch
+# reported a bare "Edited x" with no pagination state and no verification. An
+# allowlist makes the model view independent of payload size, and anything
+# omitted is now announced rather than vanishing.
+MODEL_VISIBLE_METADATA_KEYS = frozenset(
+    {
+        "total_lines",
+        "showing",
+        "offset",
+        "truncated",
+        "empty",
+        "from_cache",
+        "match",
+        "count",
+        "shown",
+        "entries",
+        "dirs",
+        "ignored_skipped",
+        "files_searched",
+        "changes",
+        "added",
+        "removed",
+        "overwritten",
+        "is_image",
+        "outline",
+        "duration_ms",
+    }
+)
+_MODEL_VISIBLE_VALUE_MAX_CHARS = 64
+
+
+def _model_visible_metadata(metadata: dict) -> tuple[dict, int]:
+    """Project tool metadata down to small scalars, plus the number omitted."""
+    visible: dict = {}
+    omitted = 0
+    for key, value in metadata.items():
+        if (
+            key in MODEL_VISIBLE_METADATA_KEYS
+            and isinstance(value, (int, float, bool))
+            and not isinstance(value, bytes)
+        ):
+            visible[key] = value
+        elif (
+            key in MODEL_VISIBLE_METADATA_KEYS
+            and isinstance(value, str)
+            and len(value) <= _MODEL_VISIBLE_VALUE_MAX_CHARS
+        ):
+            visible[key] = value
+        else:
+            omitted += 1
+    return visible, omitted
+
+
 def format_tool_result(
     tool_name: str, result: ToolResult, max_output: int = MAX_TOOL_OUTPUT_BASELINE
 ) -> str:
@@ -113,14 +172,26 @@ def format_tool_result(
     status = "SUCCESS" if result.success else "FAILED"
     lines = [f"[Tool: {tool_name} | Status: {status}]"]
     if result.output:
-        compacted, _stats = compact_tool_output(result.output, max_output=effective_max)
+        compacted, _stats = compact_tool_output(
+            result.output,
+            max_output=effective_max,
+            strip_ansi_codes=tool_name in TERMINAL_OUTPUT_TOOLS,
+        )
         lines.append(compacted)
+    elif result.success and not result.error:
+        # An empty body on a successful call is indistinguishable from a no-op
+        # once it reaches the model: it sees only the SUCCESS header and has no
+        # way to tell "this matched nothing" from "this was never attempted".
+        lines.append("(no output)")
     if result.error:
         lines.append(f"Error: {result.error}")
     if result.metadata:
-        meta_str = json.dumps(result.metadata)
-        if len(meta_str) < MAX_TOOL_METADATA_PREVIEW_CHARS:
-            lines.append(f"Metadata: {meta_str}")
+        visible, omitted = _model_visible_metadata(result.metadata)
+        if visible:
+            suffix = f" (+{omitted} field(s) omitted)" if omitted else ""
+            lines.append(f"Metadata: {json.dumps(visible, separators=(',', ':'))}{suffix}")
+        elif omitted:
+            lines.append(f"Metadata: ({omitted} field(s) omitted)")
     return "\n".join(lines)
 
 
@@ -188,7 +259,6 @@ def build_tool_metadata(
             "path": tool_params.get("filepath") or tool_params.get("path") or "",
             "old_content_chars": len(old_text),
             "new_content_chars": len(new_text),
-            "match": "exact",
         }
     elif tool_name in (FILE_DELETE_TOOL, FILE_READ_TOOL):
         meta = {"path": tool_params.get("filepath") or tool_params.get("path") or ""}
@@ -208,6 +278,14 @@ def build_tool_metadata(
             if isinstance(_val, str) and _val:
                 meta[_body_key + "_chars"] = len(_val)
                 del meta[_body_key]
+
+    # The tool's own report outranks the params-derived view for the match
+    # ladder. file_edit reports which rung actually matched ("exact", "trimmed",
+    # "whitespace_normalized"); a params-derived default applied through the
+    # merge above would overwrite that with "exact" and erase the only signal
+    # that an edit landed on a loosened match.
+    if tool_name == FILE_EDIT_TOOL:
+        meta.setdefault("match", "exact")
 
     if tool_name in MUTATION_DIFF_TOOLS:
         diff = capture_mutation_diff(workspace_root, tool_params, result)

@@ -1007,14 +1007,19 @@ class TestDefaultRegistry:
         assert "multi_edit" not in tools
         assert "todo" in tools
         assert "apply_patch" in tools
+        # First-class file operations: metadata without a read, and path
+        # relocation that refuses to clobber an existing destination.
+        assert "file_stat" in tools
+        assert "file_move" in tools
+        assert "file_copy" in tools
         # WP5 D7: legacy write-capable agent tool removed; explore is the
         # delegation surface and requires an injected config.
         assert "agent" not in tools
         assert "explore" not in tools
-        assert len(tools) == 16
+        assert len(tools) == 19
         assert "discover_capabilities" in tools
         assert "get_tool_definition" in tools
-        assert len(tools) == 16
+        assert len(tools) == 19
 
 
 class TestTodoToolStatusNormalization:

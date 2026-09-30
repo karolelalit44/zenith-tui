@@ -349,7 +349,10 @@ describe('ToolStepCard', () => {
     expect(frame).toContain('beta');
   });
 
-  it('renders a successful file_delete with the destructive icon and muted note', () => {
+  it('renders a successful file_delete as a success, not a failure', () => {
+    // A completed delete used to render with a "✗" glyph and the shared success
+    // glyph suppressed, so the one operation that removed a file looked exactly
+    // like the one that failed to.
     const { lastFrame } = renderStep(
       makeStep({
         tool: 'file_delete',
@@ -359,9 +362,23 @@ describe('ToolStepCard', () => {
       }),
     );
     const frame = lastFrame();
-    expect(frame).toContain('✗ Delete');
+    expect(frame).toContain('Deleted');
     expect(frame).toContain('src/gone.ts');
-    expect(frame).toContain('removed from workspace');
+    expect(frame).not.toContain('✗');
+    expect(frame).not.toContain('removed from workspace');
+  });
+
+  it('still renders a FAILED file_delete as an error', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'file_delete',
+        params: { path: 'src/gone.ts' },
+        success: false,
+        error: 'permission denied',
+        metadata: {},
+      }),
+    );
+    expect(lastFrame()).toContain('permission denied');
   });
 
   it('renders the rich web research card for a successful websearch', () => {

@@ -15,6 +15,7 @@ export interface CommandRunContext {
   savePlan?: () => void;
   triggerExit?: () => void;
   compactTurns?: () => void;
+  openChanges?: () => void;
 }
 
 export interface CommandDef {
@@ -178,6 +179,15 @@ export const commandRegistry: CommandDef[] = [
     category: 'Session',
     keywords: ['history', 'resume', 'previous', 'conversations', 'sessions'],
     run: (ctx) => ctx.openOverlay('session'),
+  },
+  {
+    id: 'changes',
+    slash: '/changes',
+    title: '/changes',
+    description: 'Review and revert the file changes this session made',
+    category: 'Tools',
+    keywords: ['changes', 'revert', 'undo', 'rollback', 'diff', 'restore'],
+    run: (ctx) => ctx.openChanges?.(),
   },
   {
     id: 'exit',

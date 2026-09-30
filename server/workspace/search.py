@@ -128,6 +128,7 @@ class RipgrepBackend:
         path: str | None = None,
         fixed_strings: bool = False,
         json_output: bool = False,
+        case_sensitive: bool = False,
     ) -> list[str]:
         """Assemble a ripgrep argv for either a content search or a file listing.
 
@@ -153,6 +154,12 @@ class RipgrepBackend:
                 argv.extend(["-e", pattern])
             if include:
                 argv.extend(["--glob", include])
+            if not case_sensitive:
+                # The pure-Python fallback in the grep tool matches
+                # case-insensitively. Without this flag the ripgrep path was
+                # case-sensitive, so the same search returned two different
+                # answers depending on whether rg happened to be installed.
+                argv.append("-i")
             argv.extend(["--glob", "!**/.git/**"])
             if json_output:
                 argv.append("--json")
@@ -180,13 +187,19 @@ class RipgrepBackend:
         include: str | None = None,
         fixed_strings: bool = False,
         json_output: bool = False,
+        case_sensitive: bool = False,
     ) -> list[SearchMatch]:
         """Search *pattern* under *path* and return line-level matches.
 
         *include* is a ripgrep glob (e.g. ``"*.py"``) that *filters which files are
         searched* while still matching *pattern*.
-        If regex parsing fails in ripgrep (code 2), automatically recovers using
-        literal fixed-strings search (-F).
+        *case_sensitive* defaults to False so the ripgrep path agrees with the
+        pure-Python fallback used when rg is unavailable.
+
+        A ripgrep regex error is reported as an error rather than being retried
+        as a fixed-string search. The retry silently turned a malformed pattern
+        into a literal one and returned "no matches" for a query the model
+        believed it had run, which is worse than no answer at all.
         """
         use_json = json_output or (self._cmd_runner is None)
         argv = await self._build_argv(
@@ -195,12 +208,11 @@ class RipgrepBackend:
             path=path,
             fixed_strings=fixed_strings,
             json_output=use_json,
+            case_sensitive=case_sensitive,
         )
         code, out, _ = await _run(argv, self._cmd_runner)
         if code == 2 and not fixed_strings and self._cmd_runner is None:
-            return await self.grep(
-                pattern, path, include=include, fixed_strings=True, json_output=use_json
-            )
+            return []
         # ripgrep returns a non-zero (1) code when nothing matches; that is not an error.
         if code not in (0, 1) and not out.strip():
             return []

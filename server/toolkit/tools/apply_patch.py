@@ -21,7 +21,9 @@ from server.workspace.ignore import (
 )
 
 from ..base import BaseTool, ToolResult
-from ..path_validator import validate_path
+from ..errors import describe
+from ..journal import JOURNAL
+from ..path_validator import path_rejection_error, validate_path
 from ._line_endings import (
     dominant_terminator,
     line_body,
@@ -112,7 +114,7 @@ def parse_patch(patch_text: str) -> list[PatchHunk]:
             content_lines: list[str] = []
             while i < n:
                 raw_l = lines[i]
-                if raw_l.strip().startswith("***"):
+                if _directive_kind(raw_l):
                     break
                 if raw_l.startswith("+"):
                     content_lines.append(raw_l[1:])
@@ -142,13 +144,16 @@ def parse_patch(patch_text: str) -> list[PatchHunk]:
                 raise ValueError(f"Missing file path in '{line}'")
             i += 1
             move_to = None
-            if i < n and lines[i].strip().startswith("*** Move to:"):
-                move_to = lines[i].strip()[len("*** Move to:") :].strip()
+            if i < n and (
+                lines[i].strip().startswith("*** Move to:")
+                or lines[i].strip().startswith("*** Move To:")
+            ):
+                move_to = lines[i].strip().split(":", 1)[1].strip()
                 if not move_to:
                     raise ValueError(f"Missing move-to path in '{lines[i]}'")
                 i += 1
             chunks: list[UpdateChunk] = []
-            while i < n and not lines[i].strip().startswith("***"):
+            while i < n and _directive_kind(lines[i]) is None:
                 chunk_line = lines[i].strip()
                 if not chunk_line.startswith("@@"):
                     raise ValueError(
@@ -161,12 +166,11 @@ def parse_patch(patch_text: str) -> list[PatchHunk]:
                 i += 1
                 while i < n:
                     cur = lines[i]
-                    cur_s = cur.strip()
-                    if cur_s == "*** End of File":
+                    if cur.startswith("*** End of File"):
                         end_of_file = True
                         i += 1
                         break
-                    if cur_s.startswith(("***", "@@")):
+                    if _directive_kind(cur) is not None or cur.startswith("@@"):
                         break
                     if cur.startswith(" "):
                         old_lines.append(cur[1:])
@@ -192,9 +196,15 @@ def parse_patch(patch_text: str) -> list[PatchHunk]:
                     )
                 )
             if not chunks:
-                raise ValueError(
-                    f"Invalid update hunk for '{path}': expected at least one '@@' chunk"
-                )
+                # A move with no hunk is a pure rename. Requiring a content
+                # change to rename a file meant the only way to express one was
+                # a hunk whose context line and replacement line are identical —
+                # undocumented, fragile, and undiscoverable from the error, which
+                # claimed at least one '@@' was required.
+                if not move_to:
+                    raise ValueError(
+                        f"Invalid update hunk for '{path}': expected at least one '@@' chunk"
+                    )
             hunks.append(
                 PatchHunk(action="update", path=path, move_to=move_to, chunks=chunks)
             )
@@ -395,6 +405,81 @@ def derive_updated_lines(
     return out
 
 
+def _diff_counts(diff: str) -> tuple[int, int]:
+    """``(added, removed)`` line counts read back off a rendered unified diff.
+
+    Counting the diff that is already produced keeps the receipt consistent
+    with what the user interface renders, and avoids diffing the same pair of
+    texts a second time. ``+++``/``---`` are file headers, not content.
+    """
+    added = removed = 0
+    for line in diff.splitlines():
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return added, removed
+
+
+def _patch_receipt(operations: list[dict[str, Any]]) -> str:
+    """The model-visible confirmation for a completed patch.
+
+    A bare list of affected paths is not a receipt. It does not say which
+    operation ran against each file, it does not distinguish an addition from
+    a rewrite, and it gives the model nothing to check its intent against. A
+    model that cannot tell a rename from a rewrite has to re-read every touched
+    file to find out, which is both expensive and unreliable.
+
+    Each line carries the operation, the path, and the line delta. A move is
+    reported as a move, because the source path ceasing to exist is the most
+    consequential part of it and a plain "M old" would hide that.
+    """
+    lines: list[str] = []
+    for op in operations:
+        added, removed = op.get("added", 0), op.get("removed", 0)
+        if op["action"] == "add":
+            label = f"A {op['path']}"
+        elif op["action"] == "delete":
+            label = f"D {op['path']}"
+        elif op.get("move_to"):
+            label = f"R {op['path']} -> {op['move_to']}"
+        else:
+            label = f"M {op['path']}"
+        delta = f"(+{added} -{removed})" if (added or removed) else "(no line change)"
+        lines.append(f"  {label} {delta}")
+    return "\n".join([f"Applied patch ({len(operations)} file(s)):", *lines])
+
+
+_MOVE_PREFIX = "*** Move to:"
+_MARKERS = (
+    "*** Add File:",
+    "*** Delete File:",
+    "*** Update File:",
+    _MOVE_PREFIX,
+    "*** End of File",
+    "*** Begin Patch",
+    "*** End Patch",
+)
+
+
+def _directive_kind(line: str) -> str | None:
+    """The patch directive a line opens, or ``None`` if it is not one.
+
+    A directive is recognised only at column zero. Testing ``line.strip()``
+    instead means a code line that merely *contains* asterisks — a docstring
+    line, a ``/* *** note */`` comment, a bold markdown line quoted inside a
+    test fixture — silently terminates the enclosing hunk, and the patch then
+    fails to apply for a reason that has nothing to do with what the model
+    wrote. Indented occurrences are content, which is how a human reads them.
+    """
+    if not line.startswith("***"):
+        return None
+    for marker in _MARKERS:
+        if line.startswith(marker):
+            return marker
+    return None
+
+
 class ApplyPatchTool(BaseTool):
     name = "apply_patch"
     description = (
@@ -433,7 +518,6 @@ class ApplyPatchTool(BaseTool):
         patch_text = params.get("patch") or ""
         if not patch_text.strip():
             return ToolResult(success=False, error="Missing or empty patch parameter")
-
         try:
             hunks = parse_patch(patch_text)
         except Exception as e:
@@ -452,7 +536,7 @@ class ApplyPatchTool(BaseTool):
             if resolved is None:
                 return ToolResult(
                     success=False,
-                    error=f"Path escapes workspace boundary: {hunk.path}",
+                    error=path_rejection_error(hunk.path, workspace_root) or "Path rejected.",
                 )
             # Ignored paths are invisible to every other tool, so a patch must
             # not be able to create, rewrite or delete them.
@@ -472,6 +556,7 @@ class ApplyPatchTool(BaseTool):
                     )
                 )
                 combined_diffs.append(diff)
+                _added, _removed = _diff_counts(diff)
                 prepared_operations.append(
                     {
                         "action": "add",
@@ -479,6 +564,8 @@ class ApplyPatchTool(BaseTool):
                         "resolved": resolved,
                         "content": content,
                         "bytes": content.encode("utf-8"),
+                        "added": _added,
+                        "removed": _removed,
                     }
                 )
 
@@ -501,11 +588,14 @@ class ApplyPatchTool(BaseTool):
                     )
                 )
                 combined_diffs.append(diff)
+                _added, _removed = _diff_counts(diff)
                 prepared_operations.append(
                     {
                         "action": "delete",
                         "path": hunk.path,
                         "resolved": resolved,
+                        "added": _added,
+                        "removed": _removed,
                     }
                 )
 
@@ -521,7 +611,20 @@ class ApplyPatchTool(BaseTool):
                     if move_resolved is None:
                         return ToolResult(
                             success=False,
-                            error=f"Move destination escapes workspace boundary: {hunk.move_to}",
+                            error=path_rejection_error(hunk.move_to, workspace_root)
+                            or "Move destination rejected.",
+                        )
+                    # A move onto an occupied path silently destroyed whatever
+                    # was there. The rename is refused instead, and the refusal
+                    # names the file that is in the way so the model can act.
+                    if move_resolved.exists() and move_resolved != resolved:
+                        return ToolResult(
+                            success=False,
+                            error=(
+                                f"Cannot move '{hunk.path}' to '{hunk.move_to}': the "
+                                f"destination already exists. Nothing was moved or "
+                                f"overwritten. Delete or rename the destination first."
+                            ),
                         )
 
                 raw_bytes = resolved.read_bytes()
@@ -542,15 +645,20 @@ class ApplyPatchTool(BaseTool):
                 # Match on logical lines but keep every untouched physical line
                 # verbatim, so a file mixing LF and CRLF is not restyled wholesale.
                 physical = split_physical_lines(original_text)
-                try:
-                    updated_physical = derive_updated_lines(
-                        hunk.path, hunk.chunks, physical
-                    )
-                except Exception as e:
-                    return ToolResult(
-                        success=False,
-                        error=f"Patch hunk failed for {hunk.path}: {e}",
-                    )
+                if hunk.chunks:
+                    try:
+                        updated_physical = derive_updated_lines(
+                            hunk.path, hunk.chunks, physical
+                        )
+                    except Exception as e:
+                        return ToolResult(
+                            success=False,
+                            error=f"Patch hunk failed for {hunk.path}: {e}",
+                        )
+                else:
+                    # Pure rename: content is carried across untouched, byte for
+                    # byte, rather than being decoded and re-encoded.
+                    updated_physical = physical
 
                 final_text = "".join(updated_physical)
                 out_bytes = (
@@ -566,6 +674,7 @@ class ApplyPatchTool(BaseTool):
                     )
                 )
                 combined_diffs.append(diff)
+                _added, _removed = _diff_counts(diff)
                 prepared_operations.append(
                     {
                         "action": "update",
@@ -575,6 +684,8 @@ class ApplyPatchTool(BaseTool):
                         "move_resolved": move_resolved,
                         "content": final_text,
                         "bytes": out_bytes,
+                        "added": _added,
+                        "removed": _removed,
                     }
                 )
 
@@ -595,6 +706,13 @@ class ApplyPatchTool(BaseTool):
                 if any(path is seen for seen, _ in snapshots):
                     continue
                 snapshots.append((path, path.read_bytes() if path.exists() else None))
+
+        def pre_image(path: Path) -> bytes | None:
+            """The snapshot taken for ``path`` during phase 1, or None."""
+            for candidate, original_bytes in snapshots:
+                if candidate == path:
+                    return original_bytes
+            return None
 
         def _rollback() -> tuple[list[str], list[str]]:
             restored: list[str] = []
@@ -626,11 +744,28 @@ class ApplyPatchTool(BaseTool):
                         evict_read_cache_path(str(res_path))
                         if session_id:
                             record_write(session_id, rel_path, op["content"])
+                            JOURNAL.record(
+                                session_id,
+                                tool="apply_patch",
+                                path=res_path,
+                                action="create",
+                                before=pre_image(res_path),
+                                after=op["bytes"],
+                            )
 
                     elif action == "delete":
                         res_path.unlink(missing_ok=True)
                         affected_files.append(rel_path)
                         evict_read_cache_path(str(res_path))
+                        if session_id:
+                            JOURNAL.record(
+                                session_id,
+                                tool="apply_patch",
+                                path=res_path,
+                                action="delete",
+                                before=pre_image(res_path),
+                                after=None,
+                            )
 
                     elif action == "update":
                         target_res = op["move_resolved"] or res_path
@@ -647,16 +782,43 @@ class ApplyPatchTool(BaseTool):
                         evict_read_cache_path(str(target_res))
                         if session_id:
                             record_write(session_id, target_path, op["content"])
+                            if op["move_resolved"] and op["move_resolved"] != res_path:
+                                JOURNAL.record(
+                                    session_id,
+                                    tool="apply_patch",
+                                    path=target_res,
+                                    action="create",
+                                    before=None,
+                                    after=op["bytes"],
+                                    extra={"moved_from": rel_path},
+                                )
+                                JOURNAL.record(
+                                    session_id,
+                                    tool="apply_patch",
+                                    path=res_path,
+                                    action="delete",
+                                    before=pre_image(res_path),
+                                    after=None,
+                                    extra={"moved_to": op.get("move_to")},
+                                )
+                            else:
+                                JOURNAL.record(
+                                    session_id,
+                                    tool="apply_patch",
+                                    path=target_res,
+                                    action="modify",
+                                    before=pre_image(target_res),
+                                    after=op["bytes"],
+                                )
 
-            summary_msg = f"Applied patch to {len(affected_files)} file(s):\n" + "\n".join(
-                f"- {f}" for f in affected_files
-            )
             return ToolResult(
                 success=True,
-                output=summary_msg,
+                output=_patch_receipt(prepared_operations),
                 metadata={
                     "files": affected_files,
                     "count": len(affected_files),
+                    "added": sum(op.get("added", 0) for op in prepared_operations),
+                    "removed": sum(op.get("removed", 0) for op in prepared_operations),
                     "diff": "\n".join(combined_diffs),
                 },
             )
@@ -664,17 +826,21 @@ class ApplyPatchTool(BaseTool):
             restored, unrestored = _rollback()
             for path, _ in snapshots:
                 evict_read_cache_path(str(path))
+            # The rollback narrative is the actionable part and must survive
+            # verbatim; the underlying exception is re-rendered as a classified
+            # description so the model is not handed a raw errno string.
+            reason = describe(e, action="apply the patch")
             if unrestored:
                 # Never let a partial restore read as a clean failure: the model
                 # would retry a patch whose hunks may already be on disk.
                 detail = (
-                    f"Filesystem mutation failed during patch application: {e}. "
+                    f"{reason}. "
                     f"ROLLBACK INCOMPLETE — {len(restored)} file(s) were restored, but these "
                     f"could not be: {', '.join(unrestored)}. Inspect them before retrying."
                 )
             else:
                 detail = (
-                    f"Filesystem mutation failed during patch application: {e}. "
+                    f"{reason}. "
                     f"The workspace was restored to its pre-patch state "
                     f"({len(restored)} file(s) rolled back) — re-read the files before retrying."
                 )

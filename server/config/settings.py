@@ -44,8 +44,11 @@ def default_home() -> str:
 
 CORE_PLAN_TOOLS = [
     "file_read",
+    "file_stat",
     "file_write",
     "file_edit",
+    "file_move",
+    "file_copy",
     "glob",
     "grep",
     "websearch",
@@ -75,9 +78,12 @@ PLAN_MODE_CONFIG = AgentModeConfig(
 # than having to name them in its own prompt to trigger on-demand escalation.
 CORE_BUILD_TOOLS = [
     "file_read",
+    "file_stat",
     "file_edit",
     "file_write",
     "apply_patch",
+    "file_move",
+    "file_copy",
     "bash",
     "glob",
     "grep",

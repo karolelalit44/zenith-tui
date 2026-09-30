@@ -7,7 +7,7 @@ import { highlightCode } from '../../../utils/syntaxHighlight';
 const GUTTER_NUM_WIDTH = 4;
 
 export interface DiffLine {
-  type: 'add' | 'delete' | 'hunk' | 'normal';
+  type: 'add' | 'delete' | 'hunk' | 'normal' | 'file';
   oldLineNumber?: number;
   newLineNumber?: number;
   content: string;
@@ -201,8 +201,18 @@ export function buildUnifiedDiff(oldContent: string, newContent: string): string
   return [header, ...body, ''].join('\n');
 }
 
-export function parseDiffOrContent(text: string, maxLines = 30): { lines: DiffLine[]; isUnifiedDiff: boolean } {
-  if (!text?.trim()) return { lines: [], isUnifiedDiff: false };
+/** `b/src/a.ts` and `a/src/a.ts` both name the same file; show one spelling. */
+function stripDiffPrefix(name: string): string | undefined {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === '/dev/null') return undefined;
+  return trimmed.replace(/^[ab]\//, '');
+}
+
+export function parseDiffOrContent(
+  text: string,
+  maxLines = 30,
+): { lines: DiffLine[]; isUnifiedDiff: boolean; truncated: number } {
+  if (!text?.trim()) return { lines: [], isUnifiedDiff: false, truncated: 0 };
 
   const lines = text.split('\n');
   while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
@@ -214,21 +224,55 @@ export function parseDiffOrContent(text: string, maxLines = 30): { lines: DiffLi
 
   let curOld = 1;
   let curNew = 1;
+  // A multi-file patch arrives as one text blob, so a file header is the only
+  // thing that separates one file's changes from the next. Rendering them all
+  // as an anonymous continuation made a three-file patch look like one file,
+  // with line numbers silently restarting mid-render for no visible reason.
+  let currentFile: string | undefined;
+  let marked = false;
+  let omitted = 0;
+  let stopped = false;
 
-  for (let i = 0; i < lines.length && result.length < maxLines; i++) {
+  for (let i = 0; i < lines.length; i++) {
+    if (!stopped && result.length >= maxLines) {
+      omitted = lines.length - i;
+      stopped = true;
+    }
     const line = lines[i];
 
     if (isUnifiedDiff) {
-      if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff --git')) {
+      if (line.startsWith('diff --git')) {
+        const m = line.match(/ b\/(.+)$/);
+        currentFile = m ? stripDiffPrefix(m[1]) : undefined;
+        marked = false;
         continue;
       }
+      if (line.startsWith('+++')) {
+        const m = line.match(/^\+\+\+ (.+)$/);
+        const name = m ? stripDiffPrefix(m[1]) : undefined;
+        if (name) currentFile = name;
+        // A git diff names each file twice: once on the "diff --git" line and
+        // again on the "+++" line. Emitting a marker for both would double every
+        // section header, so a file is marked only on its first appearance.
+        if (!stopped && currentFile && !marked) {
+          result.push({ type: 'file', content: currentFile });
+          marked = true;
+        }
+        continue;
+      }
+      if (line.startsWith('---')) {
+        continue;
+      }
+      if (stopped) continue;
       if (line.startsWith('@@')) {
         const match = line.match(/@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
         if (match) {
           curOld = parseInt(match[1], 10);
           curNew = parseInt(match[2], 10);
         }
-        result.push({ type: 'hunk', content: line });
+        // The hunk header itself is dropped: the coloured rows and the gutter
+        // already carry the position. The per-file marker above is what makes a
+        // multi-file patch legible.
       } else if (line.startsWith('+')) {
         result.push({
           type: 'add',
@@ -251,6 +295,7 @@ export function parseDiffOrContent(text: string, maxLines = 30): { lines: DiffLi
         });
       }
     } else {
+      if (stopped) continue;
       // Raw content for newly written files (Git Diff Addition View)
       result.push({
         type: 'add',
@@ -260,7 +305,7 @@ export function parseDiffOrContent(text: string, maxLines = 30): { lines: DiffLi
     }
   }
 
-  return { lines: result, isUnifiedDiff };
+  return { lines: result, isUnifiedDiff, truncated: omitted };
 }
 
 export function detectLanguageFromFilename(filename?: string): string | undefined {
@@ -307,6 +352,7 @@ export interface FileDiffBlockProps {
   language?: string;
   title?: string;
   isNewFile?: boolean;
+  expanded?: boolean;
 }
 
 function renderLine(
@@ -321,6 +367,18 @@ function renderLine(
   if (line.type === 'hunk') {
     // Hide @@ -14,15 +12,12 @@ hunk headers; colored diff and line numbers display changes cleanly
     return null;
+  }
+
+  if (line.type === 'file') {
+    // Per-file section marker. Without it a multi-file apply_patch renders as
+    // one anonymous block and the user cannot tell where one file's changes end.
+    return (
+      <Box key={`file_${index}`} width="100%">
+        <Text color={theme.colors.border.muted} bold wrap="truncate-end">
+          {`── ${line.content}`}
+        </Text>
+      </Box>
+    );
   }
 
   const isAdd = line.type === 'add';
@@ -374,9 +432,15 @@ function renderLine(
 }
 
 export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
-  ({ diffOrContent, maxLines = 30, language, title }) => {
+  ({ diffOrContent, maxLines = 30, language, title, expanded = false }) => {
     const { theme } = useTheme();
-    const { lines, isUnifiedDiff } = parseDiffOrContent(diffOrContent, maxLines);
+    // An expanded block has no ceiling, which is the only way to actually see a
+    // large refactor: the capped view is a summary, and a summary that does not
+    // admit it is a summary is worse than no summary.
+    const { lines, isUnifiedDiff, truncated } = parseDiffOrContent(
+      diffOrContent,
+      expanded ? Number.POSITIVE_INFINITY : maxLines,
+    );
 
     if (lines.length === 0) return null;
 
@@ -408,6 +472,13 @@ export const FileDiffBlock: React.FC<FileDiffBlockProps> = React.memo(
         {/* Unified Diff & File View Container with top and bottom padding */}
         <Box flexDirection="column" width="100%" paddingY={1} backgroundColor={containerBg}>
           {lines.map((line, index) => renderLine(line, index, theme, effectiveLang, maskFor, hasBoth, isUnifiedDiff))}
+          {truncated > 0 ? (
+            <Box width="100%" marginTop={1}>
+              <Text color={theme.colors.text.dim} italic wrap="truncate-end">
+                {`… ${truncated} more diff line(s) hidden — ctrl+E to expand`}
+              </Text>
+            </Box>
+          ) : null}
         </Box>
       </Box>
     );

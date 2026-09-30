@@ -119,6 +119,7 @@ export const TOOL_STEP_PRIMARY_KEYS = [
   'glob',
   'job_id',
   'task_id',
+  'to',
 ] as const;
 
 export function getToolStepPrimaryParam(
@@ -200,12 +201,18 @@ function formatWebsearchStatus(source: StatusSource): string {
   if (Array.isArray(queries) && queries.length > 1) {
     return ` Web search [${queries.length} queries: "${queries[0]}" +${queries.length - 1}]`;
   }
-  const query = String(source.metadata.query || source.params?.query || (Array.isArray(queries) ? queries[0] : '') || '');
+  const query = String(
+    source.metadata.query || source.params?.query || (Array.isArray(queries) ? queries[0] : '') || '',
+  );
   return ` Web search "${query}"`;
 }
 
 function formatWebfetchStatus(source: StatusSource): string {
   const url = String(source.metadata.url || source.params?.url || '');
+  if (source.params?.download_path || source.params?.download || source.metadata?.downloaded) {
+    const dest = String(source.metadata?.path || source.params?.download_path || '');
+    return ` Download ${url}${dest ? ` -> ${dest}` : ''}`;
+  }
   if (source.params?.pattern) {
     return ` Find in page "${source.params.pattern}" on ${url}`;
   }

@@ -17,6 +17,7 @@ import logging
 import threading
 import time as _time
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,7 @@ def cache_file_read(
     mtime_ns: int,
     size: int,
     total_lines: int,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Cache a successful file-read slice under ``(session, path, offset, limit)``.
 
@@ -181,6 +183,12 @@ def cache_file_read(
     ``path`` must be an absolute, resolved path (callers use ``str(resolved)`` or
     ``str(validate_path(rel, root))``). No further normalization is done here;
     the caller owns the canonical key.
+
+    ``metadata`` is the tool-reported metadata for this exact slice. It is stored
+    alongside the rendered output so a cache hit can hand back the same
+    pagination state the cold path produced. Without it a served-from-cache read
+    would arrive with no ``total_lines`` and no truncation notice, leaving the
+    model unable to continue paging through the file.
     """
     with _LOCK:
         entry = _READ_CACHE.get(session_id, {}).get(path)
@@ -193,10 +201,37 @@ def cache_file_read(
                 "history": [],
             }
             _READ_CACHE.setdefault(session_id, {})[path] = entry
-        entry["slices"][(offset, limit)] = {"output": output}
+        entry["total_lines"] = total_lines
+        entry["slices"][(offset, limit)] = {
+            "output": output,
+            "metadata": dict(metadata or {}),
+        }
         if (offset, limit) not in entry["history"]:
             entry["history"].append((offset, limit))
         _bound_entries(_READ_CACHE, session_id, _MAX_READ_CACHE_ENTRIES)
+
+
+def get_cached_read_entry(
+    session_id: str, path: str, offset: int, limit: int, mtime_ns: int, size: int
+) -> dict[str, Any] | None:
+    """Return the cached slice record — rendered ``output`` plus stored ``metadata``.
+
+    Same staleness contract as :func:`get_cached_read`; prefer this when the
+    caller needs the pagination state that accompanied the cached render, not
+    just the text.
+    """
+    with _LOCK:
+        entry = _READ_CACHE.get(session_id, {}).get(path)
+        if entry is None:
+            return None
+        if entry.get("mtime_ns") != mtime_ns or entry.get("size") != size:
+            _cache_evict(session_id, path)
+            return None
+        slice_entry = entry.get("slices", {}).get((offset, limit))
+        if slice_entry is None:
+            return None
+        slice_entry["count"] = slice_entry.get("count", 0) + 1
+        return slice_entry
 
 
 def get_cached_read(
@@ -210,19 +245,10 @@ def get_cached_read(
 
     ``path`` must be an absolute, resolved path (same key space as ``cache_file_read``).
     """
-    with _LOCK:
-        entry = _READ_CACHE.get(session_id, {}).get(path)
-        if entry is None:
-            return None
-        if entry.get("mtime_ns") != mtime_ns or entry.get("size") != size:
-            _cache_evict(session_id, path)
-            return None
-        slice_entry = entry.get("slices", {}).get((offset, limit))
-        if slice_entry is None:
-            return None
-        count = slice_entry.get("count", 0)
-        slice_entry["count"] = count + 1
-        return slice_entry.get("output")
+    slice_entry = get_cached_read_entry(session_id, path, offset, limit, mtime_ns, size)
+    if slice_entry is None:
+        return None
+    return str(slice_entry.get("output", ""))
 
 
 def get_read_history(session_id: str, path: str) -> list[tuple[int, int]]:
@@ -301,6 +327,13 @@ def known_files(session_id: str) -> dict[str, SessionFileRecord]:
 
 
 def reset_session(session_id: str) -> None:
+    """Drop all cached state for a session.
+
+    Called when a session ends, and after a revert. A revert rewrites files
+    behind the cache's back, so every slice cached before it describes content
+    that no longer exists on disk; serving those would hand the model pre-revert
+    text for a file the user just restored.
+    """
     with _LOCK:
         _STORE.pop(session_id, None)
         _READ_CACHE.pop(session_id, None)

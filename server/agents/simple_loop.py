@@ -36,6 +36,7 @@ from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
 from ..toolkit.base import ToolResult
 from ..toolkit.executor import (
+    TERMINAL_OUTPUT_TOOLS,
     build_tool_metadata,
     execute_tool,
     format_tool_result,
@@ -1121,7 +1122,10 @@ class SimpleLoop:
                     session_id=session_id,
                 )
                 if result.output and len(result.output) > MAX_TOOL_OUTPUT_BASELINE:
-                    compacted_out, stats = compact_tool_output(result.output)
+                    compacted_out, stats = compact_tool_output(
+                        result.output,
+                        strip_ansi_codes=tool_name in TERMINAL_OUTPUT_TOOLS,
+                    )
                     result.output = compacted_out
                     if stats.trimmed:
                         if not result.metadata:

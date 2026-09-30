@@ -296,7 +296,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         {hasOverflow && !expanded && (
           <Box paddingX={1} marginBottom={1}>
             <Text color={theme.colors.text.muted} italic>
-              ... {Math.max(1, visibleEvents.length - dynamicLimit)} earlier events hidden — shift+e to show all
+              ... {Math.max(1, visibleEvents.length - dynamicLimit)} earlier events hidden — ctrl+R to show all
             </Text>
           </Box>
         )}

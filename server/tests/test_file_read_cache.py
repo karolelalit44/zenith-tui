@@ -50,20 +50,26 @@ class TestReadCacheHit:
         path = temp_dir / "b.py"
         _write(path, 50)
 
-        reads = {"count": 0}
-        original_read_text = Path.read_text
+        # Counted at the file-object level rather than on Path.read_text: the
+        # reader streams through open("rb"), and the guarantee under test is
+        # that the second read never touches the filesystem at all.
+        opens = {"count": 0}
+        original_open = Path.open
 
-        def counting_read_text(self: Path, **kwargs):
-            reads["count"] += 1
-            return original_read_text(self, **kwargs)
+        def counting_open(self: Path, *args, **kwargs):
+            opens["count"] += 1
+            return original_open(self, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "read_text", counting_read_text)
+        monkeypatch.setattr(Path, "open", counting_open)
+        monkeypatch.setattr(Path, "read_text", lambda self, **kw: original_open(self, "r"))
 
         tool = FileReadTool()
         await tool.execute({"path": "b.py"}, str(temp_dir))
+        after_first = opens["count"]
         await tool.execute({"path": "b.py"}, str(temp_dir))
 
-        assert reads["count"] == 1
+        assert after_first >= 1
+        assert opens["count"] == after_first, "second read must not open the file"
 
     @pytest.mark.asyncio
     async def test_no_session_id_bypasses_cache(self, temp_dir: Path):
@@ -82,25 +88,25 @@ class TestReadCacheHit:
         path = temp_dir / "d.py"
         _write(path, 200)
 
-        reads = {"count": 0}
-        original_read_text = Path.read_text
+        opens = {"count": 0}
+        original_open = Path.open
 
-        def counting_read_text(self: Path, **kwargs):
-            reads["count"] += 1
-            return original_read_text(self, **kwargs)
+        def counting_open(self: Path, *args, **kwargs):
+            opens["count"] += 1
+            return original_open(self, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "read_text", counting_read_text)
+        monkeypatch.setattr(Path, "open", counting_open)
 
         tool = FileReadTool()
         full = await tool.execute({"path": "d.py"}, str(temp_dir))
         assert full.metadata.get("from_cache") is not True
-        assert reads["count"] == 1
+        after_first = opens["count"]
 
         paged = await tool.execute({"path": "d.py", "offset": 50, "limit": 25}, str(temp_dir))
         assert paged.metadata.get("from_cache") is True
         assert "51: line_51 = 51" in paged.output
         assert "75: line_75 = 75" in paged.output
-        assert reads["count"] == 1
+        assert opens["count"] == after_first, "subslice must be served without re-reading"
 
 
 class TestReadCacheInvalidation:
