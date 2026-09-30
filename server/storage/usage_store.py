@@ -169,11 +169,12 @@ class FileTokenUsageRepository:
             "estimated": estimated,
             "context_occupancy": context_occupancy,
         }
-        # Only the turn's final row carries the diagnostics. The per-turn
-        # counters are deltas, so repeating them on every step would double the
-        # session aggregate — and the session view sums rows, it does not
-        # average them.
-        if diagnostics and step_index == -1:
+        # The per-turn counters are deltas, so they belong on exactly one row —
+        # the turn's final one. Repeating them on every step would double the
+        # session aggregate, which sums rows rather than averaging them. The
+        # caller owns that choice: it is the only party that knows which row
+        # closes the turn, so this gate is "were we handed any", not a guess.
+        if diagnostics:
             line["diagnostics"] = dict(diagnostics)
         async with self.home.lock:
             append_jsonl_sync(

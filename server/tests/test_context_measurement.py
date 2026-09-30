@@ -1,7 +1,7 @@
 """How context occupancy is measured.
 
-Occupancy drives every context decision â€” when to prune, when to fold, when to
-refuse the turn â€” so the number has to describe what the window actually holds.
+Occupancy drives every context decision — when to prune, when to fold, when to
+refuse the turn — so the number has to describe what the window actually holds.
 Three ways it used to understate that, each asserted here:
 
 * tool-call arguments were never counted, which for a mutating tool is the whole
@@ -248,13 +248,21 @@ class TestDiagnostics:
         d.record_cache_usage(None)
         assert d.cache_hit_rate == 0.0
 
-    def test_savings_accumulate_and_reject_negatives(self):
+    def test_savings_take_the_best_step_and_reject_negatives(self):
+        """Not a sum.
+
+        The bounding passes re-derive the same saving from the same source on
+        every step of a turn, so adding each step would report one saving
+        multiplied by the step count.
+        """
         d = ContextDiagnostics()
         d.record_ladder_savings(100)
+        d.record_ladder_savings(250)
         d.record_ladder_savings(-50)
         d.record_dedup_savings(30)
+        d.record_dedup_savings(10)
         payload = d.as_dict()
-        assert payload["ladder_saved_tokens"] == 100
+        assert payload["ladder_saved_tokens"] == 250
         assert payload["dedup_saved_tokens"] == 30
 
 

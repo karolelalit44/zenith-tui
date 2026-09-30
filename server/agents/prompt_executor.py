@@ -1000,11 +1000,13 @@ class PromptExecutor:
                                         output_tokens=completion_t // _step_count,
                                         cache_read_tokens=cache_read_t // _step_count,
                                         cache_creation_tokens=cache_creation_t // _step_count,
-                                    step_index=s,
-                                    estimated=estimated,
-                                    context_occupancy=used if s == _step_count else 0,
-                                    diagnostics=ti.get("diagnostics"),
-                                )
+                                        step_index=s,
+                                        estimated=estimated,
+                                        context_occupancy=used if s == _step_count else 0,
+                                        # Only the closing row carries the turn's
+                                        # deltas; the session view sums them.
+                                        diagnostics=ti.get("diagnostics") if s == _step_count else None,
+                                    )
                             elif not token_usage_recorded:
                                 await token_repo.record(
                                     session_id=session_id,

@@ -93,11 +93,43 @@ def _adaptive_reserve(model: str, context_window: int) -> int:
     return min(reserve, max(0, context_window - 500))
 
 
+def _call_arguments(call: Any) -> dict:
+    """Argument dict of one tool call, whatever shape it was stored in.
+
+    Four shapes occur in this codebase's history: the ``ToolCall`` model the
+    domain layer actually uses (a pydantic object with an ``arguments`` dict),
+    a local ``params`` dict, the OpenAI ``function.arguments`` JSON string, and a
+    flat pair. Returns ``{}`` rather than raising — a malformed call is not worth
+    failing a ranking signal over, and an empty contribution is the correct
+    answer for one.
+    """
+    if isinstance(call, dict):
+        raw = call.get("params")
+        if raw is None:
+            fn = call.get("function")
+            raw = fn.get("arguments") if isinstance(fn, dict) else None
+        if raw is None:
+            raw = call.get("arguments")
+    else:
+        raw = getattr(call, "arguments", None)
+        if raw is None:
+            raw = getattr(call, "params", None)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+    return raw if isinstance(raw, dict) else {}
+
+
 def mentioned_paths(history: list[Message], limit: int = 64) -> list[str]:
     """Paths the conversation has referred to, most recent first.
 
-    Condition-oriented extraction from structured tool calls and message text
-    without relying on hardcoded file extension regexes.
+    Read from structured tool-call arguments only. Scanning message text for
+    anything that looks path-shaped also returns ``and/or`` and ``1.2.3``, which
+    is harmless here — the ranker resolves every candidate against the files it
+    actually tracks and drops what it cannot match — but it is noise in a signal
+    that does not need any.
     """
     seen: set[str] = set()
     found: list[str] = []
@@ -117,36 +149,17 @@ def mentioned_paths(history: list[Message], limit: int = 64) -> list[str]:
     for msg in reversed(history):
         if len(found) >= limit:
             break
-        # 1. Structured tool calls if present
-        tool_calls = getattr(msg, "tool_calls", None)
-        if isinstance(tool_calls, list):
-            for tc in tool_calls:
-                args: Any = {}
-                if isinstance(tc, dict):
-                    args = tc.get("params") or tc.get("function", {}).get("arguments") or {}
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except Exception:
-                        args = {}
-                if isinstance(args, dict):
-                    for k in ("path", "filepath", "target", "file"):
-                        val = args.get(k)
-                        if isinstance(val, str):
-                            _add(val)
-                    files_list = args.get("files")
-                    if isinstance(files_list, list):
-                        for f in files_list:
-                            if isinstance(f, str):
-                                _add(f)
-
-        # 2. Text tokens containing path separators or extensions
-        if not msg.content:
-            continue
-        for word in msg.content.split():
-            clean = word.strip("`'\"()[]<>{}*,:;")
-            if ("/" in clean or "\\" in clean or ("." in clean and not clean.endswith("."))) and not clean.startswith(("http://", "https://", "file://")):
-                _add(clean)
+        for call in getattr(msg, "tool_calls", None) or []:
+            args = _call_arguments(call)
+            for key in ("path", "filepath", "target", "file"):
+                value = args.get(key)
+                if isinstance(value, str):
+                    _add(value)
+            files_list = args.get("files")
+            if isinstance(files_list, list):
+                for entry in files_list:
+                    if isinstance(entry, str):
+                        _add(entry)
 
     return found
 
@@ -191,6 +204,18 @@ class TokenInfo:
     usage_source: str = "estimated"
 
 
+def _identifiers_in(value: str) -> set[str]:
+    """Identifier-shaped words inside an arbitrary string."""
+    cleaned = "".join(ch if (ch.isalnum() or ch == "_") else " " for ch in value)
+    return {t for t in cleaned.split() if len(t) >= MIN_MENTIONED_SYMBOL_LEN and t.isidentifier()}
+
+
+# Tool-call argument keys whose values name a *symbol* rather than a file or a
+# sentence. A `grep(pattern=...)` or a symbol lookup is the model asking for a
+# definition by name; that is the signal the ranker wants.
+_SYMBOL_PARAM_KEYS = ("symbol", "name", "pattern", "query", "search", "term", "class", "func", "function", "method", "ref", "reference")
+
+
 class ContextManager:
     def __init__(self, config: AppSettings) -> None:
         self.config = config
@@ -199,6 +224,7 @@ class ContextManager:
         self._last_t0_len = 0
         self._window_estimated = False
         self._repo_map_cache: str | None = None
+        self._repo_map_cache_key: int | None = None
         self._repo_map: Any | None = None
         self._repo_map_history: list[Message] = []
         # Provider-reported occupancy of a prefix of the message list currently
@@ -266,23 +292,29 @@ class ContextManager:
         return max(REPO_MAP_MIN_TOKENS, min(context_window // 8, REPO_MAP_MAX_TOKENS))
 
     def _mentioned_symbols(self, history: list[Message]) -> set[str]:
-        """Identifiers the conversation has recently used by name.
+        """Identifiers the conversation has recently asked for by name.
 
-        The ranking signal that costs nothing to compute and beats structural
-        centrality: a file defining the symbol just mentioned is the file the
-        model is about to need. Restricted to the assistant's own recent text.
-        Validated using standard identifier rules without regex.
+        A file defining the symbol just named is the file the model is about to
+        need, and this costs nothing to compute.
+
+        Sourced from **structured tool-call arguments only**, not from prose.
+        Harvesting every word out of the assistant's recent text looks like the
+        same signal and is not: ordinary English words of eight characters or more
+        — "something", "component", "handling" — all qualify, and each was worth
+        a boost large enough to outrank structural centrality, so the map filled
+        with whatever module happened to define a common noun. A tool call names
+        the symbol deliberately; a sentence does not.
         """
         if not history:
             return set()
         found: set[str] = set()
         for msg in history[-_MENTION_SCAN_MESSAGES:]:
-            if msg.role != "assistant" or not msg.content:
-                continue
-            cleaned = "".join(ch if (ch.isalnum() or ch == "_") else " " for ch in msg.content)
-            for token in cleaned.split():
-                if len(token) >= MIN_MENTIONED_SYMBOL_LEN and token.isidentifier():
-                    found.add(token)
+            for call in getattr(msg, "tool_calls", None) or []:
+                args = _call_arguments(call)
+                for key in _SYMBOL_PARAM_KEYS:
+                    value = args.get(key)
+                    if isinstance(value, str):
+                        found |= _identifiers_in(value)
         return found
 
     def get_repo_map(
@@ -303,26 +335,30 @@ class ContextManager:
         repo = self._repo_map
 
         tokens = self._resolve_repo_map_tokens(model)
-        mentioned = self._mentioned_symbols(self._repo_map_history)
-        cache_key = (tuple(sorted(chat_files or [])), tuple(sorted(mentioned)))
-
-        fresh = (
+        # Keyed on the budget, not on the conversation. The map is an artefact of
+        # the tree; the ranking inputs only choose its ordering. Keying on them
+        # meant a miss on every turn that mentioned a new path — which is every
+        # turn — so the cache this was meant to add never once hit and every
+        # build_messages re-derived up to REPO_MAP_MAX_TOKENS of map.
+        # `is_stale` is what re-derives on a real change: a fingerprint, a TTL,
+        # or a budget change.
+        if (
             not force_refresh
             and self._repo_map_cache is not None
-            and getattr(self, "_repo_map_cache_key", None) == cache_key
-        )
-        if fresh and not repo.is_stale():
-            return self._repo_map_cache or ""
+            and self._repo_map_cache_key == tokens
+            and not repo.is_stale()
+        ):
+            return self._repo_map_cache
 
         self._repo_map_cache = repo.get_repo_map(
             max_tokens=tokens,
             chat_files=chat_files,
-            mentioned=mentioned,
+            mentioned=self._mentioned_symbols(self._repo_map_history),
             force_refresh=force_refresh,
         )
-        self._repo_map_cache_key = cache_key
+        self._repo_map_cache_key = tokens
         repo.note_rendered()
-        return self._repo_map_cache or ""
+        return self._repo_map_cache
 
     def build_messages(
         self,

@@ -2,7 +2,7 @@
 
 Bounding a tool result is lossy, so the question is not *whether* to lose
 information but *what*. A head/tail trim keeps the first and last lines of a
-transcript, which for a failed run is the command echo and the summary â€” the two
+transcript, which for a failed run is the command echo and the summary — the two
 parts that do not say what went wrong. The failure lane exists to keep the
 diagnosis instead, and these tests pin the cases where it must fire and, just as
 importantly, where it must not.
@@ -76,15 +76,33 @@ class TestFailureDetection:
         ],
     )
     def test_recognised_failure_vocabulary(self, line):
-        from server.agents.compaction import has_failure_report
+        from server.agents.compaction import is_diagnostic_line
 
-        assert has_failure_report(f"[Tool: bash | Status: SUCCESS]\n{line}", "bash")
+        assert is_diagnostic_line(line) is True
 
-    def test_clean_transcript_is_not_a_failure(self):
-        from server.agents.compaction import has_failure_report
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "399 passed in 4.2s",
+            "duration: 15",
+            "FAILOVER is enabled in the config",
+            "tolerance ok",
+            "build 0 errors, 0 warnings",
+            "Total 3 items processed",
+            "Compiling crate alpha v2.1.3",
+        ],
+    )
+    def test_ordinary_output_is_not_mistaken_for_a_failure(self, line):
+        """The prioritiser must not fire on ordinary output.
 
-        clean = "[Tool: bash | Status: SUCCESS]\n399 passed in 4.2s\n"
-        assert has_failure_report(clean, "bash") is False
+        It only ever runs on a result the loop already stamped as failed, so a
+        misfire costs density. A misfire that also reached the *lane selector*
+        cost correctness: a green build reduced to whichever line happened to
+        match.
+        """
+        from server.agents.compaction import is_diagnostic_line
+
+        assert is_diagnostic_line(line) is False
 
     def test_structured_status_is_authoritative(self):
         from server.agents.compaction import is_failed_result
@@ -106,25 +124,61 @@ class TestFailureDetection:
         assert is_failed_result(legacy_ok) is False
         assert is_failed_result(legacy_bad) is True
 
-    def test_has_failure_report_checks_protocol_status(self):
-        from server.agents.compaction import has_failure_report
-
-        assert has_failure_report("[Tool: bash | Status: FAILED]\nboom", "bash") is True
-        assert has_failure_report("[Tool: bash | Status: SUCCESS]\nok", "bash") is False
-
-    def test_source_mentioning_errors_is_not_a_failure_report(self):
-        """A ``file_read`` payload is code, not a diagnosis of one."""
-        from server.agents.compaction import has_failure_report
-
-        src = "[Tool: file_read | Status: SUCCESS]\nraise ValueError('x')\n# SyntaxError\n"
-        assert has_failure_report(src, "file_read") is False
-        assert has_failure_report(src, "grep") is False
-
     def test_failure_lines_respect_their_budget(self):
         from server.agents.compaction import FAILURE_LINE_BUDGET, failure_lines
 
         body = "\n".join(f"ERROR: {i}" for i in range(FAILURE_LINE_BUDGET * 3))
         assert len(failure_lines(body)) == FAILURE_LINE_BUDGET
+
+
+class TestFailureLaneSelection:
+    """The lane is chosen by the structured stamp and nothing else.
+
+    A successful result must never be routed here, however much its output
+    resembles a diagnosis: `raise ValueError` in a file the agent just read, or
+    a build log that happens to say "duration: 15".
+    """
+
+    def test_a_successful_result_is_not_bounded_by_the_failure_lane(self):
+        from server.agents.compaction import bound_tool_message
+
+        msg = _result(_failing_log(), status="ok")
+        bound_tool_message(msg, 1000)
+        assert msg["content"].startswith("[Tool: bash | Status: SUCCESS]")
+        assert "collected item 0 / ok" in msg["content"]
+
+    def test_a_successful_build_log_keeps_its_body(self):
+        """The regression this rule exists to prevent.
+
+        Every line here mentions something a diagnostic matcher would like, and
+        none of it is a failure. Before the lane was selected by output shape,
+        the whole build was filtered down to the one line that matched.
+        """
+        from server.agents.compaction import bound_tool_message
+
+        body = "\n".join(
+            [
+                "Starting build in release mode",
+                "Compiling crate alpha v2.1.3",
+                "warning: unused variable x",
+                "duration: 42",
+                "Built artifact target/release/app.bin",
+                "Total 0 errors",
+            ]
+        )
+        msg = _result(body, status="ok")
+        bound_tool_message(msg, 200)
+        assert "Compiling crate alpha" in msg["content"]
+        assert "target/release/app.bin" in msg["content"]
+
+    def test_a_read_of_source_naming_an_exception_is_untouched(self):
+        from server.agents.compaction import bound_tool_message
+
+        body = "x" * 5000 + "\nraise ValueError('boom')\n# SyntaxError\n"
+        msg = _result(body, tool="file_read", status="ok")
+        bound_tool_message(msg, 200)
+        assert "ValueError" in msg["content"]
+        assert "SyntaxError" in msg["content"]
 
 
 class TestFailureLane:
@@ -173,6 +227,22 @@ class TestFailureLane:
         assert noise not in msg["content"]
         assert "1 failed, 399 passed" in msg["content"]
 
+    def test_the_lane_announces_what_it_dropped(self):
+        """No silent deletion, ever.
+
+        A trim that drops body lines without saying so leaves the model
+        reasoning about a partial command and nothing in the output tells it so.
+        """
+        from server.agents.compaction import bound_tool_message
+
+        msg = _result(_failing_log(), status="error")
+        bound_tool_message(msg, 1000)
+        assert "omitted" in msg["content"]
+
+        ok = _result(_failing_log(), status="ok")
+        bound_tool_message(ok, 1000)
+        assert "omitted" in ok["content"] or "truncated" in ok["content"]
+
     def test_a_failure_below_the_floor_still_keeps_its_diagnosis(self):
         from server.agents.compaction import FAILURE_MIN_CHARS, bound_tool_message
 
@@ -190,7 +260,7 @@ class TestFailureLane:
         bounded = bound_failure_result(f"[Tool: bash | Status: FAILED]\n{body}", 4000)
         assert len(bounded) <= 4000 + 200
         assert "ERROR: detail line" in bounded
-        assert "failure lines omitted" in bounded
+        assert "line(s) omitted" in bounded
 
     def test_a_passing_run_of_the_same_shape_is_still_bounded(self):
         from server.agents.compaction import bound_tool_message

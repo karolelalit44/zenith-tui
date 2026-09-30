@@ -6,8 +6,8 @@ Thematic definitions live in the sibling submodules:
     server  - HTTP/WebSocket server + entry-point constants    (leaf)
     web     - web research / LLM provider / validation         (leaf)
     agent   - agent loop, mode, and session constants          (leaf)
-    context - context window, compaction, and loop-step knobs  (â†’ web)
-    tools   - tool registry, toolkit, and crewmate metadata    (â†’ context)
+    context - context window, compaction, and loop-step knobs  (→ web)
+    tools   - tool registry, toolkit, and crewmate metadata    (→ context)
 """
 
 from .agent import (

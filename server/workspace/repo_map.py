@@ -78,9 +78,15 @@ DEFINITION_QUERIES: dict[str, str | list[str]] = {
 }
 
 # Ranking weights. Named constants rather than literals in ``_rank_files`` so the
-# relationship between them stays readable: one mentioned symbol is worth about
-# as much as a few central definitions, and an open file outranks both.
-MENTIONED_SYMBOL_BOOST = 10.0
+# relationship between them stays readable: an open file outranks everything, a
+# mentioned symbol is a nudge, and structural centrality is the baseline
+# everything else competes with.
+#
+# The mention boost is deliberately small. A base score is roughly
+# ``1 + defines + 0.5 * referencing_files``, so a boost large enough to dominate
+# that does not rank the map — it lets one name decide it, and a name that came
+# from an ordinary English word rather than a symbol reference will.
+MENTIONED_SYMBOL_BOOST = 3.0
 CHAT_FILE_MULTIPLIER = 3.0
 
 # How long a rendered map may be reused before it is re-derived even if nothing

@@ -293,3 +293,138 @@ def test_build_messages_skips_map_when_explicit_empty(sample_workspace):
         history=[], system_prompt="SYS", new_prompt="hi", model="test-model", repo_map=""
     )
     assert all("<repo_map>" not in m["content"] for m in messages)
+
+
+def test_match_tracked_files_handles_dotfiles_and_absolute_paths(sample_workspace):
+    _write(sample_workspace, ".eslintrc.json", "{}\n")
+    _write(sample_workspace, ".github/workflows/ci.yml", "name: CI\n")
+    repo = RepoMap(sample_workspace)
+    matched = repo._match_tracked_files([
+        "./.eslintrc.json",
+        ".github/workflows/ci.yml",
+        str(sample_workspace / "src" / "utils.py"),
+    ])
+    assert ".eslintrc.json" in matched
+    assert ".github/workflows/ci.yml" in matched
+    assert "src/utils.py" in matched
+
+
+def test_repo_map_cache_survives_a_changing_conversation(sample_workspace):
+    """The cache is keyed on the budget, not on the conversation.
+
+    Keying it on the chat files made it miss on every turn that mentioned a new
+    path, which is every turn — so a cache added to avoid re-deriving the map
+    never once hit, and each build_messages paid for a full render.
+    """
+    config = _make_config(sample_workspace)
+    cm = ContextManager(config)
+    cm.get_repo_map(chat_files=["src/mod_b.py"])
+    first_key = cm._repo_map_cache_key
+    first = cm._repo_map_cache
+
+    second = cm.get_repo_map(chat_files=["src/mod_a.py"])
+
+    assert cm._repo_map_cache_key == first_key
+    assert second == first
+
+
+def test_repo_map_cache_rerenders_when_the_budget_changes(sample_workspace, monkeypatch):
+    config = _make_config(sample_workspace)
+    cm = ContextManager(config)
+    cm.get_repo_map(chat_files=["src/mod_b.py"])
+    first_key = cm._repo_map_cache_key
+
+    monkeypatch.setattr(ContextManager, "_resolve_repo_map_tokens", lambda self, model="": first_key * 2)
+    cm.get_repo_map(chat_files=["src/mod_b.py"])
+
+    assert cm._repo_map_cache_key == first_key * 2
+
+
+def test_repo_map_cache_rerenders_when_the_tree_moves(sample_workspace):
+    config = _make_config(sample_workspace)
+    cm = ContextManager(config)
+    first = cm.get_repo_map(chat_files=[])
+
+    _write(sample_workspace, "src/brand_new_module.py", "def appeared_late():\n    pass\n")
+    second = cm.get_repo_map(chat_files=[])
+
+    assert second != first
+    assert "brand_new_module" in second
+
+
+class TestMentionedSymbols:
+    """The mention signal has to come from somewhere that names symbols.
+
+    Harvesting every eight-character word out of the assistant's recent prose
+    looked like the same signal and was not: "something", "component",
+    "handling" all qualify, and each was worth enough boost to outrank
+    structural centrality — so the map filled with whatever module happened to
+    define a common noun.
+    """
+
+    @staticmethod
+    def _manager():
+        return ContextManager.__new__(ContextManager)
+
+    def test_ordinary_prose_yields_no_symbols(self):
+        history = [
+            Message(
+                session_id="s1",
+                role="assistant",
+                content=(
+                    "I will inspect something important and different behaviour in "
+                    "message handling. The component was already resolved."
+                ),
+            )
+        ]
+        assert self._manager()._mentioned_symbols(history) == set()
+
+    def test_a_tool_call_naming_a_symbol_does(self):
+        from server.domain.message import ToolCall
+
+        history = [
+            Message(
+                session_id="s1",
+                role="assistant",
+                content="",
+                tool_calls=[ToolCall(name="grep", arguments={"pattern": "build_request"})],
+            )
+        ]
+        assert self._manager()._mentioned_symbols(history) == {"build_request"}
+
+    def test_the_openai_wire_shape_also_works(self):
+        """Persisted turns may carry the raw provider shape instead."""
+        from server.agents.context import _call_arguments
+
+        assert _call_arguments(
+            {"function": {"name": "grep", "arguments": '{"pattern":"build_request"}'}}
+        ) == {"pattern": "build_request"}
+        assert _call_arguments({"params": {"path": "a.py"}}) == {"path": "a.py"}
+
+    def test_only_symbol_shaped_arguments_count(self):
+        """A path argument is not a symbol reference."""
+        from server.domain.message import ToolCall
+
+        history = [
+            Message(
+                session_id="s1",
+                role="assistant",
+                content="",
+                tool_calls=[ToolCall(name="file_read", arguments={"path": "server/agents/context.py"})],
+            )
+        ]
+        assert self._manager()._mentioned_symbols(history) == set()
+
+    def test_a_malformed_call_does_not_raise(self):
+        from server.agents.context import _call_arguments
+
+        assert _call_arguments({"name": "grep", "arguments": "not json at all"}) == {}
+        assert _call_arguments("not a call") == {}
+        assert _call_arguments(None) == {}
+
+    def test_a_mention_nudges_rather_than_decides(self):
+        """One mentioned symbol must not leapfrog real centrality."""
+        from server.workspace.repo_map import MENTIONED_SYMBOL_BOOST
+
+        assert MENTIONED_SYMBOL_BOOST < 5.0
+

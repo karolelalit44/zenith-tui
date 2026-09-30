@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from server.config.constants import (
@@ -30,10 +31,48 @@ PRESERVE_ON_COMPACT: frozenset[str] = frozenset({"file_read", "todo"})
 # needs in order to fix something is not trimmed to the point of being useless.
 FAILURE_MIN_CHARS = 4_000
 
-# How many failure lines to preserve when a report has to be cut. Errors
-# cluster at the tail of a transcript — the command at the top, the traceback
-# at the bottom — so the ends are what get kept when the middle does not fit.
-FAILURE_LINE_BUDGET = 40
+# How many diagnostic lines to preserve before the budget takes over and
+# head/tail trimming of the survivors applies.
+FAILURE_LINE_BUDGET = 160
+
+# Failure nouns matched as whole words by the prioritiser. Kept here rather than
+# inline so the set is one readable line and adding a toolchain's vocabulary does
+# not mean editing a condition.
+_FAILURE_WORDS = frozenset(
+    {
+        "abort",
+        "aborted",
+        "assert",
+        "crash",
+        "crashed",
+        "denied",
+        "err",
+        "error",
+        "errored",
+        "exception",
+        "fail",
+        "failed",
+        "failing",
+        "failure",
+        "failures",
+        "fatal",
+        "fault",
+        "killed",
+        "panic",
+        "panicked",
+        "rejected",
+        "refused",
+        "segfault",
+        "timeout",
+        "traceback",
+        "uncaught",
+    }
+)
+
+# ``TypeError``, ``NullPointerException`` and friends: a capitalised identifier
+# ending in Error/Exception. Covers every language's exception vocabulary without
+# listing it.
+_EXCEPTION_NAME = re.compile(r"\b[A-Za-z_]\w*(?:Error|Exception)\b")
 
 
 def _message_tool_name(msg: dict) -> str:
@@ -79,95 +118,100 @@ def is_failed_result(msg: dict) -> bool:
 
 
 def is_diagnostic_line(line: str) -> bool:
-    """True when a line carries failure or diagnostic context.
+    """True when a line is worth preferring when a *failed* result is trimmed.
 
-    Evaluates structural characteristics: banners, stack frames, error markers,
-    and assertion traces, without hardcoded language dictionaries or fragile regexes.
+    This is a prioritiser, not a filter and not a lane selector. Two consequences
+    of that distinction are load-bearing:
+
+    * It only ever runs on a result the loop already stamped as failed, so a
+      successful command whose output merely mentions a word like "fail" is
+      never routed here. The earlier version called this from the lane selector
+      and a green build log containing "duration: 15" was reduced to that one
+      line — a command that succeeded, reported to the model as a fragment.
+    * Whatever it selects is announced. Nothing is dropped in silence, so a
+      misfire costs density rather than correctness.
+
+    Deliberately loose. It runs only on a result that already failed, where the
+    cost of keeping a line that turns out to be noise is a few characters.
     """
     s = line.strip()
     if not s:
         return False
 
-    # 1. Section banners and separators (=== FAILURES ===, ___ test ___, --- FAIL ---)
+    # Section banners and separators (=== FAILURES ===, ___ test ___, --- FAIL ---)
     if (s.startswith(("===", "___", "---", "***")) and len(s) >= 5) or (
         s.endswith(("===", "___", "---", "***")) and len(s) >= 5
     ):
         return True
 
-    # 2. Terminal error markers
-    if s.startswith(("E ", "E\t", "F ", "!", "[!]", "[FAIL]", "[ERROR]", "Error:", "error:", "FAIL:", "FAILED:")):
+    # Terminal error markers: pytest's E/F gutter, cargo/npm/ruff, and prose
+    # that leads with the word rather than embedding it.
+    if s.startswith(
+        ("E ", "E\t", "F ", "!", "[!]", "[FAIL]", "[ERROR]", "Error:", "error:", "FAIL:", "FAILED:")
+    ):
+        return True
+    if s.startswith(("✗", "✘", "❌")):
         return True
 
-    if s.startswith(("✗", "✘", "❌")) or "● " in s:
-        return True
-
-    lower = s.lower()
-    # 3. Stack trace frames and code positions
+    # Stack frames and code positions.
     if (
-        ("file " in lower and "line " in lower)
-        or (": in " in s)
-        or ("-->" in s)
+        ("file " in s.lower() and "line " in s.lower())
+        or ": in " in s
+        or "-->" in s
         or (s.startswith("at ") and "(" in s and ")" in s)
+        or _has_location(s)
     ):
         return True
 
-    parts = s.split(":", 2)
-    if len(parts) >= 2 and parts[1].strip().isdigit():
+    # Error nouns, anchored to a word boundary so "failover" and "tolerance" do
+    # not match. A tool result that failed is worth this looseness.
+    if _has_failure_word(s):
         return True
 
-    # 4. Universal failure terms
-    for term in (
-        "error",
-        "fail",
-        "failed",
-        "failing",
-        "exception",
-        "traceback",
-        "panic",
-        "panicked",
-        "segmentation fault",
-        "err!",
-    ):
-        if term in lower:
-            if f"0 {term}" in lower or f"0 {term}s" in lower:
-                continue
-            return True
+    # Language-level exception names (TypeError, NullPointerException). Matching
+    # the *shape* rather than enumerating every runtime's vocabulary.
+    if _EXCEPTION_NAME.search(s):
+        return True
 
-    if "exit status " in lower or "exit code " in lower or "exited with code " in lower:
-        succeeded = "exit status 0" in lower or "exit code 0" in lower or "exited with code 0" in lower
-        if not succeeded:
-            return True
+    lowered = s.lower()
+    if "exit status " in lowered or "exit code " in lowered or "exited with code " in lowered:
+        return not (
+            "exit status 0" in lowered or "exit code 0" in lowered or "exited with code 0" in lowered
+        )
 
     return False
 
 
+def _has_location(line: str) -> bool:
+    """True for ``path:123`` / ``path:123:45`` style positions.
+
+    Requires a numeric tail *and* a path-shaped head, so prose such as
+    ``duration: 15`` — which a successful build log is full of — is not treated
+    as a code location.
+    """
+    if ":" not in line:
+        return False
+    head, _, tail = line.rpartition(":")
+    if not tail.isdigit():
+        return False
+    return "/" in head or "\\" in head or "." in head
+
+
+def _has_failure_word(line: str) -> bool:
+    """True when a failure noun appears in *line* as a whole word."""
+    words = set(re.findall(r"[a-z]+", line.lower()))
+    if not words & _FAILURE_WORDS:
+        return False
+    # "0 errors" is the report of a clean run.
+    return not re.fullmatch(r"\d+ (error|errors|warning|warnings|fail|fails|failure|failures)", line.strip().lower())
+
+
 def failure_lines(text: str, limit: int = FAILURE_LINE_BUDGET) -> list[str]:
-    """Lines of *text* that carry diagnostic or failure details, in document order."""
+    """Lines of *text* worth preferring when a failed result is trimmed."""
     if not text:
         return []
     hits = [line for line in text.splitlines() if is_diagnostic_line(line)]
     return hits[:limit]
-
-
-def has_failure_report(content: str, tool_name: str) -> bool:
-    """True when *content* is a transcript that reports a failure.
-
-    Only meaningful for capture tools. Condition-oriented check without regex.
-    """
-    if not content:
-        return False
-    from server.toolkit.executor import TERMINAL_OUTPUT_TOOLS
-
-    if tool_name not in TERMINAL_OUTPUT_TOOLS:
-        return False
-    header, sep, body = content.partition("\n")
-    if header.startswith("[Tool:") and ("Status: FAILED" in header or "Status: ERROR" in header):
-        return True
-    target = body if sep else content
-    for line in target.splitlines():
-        if is_diagnostic_line(line):
-            return True
-    return False
 
 
 
@@ -296,50 +340,69 @@ def _split_result_header(content: str) -> tuple[str, str]:
 
 
 def bound_failure_result(content: str, max_chars: int) -> str:
-    """Bound a failed tool result while preserving diagnostic detail and traceback.
+    """Bound a result the tool reported as failed, keeping its diagnosis.
 
-    Filters out high-volume repetitive noise (such as hundreds of passing test items)
-    to retain failure banners, stack frames, file/line locations, and assertion errors.
+    Picks the lines most likely to say what went wrong, then fits them to the
+    budget. The one invariant this must not break: **any line it drops is
+    announced.** A trim that silently deletes body text leaves the model
+    reasoning about a command it has been shown only part of, and nothing in the
+    output distinguishes that from a complete result.
+
+    Falls back to the ordinary head/tail trim when nothing in the body looks
+    diagnostic, so a failed result that is just large is not filtered down to
+    whatever happened to match.
     """
     if len(content) <= max_chars:
         return content
     header, body = _split_result_header(content)
     if not body:
         return content
-    budget = max(0, max_chars - len(header) - 1)
 
-    lines = failure_lines(body, limit=FAILURE_LINE_BUDGET * 4)
-    if not lines:
+    lines = body.splitlines()
+    picked = failure_lines(body, limit=FAILURE_LINE_BUDGET)
+    if not picked:
         return _bound_ordinary_result(content, max_chars)
 
-    kept = "\n".join(lines)
-    if len(kept) <= budget:
-        return f"{header}\n{kept}"
+    budget = max(0, max_chars - len(header) - 1)
+    omitted_from_body = len(lines) - len(picked)
+    return f"{header}\n" + "\n".join(_fit_lines(picked, budget, omitted_from_body))
+
+
+def _fit_lines(lines: list[str], budget: int, omitted_from_body: int) -> list[str]:
+    """Fit *lines* to *budget*, keeping both ends and counting what is dropped.
+
+    Two-thirds from the top, one-third from the bottom: a report states the
+    command first and the summary last, so the ends carry more than the middle.
+    """
+    cost = sum(len(line) + 1 for line in lines)
+    if cost <= budget:
+        if omitted_from_body <= 0:
+            return lines
+        return [*lines, f"... [{omitted_from_body} line(s) omitted: kept diagnostic lines only] ..."]
 
     head_budget = budget * 2 // 3
     tail_budget = budget - head_budget
 
-    def _take(seq: list[str], allowance: int, from_end: bool) -> tuple[list[str], int]:
+    def _take(source: list[str], allowance: int, from_end: bool) -> list[str]:
         picked: list[str] = []
         used = 0
-        source = reversed(seq) if from_end else seq
-        for line in source:
-            cost = len(line) + 1
-            if used + cost > allowance:
+        ordered = reversed(source) if from_end else source
+        for line in ordered:
+            step = len(line) + 1
+            if used + step > allowance:
                 break
             picked.append(line)
-            used += cost
+            used += step
         if from_end:
             picked.reverse()
-        return picked, used
+        return picked
 
-    head, _ = _take(lines, head_budget, from_end=False)
-    tail, _ = _take(lines, tail_budget, from_end=True)
-    omitted = len(lines) - len(head) - len(tail)
+    head = _take(lines, head_budget, from_end=False)
+    tail = _take(lines, tail_budget, from_end=True)
+    omitted = omitted_from_body + (len(lines) - len(head) - len(tail))
     if omitted <= 0:
-        return f"{header}\n" + "\n".join(lines)
-    marker = [f"... [{omitted} failure lines omitted] ..."]
-    return f"{header}\n" + "\n".join([*head, *marker, *tail])
+        return lines
+    return [*head, f"... [{omitted} line(s) omitted] ...", *tail]
 
 
 
@@ -365,7 +428,11 @@ def bound_tool_message(msg: dict, max_chars: int) -> CompactionStats:
     Lanes, most protective first:
 
     * already bounded — no-op, which is what makes repeated passes cheap;
-    * failure — see :func:`bound_failure_result`;
+    * failure — see :func:`bound_failure_result`. Entered on the structured
+      ``tool_status`` stamp alone. It is deliberately not also entered on what
+      the output *looks* like: a successful build log mentioning an error is a
+      success, and routing it through a filter that keeps "diagnostic-looking"
+      lines reduces a green run to an arbitrary fragment of itself;
     * digest available and the tool is not content-bearing — collapse to it;
     * otherwise — keep the status header, trim the middle of the body.
     """
@@ -379,7 +446,7 @@ def bound_tool_message(msg: dict, max_chars: int) -> CompactionStats:
         return stats
 
     tool_name = _message_tool_name(msg)
-    failure = is_failed_result(msg) or has_failure_report(content, tool_name)
+    failure = is_failed_result(msg)
 
     if failure:
         bounded = bound_failure_result(content, max(max_chars, FAILURE_MIN_CHARS))

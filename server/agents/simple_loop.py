@@ -142,8 +142,8 @@ def _strip_unoffered_tool_calls(
     message: it is conversation context, not a schema object, and dropping it
     would throw away what the tool actually reported.
 
-    An assistant turn left with no tool_calls and no text is not dispatchable â€”
-    providers reject a turn that is neither â€” so it is given the same neutral
+    An assistant turn left with no tool_calls and no text is not dispatchable —
+    providers reject a turn that is neither — so it is given the same neutral
     marker the empty-turn sanitizer uses.
     """
     result: list[dict] = []
@@ -560,13 +560,12 @@ class SimpleLoop:
             # a declared call with no result is rejected outright by strict
             # providers. Cheap and a no-op on an unpruned turn.
             dispatch_messages, _ = normalise_tool_pairs(dispatch_messages)
-            # Counted once per dispatch, not per message: the passes are
-            # idempotent, so re-reading the same already-bounded array would keep
-            # reporting the same saving on every step of the turn.
-            if prune_stats.tokens_saved:
-                diagnostics.ladder_saved_tokens = prune_stats.tokens_saved
-            if dedupe_stats.tokens_saved:
-                diagnostics.dedup_saved_tokens = dedupe_stats.tokens_saved
+            # Counted as the best result this turn has reached, not summed: the
+            # passes are idempotent and re-derive the same saving from the same
+            # source on every step, so a sum would multiply one saving by the
+            # step count.
+            diagnostics.record_ladder_savings(prune_stats.tokens_saved)
+            diagnostics.record_dedup_savings(dedupe_stats.tokens_saved)
             # Sanitize assistant messages that have empty content and no tool_calls.
             # Providers (OpenRouter, OpenAI) reject requests containing such turns
             # with "model output must contain either output text or tool calls".
@@ -594,9 +593,9 @@ class SimpleLoop:
             # catalog) kills the turn outright.
             #
             # Two cases, both handled:
-            #   1. The tool IS available for this mode but was not seeded yet â€”
+            #   1. The tool IS available for this mode but was not seeded yet —
             #      promote it into the active set and keep the history intact.
-            #   2. The tool is NOT available at all â€” no promotion can save it,
+            #   2. The tool is NOT available at all — no promotion can save it,
             #      so the dangling tool_call is stripped from the history.
             if self.tool_registry and resolver:
                 mode_available = set(self.tool_registry.list_tools_for_mode(mode))
@@ -645,7 +644,18 @@ class SimpleLoop:
                 if event.kind == EventKind.ERROR:
                     turn_errored = True
                 yield event
-            self._anchor_step_usage(len(dispatch_messages), usage_before)
+            # Only anchorable when the list that was sent is still the list the
+            # next measurement is taken against. `normalise_tool_pairs` and the
+            # unoffered-call strip can both *remove* entries, which shifts every
+            # later index; an anchor records "the provider billed this prefix",
+            # so an index that no longer names the same message credits the wrong
+            # head and under-reports occupancy — the number that decides whether
+            # the next step fits. Length equality is the cheap, sufficient proof
+            # that no pass removed anything.
+            self._anchor_step_usage(
+                len(dispatch_messages) if len(dispatch_messages) == len(messages) else 0,
+                usage_before,
+            )
             diagnostics.record_cache_usage(getattr(self.provider, "_cumulative_usage", None))
             if turn_errored:
                 yield r.turn_manifest(
@@ -695,7 +705,7 @@ class SimpleLoop:
                         )
                     )
                 )
-                # Complete text-parsed tool calls are not partial â€” execute them
+                # Complete text-parsed tool calls are not partial — execute them
                 # normally instead of discarding and re-prompting.
                 if tool_calls and not has_partial_tool:
                     pass
@@ -826,7 +836,7 @@ class SimpleLoop:
 
                 # Silent no-tool turn: the model ended with no tool call AND
                 # produced no message text (e.g. a reasoning-only trailer from
-                # a reason-then-act model). That is NOT a final answer â€” the
+                # a reason-then-act model). That is NOT a final answer — the
                 # user would receive nothing. Bounded continuation lets the
                 # model emit its actual answer or next tool call.
                 if (
@@ -854,7 +864,7 @@ class SimpleLoop:
                     )
                     continue
 
-                break  # emergent stop â€” purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
+                break  # emergent stop — purely model-dependent: no tool_calls => final answer (Pi Codex OpenCode invariant)
 
             mode_available: set[str] = set()
             blocked: list[str] = []
@@ -997,7 +1007,7 @@ class SimpleLoop:
                 # file_read dedup runs BEFORE the silent is_dup-continue. A read
                 # whose range is already covered this session (exact duplicate or
                 # overlapping) is served straight from the read cache. Transparent
-                # to the user (a normal tool_result fires) â€” only the LLM sees a
+                # to the user (a normal tool_result fires) — only the LLM sees a
                 # compact notice. This is what keeps the turn alive: an exact-duplicate
                 # re-read of an unchanged file no longer terminates the turn early via
                 # the "is_dup and has_substantive_answer" silent-skip path below.
@@ -1067,7 +1077,7 @@ class SimpleLoop:
                                 continue
                         if stat is not None:
                             # Cache miss or stale: the file may have changed since the last
-                            # read. Force execution even if is_dup is set â€” the LLM must be
+                            # read. Force execution even if is_dup is set — the LLM must be
                             # able to read files it just edited.
                             is_dup = False
 
@@ -1280,8 +1290,8 @@ class SimpleLoop:
                 # When the provider signals finish_reason=TOOL_CALLS, valid calls
                 # were parsed, but every one was silently skipped as a duplicate,
                 # the model is stuck re-deriving work already in the history. A
-                # short transitional message ("I'll investigateâ€¦") must not be
-                # treated as a final answer in this case â€” count it as a stall and
+                # short transitional message ("I'll investigate…") must not be
+                # treated as a final answer in this case — count it as a stall and
                 # let the model try again with a reminder.
                 # Note: this does NOT apply when finish_reason=STOP (text-parsed
                 # tool calls), which is the AC-1 case where a real answer + a stray
@@ -1368,14 +1378,14 @@ class SimpleLoop:
         has_mutation = bool(created_files or files_edited)
         has_file_work = has_mutation
         # Purely model-dependent completion: no hard-coded length/mutation/citation
-        # checks â€” harness is thin deterministic executor around emergent model signal
+        # checks — harness is thin deterministic executor around emergent model signal
         # (Pi Codex OpenCode invariant: continue iff tool_calls present).
         substantive_answer = bool(
             self._last_emitted_message
             and len(self._last_emitted_message.strip()) >= SUMMARY_MIN_CHARS
         )
         # Salvage only for deterministic guards (stall/doom/length), not for
-        # incomplete research â€” that is handled by the emergent nudge above.
+        # incomplete research — that is handled by the emergent nudge above.
         salvaged = False
         if (stalled or doomed or iteration >= max_steps) and len(
             (self._last_emitted_message or "").strip()
@@ -1394,7 +1404,7 @@ class SimpleLoop:
         is_length_truncated = bool(last_finish_reason == FinishReason.LENGTH or length_truncated)
         is_step_limited = bool(iteration >= max_steps)
 
-        # Honest turn completion â€” purely model-dependent, thin harness:
+        # Honest turn completion — purely model-dependent, thin harness:
         # Completed iff model finished without deterministic guard violation.
         # No hard-coded has_mutation/has_todo_success/substantive length check.
         if is_length_truncated or is_stalled or has_pending_todos or is_step_limited:
@@ -1547,7 +1557,16 @@ class SimpleLoop:
         single message list — so the prompt delta across this step is what gets
         anchored, and everything appended after dispatch_messages (assistant
         response and tool results) is estimated on top.
+
+        ``request_size`` is the length of the list that was billed, and it is
+        only meaningful as an index into the list occupancy is later measured
+        against. Pass ``0`` to decline: an anchor whose index no longer names the
+        same message credits the wrong head, which reads *low* and lets a turn
+        grow past the window instead of compacting in time.
         """
+        if request_size <= 0:
+            self.context_manager.clear_usage_anchor()
+            return
         after = getattr(self.provider, "_cumulative_usage", {}) or {}
         if not isinstance(after, dict):
             return

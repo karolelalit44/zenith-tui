@@ -64,10 +64,18 @@ class ContextDiagnostics:
         return repeated
 
     def record_ladder_savings(self, tokens: int) -> None:
-        self.ladder_saved_tokens += max(0, int(tokens or 0))
+        """Keep the largest saving this turn's dispatch has reached.
+
+        Not a sum. The bounding passes are idempotent and re-derive the same
+        saving from the same source on every step of a turn, so adding each
+        step's figure would report one saving multiplied by the step count. The
+        turn's saving is the best result it reached.
+        """
+        self.ladder_saved_tokens = max(self.ladder_saved_tokens, max(0, int(tokens or 0)))
 
     def record_dedup_savings(self, tokens: int) -> None:
-        self.dedup_saved_tokens += max(0, int(tokens or 0))
+        """Largest deduplication saving reached this turn. Same rule as above."""
+        self.dedup_saved_tokens = max(self.dedup_saved_tokens, max(0, int(tokens or 0)))
 
     def record_fold(self) -> None:
         self.folds += 1
