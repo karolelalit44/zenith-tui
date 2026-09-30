@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import pytest
 
+from server.agents.compaction import CompactionStats
+
 
 def _result(
     body: str,
@@ -84,14 +86,6 @@ class TestFailureDetection:
         clean = "[Tool: bash | Status: SUCCESS]\n399 passed in 4.2s\n"
         assert has_failure_report(clean, "bash") is False
 
-    def test_source_mentioning_errors_is_not_a_failure_report(self):
-        """A ``file_read`` payload is code, not a diagnosis of one."""
-        from server.agents.compaction import has_failure_report
-
-        src = "[Tool: file_read | Status: SUCCESS]\nraise ValueError('x')\n# SyntaxError\n"
-        assert has_failure_report(src, "file_read") is False
-        assert has_failure_report(src, "grep") is False
-
     def test_structured_status_is_authoritative(self):
         from server.agents.compaction import is_failed_result
 
@@ -112,11 +106,19 @@ class TestFailureDetection:
         assert is_failed_result(legacy_ok) is False
         assert is_failed_result(legacy_bad) is True
 
-    def test_failure_lines_are_returned_in_document_order(self):
-        from server.agents.compaction import failure_lines
+    def test_has_failure_report_checks_protocol_status(self):
+        from server.agents.compaction import has_failure_report
 
-        lines = failure_lines("ok\nFAIL: a\nfine\nERROR: b\n")
-        assert lines == ["FAIL: a", "ERROR: b"]
+        assert has_failure_report("[Tool: bash | Status: FAILED]\nboom", "bash") is True
+        assert has_failure_report("[Tool: bash | Status: SUCCESS]\nok", "bash") is False
+
+    def test_source_mentioning_errors_is_not_a_failure_report(self):
+        """A ``file_read`` payload is code, not a diagnosis of one."""
+        from server.agents.compaction import has_failure_report
+
+        src = "[Tool: file_read | Status: SUCCESS]\nraise ValueError('x')\n# SyntaxError\n"
+        assert has_failure_report(src, "file_read") is False
+        assert has_failure_report(src, "grep") is False
 
     def test_failure_lines_respect_their_budget(self):
         from server.agents.compaction import FAILURE_LINE_BUDGET, failure_lines
@@ -129,27 +131,28 @@ class TestFailureLane:
     def test_keeps_the_diagnosis_the_generic_lane_would_destroy(self):
         from server.agents.compaction import _bound_ordinary_result, bound_tool_message
 
-        msg = _result(_failing_log())
+        msg = _result(_failing_log(), status="error")
         generic = _bound_ordinary_result(msg["content"], 1000)
         assert "TypeError: build_request" not in generic
 
         bound_tool_message(msg, 1000)
         assert "TypeError: build_request" in msg["content"]
         assert "test_handler[case-7]" in msg["content"]
+        assert "tests/test_x.py" in msg["content"]
 
     def test_keeps_the_status_header(self):
         from server.agents.compaction import bound_tool_message
 
-        msg = _result(_failing_log())
+        msg = _result(_failing_log(), status="error")
         bound_tool_message(msg, 1000)
-        assert msg["content"].startswith("[Tool: bash | Status: SUCCESS]")
+        assert msg["content"].startswith("[Tool: bash | Status: FAILED]")
 
     def test_a_short_failure_is_untouched(self):
         from server.agents.compaction import bound_tool_message
 
-        msg = _result("FAIL: boom\ntrace")
+        msg = _result("FAIL: boom\ntrace", status="error")
         bound_tool_message(msg, 1000)
-        assert msg["content"] == "[Tool: bash | Status: SUCCESS]\nFAIL: boom\ntrace"
+        assert msg["content"] == "[Tool: bash | Status: FAILED]\nFAIL: boom\ntrace"
         assert "time" not in msg
 
     def test_the_failure_lane_is_dense_where_the_generic_lane_is_not(self):
@@ -161,7 +164,7 @@ class TestFailureLane:
         """
         from server.agents.compaction import _bound_ordinary_result, bound_tool_message
 
-        msg = _result(_failing_log())
+        msg = _result(_failing_log(), status="error")
         generic = _bound_ordinary_result(msg["content"], 4000)
         bound_tool_message(msg, 4000)
 
@@ -173,7 +176,7 @@ class TestFailureLane:
     def test_a_failure_below_the_floor_still_keeps_its_diagnosis(self):
         from server.agents.compaction import FAILURE_MIN_CHARS, bound_tool_message
 
-        msg = _result(_failing_log())
+        msg = _result(_failing_log(), status="error")
         bound_tool_message(msg, 1)
         # A 1-char budget cannot carry a diagnosis, so the floor raises it rather
         # than the lane obeying a limit that would make it useless.
@@ -350,3 +353,105 @@ class TestSharedAcrossCallSites:
         msgs = self._fixtures()
         _, stats = prune_inflight_messages(msgs, keep_latest_tools=0, max_output=500)
         assert stats.tokens_saved > 0
+
+
+class TestDeduplication:
+    """Reads the conversation already paid for.
+
+    Two reductions, and the second is the one that matters for correctness
+    rather than cost: a read that a later edit invalidated is still in context
+    describing a version of the file that is gone.
+    """
+
+    @staticmethod
+    def _m(tool, paths, body="payload " * 200):
+        return {
+            "role": "user",
+            "content": f"[Tool: {tool} | Status: SUCCESS]\n{body}",
+            "tool_name": tool,
+            "tool_status": "ok",
+            "tool_paths": paths,
+        }
+
+    def test_a_read_invalidated_by_a_later_edit_is_relabelled(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        out, st = dedupe_tool_results([self._m("file_read", ["a.py"]), self._m("file_edit", ["a.py"], "ok")])
+        assert "Stale" in out[0]["content"]
+        assert st.superseded == 1
+
+    def test_a_read_of_a_file_not_yet_edited_is_untouched(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        msgs = [self._m("file_edit", ["a.py"], "ok"), self._m("file_read", ["a.py"])]
+        out, st = dedupe_tool_results(msgs)
+        assert st.superseded == 0
+        assert out[1]["content"] == msgs[1]["content"]
+
+    def test_a_read_after_the_edit_is_the_fresh_one(self):
+        """Direction matters: walking newest-first is what gets this right."""
+        from server.agents.compaction import dedupe_tool_results
+
+        out, _ = dedupe_tool_results([self._m("file_read", ["a.py"]), self._m("file_edit", ["a.py"], "ok")])
+        assert "Stale" in out[0]["content"]
+        assert "Stale" not in out[1]["content"]
+
+    def test_a_repeated_read_is_reduced_to_a_pointer(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        out, st = dedupe_tool_results([self._m("file_read", ["a.py"]), self._m("file_read", ["./a.py"])])
+        assert "already in context" in out[0]["content"]
+        assert st.tokens_saved > 0
+
+    def test_relabelling_is_not_counted_as_a_saving(self):
+        """A stale notice costs characters. Reporting it as a saving would lie."""
+        from server.agents.compaction import dedupe_tool_results
+
+        _, st = dedupe_tool_results([self._m("file_read", ["a.py"]), self._m("file_edit", ["a.py"], "ok")])
+        assert st.tokens_saved == 0
+        assert st.superseded == 1
+        assert st.changed is True
+
+    def test_unrelated_paths_are_left_alone(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        msgs = [self._m("file_read", ["a.py"]), self._m("file_read", ["b.py"])]
+        out, st = dedupe_tool_results(msgs)
+        assert st.changed is False
+        assert out == msgs
+
+    def test_inputs_are_never_mutated(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        msgs = [self._m("file_read", ["a.py"]), self._m("file_read", ["a.py"])]
+        before = [dict(m) for m in msgs]
+        dedupe_tool_results(msgs)
+        assert msgs == before
+
+    def test_path_spelling_does_not_defeat_matching(self):
+        """Separators and prefixes vary; the file does not."""
+        from server.agents.compaction import dedupe_tool_results
+
+        out, _ = dedupe_tool_results([self._m("file_read", ["src\\a.py"]), self._m("file_read", ["./src/a.py"])])
+        assert "already in context" in out[0]["content"]
+
+    def test_genuinely_different_paths_are_not_merged(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        msgs = [self._m("file_read", ["src/a.py"]), self._m("file_read", ["a.py"])]
+        out, st = dedupe_tool_results(msgs)
+        assert st.changed is False
+        assert out[0] is msgs[0] and out[1] is msgs[1]
+
+    def test_messages_without_paths_are_ignored(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        legacy = {"role": "user", "content": "[Tool: file_read | Status: SUCCESS]\nold", "tool_name": "file_read"}
+        out, st = dedupe_tool_results([legacy, self._m("file_read", ["a.py"])])
+        assert st.changed is False
+        assert out[0] is legacy
+
+    def test_empty_input(self):
+        from server.agents.compaction import dedupe_tool_results
+
+        assert dedupe_tool_results([]) == ([], CompactionStats())

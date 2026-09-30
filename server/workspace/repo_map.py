@@ -376,7 +376,23 @@ class RepoMap:
 
         resolved: set[str] = set()
         for raw in paths:
-            candidate = raw.replace("\\", "/").lstrip("./")
+            if not raw:
+                continue
+            # Handle absolute paths within workspace
+            try:
+                cand_path = Path(raw)
+                if cand_path.is_absolute():
+                    try:
+                        rel_candidate = cand_path.relative_to(self.root).as_posix()
+                        if rel_candidate in suffixes:
+                            resolved.add(rel_candidate)
+                            continue
+                    except ValueError:
+                        pass
+            except Exception:
+                pass
+
+            candidate = raw.replace("\\", "/").removeprefix("./").lstrip("/")
             if candidate in suffixes:
                 resolved.add(candidate)
                 continue

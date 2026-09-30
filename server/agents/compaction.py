@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 
 from server.config.constants import (
@@ -26,55 +25,14 @@ PRESERVE_ON_COMPACT: frozenset[str] = frozenset({"file_read", "todo"})
 # Failure detection
 # ---------------------------------------------------------------------------
 
-# The vocabulary a failed run prints, grouped by where it comes from. This is a
-# catalogue of the *fail markers* the common toolchains emit, not a list of
-# scenarios: every entry is a token the ecosystem emits verbatim, so a project on
-# a toolchain not listed degrades to the ordinary lane rather than misbehaving.
-# Extend by appending to the tuple rather than by branching on tool identity.
-FAILURE_LINE_RE: re.Pattern[str] = re.compile(
-    # Python
-    r"Traceback \(most recent call last\)"
-    r"|\b(?:AssertionError|SyntaxError|IndentationError|NameError|TypeError"
-    r"|ValueError|KeyError|IndexError|AttributeError|RuntimeError"
-    r"|ImportError|ModuleNotFoundError|ZeroDivisionError|RecursionError)\b"
-    # JS / TS
-    r"|\berror TS\d{4}\b"
-    r"|\b(?:TypeError|ReferenceError|SyntaxError|RangeError):\s"
-    # Go
-    r"|\bpanic:\s"
-    r"|^--- FAIL:\s"
-    # Rust
-    r"|^error\[E\d{4}\]"
-    r"|panicked at "
-    # Generic test / build failure markers
-    r"|^\s*=*\s*(?:FAILURES|ERRORS?|SHORT TEST SUMMARY|ERROR SUMMARY)\b"
-    r"|^\s*_{3,}\s*\S.*_{3,}\s*$"  # pytest names the failing test in an underscore banner
-    r"|^\s*(?:FAILED|FAIL|ERROR|error):"
-    r"|\bFAILED\b"
-    # Runners pad their summary line with '=' on both sides, so the count is not
-    # at the start of the line: "===== 1 failed, 399 passed in 4.21s =====".
-    r"|^\s*=*\s*\d+ (?:failed|failing|errors?)\b"
-    r"|\b(?:npm|pnpm|yarn) ERR!"
-    r"|\b(?:make|cmake)\[?\d*\]?: \*\*\*"
-    # Shell / process exit
-    r"|\bexit(?:\s+status|\s+code|ed with (?:code|status))\s*[:=]?\s*[1-9]\d*\b"
-    r"|\bSegmentation fault\b"
-    # Visual markers used by runners and CI reporters
-    r"|\bFAILED\b|✗|✘|❌|●\s",
-    re.MULTILINE,
-)
-
 # A failure report is worth a budget of its own. The ordinary lane exists to
 # keep the common case small; the failure lane exists so a diagnostic the model
 # needs in order to fix something is not trimmed to the point of being useless.
-# A failing 5 000-line log costs more to keep than a passing one saves, so the
-# budget stays a bound rather than a promise.
 FAILURE_MIN_CHARS = 4_000
 
-# How many failure lines to preserve verbatim when a report has to be cut. Errors
-# cluster at the two ends of a transcript — the command that ran at the top, the
-# traceback at the bottom — so the ends are what get kept when the middle does
-# not fit.
+# How many failure lines to preserve when a report has to be cut. Errors
+# cluster at the tail of a transcript — the command at the top, the traceback
+# at the bottom — so the ends are what get kept when the middle does not fit.
 FAILURE_LINE_BUDGET = 40
 
 
@@ -107,38 +65,94 @@ def is_failed_result(msg: dict) -> bool:
     """True when the tool itself reported failure.
 
     Decided from the structured ``tool_status`` stamp the loop attaches, so this
-    never depends on the model-visible header wording. Falls back to the header
-    only for messages written before the stamp existed.
+    never depends on model-visible prose. Falls back to the header only for
+    messages written before the stamp existed.
     """
     status = msg.get("tool_status")
     if isinstance(status, str) and status:
         return status != "ok"
     content = msg.get("content")
     if isinstance(content, str) and content.startswith("[Tool:"):
-        return "Status: FAILED" in content.split("\n", 1)[0]
+        header = content.partition("\n")[0]
+        return "Status: FAILED" in header or "Status: ERROR" in header
+    return False
+
+
+def is_diagnostic_line(line: str) -> bool:
+    """True when a line carries failure or diagnostic context.
+
+    Evaluates structural characteristics: banners, stack frames, error markers,
+    and assertion traces, without hardcoded language dictionaries or fragile regexes.
+    """
+    s = line.strip()
+    if not s:
+        return False
+
+    # 1. Section banners and separators (=== FAILURES ===, ___ test ___, --- FAIL ---)
+    if (s.startswith(("===", "___", "---", "***")) and len(s) >= 5) or (
+        s.endswith(("===", "___", "---", "***")) and len(s) >= 5
+    ):
+        return True
+
+    # 2. Terminal error markers
+    if s.startswith(("E ", "E\t", "F ", "!", "[!]", "[FAIL]", "[ERROR]", "Error:", "error:", "FAIL:", "FAILED:")):
+        return True
+
+    if s.startswith(("✗", "✘", "❌")) or "● " in s:
+        return True
+
+    lower = s.lower()
+    # 3. Stack trace frames and code positions
+    if (
+        ("file " in lower and "line " in lower)
+        or (": in " in s)
+        or ("-->" in s)
+        or (s.startswith("at ") and "(" in s and ")" in s)
+    ):
+        return True
+
+    parts = s.split(":", 2)
+    if len(parts) >= 2 and parts[1].strip().isdigit():
+        return True
+
+    # 4. Universal failure terms
+    for term in (
+        "error",
+        "fail",
+        "failed",
+        "failing",
+        "exception",
+        "traceback",
+        "panic",
+        "panicked",
+        "segmentation fault",
+        "err!",
+    ):
+        if term in lower:
+            if f"0 {term}" in lower or f"0 {term}s" in lower:
+                continue
+            return True
+
+    if "exit status " in lower or "exit code " in lower or "exited with code " in lower:
+        succeeded = "exit status 0" in lower or "exit code 0" in lower or "exited with code 0" in lower
+        if not succeeded:
+            return True
+
     return False
 
 
 def failure_lines(text: str, limit: int = FAILURE_LINE_BUDGET) -> list[str]:
-    """Lines of *text* that report a failure, in document order."""
+    """Lines of *text* that carry diagnostic or failure details, in document order."""
     if not text:
         return []
-    hits = [line for line in text.splitlines() if FAILURE_LINE_RE.search(line)]
+    hits = [line for line in text.splitlines() if is_diagnostic_line(line)]
     return hits[:limit]
 
 
 def has_failure_report(content: str, tool_name: str) -> bool:
     """True when *content* is a transcript that reports a failure.
 
-    Only meaningful for capture tools. The payload of ``file_read`` or
-    ``grep`` legitimately contains the word "error" — it is source code or a
-    match — and scanning it would mark ordinary reads as failures and exempt
-    them from compaction forever. Whether a tool *emits diagnostics* is a
-    property of the tool, so it is decided by the tool, not by the text.
-
-    ``TERMINAL_OUTPUT_TOOLS`` is imported lazily: this module is loaded by the
-    compaction path, which sits above the toolkit in the import graph, and a
-    top-level import would close that cycle.
+    Only meaningful for capture tools. Condition-oriented check without regex.
     """
     if not content:
         return False
@@ -146,7 +160,16 @@ def has_failure_report(content: str, tool_name: str) -> bool:
 
     if tool_name not in TERMINAL_OUTPUT_TOOLS:
         return False
-    return bool(FAILURE_LINE_RE.search(content))
+    header, sep, body = content.partition("\n")
+    if header.startswith("[Tool:") and ("Status: FAILED" in header or "Status: ERROR" in header):
+        return True
+    target = body if sep else content
+    for line in target.splitlines():
+        if is_diagnostic_line(line):
+            return True
+    return False
+
+
 
 
 @dataclass
@@ -159,6 +182,14 @@ class CompactionStats:
     chars_removed: int = 0
     tokens_saved: int = 0
     reason: str = ""
+    # Results relabelled rather than reduced: a read that a later edit
+    # invalidated stays in context and gains a notice, so it costs a little and
+    # protects correctness. Counting it as a saving would flatter the number.
+    superseded: int = 0
+
+    @property
+    def changed(self) -> bool:
+        return self.trimmed or self.superseded > 0
 
 
 def strip_ansi(text: str) -> tuple[str, int]:
@@ -265,43 +296,26 @@ def _split_result_header(content: str) -> tuple[str, str]:
 
 
 def bound_failure_result(content: str, max_chars: int) -> str:
-    """Bound a result that reports a failure, preserving the diagnosis.
+    """Bound a failed tool result while preserving diagnostic detail and traceback.
 
-    The head/tail trim used for ordinary output is the wrong shape here: it
-    keeps the first and last lines of a transcript, which for a failing run is
-    the command echo and the summary — precisely the two parts that do not say
-    what went wrong. This keeps the lines that do.
-
-    A result already within budget is returned untouched, so the common case of
-    a short failure costs nothing.
+    Filters out high-volume repetitive noise (such as hundreds of passing test items)
+    to retain failure banners, stack frames, file/line locations, and assertion errors.
     """
     if len(content) <= max_chars:
         return content
     header, body = _split_result_header(content)
-    lines = failure_lines(body)
-    if not lines:
-        # Unreachable when has_failure_report() gated the call, but the
-        # function has to be total: a caller that reaches it with no failure
-        # lines has no basis for choosing a better cut than the generic one.
-        return _bound_ordinary_result(content, max_chars)
+    if not body:
+        return content
     budget = max(0, max_chars - len(header) - 1)
+
+    lines = failure_lines(body, limit=FAILURE_LINE_BUDGET * 4)
+    if not lines:
+        return _bound_ordinary_result(content, max_chars)
+
     kept = "\n".join(lines)
-    if len(kept) > budget:
-        kept = "\n".join(_fit_lines_to_budget(lines, budget))
-    return f"{header}\n{kept}"
+    if len(kept) <= budget:
+        return f"{header}\n{kept}"
 
-
-def _fit_lines_to_budget(lines: list[str], budget: int) -> list[str]:
-    """Take lines from both ends of *lines* until *budget* characters are used.
-
-    Split on characters, not on a line count. Two failure lines can differ by
-    three orders of magnitude in length — one exception, one stack frame — so a
-    split expressed in lines silently overshoots a small budget and underspends
-    a large one.
-
-    The head is weighted heavier because a transcript's opening carries the
-    command and its options while the tail is usually a summary count.
-    """
     head_budget = budget * 2 // 3
     tail_budget = budget - head_budget
 
@@ -323,9 +337,11 @@ def _fit_lines_to_budget(lines: list[str], budget: int) -> list[str]:
     tail, _ = _take(lines, tail_budget, from_end=True)
     omitted = len(lines) - len(head) - len(tail)
     if omitted <= 0:
-        return lines
+        return f"{header}\n" + "\n".join(lines)
     marker = [f"... [{omitted} failure lines omitted] ..."]
-    return [*head, *marker, *tail]
+    return f"{header}\n" + "\n".join([*head, *marker, *tail])
+
+
 
 
 def _bound_ordinary_result(content: str, max_chars: int) -> str:
@@ -395,6 +411,108 @@ def merge_compaction_stats(target: CompactionStats, source: CompactionStats) -> 
     if source.reason and not target.reason:
         target.reason = source.reason
     return target
+
+
+# Tools whose result changes the file they name. A read of a path any of these
+# has touched is describing a version of the file that no longer exists.
+MUTATING_TOOLS: frozenset[str] = frozenset({"file_write", "file_edit", "file_delete", "apply_patch"})
+
+
+def _normalise_path(raw: str) -> str:
+    """Comparable form of a path as a message or a conversation might spell it."""
+    return raw.replace("\\", "/").removeprefix("./").lstrip("/")
+
+
+def dedupe_tool_results(messages: list[dict]) -> tuple[list[dict], CompactionStats]:
+    """Collapse tool results the conversation has already paid for.
+
+    Two reductions, both decided by walking the list newest-first so that only
+    information *after* a result can supersede it:
+
+    * **Stale reads.** Once a mutating tool has changed a path, every earlier read
+      of that path describes a version of the file that is gone. The read stays in
+      context but is relabelled, because the alternative — dropping it — leaves the
+      model either re-reading a file it believes it has, or worse, editing from a
+      version that no longer matches disk.
+    * **Repeated reads.** A second read of a path already read in context is
+      replaced with a pointer to the first, so the same file occupies the window
+      once instead of once per re-read.
+
+    Operates on copies: the entries on disk keep full fidelity, and a re-render at
+    a larger budget recovers the original text.
+    """
+    stats = CompactionStats()
+    if not messages:
+        return ([], stats)
+
+    mutated: set[str] = set()
+    read_paths: dict[str, int] = {}
+    out: list[dict] = list(messages)
+
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if not is_tool_message(msg):
+            continue
+        tool = _message_tool_name(msg)
+        raw_paths = msg.get("tool_paths")
+        paths = [_normalise_path(str(p)) for p in raw_paths] if isinstance(raw_paths, list) else []
+
+        if tool in MUTATING_TOOLS:
+            mutated.update(paths)
+            continue
+
+        if tool != "file_read":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, str) or not paths:
+            continue
+
+        path = paths[0]
+        already = read_paths.get(path)
+        if already is not None:
+            original = len(content)
+            out[i] = {
+                **msg,
+                "content": _read_pointer(path, messages[already]),
+                "time": "deduped",
+            }
+            stats.chars_removed += max(0, original - len(out[i]["content"]))
+            continue
+        read_paths[path] = i
+
+        if path in mutated:
+            out[i] = {
+                **msg,
+                "content": _stale_read_notice(path, content),
+                "time": "deduped",
+            }
+            stats.superseded += 1
+
+    stats.tokens_saved = stats.chars_removed // CHARS_PER_TOKEN
+    stats.trimmed = stats.chars_removed > 0
+    if stats.changed:
+        stats.reason = "duplicate or superseded tool results"
+    return (out, stats)
+
+
+def _read_pointer(path: str, original: dict) -> str:
+    content = original.get("content") or ""
+    header = _split_result_header(content)[0] if isinstance(content, str) else ""
+    return (
+        f"[Superseded read of {path}: this file's content is already in context above "
+        f"from an earlier read. Read it again only to see a range not already shown.]"
+        + (f"\n{header}" if header else "")
+    )
+
+
+def _stale_read_notice(path: str, content: str) -> str:
+    """Prefix a read that a later edit invalidated, keeping its body for reference."""
+    header = _split_result_header(content)[0] if isinstance(content, str) else ""
+    notice = (
+        f"[Stale: {path} was changed after this read. The text below is the version as "
+        f"read, not as it is now on disk. Re-read before editing it.]"
+    )
+    return f"{header}\n{notice}\n{content}" if header else f"{notice}\n{content}"
 
 
 def prune_inflight_messages(

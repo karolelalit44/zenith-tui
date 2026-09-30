@@ -1,4 +1,4 @@
-﻿"""How context occupancy is measured.
+"""How context occupancy is measured.
 
 Occupancy drives every context decision â€” when to prune, when to fold, when to
 refuse the turn â€” so the number has to describe what the window actually holds.
@@ -157,6 +157,36 @@ class TestProviderAnchoring:
         local = ctx.measure(messages, MODEL).tokens
         ctx.record_usage_anchor(len(messages), local)
         assert ctx.measure(messages, MODEL).tokens == local
+
+    def test_anchor_prompt_delta_does_not_double_count_completion(self):
+        """Anchoring prompt_delta covers dispatch_messages, leaving the completion to the tail."""
+        ctx = _manager()
+        dispatch = [{"role": "user", "content": "hello"}]
+        prompt_tokens = ctx.measure(dispatch, MODEL).tokens
+        ctx.record_usage_anchor(len(dispatch), prompt_tokens)
+
+        # Assistant completion is appended to messages
+        messages = [*dispatch, {"role": "assistant", "content": "world"}]
+        usage = ctx.measure(messages, MODEL)
+        assert usage.source == "provider"
+        # Total tokens should only count completion once
+        completion_tokens = ctx.token_counter.count_message(messages[1], MODEL)
+        assert usage.tokens == prompt_tokens + completion_tokens
+
+
+class TestSchemaTokensModeFiltering:
+    def test_schema_tokens_filters_by_mode(self):
+        from server.toolkit import create_default_registry
+        from server.toolkit.resolver import SchemaResolver
+
+        reg = create_default_registry()
+        resolver = SchemaResolver(reg, seed=["file_read", "file_delete"])
+        all_tokens = resolver.schema_tokens(MODEL)
+        plan_tokens = resolver.schema_tokens(MODEL, mode="plan")
+        assert plan_tokens < all_tokens
+
+
+
 
 
 class TestGenerationCeiling:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -93,35 +93,61 @@ def _adaptive_reserve(model: str, context_window: int) -> int:
     return min(reserve, max(0, context_window - 500))
 
 
-# A path-shaped run of text: a segment that contains a separator and ends in a
-# plausible source extension. Used to recover the files a conversation has
-# already been working in, which is the strongest signal the map can rank on.
-_PATH_RE = re.compile(
-    r"[\w./\\-]*[\w-]+\.(?:py|pyi|ts|tsx|js|jsx|mjs|cjs|go|rs|java|rb|c|cc|cpp|h|hpp"
-    r"|cs|kt|swift|scala|php|sh|sql|md|toml|ya?ml|json)\b"
-)
-
-
 def mentioned_paths(history: list[Message], limit: int = 64) -> list[str]:
     """Paths the conversation has referred to, most recent first.
 
-    Ranked by recency because the file being edited now matters more than the
-    one from the previous task, which may still be mentioned twenty messages
-    back and would otherwise hold the map's attention permanently.
+    Condition-oriented extraction from structured tool calls and message text
+    without relying on hardcoded file extension regexes.
     """
     seen: set[str] = set()
     found: list[str] = []
+
+    def _add(path_str: str) -> None:
+        if not path_str or len(found) >= limit:
+            return
+        norm = path_str.replace("\\", "/").removeprefix("./").strip("`'\" \t\r\n")
+        if (
+            norm
+            and norm not in seen
+            and not norm.startswith(("http:", "https:", "file:"))
+        ):
+            seen.add(norm)
+            found.append(norm)
+
     for msg in reversed(history):
+        if len(found) >= limit:
+            break
+        # 1. Structured tool calls if present
+        tool_calls = getattr(msg, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for tc in tool_calls:
+                args: Any = {}
+                if isinstance(tc, dict):
+                    args = tc.get("params") or tc.get("function", {}).get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {}
+                if isinstance(args, dict):
+                    for k in ("path", "filepath", "target", "file"):
+                        val = args.get(k)
+                        if isinstance(val, str):
+                            _add(val)
+                    files_list = args.get("files")
+                    if isinstance(files_list, list):
+                        for f in files_list:
+                            if isinstance(f, str):
+                                _add(f)
+
+        # 2. Text tokens containing path separators or extensions
         if not msg.content:
             continue
-        for match in _PATH_RE.findall(msg.content):
-            normalised = match.replace("\\", "/").lstrip("./")
-            if normalised in seen:
-                continue
-            seen.add(normalised)
-            found.append(normalised)
-            if len(found) >= limit:
-                return found
+        for word in msg.content.split():
+            clean = word.strip("`'\"()[]<>{}*,:;")
+            if ("/" in clean or "\\" in clean or ("." in clean and not clean.endswith("."))) and not clean.startswith(("http://", "https://", "file://")):
+                _add(clean)
+
     return found
 
 
@@ -244,18 +270,19 @@ class ContextManager:
 
         The ranking signal that costs nothing to compute and beats structural
         centrality: a file defining the symbol just mentioned is the file the
-        model is about to need. Restricted to the assistant's own recent text —
-        the model's own names, not the user's prose, which mentions files rather
-        than symbols and would bias the map toward whatever was last discussed.
+        model is about to need. Restricted to the assistant's own recent text.
+        Validated using standard identifier rules without regex.
         """
         if not history:
             return set()
-        pattern = re.compile(rf"\b[A-Za-z_][A-Za-z0-9_]{{{MIN_MENTIONED_SYMBOL_LEN - 1},}}\b")
         found: set[str] = set()
         for msg in history[-_MENTION_SCAN_MESSAGES:]:
             if msg.role != "assistant" or not msg.content:
                 continue
-            found.update(pattern.findall(msg.content))
+            cleaned = "".join(ch if (ch.isalnum() or ch == "_") else " " for ch in msg.content)
+            for token in cleaned.split():
+                if len(token) >= MIN_MENTIONED_SYMBOL_LEN and token.isidentifier():
+                    found.add(token)
         return found
 
     def get_repo_map(
@@ -275,18 +302,25 @@ class ContextManager:
             self._repo_map = RepoMap(self.config.workspace_root)
         repo = self._repo_map
 
-        fresh = not force_refresh and self._repo_map_cache is not None
+        tokens = self._resolve_repo_map_tokens(model)
+        mentioned = self._mentioned_symbols(self._repo_map_history)
+        cache_key = (tuple(sorted(chat_files or [])), tuple(sorted(mentioned)))
+
+        fresh = (
+            not force_refresh
+            and self._repo_map_cache is not None
+            and getattr(self, "_repo_map_cache_key", None) == cache_key
+        )
         if fresh and not repo.is_stale():
             return self._repo_map_cache or ""
 
-        tokens = self._resolve_repo_map_tokens(model)
-        mentioned = self._mentioned_symbols(self._repo_map_history)
         self._repo_map_cache = repo.get_repo_map(
             max_tokens=tokens,
             chat_files=chat_files,
             mentioned=mentioned,
             force_refresh=force_refresh,
         )
+        self._repo_map_cache_key = cache_key
         repo.note_rendered()
         return self._repo_map_cache or ""
 
@@ -428,11 +462,37 @@ class ContextManager:
         return self._last_t0_len
 
     def should_summarize(self, messages: list[dict], model: str) -> bool:
-        used = self.usage_tokens(messages, model)
-        max_tokens = self._resolve_context_window(model)
-        watermark = max_tokens * self.config.context_compaction_threshold
-        reserve = _adaptive_reserve(model, max_tokens)
-        return used >= watermark or used >= max_tokens - reserve
+        """Whether the composed context is at or past the compaction watermark.
+
+        Thin alias over :meth:`needs_compaction`, kept because callers and tests
+        read better with this name and because the one threshold this system has
+        should be reachable under one name.
+        """
+        return self.needs_compaction(messages, model)
+
+    def needs_compaction(self, messages: list[dict], model: str) -> bool:
+        """The single compaction predicate.
+
+        Fires on either of two conditions, and both are needed:
+
+        * the configured share of the window is used — the ordinary watermark;
+        * the remaining headroom has fallen below what the next step needs — the
+          backstop, which fires first on a small window where the share is
+          generous but the absolute room is not.
+
+        Having one predicate matters because compaction used to be triggered from
+        two places that had drifted: this one tested both conditions, while the
+        loop's per-iteration check tested only the share. On a small window that
+        difference is the difference between compacting in time and failing the
+        turn.
+        """
+        info = self.get_token_info(messages, model)
+        if info.total <= 0:
+            return False
+        reserve = _adaptive_reserve(model, info.total)
+        return info.used >= info.total * self.config.context_compaction_threshold or (
+            info.used >= info.total - reserve
+        )
 
     def is_context_exhausted(self, messages: list[dict], model: str) -> bool:
         total = self._resolve_context_window(model)

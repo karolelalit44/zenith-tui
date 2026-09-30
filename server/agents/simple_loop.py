@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import json
@@ -44,7 +44,11 @@ from ..toolkit.executor import (
     validate_tool_calls,
     validate_tool_rejection,
 )
-from .compaction import compact_tool_output, prune_inflight_messages
+from .compaction import (
+    compact_tool_output,
+    dedupe_tool_results,
+    prune_inflight_messages,
+)
 from .context import ContextManager
 from .context_diagnostics import ContextDiagnostics
 from .llm_stream import StreamState, stream_completion
@@ -382,7 +386,7 @@ class SimpleLoop:
                     resolver.request_tool(tool_name)
         registered_tools = set(resolver.active_names())
         openai_tools = resolver.openai_tools(mode)
-        self._sync_tool_tokens(resolver, model)
+        self._sync_tool_tokens(resolver, model, mode=mode)
 
         messages = self.context_manager.build_messages(
             history,
@@ -528,8 +532,7 @@ class SimpleLoop:
                 yield r.warning("Request cancelled", session_id, code="CANCELLED")
                 return
 
-            token_info = self.context_manager.get_token_info(messages, model)
-            if token_info.percent >= self.config.context_compaction_threshold:
+            if self.context_manager.needs_compaction(messages, model):
                 async for ev in self._compact(session_id, history, messages):
                     yield ev
                 messages = self._rebuild(
@@ -552,11 +555,14 @@ class SimpleLoop:
             dispatch_messages, prune_stats = prune_inflight_messages(
                 messages, keep_latest_tools=COMPACTION_KEEP_LATEST_TOOLS
             )
-            # Counted once per dispatch, not per message: the prune pass is
-            # idempotent, so re-reading the same already-degraded array would
-            # keep reporting the same saving on every step of the turn.
+            dispatch_messages, dedupe_stats = dedupe_tool_results(dispatch_messages)
+            # Counted once per dispatch, not per message: the passes are
+            # idempotent, so re-reading the same already-bounded array would keep
+            # reporting the same saving on every step of the turn.
             if prune_stats.tokens_saved:
                 diagnostics.ladder_saved_tokens = prune_stats.tokens_saved
+            if dedupe_stats.tokens_saved:
+                diagnostics.dedup_saved_tokens = dedupe_stats.tokens_saved
             # Sanitize assistant messages that have empty content and no tool_calls.
             # Providers (OpenRouter, OpenAI) reject requests containing such turns
             # with "model output must contain either output text or tool calls".
@@ -597,7 +603,7 @@ class SimpleLoop:
                             promotable.append(_fname)
                 if promotable and resolver.request_tools(promotable):
                     openai_tools = resolver.openai_tools(mode)
-                    self._sync_tool_tokens(resolver, model)
+                    self._sync_tool_tokens(resolver, model, mode=mode)
 
                 offered = {
                     (t.get("function") or {}).get("name")
@@ -1170,10 +1176,19 @@ class SimpleLoop:
                 executed_call_status[sig] = result.success
                 executed_any_call_this_turn = True
                 stall_count = 0
+                # Paths this result is *about*, stamped onto the message so the
+                # context layer can tell a read of `a.py` from an edit of it
+                # without parsing the model-facing output. A read that a later
+                # edit invalidated is worse than no read: the model quotes it.
+                touched_paths: list[str] = []
+                p = tool_params.get("filepath") or tool_params.get("path") or ""
+                if p:
+                    touched_paths.append(str(p))
+                if result.metadata and isinstance(result.metadata.get("files"), list):
+                    touched_paths.extend(str(f) for f in result.metadata["files"] if f)
                 if result.success:
                     turn_had_success = True
                     any_tool_succeeded = True
-                    p = tool_params.get("filepath") or tool_params.get("path") or ""
                     if tool_name == "file_write" and p:
                         created_files.add(str((Path(self.config.workspace_root) / p).resolve()))
                         created_files.add(p)
@@ -1231,6 +1246,7 @@ class SimpleLoop:
                     # someone improves the wording.
                     "tool_name": tool_name,
                     "tool_status": "ok" if result.success else "error",
+                    "tool_paths": touched_paths,
                     "salvage_digest": f"{tool_name}: {'ok' if result.success else 'error'}",
                 }
                 if tool_name in ("glob", "grep") and result.success:
@@ -1505,7 +1521,7 @@ class SimpleLoop:
         except Exception:
             return 3
 
-    def _sync_tool_tokens(self, resolver: SchemaResolver, model: str) -> None:
+    def _sync_tool_tokens(self, resolver: SchemaResolver, model: str, mode: str = "") -> None:
         """Fold the offered tool schemas into context occupancy.
 
         The schema block occupies the context window on every request but is
@@ -1514,7 +1530,7 @@ class SimpleLoop:
         changes, which mid-turn means every escalation.
         """
         try:
-            self.context_manager.set_aux_tokens(resolver.schema_tokens(model))
+            self.context_manager.set_aux_tokens(resolver.schema_tokens(model, mode=mode))
         except Exception as exc:  # measurement must never break a turn
             logger.debug("Tool-schema token measurement failed for %s: %s", model, exc)
 
@@ -1523,19 +1539,19 @@ class SimpleLoop:
 
         The provider reports what one request actually cost, which is a truer
         number than anything a local estimate can produce. The turn's running
-        total cannot serve that purpose â€” it sums every step and describes no
-        single message list â€” so the delta across this step is what gets
-        anchored, and everything the step appended is estimated on top.
+        total cannot serve that purpose — it sums every step and describes no
+        single message list — so the prompt delta across this step is what gets
+        anchored, and everything appended after dispatch_messages (assistant
+        response and tool results) is estimated on top.
         """
         after = getattr(self.provider, "_cumulative_usage", {}) or {}
         if not isinstance(after, dict):
             return
-        total = sum(
-            int(after.get(k, 0) or 0) - int(before.get(k, 0) or 0)
-            for k in ("prompt_tokens", "completion_tokens")
-        )
+        prompt_delta = int(after.get("prompt_tokens", 0) or 0) - int(before.get("prompt_tokens", 0) or 0)
+        if prompt_delta <= 0:
+            return
         try:
-            self.context_manager.record_usage_anchor(request_size, total)
+            self.context_manager.record_usage_anchor(request_size, prompt_delta)
         except Exception as exc:  # anchoring is an optimisation, never a blocker
             logger.debug("Usage anchoring failed: %s", exc)
 

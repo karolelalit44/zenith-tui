@@ -113,7 +113,7 @@ class SchemaResolver:
 
         return schemas_to_openai_tools(self.schemas(mode))
 
-    def schema_tokens(self, model: str) -> int:
+    def schema_tokens(self, model: str, mode: str | None = None) -> int:
         """Tokens the offered tool schemas consume on every request.
 
         Not part of any message, so it is invisible to message-level token
@@ -123,14 +123,20 @@ class SchemaResolver:
         if self.registry is None:
             return 0
         active = tuple(self._active)
+        cache_key = (active, model, mode or "")
         cached = self._schema_token_cache
-        if cached is not None and cached[0] == active and cached[1] == model:
-            return cached[2]
+        if cached is not None and cached[0] == cache_key:
+            return cached[1]
         total = 0
-        for name in active:
-            tool = self.registry.get(name)
+        if mode:
+            schemas = self.schemas(mode)
+            tools = [self.registry.get(s["name"]) for s in schemas if isinstance(s, dict) and "name" in s]
+        else:
+            tools = [self.registry.get(name) for name in active]
+        for tool in tools:
             if tool is None:
                 continue
             total += estimate_tool_schema_tokens(tool.get_schema(), tool.description, model)
-        self._schema_token_cache = (active, model, total)
+        self._schema_token_cache = (cache_key, total)
         return total
+
