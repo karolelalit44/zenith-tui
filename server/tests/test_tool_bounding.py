@@ -455,3 +455,161 @@ class TestDeduplication:
         from server.agents.compaction import dedupe_tool_results
 
         assert dedupe_tool_results([]) == ([], CompactionStats())
+
+
+class TestNormalisation:
+    """The invariant every pruning rule depends on.
+
+    A request whose assistant turn declares calls the following messages do not
+    answer is rejected outright by strict providers, and the bounding passes can
+    create that. The repair removes the call rather than inventing a result,
+    because tool results here carry no call id and a fabricated "this call did
+    nothing" is a worse lie than an absent one.
+    """
+
+    @staticmethod
+    def _call(*ids):
+        return {
+            "role": "assistant",
+            "content": "working",
+            "tool_calls": [
+                {"id": c, "type": "function", "function": {"name": "bash", "arguments": "{}"}}
+                for c in ids
+            ],
+        }
+
+    @staticmethod
+    def _result(name="bash", body="ok"):
+        return {
+            "role": "user",
+            "content": f"[Tool: {name} | Status: SUCCESS]\n{body}",
+            "tool_name": name,
+            "tool_status": "ok",
+        }
+
+    def test_a_complete_pair_is_untouched(self):
+        from server.agents.compaction import normalise_tool_pairs
+
+        pair = [self._call("c1"), self._result()]
+        out, st = normalise_tool_pairs(pair)
+        assert out == pair
+        assert st.reason == ""
+
+    def test_an_unanswered_call_is_removed_not_invented(self):
+        from server.agents.compaction import normalise_tool_pairs
+
+        out, st = normalise_tool_pairs(
+            [self._call("c1"), {"role": "user", "content": "the actual prompt"}]
+        )
+        assert "tool_calls" not in out[0]
+        assert out[0]["content"] == "working"
+        assert out[1]["content"] == "the actual prompt"
+        assert "removed" in st.reason
+        # nothing fabricated
+        assert all("interrupted" not in str(m.get("content")) for m in out)
+
+    def test_only_the_tail_of_a_batch_is_removed(self):
+        from server.agents.compaction import normalise_tool_pairs
+
+        out, st = normalise_tool_pairs(
+            [self._call("c1", "c2", "c3"), self._result(body="one"), self._result(body="two")]
+        )
+        assert [c["id"] for c in out[0]["tool_calls"]] == ["c1", "c2"]
+        assert len(out) == 3
+        assert "1 unanswered" in st.reason
+
+    def test_a_trailing_batch_of_calls_is_fully_stripped(self):
+        from server.agents.compaction import iter_tool_calls, normalise_tool_pairs
+
+        out, _ = normalise_tool_pairs([self._call("c1"), self._call("c2")])
+        assert all(not iter_tool_calls(m) for m in out)
+        assert [m["role"] for m in out] == ["assistant", "assistant"]
+
+    def test_an_empty_tool_calls_array_is_never_emitted(self):
+        """An empty array is itself rejected by strict providers."""
+        from server.agents.compaction import normalise_tool_pairs
+
+        out, _ = normalise_tool_pairs([self._call("c1")])
+        assert "tool_calls" not in out[0]
+
+    def test_a_result_with_no_id_is_an_external_event_and_kept(self):
+        from server.agents.compaction import normalise_tool_pairs
+
+        external = {"role": "tool", "content": "[external] a webhook fired"}
+        out, st = normalise_tool_pairs([external])
+        assert out == [external]
+        assert st.reason == ""
+
+    def test_a_result_naming_a_call_nobody_made_is_dropped(self):
+        from server.agents.compaction import normalise_tool_pairs
+
+        out, st = normalise_tool_pairs(
+            [{"role": "tool", "tool_call_id": "never-called", "content": "payload"}]
+        )
+        assert out == []
+        assert "orphan" in st.reason
+
+    def test_empty_and_call_free_input_is_a_no_op(self):
+        from server.agents.compaction import normalise_tool_pairs
+
+        assert normalise_tool_pairs([])[0] == []
+        only_user = [{"role": "user", "content": "hi"}]
+        assert normalise_tool_pairs(only_user)[0] == only_user
+
+    def test_does_not_mutate_its_input(self):
+        from server.agents.compaction import normalise_tool_pairs
+
+        msgs = [self._call("c1", "c2"), self._result()]
+        before = [dict(m) for m in msgs]
+        normalise_tool_pairs(msgs)
+        assert msgs == before
+        assert len(msgs[0]["tool_calls"]) == 2
+
+    def test_iter_tool_calls_reads_both_persisted_shapes(self):
+        from server.agents.compaction import iter_tool_calls
+
+        modern = {
+            "role": "assistant",
+            "tool_calls": [{"id": "x", "function": {"name": "bash", "arguments": {}}}],
+        }
+        legacy = {"role": "assistant", "tool_name": "bash", "tool_call_id": "x"}
+        assert iter_tool_calls(modern) == [("bash", "x")]
+        assert iter_tool_calls(legacy) == [("bash", "x")]
+        assert iter_tool_calls({"role": "user", "content": "hi"}) == []
+
+    def test_every_declared_call_is_answered_after_the_passes(self):
+        """The composition guarantee, not a unit detail."""
+        from server.agents.compaction import (
+            dedupe_tool_results,
+            normalise_tool_pairs,
+            prune_inflight_messages,
+        )
+
+        big = "payload " * 500
+        msgs = [
+            {
+                "role": "assistant",
+                "content": "go",
+                "tool_calls": [
+                    {"id": "r1", "function": {"name": "file_read", "arguments": {}}}
+                ],
+            },
+            {"role": "user", "content": f"[Tool: file_read | Status: SUCCESS]\n{big}",
+             "tool_name": "file_read", "tool_status": "ok", "tool_paths": ["a.py"]},
+            {"role": "user", "content": f"[Tool: file_read | Status: SUCCESS]\n{big}",
+             "tool_name": "file_read", "tool_status": "ok", "tool_paths": ["a.py"]},
+        ]
+        out, _ = prune_inflight_messages(msgs, keep_latest_tools=1, max_output=200)
+        out, _ = dedupe_tool_results(out)
+        out, _ = normalise_tool_pairs(out)
+
+        for m in out:
+            if m.get("tool_calls"):
+                following = 0
+                j = out.index(m) + 1
+                from server.agents.compaction import is_tool_message
+
+                while j < len(out) and is_tool_message(out[j]):
+                    following += 1
+                    j += 1
+                assert following >= len(m["tool_calls"]), "declared call left unanswered"

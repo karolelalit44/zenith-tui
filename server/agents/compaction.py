@@ -515,6 +515,100 @@ def _stale_read_notice(path: str, content: str) -> str:
     return f"{header}\n{notice}\n{content}" if header else f"{notice}\n{content}"
 
 
+def normalise_tool_pairs(messages: list[dict]) -> tuple[list[dict], CompactionStats]:
+    """Make a bounded message list safe to send, without inventing history.
+
+    A request whose assistant turn declares tool calls the following messages do
+    not answer is rejected outright by strict providers, and every pruning and
+    bounding rule in this module can create that condition.
+
+    The repair is *removal*, never synthesis. Tool results here carry no call
+    id, so an unanswered call cannot be matched to a result that may or may not be
+    its own — and inventing a result would put a fabricated "this call did nothing"
+    into the model's history, which is a worse lie than an absent one. So a call
+    that nothing answers is dropped from the declaring turn instead, leaving a turn
+    that still says something and asks for nothing unanswered.
+
+    A no-op on a list that was never pruned, which is the common case.
+    """
+    stats = CompactionStats()
+    if not messages:
+        return ([], stats)
+
+    out: list[dict] = []
+    i = 0
+    dropped_calls = 0
+    while i < len(messages):
+        msg = messages[i]
+        if not iter_tool_calls(msg):
+            # A `role="tool"` result that names a call no turn declared is debris;
+            # one that names no call is an external event, which is evidence.
+            if msg.get("role") == "tool" and msg.get("tool_call_id"):
+                stats.chars_removed += len(str(msg.get("content") or ""))
+                stats.superseded += 1
+            else:
+                out.append(msg)
+            i += 1
+            continue
+
+        # The results answering this turn are the consecutive tool messages that
+        # follow it, up to the next non-tool message.
+        answered = 0
+        while i + 1 + answered < len(messages) and is_tool_message(messages[i + 1 + answered]):
+            answered += 1
+        results = messages[i + 1 : i + 1 + answered]
+
+        if answered < len(msg["tool_calls"]):
+            # Drop the trailing calls nothing answers, and their would-be results.
+            keep = answered
+            dropped_calls += len(msg["tool_calls"]) - keep
+            if keep:
+                trimmed = dict(msg)
+                trimmed["tool_calls"] = msg["tool_calls"][:keep]
+                out.append(trimmed)
+                out.extend(results)
+            else:
+                # No call is left to answer, so the turn must not carry the key:
+                # an empty `tool_calls` array is itself rejected by strict
+                # providers. The turn's prose survives, so the model still has a
+                # coherent account of what it was doing.
+                out.append({k: v for k, v in msg.items() if k != "tool_calls"})
+        else:
+            out.append(msg)
+            out.extend(results)
+        i += 1 + answered
+
+    if dropped_calls:
+        stats.reason = f"{dropped_calls} unanswered tool call(s) removed"
+    elif stats.superseded:
+        stats.reason = "orphan tool result(s) dropped"
+    stats.tokens_saved = stats.chars_removed // CHARS_PER_TOKEN
+    return (out, stats)
+
+
+def iter_tool_calls(msg: dict) -> list[tuple[str, str]]:
+    """``(name, call_id)`` for every tool call an assistant turn declares.
+
+    Tolerant of the three shapes a call takes in this codebase's history: the
+    OpenAI ``tool_calls`` array it is stored with, and the flattened
+    ``function.name`` / ``id`` pair older persisted turns may carry.
+    """
+    if msg.get("role") != "assistant":
+        return []
+    out: list[tuple[str, str]] = []
+    for call in msg.get("tool_calls") or []:
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function") or {}
+        name = str(fn.get("name") or call.get("name") or "")
+        if not name:
+            continue
+        out.append((name, str(call.get("id") or fn.get("id") or "")))
+    if not out and msg.get("tool_name"):
+        out.append((str(msg["tool_name"]), str(msg.get("tool_call_id") or "")))
+    return out
+
+
 def prune_inflight_messages(
     messages: list[dict],
     keep_latest_tools: int,

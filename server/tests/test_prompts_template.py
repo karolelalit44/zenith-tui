@@ -105,11 +105,27 @@ class TestBuildSystemPrompt:
         assert "PLANNING ONLY" in prompt
         assert "BUILD mode" not in prompt
 
-    def test_model_name_does_not_change_prompt(self, tmp_path):
-        gemini_prompt = build_system_prompt(str(tmp_path), model_name="gemini-3.0-flash")
-        gpt_prompt = build_system_prompt(str(tmp_path), model_name="gpt-4o")
-        assert "SAMPLING STYLE" not in gemini_prompt
-        assert "SAMPLING STYLE" not in gpt_prompt
+    def test_prompt_has_no_dead_configuration_parameters(self, tmp_path):
+        """A parameter that looks configurable but changes nothing is a defect.
+
+        ``model_name``, ``provider_name`` and ``max_context_tokens`` used to be
+        accepted and ignored, so a caller could pass a model and reasonably
+        believe the prompt adapted to it. They are gone rather than left in
+        place: model-aware prompt content arrives with the tier policy that gives
+        it something real to vary on, not as a stub parameter waiting for one.
+        """
+        import inspect
+
+        from server.agents.prompts import build_plan_system_prompt, build_system_prompt
+
+        for builder in (build_system_prompt, build_plan_system_prompt):
+            params = set(inspect.signature(builder).parameters)
+            assert not params & {"model_name", "provider_name", "max_context_tokens"}
+
+    def test_prompt_is_a_pure_function_of_workspace_and_mode(self, tmp_path):
+        prompt = build_system_prompt(str(tmp_path), mode=BUILD_MODE)
+        assert "<instructions>" in prompt and "<env>" in prompt
+        assert "SAMPLING STYLE" not in prompt
 
 
 class TestEnvSectionStaticContract:

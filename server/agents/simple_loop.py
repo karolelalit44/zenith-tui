@@ -47,6 +47,7 @@ from ..toolkit.executor import (
 from .compaction import (
     compact_tool_output,
     dedupe_tool_results,
+    normalise_tool_pairs,
     prune_inflight_messages,
 )
 from .context import ContextManager
@@ -371,7 +372,6 @@ class SimpleLoop:
         sections = default_template_sections(
             mode=mode,
             workspace_root=self.config.workspace_root,
-            max_context_tokens=self.config.max_context_tokens,
         )
         if skills_section:
             sections.append(skills_section)
@@ -556,6 +556,10 @@ class SimpleLoop:
                 messages, keep_latest_tools=COMPACTION_KEEP_LATEST_TOOLS
             )
             dispatch_messages, dedupe_stats = dedupe_tool_results(dispatch_messages)
+            # Last, and always: the two passes above can drop a tool result, and
+            # a declared call with no result is rejected outright by strict
+            # providers. Cheap and a no-op on an unpruned turn.
+            dispatch_messages, _ = normalise_tool_pairs(dispatch_messages)
             # Counted once per dispatch, not per message: the passes are
             # idempotent, so re-reading the same already-bounded array would keep
             # reporting the same saving on every step of the turn.

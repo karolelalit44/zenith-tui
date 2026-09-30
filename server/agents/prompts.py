@@ -9,7 +9,6 @@ from pathlib import Path
 
 from server.config.constants import (
     BUILD_MODE,
-    DEFAULT_CONTEXT_WINDOW,
     PLAN_MODE,
 )
 from server.prompts import BUILD_MODE_PROMPT, PLAN_MODE_PROMPT
@@ -17,12 +16,12 @@ from server.prompts import BUILD_MODE_PROMPT, PLAN_MODE_PROMPT
 logger = logging.getLogger(__name__)
 
 
-def build_tool_reference_hint(workspace_root: str = "") -> str:
+def build_tool_reference_hint() -> str:
     return (
-        "A lean set of tool schemas is active this turn for direct use; the full capability "
-        "catalog is available on demand. "
-        "Call get_tool_definition('<tool_name>') for a tool's full parameter schema and usage "
-        "guidelines, and discover_capabilities() to list all available tools."
+        "Tool schemas in this request are authoritative and complete for the tools "
+        "active this turn; prefer them over any description of a tool you remember. "
+        "Call get_tool_definition('<tool_name>') for a tool's full parameter schema and "
+        "usage guidelines, and discover_capabilities() to list tools not currently offered."
     )
 
 
@@ -160,16 +159,23 @@ def load_prompt_template(mode: str = BUILD_MODE) -> str:
 def default_template_sections(
     mode: str = BUILD_MODE,
     workspace_root: str = ".",
-    max_context_tokens: int = DEFAULT_CONTEXT_WINDOW,
 ) -> list[PromptSection]:
-    """Compose the tagged, source-controlled prompt sections."""
+    """Compose the tagged, source-controlled prompt sections.
+
+    Tool-to-operation coverage lives once, in ``file_operations``. It used to
+    also appear as a bullet list of parameter signatures inside the mode template
+    and again as a prose mapping in one of its invariants — three restatements of
+    what the JSON schemas in the same request already say exactly, paid on every
+    request of every turn. What stays is what the schemas cannot carry: which
+    operation to use when, why the shell refuses it, and how to fetch the rest.
+    """
     root = str(Path(workspace_root).resolve())
     return [
         PromptSection("instructions", load_prompt_template(mode=mode)),
         PromptSection("env", lambda: _build_env_section(root, mode)),
         PromptSection("file_operations", _build_file_operation_guidelines),
         PromptSection("web_research", _build_web_research_guidelines),
-        PromptSection("tool_reference", lambda: build_tool_reference_hint(root)),
+        PromptSection("tool_reference", build_tool_reference_hint),
     ]
 
 
@@ -178,34 +184,12 @@ def compose_system_context(sections: list[PromptSection]) -> list[str]:
     return [s.render() for s in sections if not s.is_empty]
 
 
-def build_system_prompt(
-    workspace_root: str,
-    mode: str = BUILD_MODE,
-    max_context_tokens: int = DEFAULT_CONTEXT_WINDOW,
-    provider_name: str = "",
-    model_name: str = "",
-) -> str:
-    sections = default_template_sections(
-        mode=mode,
-        workspace_root=workspace_root,
-        max_context_tokens=max_context_tokens,
-    )
-    return "\n\n".join(compose_system_context(sections))
+def build_system_prompt(workspace_root: str, mode: str = BUILD_MODE) -> str:
+    return "\n\n".join(compose_system_context(default_template_sections(mode=mode, workspace_root=workspace_root)))
 
 
-def build_plan_system_prompt(
-    workspace_root: str,
-    provider_name: str = "",
-    model_name: str = "",
-    max_context_tokens: int = DEFAULT_CONTEXT_WINDOW,
-) -> str:
-    return build_system_prompt(
-        workspace_root,
-        mode=PLAN_MODE,
-        provider_name=provider_name,
-        model_name=model_name,
-        max_context_tokens=max_context_tokens,
-    )
+def build_plan_system_prompt(workspace_root: str) -> str:
+    return build_system_prompt(workspace_root, mode=PLAN_MODE)
 
 
 BUILD_MODE_INSTRUCTIONS = load_prompt_template(BUILD_MODE)
