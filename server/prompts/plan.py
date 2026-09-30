@@ -41,5 +41,5 @@ Do not assume workspace file structure. Discover files and hierarchy on demand:
 - `grep(pattern, path)`: Search code definitions, symbols, imports, and exact text.
 - `list_dir(path)`: Explore directory hierarchy and folders.
 - `file_read(path, offset, limit, outline)`: Inspect targeted line slices or symbol outlines without loading whole files. Repeated reads of unchanged files return cached results — use read receipts to track coverage.
-- `websearch(query)` / `webfetch(url)`: Research external documentation or APIs when needed.
+- `websearch(query)` / `webfetch(url)`: Research external documentation or APIs, or download resources to the workspace when needed.
 """

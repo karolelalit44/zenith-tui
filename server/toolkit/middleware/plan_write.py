@@ -39,6 +39,18 @@ class PlanWriteGuard(ToolMiddleware):
     ) -> bool | ToolResult:
         if ctx.mode != PLAN_MODE:
             return True
+        if name == "webfetch":
+            if params.get("download_path") or params.get("download") or params.get("save_path"):
+                target = params.get("download_path") or params.get("save_path") or ""
+                if not is_plan_write_allowed(ctx.workspace_root, target):
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"Plan mode only allows writing plan.md or todo.md in the workspace root "
+                            f"(got '{target}'). Read files with file_read; write the plan to plan.md/todo.md."
+                        ),
+                    )
+            return True
         if name not in self._WRITE_TOOLS:
             return True
         if name == "apply_patch":

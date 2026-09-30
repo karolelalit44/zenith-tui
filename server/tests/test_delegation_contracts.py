@@ -129,7 +129,13 @@ class TestAgentTask:
         assert crewmate.max_crewmates == 0
         assert crewmate.allowed_crewmates == []
         assert crewmate.delegation_depth == 0
-        assert set(crewmate.allowed_tools) == {"file_read", "glob", "grep", "list_dir"}
+        assert set(crewmate.allowed_tools) == {
+            "file_read",
+            "file_stat",
+            "glob",
+            "grep",
+            "list_dir",
+        }
 
 
 class TestTaskSignature:

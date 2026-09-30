@@ -59,6 +59,15 @@ class ReadOnlyModeGuard(ToolMiddleware):
     ) -> bool | ToolResult:
         if ctx.mode != READ_ONLY_MODE:
             return True
+        if name == "webfetch" and (params.get("download_path") or params.get("download") or params.get("save_path")):
+            self.blocked_calls += 1
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Tool '{name}' with download is blocked for {READ_ONLY_MODE} mode: "
+                    "investigation is strictly read-only."
+                ),
+            )
         if name in self.allowed:
             return True
         self.blocked_calls += 1

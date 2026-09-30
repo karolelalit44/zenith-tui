@@ -25,11 +25,46 @@ describe('parseDiffOrContent', () => {
     expect(lines[1].newLineNumber).toBe(2);
   });
 
-  it('parses a unified diff into hunk, delete, add and context lines', () => {
+  it('drops the hunk header but keeps line numbering resynced to it', () => {
+    // The "@@ -1,2 +1,2 @@" row is display noise: the gutter and the coloured
+    // rows already carry the position. What matters is that the numbers after
+    // it restart at the hunk's declared start.
     const { lines } = parseDiffOrContent('@@ -1,2 +1,2 @@\n-old\n+new\n context\n');
-    expect(lines.map((l) => l.type)).toEqual(['hunk', 'delete', 'add', 'normal']);
-    expect(lines[1].oldLineNumber).toBe(1);
-    expect(lines[2].newLineNumber).toBe(1);
+    expect(lines.map((l) => l.type)).toEqual(['delete', 'add', 'normal']);
+    expect(lines[0].oldLineNumber).toBe(1);
+    expect(lines[1].newLineNumber).toBe(1);
+  });
+
+  it('emits a section marker per file so a multi-file patch stays legible', () => {
+    // Without per-file markers, a three-file apply_patch rendered as one
+    // anonymous block and the user could not tell where one file ended.
+    const patch = [
+      'diff --git a/a.ts b/a.ts',
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -1 +1 @@',
+      '-one',
+      '+ONE',
+      'diff --git a/b.ts b/b.ts',
+      '--- a/b.ts',
+      '+++ b/b.ts',
+      '@@ -1 +1 @@',
+      '-two',
+      '+TWO',
+    ].join('\n');
+    const { lines } = parseDiffOrContent(patch);
+    const files = lines.filter((l) => l.type === 'file').map((l) => l.content);
+    expect(files).toEqual(['a.ts', 'b.ts']);
+    expect(lines.filter((l) => l.type === 'add').map((l) => l.content)).toEqual(['ONE', 'TWO']);
+  });
+
+  it('reports how many lines the cap hid instead of dropping them silently', () => {
+    const body = Array.from({ length: 50 }, (_, i) => `+line ${i}`).join('\n');
+    const { lines, truncated } = parseDiffOrContent(`@@ -1 +1 @@\n${body}`, 10);
+    expect(truncated).toBeGreaterThan(0);
+    expect(lines.length).toBe(10);
+    // An uncapped parse hides nothing, which is what makes ctrl+E a real answer.
+    expect(parseDiffOrContent(`@@ -1 +1 @@\n${body}`, Number.POSITIVE_INFINITY).truncated).toBe(0);
   });
 });
 

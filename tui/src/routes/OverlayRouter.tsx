@@ -2,6 +2,7 @@ import { Box } from 'ink';
 import React from 'react';
 import type { ContextInfoSnapshot } from '../hooks/useConversation';
 import type { OverlayType } from '../hooks/useOverlayManager';
+import { ChangesOverlay } from '../screens/ChangesOverlay';
 import { CompactionModal } from '../screens/Context/CompactionModal';
 import { ContextModal } from '../screens/Context/ContextModal';
 import { HelpModal } from '../screens/Help/HelpModal';
@@ -116,6 +117,11 @@ export const OverlayRouter: React.FC<OverlayRouterProps> = ({
               onClose();
             }}
           />
+        </Box>
+      )}
+      {overlay === 'changes' && (
+        <Box flexDirection="column" marginTop={1} width="100%">
+          <ChangesOverlay onClose={onClose} />
         </Box>
       )}
     </>

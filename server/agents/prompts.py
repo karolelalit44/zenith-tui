@@ -40,7 +40,9 @@ def _build_web_research_guidelines() -> str:
         "glob, file_read instead). Never search for stable language fundamentals.\n"
         "4. Escalation Ladder: Use websearch to discover sources, webfetch to read a specific URL. "
         "For large documents, use webfetch with start_line and end_line or pattern (find_in_page) "
-        "to inspect targeted windows rather than dumping full pages.\n"
+        "to inspect targeted windows rather than dumping full pages. To download or save files "
+        "(PDFs, images, audio, video, archives, datasets, or any web resource) directly to the workspace, "
+        "invoke webfetch with download_path.\n"
         "5. Citation Formatting: Every factual statement derived from the web must include an "
         "inline citation [descriptive title](url) placed immediately after the punctuation of the "
         "sentence it supports. Never place citations inside code blocks or dump bare URLs.\n"
@@ -96,6 +98,60 @@ class PromptSection:
         return not (self._rendered or "").strip()
 
 
+def _build_file_operation_guidelines() -> str:
+    """Tell the model which tool covers which file operation.
+
+    Codex states its editing constraints in the system prompt, on the theory
+    that a stated rule and a guard reinforce each other. Zenith enforces far
+    more of it at the tool layer — the shell tool refuses `cat`, `grep`, `ls`,
+    `sed -i`, and now `mv`/`cp`/`rm`/`stat` — but a refusal teaches the rule only
+    after the model has spent a turn being told off. Naming the coverage up
+    front means the first attempt is the right one.
+
+    The coverage table is the point. Every operation a model might reach for
+    through a shell is listed against the tool that handles it, so there is no
+    remaining gap for the shell to be the obvious answer to.
+    """
+    return (
+        "File operations: use the dedicated tools, not the shell.\n"
+        "The bash tool refuses shell equivalents of the operations below, so a "
+        "shell command for any of them is a wasted turn.\n"
+        "\n"
+        "  inspect metadata (size, lines, type, content hash)  file_stat(path=...)\n"
+        "  read a file                                   file_read(path, offset, limit)\n"
+        "  read a symbol list without reading             file_read(path, outline=true)\n"
+        "  search file contents with surrounding lines    grep(pattern, path, include, context=N)\n"
+        "  find files by name                             glob(pattern, path)\n"
+        "  list one directory                             list_dir(path)\n"
+        "  create a file                                  file_write(path, content)\n"
+        "  replace a file's whole content                 file_write(path, content, mode='overwrite')\n"
+        "  append to a file                               file_write(path, content, mode='append')\n"
+        "  replace text you can quote exactly             file_edit(path, old_content, new_content)\n"
+        "  replace a region you cannot quote exactly      file_edit(path, start_line, end_line, new_content)\n"
+        "  multi-file / multi-hunk changes                apply_patch\n"
+        "  move or rename a file                          file_move(path, to)\n"
+        "  copy a file                                   file_copy(path, to)\n"
+        "  delete a file or directory                     file_delete(path)\n"
+        "\n"
+        "Editing rules:\n"
+        "1. Always use apply_patch for manual code edits. Do not use cat, sed, tee, "
+        "python -c, or any other command to create or edit a file. Formatting "
+        "commands and bulk generated changes are the exception.\n"
+        "2. Do not re-read a file after editing it to check the edit landed. Every "
+        "mutating tool returns a receipt saying what changed, on which lines, and "
+        "which match rule fired. Re-reading wastes a turn and a large amount of "
+        "context.\n"
+        "3. A not-found or ambiguous error is meant to be acted on: the message "
+        "carries the near-miss alternatives or the range that must be made unique. "
+        "Use it rather than retrying the same call.\n"
+        "4. If a file may have changed since you read it, pass its expected_sha256 "
+        "(from file_stat) to the mutating tool. The write is then refused if it "
+        "drifted, instead of landing on content you did not review.\n"
+        "5. Use bash for what only a shell can do: running tests, linters, builds, "
+        "package managers, and version control."
+    )
+
+
 def load_prompt_template(mode: str = BUILD_MODE) -> str:
     """Return the mode prompt template (memory-backed, zero disk I/O)."""
     return PLAN_MODE_PROMPT if mode == PLAN_MODE else BUILD_MODE_PROMPT
@@ -111,6 +167,7 @@ def default_template_sections(
     return [
         PromptSection("instructions", load_prompt_template(mode=mode)),
         PromptSection("env", lambda: _build_env_section(root, mode)),
+        PromptSection("file_operations", _build_file_operation_guidelines),
         PromptSection("web_research", _build_web_research_guidelines),
         PromptSection("tool_reference", lambda: build_tool_reference_hint(root)),
     ]

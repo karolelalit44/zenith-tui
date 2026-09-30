@@ -570,6 +570,7 @@ export const App: React.FC = () => {
       savePlan: handleSavePlan,
       triggerExit: handleExit,
       compactTurns: handleCompact,
+      openChanges: () => openOverlay('changes'),
     }),
     [
       openOverlay,

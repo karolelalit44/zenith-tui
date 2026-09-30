@@ -10,7 +10,8 @@ export type OverlayType =
   | 'compaction'
   | 'provider'
   | 'usage'
-  | 'session';
+  | 'session'
+  | 'changes';
 
 export interface UseOverlayManagerReturn {
   selectedMode: ScenarioMode;

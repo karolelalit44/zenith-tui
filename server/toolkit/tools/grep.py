@@ -185,8 +185,8 @@ def _iter_source_files(root: Path, base: Path, matcher: ZenithIgnoreMatcher):
 
 
 @lru_cache(maxsize=256)
-def _cached_regex(pattern: str) -> re.Pattern[str]:
-    return re.compile(pattern, re.IGNORECASE)
+def _cached_regex(pattern: str, flags: int = re.IGNORECASE) -> re.Pattern[str]:
+    return re.compile(pattern, flags)
 
 
 def _matches_glob(path: Path, pattern: str) -> bool:
@@ -197,6 +197,56 @@ def _matches_glob(path: Path, pattern: str) -> bool:
         if len(path.parts) == 1 and candidate.startswith("**/") and path.match(candidate[3:]):
             return True
     return False
+
+
+def _preview(text: str, limit: int = 300) -> str:
+    stripped = text.strip()
+    return stripped if len(stripped) <= limit else stripped[:limit] + "..."
+
+
+def _render_with_context(
+    grouped: dict[str, list[tuple[int, str]]], base: Path, context: int
+) -> list[str]:
+    """Render matches with surrounding lines, merging overlapping windows.
+
+    Without this, a model that needs to see three lines around each hit issues
+    one ``file_read`` per match. A search returning twenty matches therefore
+    costs twenty extra round trips, which is the single largest source of
+    avoidable token spend in a search-driven workflow — and the reason
+    ``rg -C3`` through a shell was faster in practice despite being the
+    discouraged path.
+
+    Each file is read once, only the byte range covering the requested windows
+    is materialised, and adjacent windows are merged so an overlapping pair is
+    not printed twice.
+    """
+    out: list[str] = []
+    for rel, entries in sorted(grouped.items()):
+        try:
+            lines = (base / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            # Fall back to the bare match if the file cannot be re-read.
+            out.extend(f"{rel}:{n}: {_preview(t)}" for n, t in sorted(entries))
+            continue
+
+        windows: list[tuple[int, int]] = []
+        for line_no, _ in sorted(entries):
+            lo = max(1, line_no - context)
+            hi = min(len(lines), line_no + context)
+            if windows and lo <= windows[-1][1] + 1:
+                windows[-1] = (windows[-1][0], max(windows[-1][1], hi))
+            else:
+                windows.append((lo, hi))
+
+        for index, (lo, hi) in enumerate(windows):
+            if index > 0:
+                out.append("  --")
+            hits = {n for n, _ in entries}
+            for number in range(lo, hi + 1):
+                body = _preview(lines[number - 1]) if number <= len(lines) else ""
+                marker = ":" if number in hits else "-"
+                out.append(f"{rel}:{number}{marker} {body}")
+    return out
 
 
 class GrepTool(BaseTool):
@@ -237,6 +287,31 @@ class GrepTool(BaseTool):
                     "description": "If true, treat pattern as exact literal text instead of regex (useful for code with brackets, parens, quotes)",
                     "default": False,
                 },
+                "case_sensitive": {
+                    "type": "boolean",
+                    "description": (
+                        "Match case exactly. Default false (case-insensitive), so the "
+                        "same query returns the same results whether or not ripgrep "
+                        "is installed."
+                    ),
+                    "default": False,
+                },
+                "context": {
+                    "type": "integer",
+                    "description": (
+                        "Lines of surrounding context to include after each match. Use "
+                        "this instead of a separate file_read per match — one call with "
+                        "context=3 is far cheaper than four."
+                    ),
+                    "default": 0,
+                },
+                "max_count_per_file": {
+                    "type": "integer",
+                    "description": (
+                        "Stop after this many matches in any single file. Default 200. "
+                        "A file that hits the cap is reported as truncated for that file."
+                    ),
+                },
             },
             "required": ["pattern"],
         }
@@ -250,6 +325,18 @@ class GrepTool(BaseTool):
         requested_path = params.get("path", ".")
         include = params.get("include", None)
         literal = params.get("literal", False)
+        case_sensitive = bool(params.get("case_sensitive", False))
+        flags = 0 if case_sensitive else re.IGNORECASE
+        context = params.get("context", 0)
+        try:
+            context = max(0, min(20, int(context)))
+        except (TypeError, ValueError):
+            context = 0
+        per_file_cap = params.get("max_count_per_file")
+        try:
+            per_file_cap = max(1, int(per_file_cap)) if per_file_cap else GREP_MAX_RESULTS * 2
+        except (TypeError, ValueError):
+            per_file_cap = GREP_MAX_RESULTS * 2
 
         search_path = (
             Path(requested_path) if Path(requested_path).is_absolute() else base / requested_path
@@ -260,12 +347,16 @@ class GrepTool(BaseTool):
         if not search_path.exists():
             return ToolResult(success=False, error=f"Search path not found: {search_path}")
 
+        # The pattern is always compiled locally, even when ripgrep will do the
+        # searching. That gives one place where a malformed pattern is reported,
+        # and it guarantees the pure-Python fallback and the ripgrep path apply
+        # identical semantics instead of two different ones.
         if literal:
-            regex = re.compile(re.escape(pattern), re.IGNORECASE)
+            regex = re.compile(re.escape(pattern), flags)
             is_literal = True
         else:
             try:
-                regex = _cached_regex(pattern)
+                regex = _cached_regex(pattern, flags)
                 is_literal = False
             except re.error as e:
                 return ToolResult(
@@ -275,11 +366,15 @@ class GrepTool(BaseTool):
 
         try:
             backend = RipgrepBackend(
-                ignore_files=[str(base / ".zenithignore")], max_results=GREP_MAX_RESULTS * 2
+                ignore_files=[str(base / ".zenithignore")], max_results=per_file_cap
             )
             if _find_rg() is not None:
                 backend_matches = await backend.grep(
-                    pattern, str(search_path), include=include, fixed_strings=is_literal
+                    pattern,
+                    str(search_path),
+                    include=include,
+                    fixed_strings=is_literal,
+                    case_sensitive=case_sensitive,
                 )
             else:
                 matcher = ZenithIgnoreMatcher(workspace_root)
@@ -311,17 +406,26 @@ class GrepTool(BaseTool):
                                 break
                     if len(backend_matches) >= max_matches:
                         break
-            matches = []
+            # A match whose path cannot be expressed inside the workspace is
+            # dropped rather than reported with its absolute path: echoing one
+            # leaks the host's directory layout, and glob already drops the same
+            # results, so the two tools disagreed about what is visible.
+            grouped: dict[str, list[tuple[int, str]]] = {}
             for match in backend_matches:
-                file_path = Path(match.path)
                 try:
-                    rel_path = file_path.resolve().relative_to(base)
+                    rel = str(Path(match.path).resolve().relative_to(base))
                 except ValueError:
-                    rel_path = file_path
-                line_preview = match.text.strip()
-                if len(line_preview) > 300:
-                    line_preview = line_preview[:300] + "..."
-                matches.append(f"{rel_path}:{match.line_number}: {line_preview}")
+                    continue
+                grouped.setdefault(rel, []).append((match.line_number, match.text))
+
+            if context > 0:
+                matches = _render_with_context(grouped, base, context)
+            else:
+                matches = [
+                    f"{rel}:{line_no}: {_preview(text)}"
+                    for rel, entries in grouped.items()
+                    for line_no, text in entries
+                ]
 
             total_matches = len(matches)
             files_searched = len({match.path for match in backend_matches})

@@ -159,6 +159,62 @@ _SED_AWK_INPLACE_BYPASS = re.compile(
     r"^\s*(?:sed|awk)\b[^|;]*\s-i\b",
     re.IGNORECASE,
 )
+# Path relocation: a dedicated tool refuses to clobber an occupied destination,
+# which `mv`/`cp` do not, and it journals the change so it can be reverted.
+_MOVE_BYPASS = re.compile(
+    r"^\s*(?:mv|move|Move-Item|ren|rename)\b",
+    re.IGNORECASE,
+)
+_COPY_BYPASS = re.compile(
+    r"^\s*(?:cp|copy|Copy-Item)\b",
+    re.IGNORECASE,
+)
+# Destructive removal: the dedicated tool blocks deleting the workspace root and
+# refuses to recurse through a symlink out of the workspace, and it records the
+# removed bytes so the deletion is reversible.
+_DELETE_BYPASS = re.compile(
+    r"^\s*(?:rm|rmdir|del|erase|Remove-Item|ri|rd)\b",
+    re.IGNORECASE,
+)
+# Metadata lookups: file_stat answers size, line count, type and content hash in
+# one call, and the hash is what the mutators use to detect drift.
+_STAT_BYPASS = re.compile(
+    r"^\s*(?:stat|wc|md5sum|sha256sum|Get-FileHash|file)\b",
+    re.IGNORECASE,
+)
+# `>>` appends. file_write(mode='append') is the same operation, but it creates
+# parent directories, preserves the destination's encoding, and is journaled.
+_APPEND_REDIRECT_BYPASS = re.compile(
+    r"^\s*(?:echo|Write-Output|printf)\b[^|;]*>>\s*\S+",
+    re.IGNORECASE,
+)
+
+
+def _extract_shell_patch(command: str) -> str | None:
+    """Recover a patch body from a shell heredoc, or ``None`` if this is not one.
+
+    Deliberately conservative. Only a command whose *entire* content is a single
+    ``apply_patch <<'EOF' ... EOF`` heredoc is intercepted; anything with a pipe,
+    a second command, or a variable is left to the shell, because guessing at a
+    partially-understood command would be worse than running it. Codex applies
+    the same rule with a tree-sitter query, and for the same reason.
+    """
+    stripped = command.strip()
+    if "*** Begin Patch" not in stripped:
+        return None
+    match = _PATCH_HEREDOC.fullmatch(stripped)
+    if not match:
+        return None
+    body = match.group("body")
+    return body if "*** Begin Patch" in body else None
+
+
+_PATCH_HEREDOC = re.compile(
+    r"""^\s*(?:apply_patch|applypatch|apply-patch)\s*<<-?\s*(?P<q>['"]?)(?P<tag>\w+)(?P=q)\s*
+        (?P<body>.*?)
+        \s*(?P=tag)\s*$""",
+    re.VERBOSE | re.DOTALL,
+)
 
 
 def _assess_dedicated_tool_bypass(command: str) -> str | None:
@@ -203,6 +259,15 @@ def _assess_dedicated_tool_bypass(command: str) -> str | None:
                 "Refused: Do not use shell 'New-Item/touch/Set-Content/Out-File' for file creation. "
                 "Use dedicated 'file_write' (new file) or 'file_edit' (existing file)."
             )
+        if _APPEND_REDIRECT_BYPASS.match(seg):
+            # Checked before the plain ">" rule: ">>" also matches that pattern,
+            # so appending would be reported as a file creation and sent to
+            # file_write(mode='create'), which fails on an existing file.
+            return (
+                "Refused: Do not use shell '>>' redirection to append to a file. "
+                "Use dedicated 'file_write' with mode='append'. "
+                "Example: file_write(path='log.txt', content='...', mode='append')."
+            )
         if _ECHO_REDIRECT_BYPASS.match(seg):
             return (
                 "Refused: Do not use shell redirection 'echo > file' for file creation. "
@@ -211,7 +276,36 @@ def _assess_dedicated_tool_bypass(command: str) -> str | None:
         if _SED_AWK_INPLACE_BYPASS.match(seg):
             return (
                 "Refused: Do not use shell 'sed -i / awk -i' for file editing. "
-                "Use dedicated 'file_edit' tool with old_content/new_content."
+                "Use dedicated 'file_edit' with old_content/new_content, or "
+                "start_line/end_line to address a region by position."
+            )
+        if _MOVE_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'mv' to move or rename a file. "
+                "Use dedicated 'file_move', which refuses to overwrite an existing "
+                "destination and can be reverted. "
+                "Example: file_move(path='a.ts', to='b.ts')."
+            )
+        if _COPY_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'cp' to copy a file. "
+                "Use dedicated 'file_copy', which refuses to overwrite an existing "
+                "destination. Example: file_copy(path='a.ts', to='b.ts')."
+            )
+        if _DELETE_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'rm/rmdir/Remove-Item' to delete a file or "
+                "directory. Use dedicated 'file_delete', which blocks deleting the "
+                "workspace root, refuses to recurse through a symlink out of the "
+                "workspace, and records the removed content so the deletion is "
+                "reversible. Example: file_delete(path='build/')."
+            )
+        if _STAT_BYPASS.match(seg):
+            return (
+                "Refused: Do not use shell 'stat/wc/md5sum/sha256sum' to inspect a file. "
+                "Use dedicated 'file_stat', which reports size, line count, type and a "
+                "content hash in one call, and whose hash the mutating tools accept as "
+                "an 'expected_sha256' drift guard. Example: file_stat(path='a.ts')."
             )
     return None
 
@@ -287,6 +381,17 @@ class BashTool(BaseTool):
         read_refusal = _assess_direct_file_read(command)
         if read_refusal:
             return ToolResult(success=False, error=read_refusal)
+        # Two-transport patch interception. A model that writes the patch through
+        # a shell heredoc is expressing exactly the same intent as one that calls
+        # apply_patch directly, so it gets the same verified, journaled, audited
+        # path rather than raw shell semantics. Codex does this too; the point is
+        # that the transport a model happens to choose must not decide which
+        # guarantees apply.
+        patch_text = _extract_shell_patch(command)
+        if patch_text is not None:
+            from .apply_patch import ApplyPatchTool
+
+            return await ApplyPatchTool().execute({"patch": patch_text}, workdir)
         if run_in_background:
             return await self._start_background(command, workdir, params.get("description", ""))
         return await self._execute_streamed(command, workdir, timeout)

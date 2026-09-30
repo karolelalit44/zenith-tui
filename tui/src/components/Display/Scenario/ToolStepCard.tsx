@@ -388,18 +388,21 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
   // Resolve the diff/content to render underneath the header. Prefer a
   // server-captured unified diff (params.diff or metadata.diff), then client-computed
-  // hunk diff for edits. For file creations (file_write), never render file code/content
-  // or whole-file diffs unless explicitly requested.
+  // hunk diff for edits.
   const diffOrContent = (() => {
+    // The server already captures a real git-native diff for file_write, and it
+    // is the only way the user can review what a whole-file write replaced. The
+    // previous blanket suppression threw that away, so a created or rewritten
+    // file showed a bare "Create x" with nothing to check it against. The
+    // suppression is kept for the untracked-brand-new case, where the diff is
+    // just the file's own content repeated back.
+    const serverDiff = typeof event.metadata?.diff === 'string' ? event.metadata.diff : '';
     if (isCreateFile && !explicitlyRequested) {
-      return '';
+      const overwroteExisting = event.metadata?.overwritten === true;
+      return overwroteExisting ? serverDiff : '';
     }
 
-    const explicitDiff =
-      (typeof event.metadata?.diff === 'string' && event.metadata.diff ? event.metadata.diff : '') ||
-      (event.params?.diff as string) ||
-      (event.params?.patch as string) ||
-      '';
+    const explicitDiff = serverDiff || (event.params?.diff as string) || (event.params?.patch as string) || '';
     if (explicitDiff) return explicitDiff;
 
     const lower = event.tool.toLowerCase();
@@ -702,6 +705,22 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     (typeof event.metadata?.result === 'string' ? event.metadata.result : '') ||
     '';
 
+  // A patch names its files in metadata.files, not in a single primary param, so
+  // it previously rendered as a bare "Patch" with no filename — which also cost
+  // the block its language detection, since the title drives that.
+  const patchTitle = (() => {
+    if (toolKey !== 'apply_patch' && toolKey !== 'patch') return null;
+    const files = event.metadata?.files;
+    if (Array.isArray(files) && files.length === 1) {
+      return toWorkspaceRelative(String(files[0]), context?.workspaceName);
+    }
+    if (Array.isArray(files) && files.length > 1) {
+      const first = toWorkspaceRelative(String(files[0]), context?.workspaceName);
+      return `${first} +${files.length - 1} more`;
+    }
+    return null;
+  })();
+
   // Inline result counts keep read/search rows to ONE line total.
   const inlineCount = (() => {
     if (!isSuccess || isPending || outputText.trim().length === 0) return '';
@@ -709,6 +728,23 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
     if (isFileRead) return countWord(count, 'line');
     if (isGrepSearch) return countWord(count, 'match');
     return '';
+  })();
+
+  // A read is summarised from the server's own metadata rather than by counting
+  // the lines that came back. Counting output lines reports the size of the
+  // window, not the file: a 250-line read of a 10,000-line file claimed
+  // "250 lines", which is the one number the user most needs to be accurate.
+  // The cache flag is shown too, so a repeated read is visibly cheap rather
+  // than silently identical.
+  const readSummary = (() => {
+    if (!isFileRead || !isSuccess || isPending) return '';
+    const meta = event.metadata ?? {};
+    const total = typeof meta.total_lines === 'number' ? meta.total_lines : undefined;
+    if (total === undefined) return inlineCount;
+    if (total === 0) return 'empty';
+    const showing = typeof meta.showing === 'number' ? meta.showing : total;
+    const base = total > showing ? `lines ${showing} of ${total}` : countWord(total, 'line');
+    return meta.from_cache === true ? `${base} · cached` : base;
   })();
 
   return (
@@ -723,8 +759,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                 {headerText}
               </Text>
             ) : isSuccess ? (
-              <Text color={theme.colors.status.warning} bold wrap="truncate-end">
-                {`✗ Delete ${toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText.replace(/^Delete\s+/i, '').replace(/ removed$/i, ''), context?.workspaceName)} (removed from workspace)`}
+              <Text color={theme.colors.status.success} bold wrap="truncate-end">
+                {`✓ Deleted ${toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText.replace(/^Delete\s+/i, '').replace(/ removed$/i, ''), context?.workspaceName)}`}
               </Text>
             ) : (
               <Text color={theme.colors.status.error} bold wrap="truncate-end">
@@ -747,7 +783,7 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                         context?.workspaceName,
                       )}
                 </Text>
-                {inlineCount ? <Text color={theme.colors.text.dim}> · {inlineCount}</Text> : null}
+                {readSummary ? <Text color={theme.colors.text.dim}> · {readSummary}</Text> : null}
               </Text>
             )
           ) : isGrep ? (
@@ -797,10 +833,11 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                       : '● Update '}
                 </Text>
                 <Text color={theme.colors.text.muted} wrap="truncate-end">
-                  {toWorkspaceRelative(
-                    primary?.value ?? (event.metadata?.path as string) ?? headerText,
-                    context?.workspaceName,
-                  )}
+                  {patchTitle ??
+                    toWorkspaceRelative(
+                      primary?.value ?? (event.metadata?.path as string) ?? headerText,
+                      context?.workspaceName,
+                    )}
                 </Text>
               </Text>
             )
@@ -841,7 +878,15 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       {isFileMutation && !isPending && isSuccess && diffOrContent ? (
         <FileDiffBlock
           diffOrContent={diffOrContent}
-          title={primary?.value ? toWorkspaceRelative(primary.value, context?.workspaceName) : undefined}
+          title={
+            patchTitle ?? (primary?.value ? toWorkspaceRelative(primary.value, context?.workspaceName) : undefined)
+          }
+          // Reuses the existing "expand details" toggle (ctrl+E), which already
+          // reaches every card through the render context. A capped diff that
+          // cannot be uncapped is a summary pretending to be a diff, and the
+          // toggle that expands warnings and errors is the natural control for
+          // it — inventing a second key would have split one idea across two.
+          expanded={context?.expandedWarnings === true}
         />
       ) : null}
       {/* Non-shell informational tools keep a small capped output excerpt */}

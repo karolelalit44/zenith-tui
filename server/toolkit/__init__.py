@@ -11,7 +11,9 @@ from .tools.apply_patch import ApplyPatchTool
 from .tools.bash import BashTool
 from .tools.file_delete import FileDeleteTool
 from .tools.file_edit import FileEditTool
+from .tools.file_move import FileCopyTool, FileMoveTool
 from .tools.file_read import FileReadTool
+from .tools.file_stat import FileStatTool
 from .tools.file_write import FileWriteTool
 from .tools.glob import GlobTool
 from .tools.grep import GrepTool
@@ -31,6 +33,9 @@ __all__ = [
     "BashTool",
     "DiscoverCapabilitiesTool",
     "FileDeleteTool",
+    "FileCopyTool",
+    "FileMoveTool",
+    "FileStatTool",
     "FileEditTool",
     "FileReadTool",
     "FileWriteTool",
@@ -75,10 +80,13 @@ def create_default_registry(
     registry.register_middleware(PlanWriteGuard())
     registry.register(BashTool(timeout=timeout))
     registry.register(FileReadTool())
+    registry.register(FileStatTool())
     registry.register(FileWriteTool())
     registry.register(FileEditTool())
     registry.register(ApplyPatchTool())
     registry.register(FileDeleteTool())
+    registry.register(FileMoveTool())
+    registry.register(FileCopyTool())
     registry.register(GlobTool())
     registry.register(GrepTool())
     registry.register(ListDirTool())

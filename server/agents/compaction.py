@@ -75,10 +75,23 @@ def head_tail_trim(text: str, max_chars: int) -> tuple[str, int]:
 
 
 def compact_tool_output(
-    output: str, max_output: int = MAX_TOOL_OUTPUT_BASELINE
+    output: str, max_output: int = MAX_TOOL_OUTPUT_BASELINE, strip_ansi_codes: bool = True
 ) -> tuple[str, CompactionStats]:
+    """Bound a tool result for the model, optionally stripping terminal escapes.
+
+    ``strip_ansi_codes`` must be False for any tool that returns file content.
+    The escape sequences are legitimate bytes there: a source file containing a
+    literal ESC, or a document with real terminal formatting, must reach the
+    model exactly as it sits on disk. Stripping it produces a model copy that
+    differs from the file, and the next edit then writes the divergence back.
+    It is only safe to strip for genuine terminal capture, where the escapes are
+    an artefact of the transport rather than the payload.
+    """
     stats = CompactionStats(original_chars=len(output))
-    compacted, n_ansi = strip_ansi(output)
+    if strip_ansi_codes:
+        compacted, n_ansi = strip_ansi(output)
+    else:
+        compacted, n_ansi = output, 0
     stats.ansi_sequences_removed = n_ansi
     stats.ansi_stripped_chars = len(output) - len(compacted)
     if len(compacted) > max_output:

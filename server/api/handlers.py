@@ -145,6 +145,8 @@ class MethodHandlers:
             "workspace.status": lambda: self._workspace_status(ws, rid),
             "workspace.diff": lambda: self._workspace_diff(ws, rid, params),
             "workspace.log": lambda: self._workspace_log(ws, rid, params),
+            "workspace.changes": lambda: self._workspace_changes(ws, rid, params, session_id),
+            "workspace.revert": lambda: self._workspace_revert(ws, rid, params, session_id),
             "health": lambda: ws.send_text(make_response(rid, {"status": "ok"})),
         }
         handler = handlers.get(method)
@@ -728,6 +730,62 @@ class MethodHandlers:
 
         log = GitOps(self.config.workspace_root).log(params.get("count", 10))
         await ws.send_text(make_response(rid, {"log": log}))
+
+    async def _workspace_changes(self, ws, rid, params, session_id) -> None:
+        """List this session's file mutations, newest first.
+
+        Sourced from the in-memory journal rather than git, because the changes
+        it reports are the ones *this agent* made, including edits to files that
+        were never committed, and a workspace-level diff cannot distinguish
+        those from work the user did.
+        """
+        from server.toolkit.journal import JOURNAL
+
+        limit = int(params.get("limit", 50) or 50)
+        entries = JOURNAL.entries(session_id or "", limit=limit)
+        rows = [
+            {
+                "seq": e.seq,
+                "tool": e.tool,
+                "path": e.path,
+                "action": e.action,
+                "bytesBefore": e.bytes_before,
+                "bytesAfter": e.bytes_after,
+                "revertible": e.before is not None or e.action == "create",
+                "contentOmitted": e.content_omitted,
+                "directory": bool(e.extra.get("directory")),
+            }
+            for e in reversed(entries)
+        ]
+        await ws.send_text(make_response(rid, {"changes": rows, "count": len(rows)}))
+
+    async def _workspace_revert(self, ws, rid, params, session_id) -> None:
+        """Undo every session mutation newer than ``since``."""
+        from server.toolkit.journal import JOURNAL
+        from server.agents.session_workspace import reset_session
+
+        try:
+            since = int(params.get("since", 0) or 0)
+        except (TypeError, ValueError):
+            await ws.send_text(
+                make_error_response(rid, -32602, "'since' must be a mutation sequence number")
+            )
+            return
+        restored, failed, _ = JOURNAL.revert(session_id or "", since)
+        reset_session(session_id or "")
+        payload = {
+            "restored": restored,
+            "failed": failed,
+            "since": since,
+            # A partial revert must not read as a clean one; the model and the
+            # user both need to know which paths are still in the changed state.
+            "complete": not failed,
+        }
+        if failed:
+            payload["warning"] = (
+                f"{len(failed)} path(s) could not be restored: {', '.join(failed)}"
+            )
+        await ws.send_text(make_response(rid, payload))
 
     def _resolve_service(self) -> SessionService:
         if self._session_service is not None:

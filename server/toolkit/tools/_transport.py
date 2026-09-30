@@ -223,6 +223,8 @@ async def secure_fetch(
         accept_header = PLAIN_TEXT_ACCEPT_HEADER
     elif fmt == "html":
         accept_header = HTML_ACCEPT_HEADER
+    elif fmt in ("binary", "download", "raw"):
+        accept_header = "*/*"
     else:
         accept_header = MARKDOWN_ACCEPT_HEADER
 

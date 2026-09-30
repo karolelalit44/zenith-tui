@@ -44,22 +44,40 @@ TOOL_DOMAIN_DISCOVERY = "discovery"
 CAPABILITY_TOOL_DISCOVERY = "tool_discovery"
 DISCOVER_CAPABILITIES_TOOL = "discover_capabilities"
 GET_TOOL_DEFINITION_TOOL = "get_tool_definition"
-# Active-set ceiling per turn. Must stay strictly above the largest seed
-# (build seed = 12 incl. the always-on discovery pair) so on-demand escalation
-# always has free slots; a cap that exactly equals the seed would evict every
-# escalated tool back out of the active set the moment it's added.
-MAX_ACTIVE_TOOLS_PER_TURN = 16
+# Active-set ceiling per turn. Must stay comfortably above the largest seed so
+# on-demand escalation always has free slots; a cap that equals the seed would
+# evict every escalated tool back out of the active set the moment it is added.
+# The build seed is 15 (13 file/web tools + the always-on discovery pair), so a
+# cap of 16 left a single slot and made escalation of anything beyond the first
+# request fail. Headroom is kept deliberately generous rather than tight.
+MAX_ACTIVE_TOOLS_PER_TURN = 20
 
 FILE_WRITE_TOOL = "file_write"
 FILE_EDIT_TOOL = "file_edit"
 FILE_DELETE_TOOL = "file_delete"
 FILE_READ_TOOL = "file_read"
+FILE_STAT_TOOL = "file_stat"
+FILE_MOVE_TOOL = "file_move"
+FILE_COPY_TOOL = "file_copy"
 APPLY_PATCH_TOOL = "apply_patch"
 BASH_TOOL = "bash"
 TERMINAL_TOOL = "terminal"
 
 FILE_OVERWRITE_PARAM = "overwrite"
 BASH_WORKDIR_PARAM = "workdir"
+
+# Optimistic-concurrency guard shared by every mutating file tool. A caller that
+# read a file passes the hash it saw; if the file moved underneath, the write is
+# refused rather than applied to content nobody reviewed.
+EXPECTED_HASH_PARAM = "expected_sha256"
+FILE_MUTATION_TOOLS = (
+    FILE_WRITE_TOOL,
+    FILE_EDIT_TOOL,
+    FILE_DELETE_TOOL,
+    APPLY_PATCH_TOOL,
+    FILE_MOVE_TOOL,
+    FILE_COPY_TOOL,
+)
 
 AUTO_LINT_FIX_ENABLED = True
 

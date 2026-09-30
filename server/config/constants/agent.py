@@ -10,7 +10,7 @@ PLAN_MODE = "plan"
 READ_ONLY_MODE = "read_only"
 CREWMATE_MODE = "crewmate"
 
-READ_ONLY_TOOLS = ["file_read", "glob", "grep", "list_dir"]
+READ_ONLY_TOOLS = ["file_read", "file_stat", "glob", "grep", "list_dir"]
 
 # ---- WP3: salvage pass ------------------------------------------------------
 # Any harness-forced exit (stall cap, repetition-loop cap, iteration budget)
