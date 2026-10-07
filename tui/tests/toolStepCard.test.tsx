@@ -75,6 +75,64 @@ describe('execution timeline polish', () => {
     expect(lastFrame()).toContain('~ 2 s');
   });
 
+  it('uses grep pattern instead of an empty path as the primary label', () => {
+    const { lastFrame } = renderStep(
+      makeStep({
+        tool: 'grep',
+        params: { path: '', pattern: 'tool_call' },
+        output: 'server/api/websocket.py:1: tool_call',
+        metadata: { duration_ms: 120 },
+      }),
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('"tool_call"');
+    expect(frame).not.toContain('Grep ""');
+  });
+
+  describe('recoverable miss rendering', () => {
+    const missEvent: Partial<ToolStepEvent> = {
+      tool: 'glob',
+      params: { path: 'ui', pattern: '**/*.py' },
+      success: false,
+      error: 'Search path not found: /repo/ui. Use an existing workspace path: server/, tui/',
+    };
+
+    it('uses the miss marker and never the hard-failure glyph', () => {
+      const { lastFrame } = renderStep(
+        makeStep({ ...missEvent, metadata: { recoverable_miss: true, missing_path: 'ui' } }),
+      );
+      const frame = lastFrame() || '';
+      expect(frame).toContain('○ Search path not found');
+      expect(frame).not.toContain('✗');
+    });
+
+    it('renders the hard-failure glyph when the same error has no miss marker', () => {
+      // The inverse case: without recoverable_miss this is an ordinary failure, and
+      // the miss test only means something if this one stays red.
+      const { lastFrame } = renderStep(makeStep({ ...missEvent, metadata: { missing_path: 'ui' } }));
+      const frame = lastFrame() || '';
+      expect(frame).toContain('✗ Search path not found');
+      expect(frame).not.toContain('○');
+    });
+
+    it('labels the generic tool header as a miss, not a failure', () => {
+      // The generic branch (not file_read/grep/glob/webresearch) is where headerText
+      // and statusText are rendered, so that is where the wording is pinned.
+      const { lastFrame } = renderStep(
+        makeStep({
+          tool: 'file_stat',
+          params: { path: 'ui/app.ts' },
+          success: false,
+          error: 'Search path not found: /repo/ui',
+          metadata: { recoverable_miss: true },
+        }),
+      );
+      const frame = lastFrame() || '';
+      expect(frame).not.toContain('failed');
+      expect(frame).toContain('Path not found');
+    });
+  });
+
   it('renders the repeat badge for folded consecutive reads', () => {
     const { lastFrame } = renderStep(
       makeStep({

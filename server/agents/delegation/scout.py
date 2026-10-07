@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 
 from server.config.constants import (
     CREWMATE_MODE,
+    CREWMATE_OBSERVATION_CHARS,
+    CREWMATE_TOOL_CALL_LIMIT,
     DISCOVER_CAPABILITIES_TOOL,
     GET_TOOL_DEFINITION_TOOL,
     READ_ONLY_TOOLS,
@@ -70,6 +72,7 @@ _CREWMATE_ALLOWED_TOOLS = (
 )
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+_NO_REPORT_SENTINELS = frozenset({"[empty assistant turn]"})
 
 
 class CrewmateReadOnlyGuard(ToolMiddleware):
@@ -113,6 +116,14 @@ class CrewmateRun:
     iterations: int = 0
     tool_calls: int = 0
     elapsed_ms: int = 0
+    # Set when the mission was cut off at the tool-call ceiling before the
+    # crewmate produced a report. Distinguishes "the model chose to stop" from
+    # "the harness stopped it", which the parent needs in order to read the
+    # outcome truthfully.
+    budget_exhausted: bool = False
+    # Raw tool observations gathered before the cut, kept so a truncated mission
+    # can still hand the parent something real rather than a fabricated finding.
+    observations: list[str] = field(default_factory=list)
 
 
 def _truncate_event(event: Event, key: str, limit: int) -> Event:
@@ -280,6 +291,13 @@ async def run_crewmate(
     )
     started = time.monotonic()
     mission_brief = build_mission_brief(str(crewmate_config.workspace_root))
+
+    def _budget_note() -> str:
+        return (
+            f"Crewmate hit the {CREWMATE_TOOL_CALL_LIMIT}-tool-call ceiling for a delegated "
+            "mission and was stopped before producing an evidence report."
+        )
+
     try:
         async for event in agent.process_prompt(
             prompt=build_crewmate_prompt(task, mission_brief),
@@ -320,7 +338,21 @@ async def run_crewmate(
                 yield event
                 continue
             if kind == EventKind.TOOL_RESULT:
+                output = str(event.data.get("output") or event.data.get("error") or "").strip()
+                if output:
+                    tool = str(event.data.get("tool") or "tool")
+                    success = event.data.get("success")
+                    run.observations.append(
+                        f"{tool} {'ok' if success else 'failed'}: {output[:CREWMATE_OBSERVATION_CHARS]}"
+                    )
                 yield event
+                if run.tool_calls >= CREWMATE_TOOL_CALL_LIMIT and not run.response_text.strip():
+                    # Stop the child loop and let assemble_result report the
+                    # truncation. Synthesising a completed report here would
+                    # hand the parent a finding the crewmate never made.
+                    run.budget_exhausted = True
+                    run.last_error = _budget_note()
+                    return
                 continue
             if kind == EventKind.WARNING:
                 yield event
@@ -348,8 +380,10 @@ def assemble_result(
         elapsed_ms=run.elapsed_ms,
         tool_calls=run.tool_calls,
     )
+    response_text = run.response_text.strip()
+    has_report_text = bool(response_text) and response_text not in _NO_REPORT_SENTINELS
     parsed: dict | None = None
-    for match in _JSON_FENCE_RE.finditer(run.response_text):
+    for match in _JSON_FENCE_RE.finditer(response_text):
         candidate = match.group(1).strip()
         try:
             data = json.loads(candidate)
@@ -357,13 +391,46 @@ def assemble_result(
             continue
         if isinstance(data, dict):
             parsed = data
+    if run.budget_exhausted:
+        # Truncated mission. The observations below are real — they came from
+        # tool calls this run actually made — but nothing here was verified, and
+        # the crewmate never reached a conclusion, so the result is a failure
+        # carrying unverified evidence rather than a completed report.
+        note = error or run.last_error or "Crewmate was stopped before reporting."
+        result = AgentResult(
+            task_id=task.task_id,
+            agent_id=definition.id,
+            status="failed",
+            summary=note,
+            blocked=[note],
+            unverified=list(run.observations),
+            metrics=metrics,
+            error=note,
+        )
+        result.apply_evidence_rule()
+        return result
     if parsed is None:
+        if not has_report_text:
+            missing_report = "Crewmate ended without a final evidence report."
+            if run.tool_calls > 0:
+                missing_report += f" It made {run.tool_calls} read-only tool call(s) before stopping."
+            result = AgentResult(
+                task_id=task.task_id,
+                agent_id=definition.id,
+                status="failed" if status == "completed" else status,
+                summary=missing_report,
+                blocked=[missing_report],
+                metrics=metrics,
+                error=error or missing_report,
+            )
+            result.apply_evidence_rule()
+            return result
         result = AgentResult(
             task_id=task.task_id,
             agent_id=definition.id,
             status=status,
-            summary=run.response_text.strip(),
-            unverified=[run.response_text.strip()] if run.response_text.strip() else [],
+            summary=response_text,
+            unverified=[response_text],
             metrics=metrics,
             error=error,
         )

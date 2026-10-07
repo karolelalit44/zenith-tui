@@ -17,6 +17,7 @@ from server.workspace.ignore import ZenithIgnoreMatcher
 from server.workspace.search import RipgrepBackend, SearchMatch, _find_rg
 
 from ..base import BaseTool, ToolResult
+from .path_hints import workspace_path_hint
 
 
 def _split_top_level(body: str) -> list[str]:
@@ -345,7 +346,12 @@ class GrepTool(BaseTool):
         if search_path != base and base not in search_path.parents:
             return ToolResult(success=False, error=f"Search path outside workspace: {search_path}")
         if not search_path.exists():
-            return ToolResult(success=False, error=f"Search path not found: {search_path}")
+            hint = workspace_path_hint(base, requested_path)
+            return ToolResult(
+                success=False,
+                error=f"Search path not found: {search_path}. {hint['hint']}",
+                metadata=hint,
+            )
 
         # The pattern is always compiled locally, even when ripgrep will do the
         # searching. That gives one place where a malformed pattern is reported,

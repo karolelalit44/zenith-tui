@@ -30,8 +30,14 @@ def mark_validated(provider_id: str) -> None:
     entry.last_validated_at = datetime.now().isoformat()
 
 
-def get_status(provider_id: str, has_api_key: bool) -> str:
-    if not has_api_key:
+def get_status(provider_id: str, is_configured: bool) -> str:
+    """Report the provider's validation state.
+
+    ``is_configured`` is the caller's "usable" decision, not just key presence:
+    a keyless provider (local model, self-hosted base_url) is usable with no key,
+    and folding the two together made `connected` disagree with the client.
+    """
+    if not is_configured:
         return UNCONFIGURED
     entry = _statuses.get(provider_id)
     if entry is None:

@@ -2,18 +2,20 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { TerminalMarkdown } from '../src/components/Display/Scenario/TerminalMarkdown';
 import { ThemeProvider } from '../src/theme/ThemeContext';
+import { renderAtWidth } from './helpers/terminalStubs';
 
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\u001b\[[0-9;]*m/g, '');
 }
 
-function renderMarkdown(content: string) {
-  const { lastFrame } = render(
+function renderMarkdown(content: string, columns?: number) {
+  const node = (
     <ThemeProvider>
       <TerminalMarkdown content={content} />
-    </ThemeProvider>,
+    </ThemeProvider>
   );
+  const lastFrame = columns ? renderAtWidth(node, { columns }).lastFrame : render(node).lastFrame;
   return stripAnsi(lastFrame());
 }
 
@@ -98,6 +100,35 @@ describe('TerminalMarkdown table rendering and line wrapping', () => {
     expect(frame).toContain('┘');
   });
 
+  it('renders answer tables as compact summary rows instead of bordered grids', () => {
+    const tableMd = `
+| Item | Detail |
+| --- | --- |
+| Latest stable major version | **Vite 8.1** |
+| Source URL | <https://vite.dev/blog/announcing-vite8-1> |
+`.trim();
+    const frame = renderMarkdown(tableMd);
+    expect(frame).not.toContain('┌');
+    expect(frame).not.toContain('│');
+    expect(frame).toContain('Latest stable major version');
+    expect(frame).toContain('Vite 8.1');
+    expect(frame).toContain('Source URL');
+  });
+
+  it('renders task status tables as compact checklist rows', () => {
+    const tableMd = `
+| Task | Status |
+| --- | --- |
+| t1: Search official docs | ✅ |
+| t2: Record source URL | ✅ |
+`.trim();
+    const frame = renderMarkdown(tableMd);
+    expect(frame).not.toContain('┌');
+    expect(frame).toContain('✓');
+    expect(frame).toContain('t1: Search official docs');
+    expect(frame).toContain('t2: Record source URL');
+  });
+
   it('wraps long cell content across multiple lines without truncating with ellipsis', () => {
     const tableMd = `
 | Key | Description |
@@ -128,6 +159,77 @@ describe('TerminalMarkdown table rendering and line wrapping', () => {
     expect(frame).toContain('Item Beta');
     expect(frame).toContain('Item Gamma');
     expect(frame).not.toContain('<br>');
+  });
+
+  it('keeps borders for a two-column table that is NOT a checklist', () => {
+    // The compact form is keyed on header words; a near-miss must still get the
+    // grid, or a widening of that regex would silently restructure real data.
+    const tableMd = `
+| Item | Value |
+| --- | --- |
+| alpha | 1 |
+`.trim();
+    const frame = renderMarkdown(tableMd);
+    expect(frame).toContain('┌');
+    expect(frame).toContain('alpha');
+  });
+
+  it('keeps borders for a three-column table', () => {
+    const tableMd = `
+| Task | Status | Owner |
+| --- | --- | --- |
+| t1 | done | Apogee |
+`.trim();
+    const frame = renderMarkdown(tableMd);
+    expect(frame).toContain('┌');
+    expect(frame).toContain('Apogee');
+  });
+
+  it('renders every status branch of the checklist glyph', () => {
+    const tableMd = `
+| Task | Status |
+| --- | --- |
+| t1: Search docs | ✅ |
+| t2: Fix the build | blocked |
+| t3: Review PR | pending |
+`.trim();
+    const frame = renderMarkdown(tableMd);
+    expect(frame).toContain('✓');
+    expect(frame).toContain('!');
+    expect(frame).toContain('·');
+    // The model's own words survive: a glyph alone cannot tell "in progress"
+    // from "deferred".
+    expect(frame).toContain('blocked');
+    expect(frame).toContain('pending');
+  });
+
+  it('renders an autolink as a bare URL, not angle brackets', () => {
+    const tableMd = `
+| Item | Detail |
+| --- | --- |
+| Source URL | <https://vite.dev/blog/announcing-vite8-1> |
+`.trim();
+    const frame = renderMarkdown(tableMd);
+    expect(frame).toContain('https://vite.dev/blog/announcing-vite8-1');
+    expect(frame).not.toContain('<https://');
+  });
+
+  it('degrades a bordered table to a plain list when the grid cannot fit', () => {
+    // The degraded branch needs the layout input and the render canvas to agree;
+    // ink-testing-library's fixed 100-column canvas made it unreachable.
+    const tableMd = `
+| Key | Value |
+| --- | --- |
+| alpha | some detail |
+| beta | other detail |
+`.trim();
+    const wide = renderMarkdown(tableMd, 200);
+    expect(wide).toContain('┌');
+
+    const narrow = renderMarkdown(tableMd, 12);
+    expect(narrow).not.toContain('┌');
+    expect(narrow).toContain('alpha');
+    expect(narrow).toContain('beta');
   });
 
   it('wraps long unbroken strings across lines within column width', () => {

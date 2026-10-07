@@ -47,6 +47,41 @@ class _EchoProvider(BaseProvider):
         return ["echo-model"]
 
 
+class _ReasoningTurnProvider(BaseProvider):
+    """Canned stream provider that can emit reasoning-only turns."""
+
+    def __init__(self, responses):
+        super().__init__("reasoning", "reasoning-model")
+        self.responses = list(responses)
+        self.call_count = 0
+        self._last_finish_reason = None
+        self._last_native_tool_calls = []
+
+    async def complete(self, messages, tools=None):
+        raise NotImplementedError()
+
+    async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+        from server.domain.enums import FinishReason
+
+        self.call_count += 1
+        self._last_native_tool_calls = []
+        entry = self.responses[min(self.call_count - 1, len(self.responses) - 1)]
+        if isinstance(entry, tuple) and entry[0] == "reasoning":
+            self._last_finish_reason = FinishReason.STOP
+            for part in entry[1]:
+                yield ("", part)
+            return
+        self._last_finish_reason = FinishReason.STOP
+        for char in str(entry):
+            yield (char, None)
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["reasoning-model"]
+
+
 @pytest.fixture
 def test_config(temp_dir):
     return AppSettings(
@@ -289,6 +324,44 @@ async def test_conversational_response_no_nudge_without_todos(test_config):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "hi",
+        "run tests",
+        "fix the bug",
+        "add tests for the parser",
+    ],
+)
+async def test_every_prompt_keeps_its_tool_surface(test_config, prompt):
+    """A request is never classified into "this needs no tools" by its shape.
+
+    A word count cannot tell a greeting from a two-word task. Stripping the tool
+    surface on a guess means the model is handed a request it has no way to
+    satisfy, and the turn ends with a chat reply instead of the work asked for.
+    """
+    captured_tools = []
+    captured_choices = []
+
+    class _CaptureProvider(_EchoProvider):
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            captured_tools.append([t["function"]["name"] for t in (tools or [])])
+            captured_choices.append(tool_choice)
+            async for chunk in super().stream(messages, tools, tool_choice, response_format):
+                yield chunk
+
+    provider = _CaptureProvider(["Hello! How can I assist you today?"])
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
+    async for _ in agent.process_prompt(prompt, "s_surface", [], mode="build"):
+        pass
+
+    assert captured_tools, "stream was never called"
+    assert captured_tools[0], f"prompt {prompt!r} was stripped of every tool"
+    assert captured_choices[0] != "none", f"prompt {prompt!r} was given tool_choice=none"
+
+
+@pytest.mark.asyncio
 async def test_plan_mode_with_pending_todos_marked_completed(test_config):
     """In PLAN_MODE, generating a todo list with pending tasks is the desired deliverable, so completed must be True."""
     from server.config.constants.agent import PLAN_MODE
@@ -312,56 +385,157 @@ async def test_plan_mode_with_pending_todos_marked_completed(test_config):
 
 
 @pytest.mark.asyncio
-async def test_prompt_mentioning_tools_auto_escalates_on_turn_1(test_config):
-    """When a prompt mentions non-seed tools (e.g. 'todo', 'explore'), they are pre-escalated on Turn 1."""
-    captured_tools = []
+async def test_loop_folds_tool_schema_tokens_into_occupancy(test_config):
+    """The offered schemas are part of every request and must count.
 
-    class _CaptureProvider(_EchoProvider):
-        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
-            captured_tools.append([t["function"]["name"] for t in (tools or [])])
-            async for chunk in super().stream(messages, tools, tool_choice, response_format):
-                yield chunk
-
-    provider = _CaptureProvider(["I have finished."])
+    They occupy the window on each call while appearing in no message, so
+    occupancy measured over messages alone reads low — and it is that number
+    which decides whether the next step fits.
+    """
+    provider = _EchoProvider(["Done."])
     agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
 
-    events = []
-    async for event in agent.process_prompt(
-        "Use the todo tool to create a checklist and explore the repo.", "s_preseed", [], mode="build"
-    ):
-        events.append(event)
+    async for _ in agent.process_prompt("Check the tool surface.", "s_aux_tokens", [], mode="build"):
+        pass
 
-    assert captured_tools, "stream should have been called"
-    turn1_tools = captured_tools[0]
-    assert "todo" in turn1_tools, "todo should be in turn 1 tools when mentioned in prompt"
-    assert "explore" in turn1_tools, "explore should be in turn 1 tools when mentioned in prompt"
+    assert agent.context_manager._aux_tokens > 0
 
 
 @pytest.mark.asyncio
-async def test_prompt_without_mentions_leaves_seed_unchanged(test_config):
-    """A prompt that does not mention non-seed tools must not escalate them on Turn 1."""
+async def test_build_turn_offers_delegation_without_being_asked(test_config, monkeypatch):
+    """When configured in seed_tools, delegation is offered on turn 1 without being asked;
+    by default discovery tools are offered for on-demand loading."""
+    from server.config.settings import AGENT_MODES, BUILD_MODE, AgentModeConfig, CORE_BUILD_TOOLS
+
     captured_tools = []
+    captured_choices = []
 
     class _CaptureProvider(_EchoProvider):
         async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
             captured_tools.append([t["function"]["name"] for t in (tools or [])])
+            captured_choices.append(tool_choice)
             async for chunk in super().stream(messages, tools, tool_choice, response_format):
                 yield chunk
 
     provider = _CaptureProvider(["I have finished."])
     agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
 
+    async for _ in agent.process_prompt(
+        "Investigate the rendering pipeline and report evidence.", "s_explore_autonomous", [], mode="build"
+    ):
+        pass
+
+    assert captured_tools, "stream should have been called"
+    assert "discover_capabilities" in captured_tools[0]
+    assert "get_tool_definition" in captured_tools[0]
+    assert "file_read" not in captured_tools[0]
+
+    # When seed_tools is explicitly configured, seed tools are offered upfront
+    seeded_mode = AgentModeConfig(
+        name=BUILD_MODE,
+        allowed_tools=CORE_BUILD_TOOLS,
+        seed_tools=["explore", "todo"],
+        tool_choice="auto",
+    )
+    monkeypatch.setitem(AGENT_MODES, BUILD_MODE, seeded_mode)
+
+    captured_tools.clear()
+    provider2 = _CaptureProvider(["I have finished."])
+    agent2 = SimpleLoop(test_config, provider2, tool_registry=create_default_registry(config=test_config))
+    async for _ in agent2.process_prompt(
+        "Investigate the rendering pipeline and report evidence.", "s_explore_autonomous2", [], mode="build"
+    ):
+        pass
+
+    assert "explore" in captured_tools[0]
+    assert "todo" in captured_tools[0]
+    assert captured_choices[0] == "auto", "the loop must not force a tool the model has not chosen"
+
+
+@pytest.mark.asyncio
+async def test_reasoning_only_turn_with_active_todo_nudges_to_next_tool(test_config):
+    """A reasoning-only turn after todo setup must not finalize the request."""
+    provider = _ReasoningTurnProvider(
+        [
+            '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "t1", "title": "Trace flow", "status": "in_progress"}]}}\n```',
+            ("reasoning", ["I am thinking about the next investigation step."]),
+            '```tool\n{"tool": "grep", "params": {"pattern": "todo_board", "path": "server"}}\n```',
+            "Done.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
+    events = []
+    async for event in agent.process_prompt("Trace the todo flow", "s_reasoning_resume", [], mode="build"):
+        events.append(event)
+
+    tool_calls = [event.data.get("tool") for event in events if event.kind == EventKind.TOOL_CALL]
+    assert tool_calls[:2] == ["todo", "grep"]
+    assert provider.call_count >= 3, "reasoning-only turn should cause a nudge and another model call"
+
+
+@pytest.mark.asyncio
+async def test_loop_never_reorders_the_model_chosen_tool_sequence(test_config):
+    """Whatever tool the model picks first is the tool that runs first.
+
+    The loop used to discard any first call that was not ``todo`` and re-ask,
+    which meant a model that opened with the right tool for the job was made to
+    spend a turn on the harness's preferred tool instead. Ordering is the
+    model's decision; the loop's job is to execute it faithfully.
+    """
+    provider = _EchoProvider(
+        [
+            '```tool\n{"tool": "glob", "params": {"pattern": "**/*.py", "path": "server"}}\n```',
+            "Found the file list.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
     events = []
     async for event in agent.process_prompt(
-        "Refactor the CLI entrypoint and add tests.", "s_preseed_quiet", [], mode="build"
+        "Investigate the live rendering pipeline and report evidence.",
+        "s_no_reordering",
+        [],
+        mode="build",
     ):
         events.append(event)
 
-    assert captured_tools, "stream should have been called"
-    turn1_tools = captured_tools[0]
-    assert "explore" not in turn1_tools, "explore should stay unoffered when not mentioned"
-    assert "websearch" in turn1_tools, "websearch is a core build seed tool"
-    assert "file_read" in turn1_tools, "core seed tools must remain offered"
+    tool_calls = [event.data.get("tool") for event in events if event.kind == EventKind.TOOL_CALL]
+    assert tool_calls[0] == "glob", "the model's first tool call must execute as issued"
+
+
+@pytest.mark.asyncio
+async def test_loop_does_not_block_local_search_in_favour_of_delegation(test_config):
+    """Local read/search calls are not capped to push the model toward explore.
+
+    Whether one more grep is cheaper than a crewmate depends on the evidence in
+    front of the model. A fixed cap on local observations freezes that decision
+    in code and rejects a call the model had good reason to make.
+    """
+    provider = _EchoProvider(
+        [
+            '```tool\n{"tool": "glob", "params": {"pattern": "**/*.py", "path": "server"}}\n```',
+            '```tool\n{"tool": "grep", "params": {"pattern": "progress", "path": "server"}}\n```',
+            '```tool\n{"tool": "file_read", "params": {"path": "server/agents/simple_loop.py", "offset": 0, "limit": 20}}\n```',
+            '```tool\n{"tool": "grep", "params": {"pattern": "todo_board", "path": "server"}}\n```',
+            "Traced the flow.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
+    events = []
+    async for event in agent.process_prompt(
+        "Run a broad rendering pipeline investigation with evidence for several UI areas.",
+        "s_no_search_cap",
+        [],
+        mode="build",
+    ):
+        events.append(event)
+
+    tool_calls = [event.data.get("tool") for event in events if event.kind == EventKind.TOOL_CALL]
+    assert tool_calls[:4] == ["glob", "grep", "file_read", "grep"], (
+        f"local read/search calls were blocked: {tool_calls}"
+    )
 
 
 @pytest.mark.asyncio
@@ -393,6 +567,82 @@ async def test_substantive_answer_with_duplicate_tool_nudges_when_todos_remain(t
     manifest = success_events[-1].data.get("manifest", {})
     assert manifest.get("completed") is False
     assert "active tasks remaining" in success_events[-1].data.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_model_answer_reaches_the_user_even_with_open_todos(test_config):
+    """A completed answer is shown even when the board still has open items.
+
+    The loop used to withhold the model's prose until the board was closed,
+    with no release valve: a model that judged the work done and kept answering
+    in prose produced no answer at all, and the turn ended in a salvage digest.
+    Withholding a finished answer is unrecoverable, so it does not happen.
+    """
+    provider = _EchoProvider(
+        [
+            '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "t1", "title": "Find source", "status": "in_progress"}, {"id": "t2", "title": "Summarize result", "status": "pending"}]}}\n```',
+            '```tool\n{"tool": "list_dir", "params": {"path": "."}}\n```',
+            "ANSWER: the source was found and the result summarized.",
+            "ANSWER: the source was found and the result summarized.",
+            "ANSWER: the source was found and the result summarized.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
+    events = []
+    async for event in agent.process_prompt(
+        "Research current external evidence and report the result.",
+        "s_answer_shown",
+        [],
+        mode="build",
+    ):
+        events.append(event)
+
+    messages = [
+        e.data.get("text", "")
+        for e in events
+        if e.kind == EventKind.MESSAGE and not e.data.get("partial")
+    ]
+    assert any("ANSWER: the source was found" in m for m in messages), (
+        "the model's answer was withheld from the user"
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_choice_is_never_forced_by_the_loop(test_config):
+    """tool_choice stays whatever the mode declares for every request.
+
+    Forcing a named tool means the model is not choosing what to do next; it is
+    being told. The loop keeps the mode's policy and nothing more.
+    """
+    provider = _EchoProvider(
+        [
+            '```tool\n{"tool": "todo", "params": {"action": "write", "tasks": [{"id": "t1", "title": "Fetch evidence", "status": "in_progress"}, {"id": "t2", "title": "Report source", "status": "pending"}]}}\n```',
+            '```tool\n{"tool": "list_dir", "params": {"path": "."}}\n```',
+            "Final answer with the board already resolved.",
+        ]
+    )
+
+    captured_choices = []
+
+    class _CaptureProvider(_EchoProvider):
+        async def stream(self, messages, tools=None, tool_choice=None, response_format=None):
+            captured_choices.append(tool_choice)
+            async for chunk in super().stream(messages, tools, tool_choice, response_format):
+                yield chunk
+
+    provider = _CaptureProvider(provider.responses)
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry(config=test_config))
+
+    async for _ in agent.process_prompt(
+        "Fetch web evidence and answer.", "s_no_forced_choice", [], mode="build"
+    ):
+        pass
+
+    assert captured_choices
+    assert all(isinstance(c, str) for c in captured_choices), (
+        f"a forced tool_choice dict reached the provider: {captured_choices}"
+    )
 
 
 @pytest.mark.asyncio
@@ -1027,6 +1277,48 @@ async def test_history_native_tool_call_escalates_registered_tool_before_provide
     assert "job_output" in first_names, (
         "registered history tool must be offered to the provider before the call"
     )
+
+
+@pytest.mark.asyncio
+async def test_empty_assistant_turn_degenerate_after_tool_nudged_for_answer(test_config):
+    """When a model outputs [empty assistant turn] after a tool run, it is treated as degenerate,
+    nudged to provide an actual answer, and does not leak into visible messages."""
+    provider = _EchoProvider(
+        [
+            # Turn 1: Commentary + tool call
+            'I will check the directory contents.\n\n```tool\n{"tool": "list_dir", "params": {"path": "."}}\n```',
+            # Turn 2: Degenerate turn echoing the prompt sanitization token
+            "[empty assistant turn]",
+            # Turn 3: Final answer after silent continuation nudge
+            "The directory contains the project files.",
+        ]
+    )
+    agent = SimpleLoop(test_config, provider, tool_registry=create_default_registry())
+
+    events = []
+    async for event in agent.process_prompt("Check directory", "s_empty_turn", []):
+        events.append(event)
+
+    # 1: tool call (list_dir)
+    # 2: [empty assistant turn] -> degenerate -> silent continuation triggered
+    # 3: final answer
+    assert provider.call_count == 3, f"Expected 3 calls, got {provider.call_count}"
+
+    messages = [e for e in events if e.kind == EventKind.MESSAGE]
+    message_texts = [m.data["text"] for m in messages]
+
+    assert any("I will check the directory contents" in t for t in message_texts)
+    assert any("The directory contains the project files" in t for t in message_texts)
+    assert not any("[empty assistant turn]" in t.lower() for t in message_texts), (
+        f"[empty assistant turn] must never leak as a visible message event: {message_texts}"
+    )
+
+    manifest_events = [e for e in events if e.kind == EventKind.TURN_MANIFEST]
+    assert manifest_events, "Turn manifest must be emitted"
+    manifest = manifest_events[-1].data
+    assert manifest["completed"] is True
+    assert manifest["answered"] is True
+
 
 
 

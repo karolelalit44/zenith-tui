@@ -110,12 +110,12 @@ export function getToolVerbLabel(tool: string): string {
 }
 
 export const TOOL_STEP_PRIMARY_KEYS = [
-  'path',
-  'filepath',
   'command',
-  'url',
-  'query',
   'pattern',
+  'query',
+  'url',
+  'filepath',
+  'path',
   'glob',
   'job_id',
   'task_id',
@@ -123,12 +123,18 @@ export const TOOL_STEP_PRIMARY_KEYS = [
 ] as const;
 
 export function getToolStepPrimaryParam(
-  _tool: string,
+  tool: string,
   params: Record<string, unknown>,
 ): { key: string; value: string } | null {
-  for (const key of TOOL_STEP_PRIMARY_KEYS) {
-    if (params[key] !== undefined && params[key] !== null) {
-      return { key, value: String(params[key]) };
+  const lower = tool.toLowerCase();
+  const preferred =
+    lower === 'grep' || lower === 'grep_search' || lower === 'glob'
+      ? ['pattern', 'query', 'path']
+      : TOOL_STEP_PRIMARY_KEYS;
+  for (const key of preferred) {
+    const value = params[key as keyof typeof params];
+    if (value !== undefined && value !== null && String(value).trim().length > 0) {
+      return { key, value: String(value) };
     }
   }
   return null;
@@ -255,6 +261,16 @@ function formatTodoStatus(source: StatusSource): string {
   return ` Track task${taskId ? ` #${taskId}` : ''}`;
 }
 
+/**
+ * A tool result the caller can recover from: the path named simply did not
+ * exist. The server sets `recoverable_miss` on glob/grep results when it also
+ * supplies existing workspace entries as a hint, so this is a "wrong argument"
+ * signal, not a broken tool.
+ */
+export function isRecoverableMiss(metadata: Record<string, unknown> | undefined): boolean {
+  return metadata?.recoverable_miss === true;
+}
+
 export function getToolStepStatusText(event: {
   tool: string;
   success: boolean;
@@ -264,7 +280,7 @@ export function getToolStepStatusText(event: {
 }): string {
   const isShell = SHELL_TOOL_SET.has(event.tool.toLowerCase());
   if (!isShell && !event.success) {
-    return `✗ Failed`;
+    return isRecoverableMiss(event.metadata) ? '○ Path not found' : `✗ Failed`;
   }
 
   if (event.tool === GET_TOOL_DEFINITION_TOOL) {

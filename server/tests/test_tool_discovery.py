@@ -250,6 +250,11 @@ class TestSchemaMinimality:
 
         return schemas_to_openai_tools(resolver.schemas(mode))
 
+    def test_on_demand_initial_seed_is_lean_discovery_only(self):
+        tools = self._build_openai_tools(None, BUILD_MODE)
+        names = {t["function"]["name"] for t in tools}
+        assert names == {DISCOVER_CAPABILITIES_TOOL, GET_TOOL_DEFINITION_TOOL}
+
     def test_build_mode_schema_set_matches_seed(self):
         tools = self._build_openai_tools(CORE_BUILD_TOOLS, BUILD_MODE)
         names = {t["function"]["name"] for t in tools}

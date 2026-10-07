@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 def build_tool_reference_hint() -> str:
     return (
-        "Tool schemas in this request are authoritative and complete for the tools "
-        "active this turn; prefer them over any description of a tool you remember. "
-        "Call get_tool_definition('<tool_name>') for a tool's full parameter schema and "
-        "usage guidelines, and discover_capabilities() to list tools not currently offered."
+        "A lean set of tool schemas is active this turn for direct use; the full capability "
+        "catalog is available on demand. "
+        "Call get_tool_definition('<tool_name>') for a tool's full parameter schema and usage "
+        "guidelines, and discover_capabilities() to list all available tools."
     )
 
 
@@ -185,7 +185,8 @@ def compose_system_context(sections: list[PromptSection]) -> list[str]:
 
 
 def build_system_prompt(workspace_root: str, mode: str = BUILD_MODE) -> str:
-    return "\n\n".join(compose_system_context(default_template_sections(mode=mode, workspace_root=workspace_root)))
+    sections = default_template_sections(mode=mode, workspace_root=workspace_root)
+    return "\n\n".join(compose_system_context(sections))
 
 
 def build_plan_system_prompt(workspace_root: str) -> str:

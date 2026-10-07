@@ -5,6 +5,7 @@ import {
   LIVE_PROGRESS_EVENT_ID,
 } from '../../constants/events';
 import type { Scenario, ScenarioListener, ScenarioMode, ScenarioProvider, ScenarioRunner } from '../../types/scenario';
+import { isDegenerateMessage } from '../../utils/text';
 import { mapRawEvent, uid } from './rawEventMapper';
 import { type WebSocketClient, wsClient } from './WebSocketClient';
 
@@ -198,6 +199,26 @@ export class BackendScenarioProvider implements ScenarioProvider {
       if (kind === 'message' && !data?.partial) {
         const fullText = String(data?.text || accumulatedText);
 
+        if (isDegenerateMessage(fullText)) {
+          if (partialMessageIndex !== null) {
+            onEvent(
+              {
+                kind: 'message',
+                id: partialMessageId ?? rpcId ?? uid(),
+                text: '',
+                partial: false,
+                iteration: typeof data?.iteration === 'number' ? data.iteration : undefined,
+              },
+              partialMessageIndex,
+            );
+          }
+          partialMessageIndex = null;
+          lastPartialMessageIndex = null;
+          partialMessageId = null;
+          accumulatedText = '';
+          return;
+        }
+
         let targetIndex: number;
         if (partialMessageIndex !== null) {
           targetIndex = partialMessageIndex;
@@ -227,15 +248,17 @@ export class BackendScenarioProvider implements ScenarioProvider {
       const isTerminalEvent = (kind === 'success' && !data?.tool) || kind === 'error';
 
       if (isTerminalEvent && partialMessageIndex !== null) {
-        onEvent(
-          {
-            kind: 'message',
-            id: partialMessageId ?? uid(),
-            text: accumulatedText,
-            partial: false,
-          },
-          partialMessageIndex,
-        );
+        if (accumulatedText && !isDegenerateMessage(accumulatedText)) {
+          onEvent(
+            {
+              kind: 'message',
+              id: partialMessageId ?? uid(),
+              text: accumulatedText,
+              partial: false,
+            },
+            partialMessageIndex,
+          );
+        }
         partialMessageIndex = null;
         partialMessageId = null;
         accumulatedText = '';
@@ -265,7 +288,7 @@ export class BackendScenarioProvider implements ScenarioProvider {
           kind === 'error')
       ) {
         const pendingText = accumulatedText;
-        if (pendingText && pendingText.trim().length > 0) {
+        if (pendingText && !isDegenerateMessage(pendingText)) {
           onEvent(
             {
               kind: 'message',

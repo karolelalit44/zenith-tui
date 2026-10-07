@@ -4,19 +4,12 @@ import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { estimateTokensForEvents } from '../../../services/api/tokenEstimationService';
 import { useTheme } from '../../../theme/ThemeContext';
-import type {
-  CaptainOrchestrationEvent,
-  CrewmateAgent,
-  ScenarioEvent,
-  ThinkingEvent,
-  TimelineEntry,
-  TurnManifestEvent,
-  WarningEvent,
-} from '../../../types/scenario';
+import type { MessageEvent, ScenarioEvent, ThinkingEvent, TurnManifestEvent, WarningEvent } from '../../../types/scenario';
 import { consolidateCompactionEvents } from '../../../utils/compaction';
 import { consolidateOrchestrationEvents } from '../../../utils/orchestration';
 import { foldReadOnlyRepeats, pairToolEvents, progressDuplicatesPendingToolStep } from '../../../utils/pairToolEvents';
-import { consolidateTodoBoardEvents } from '../../../utils/todoBoard';
+import { estimateEventStreamHeight, lineOffsetToEventStart } from '../../../utils/scrollWindow';
+import { isDegenerateMessage } from '../../../utils/text';
 import { componentRegistry } from './componentRegistry';
 
 interface ScenarioRendererProps {
@@ -29,7 +22,9 @@ interface ScenarioRendererProps {
   historyExpanded?: boolean;
   workspaceName?: string;
   gitBranch?: string;
+  /** Scroll position in LINE space (see utils/scrollWindow). Undefined = pinned to newest. */
   scrollOffset?: number;
+  /** Viewport height in LINE space; converted to an event window below. */
   maxDynamicLines?: number;
   showStatusRow?: boolean;
   /** Global ctrl+e signal — expands every truncated warning/error message. */
@@ -101,7 +96,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       ],
     );
 
-    const dynamicLimit = Math.max(10, Math.min(20, termRows - 8));
+    const dynamicLimit = Math.max(6, Math.min(maxDynamicLines ?? 20, Math.max(6, termRows - 8)));
     const hasOverflow = !isHistorical && events.length > dynamicLimit;
     const expanded = hasOverflow && historyExpanded;
 
@@ -117,6 +112,9 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       // STREAM_RETRY is a transient notice surfaced by the pinned status row and
       // auto-hidden after a few seconds; it must not linger in scrollback.
       source = source.filter((e) => !(e.kind === 'warning' && (e as WarningEvent).code === 'STREAM_RETRY'));
+      // Degenerate placeholder messages (e.g. "[empty assistant turn]", "ok", etc.)
+      // are internal tokens or degenerate trailers, not user-facing text.
+      source = source.filter((e) => !(e.kind === 'message' && isDegenerateMessage((e as MessageEvent).text)));
       // Progress rows are LIVE-ONLY instrumentation. After completion the
       // SuccessCard status row supersedes them; keeping them in scrollback
       // triple-echoed every tool call.
@@ -243,7 +241,18 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
         if (!hasOverflow || expanded) {
           return nonSuccess;
         }
-        return nonSuccess.slice(-dynamicLimit);
+        const maxStart = Math.max(0, nonSuccess.length - dynamicLimit);
+        // `scrollOffset` arrives in LINES, measured against this same event list's
+        // estimated height — same helper on both sides, so there is one coordinate
+        // system rather than a ratio computed over one array and applied to another.
+        const startLine = lineOffsetToEventStart(
+          scrollOffset,
+          estimateEventStreamHeight({ messageLineCount: 0, nonMessageEventCount: nonSuccess.length }),
+          dynamicLimit,
+          nonSuccess.length,
+        );
+        const start = startLine === undefined ? maxStart : Math.max(0, Math.min(maxStart, startLine));
+        return nonSuccess.slice(start, start + dynamicLimit);
       }
       if (!hasOverflow || expanded) {
         return visibleEvents;
@@ -253,7 +262,7 @@ export const ScenarioRenderer: React.FC<ScenarioRendererProps> = React.memo(
       const successEvents = visibleEvents.filter((e) => e.kind === 'success');
       const otherEvents = visibleEvents.filter((e) => e.kind !== 'success');
       return [...otherEvents.slice(-dynamicLimit), ...successEvents];
-    }, [visibleEvents, hasOverflow, expanded, dynamicLimit, showStatusRow, isHistorical]);
+    }, [visibleEvents, hasOverflow, expanded, dynamicLimit, showStatusRow, isHistorical, scrollOffset]);
 
     const pinnedEarly = useMemo(() => {
       if (!hasOverflow || expanded) return null;

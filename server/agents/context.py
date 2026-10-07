@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,24 +12,20 @@ from server.config.constants import (
     DEFAULT_CONTEXT_WINDOW,
     HARD_STOP_USAGE_RATIO,
     LARGE_CONTEXT_WINDOW,
-    MIN_MENTIONED_SYMBOL_LEN,
     MIN_OUTPUT_RESERVE_TOKENS,
     REPO_MAP_MAX_TOKENS,
     REPO_MAP_MIN_TOKENS,
+    REPO_MAP_STALE_AFTER_SECONDS,
+    REPO_MAP_WINDOW_RATIO,
     SESSION_STATE_MARKER,
     SUMMARY_FRAMING_TOKENS,
 )
 from server.config.settings import AppSettings
 from server.domain.message import Message
-from server.providers.token_counter import ContextUsage, TokenCounter, UsageAnchor
+from server.providers.token_counter import TokenCounter
 from server.storage import load_catalog
 
 logger = logging.getLogger(__name__)
-
-# How much of the tail to scan for mentioned symbols. Bounded so a long session
-# does not turn map rendering into a text scan, and recent enough that the map
-# tracks what the model is doing now rather than what it did an hour ago.
-_MENTION_SCAN_MESSAGES = 12
 
 _E2E_INSTRUMENT = bool(os.environ.get("ZENITH_E2E_INSTRUMENT", ""))
 
@@ -93,77 +89,6 @@ def _adaptive_reserve(model: str, context_window: int) -> int:
     return min(reserve, max(0, context_window - 500))
 
 
-def _call_arguments(call: Any) -> dict:
-    """Argument dict of one tool call, whatever shape it was stored in.
-
-    Four shapes occur in this codebase's history: the ``ToolCall`` model the
-    domain layer actually uses (a pydantic object with an ``arguments`` dict),
-    a local ``params`` dict, the OpenAI ``function.arguments`` JSON string, and a
-    flat pair. Returns ``{}`` rather than raising — a malformed call is not worth
-    failing a ranking signal over, and an empty contribution is the correct
-    answer for one.
-    """
-    if isinstance(call, dict):
-        raw = call.get("params")
-        if raw is None:
-            fn = call.get("function")
-            raw = fn.get("arguments") if isinstance(fn, dict) else None
-        if raw is None:
-            raw = call.get("arguments")
-    else:
-        raw = getattr(call, "arguments", None)
-        if raw is None:
-            raw = getattr(call, "params", None)
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except (TypeError, ValueError):
-            return {}
-    return raw if isinstance(raw, dict) else {}
-
-
-def mentioned_paths(history: list[Message], limit: int = 64) -> list[str]:
-    """Paths the conversation has referred to, most recent first.
-
-    Read from structured tool-call arguments only. Scanning message text for
-    anything that looks path-shaped also returns ``and/or`` and ``1.2.3``, which
-    is harmless here — the ranker resolves every candidate against the files it
-    actually tracks and drops what it cannot match — but it is noise in a signal
-    that does not need any.
-    """
-    seen: set[str] = set()
-    found: list[str] = []
-
-    def _add(path_str: str) -> None:
-        if not path_str or len(found) >= limit:
-            return
-        norm = path_str.replace("\\", "/").removeprefix("./").strip("`'\" \t\r\n")
-        if (
-            norm
-            and norm not in seen
-            and not norm.startswith(("http:", "https:", "file:"))
-        ):
-            seen.add(norm)
-            found.append(norm)
-
-    for msg in reversed(history):
-        if len(found) >= limit:
-            break
-        for call in getattr(msg, "tool_calls", None) or []:
-            args = _call_arguments(call)
-            for key in ("path", "filepath", "target", "file"):
-                value = args.get(key)
-                if isinstance(value, str):
-                    _add(value)
-            files_list = args.get("files")
-            if isinstance(files_list, list):
-                for entry in files_list:
-                    if isinstance(entry, str):
-                        _add(entry)
-
-    return found
-
-
 @dataclass
 class TokenBreakdown:
     """Deterministic token accounting for a composed message list."""
@@ -201,19 +126,6 @@ class TokenInfo:
     total: int
     percent: float
     window_estimated: bool = False
-    usage_source: str = "estimated"
-
-
-def _identifiers_in(value: str) -> set[str]:
-    """Identifier-shaped words inside an arbitrary string."""
-    cleaned = "".join(ch if (ch.isalnum() or ch == "_") else " " for ch in value)
-    return {t for t in cleaned.split() if len(t) >= MIN_MENTIONED_SYMBOL_LEN and t.isidentifier()}
-
-
-# Tool-call argument keys whose values name a *symbol* rather than a file or a
-# sentence. A `grep(pattern=...)` or a symbol lookup is the model asking for a
-# definition by name; that is the signal the ranker wants.
-_SYMBOL_PARAM_KEYS = ("symbol", "name", "pattern", "query", "search", "term", "class", "func", "function", "method", "ref", "reference")
 
 
 class ContextManager:
@@ -224,47 +136,12 @@ class ContextManager:
         self._last_t0_len = 0
         self._window_estimated = False
         self._repo_map_cache: str | None = None
-        self._repo_map_cache_key: int | None = None
-        self._repo_map: Any | None = None
-        self._repo_map_history: list[Message] = []
-        # Provider-reported occupancy of a prefix of the message list currently
-        # being composed. Cleared by build_messages, because a rebuilt list
-        # shares no prefix with the one the provider last saw.
-        self._usage_anchor: UsageAnchor | None = None
+        self._repo_map_instance = None
+        self._repo_map_rendered_at: float | None = None
+        self._repo_map_newest_mtime: float = 0.0
 
     def set_aux_tokens(self, tokens: int) -> None:
-        """Set the token cost of the request parts that are not messages.
-
-        This is the tool-schema block: it occupies the context window on every
-        request yet appears in no message, so without it every occupancy figure
-        is a lower bound. Callers should refresh it whenever the offered tool
-        set changes.
-        """
         self._aux_tokens = max(0, int(tokens))
-
-    @property
-    def aux_tokens(self) -> int:
-        return self._aux_tokens
-
-    def record_usage_anchor(self, message_count: int, tokens: int) -> None:
-        """Anchor occupancy on a provider-reported request.
-
-        ``message_count`` is the length of the list that request was built from.
-        Everything before it is billed by the provider; everything after is this
-        turn's own growth and is estimated on top. The current tool-schema budget
-        is recorded with it so the schema block is not billed twice.
-        """
-        tokens = int(tokens or 0)
-        if tokens <= 0:
-            return
-        self._usage_anchor = UsageAnchor(
-            index=max(0, int(message_count)),
-            tokens=tokens,
-            aux_tokens=self._aux_tokens,
-        )
-
-    def clear_usage_anchor(self) -> None:
-        self._usage_anchor = None
 
     @property
     def context_window_estimated(self) -> bool:
@@ -283,82 +160,62 @@ class ContextManager:
         explicit = getattr(self.config, "repo_map_tokens", None)
         if explicit is not None:
             return int(explicit)
-        # Share of the window, bounded. The map is the cheapest way to stop the
-        # model opening the wrong file, and its value is in symbol density, so it
-        # is worth scaling with the room available — but not linearly: past a few
-        # thousand tokens the tree stops adding information and only costs
-        # prefix-cache for a map nothing reads to the end of.
         context_window = self._resolve_context_window(model)
-        return max(REPO_MAP_MIN_TOKENS, min(context_window // 8, REPO_MAP_MAX_TOKENS))
+        derived = int(context_window * REPO_MAP_WINDOW_RATIO)
+        return min(REPO_MAP_MAX_TOKENS, max(REPO_MAP_MIN_TOKENS, derived))
 
-    def _mentioned_symbols(self, history: list[Message]) -> set[str]:
-        """Identifiers the conversation has recently asked for by name.
+    def _repo_map_is_stale(self) -> bool:
+        """True when the rendered map no longer describes the workspace.
 
-        A file defining the symbol just named is the file the model is about to
-        need, and this costs nothing to compute.
-
-        Sourced from **structured tool-call arguments only**, not from prose.
-        Harvesting every word out of the assistant's recent text looks like the
-        same signal and is not: ordinary English words of eight characters or more
-        — "something", "component", "handling" — all qualify, and each was worth
-        a boost large enough to outrank structural centrality, so the map filled
-        with whatever module happened to define a common noun. A tool call names
-        the symbol deliberately; a sentence does not.
+        The agent writes files while it runs, so a map rendered at turn 1 goes
+        stale within the same session. Cheap staleness probe: newest mtime across
+        the tracked catalog, plus a TTL so an edit that preserves mtime ordering
+        still refreshes eventually.
         """
-        if not history:
-            return set()
-        found: set[str] = set()
-        for msg in history[-_MENTION_SCAN_MESSAGES:]:
-            for call in getattr(msg, "tool_calls", None) or []:
-                args = _call_arguments(call)
-                for key in _SYMBOL_PARAM_KEYS:
-                    value = args.get(key)
-                    if isinstance(value, str):
-                        found |= _identifiers_in(value)
-        return found
+        if self._repo_map_cache is None or self._repo_map_rendered_at is None:
+            return False
+        if (time.monotonic() - self._repo_map_rendered_at) >= REPO_MAP_STALE_AFTER_SECONDS:
+            return True
+        try:
+            repo = self._repo_map()
+            newest = max(
+                (p.stat().st_mtime for p in repo.iter_tracked_files()),
+                default=0.0,
+            )
+        except OSError:
+            return False
+        return newest > self._repo_map_newest_mtime
 
-    def get_repo_map(
-        self,
-        model: str = "",
-        chat_files: list[str] | None = None,
-        force_refresh: bool = False,
-    ) -> str:
-        if not getattr(self.config, "repo_map_enabled", True):
-            return ""
-        if self._repo_map is None:
+    def _repo_map(self):
+        """One RepoMap per manager, so its parsed symbol graph is reused."""
+        if self._repo_map_instance is None:
             from server.workspace.repo_map import RepoMap
 
-            # Held for the manager's lifetime: a fresh instance per call threw
-            # away the parsed symbol graph and the file list, so every miss paid
-            # for a full tree-sitter pass over the tree.
-            self._repo_map = RepoMap(self.config.workspace_root)
-        repo = self._repo_map
+            self._repo_map_instance = RepoMap(self.config.workspace_root)
+        return self._repo_map_instance
 
-        tokens = self._resolve_repo_map_tokens(model)
-        # Keyed on the budget, not on the conversation. The map is an artefact of
-        # the tree; the ranking inputs only choose its ordering. Keying on them
-        # meant a miss on every turn that mentioned a new path — which is every
-        # turn — so the cache this was meant to add never once hit and every
-        # build_messages re-derived up to REPO_MAP_MAX_TOKENS of map.
-        # `is_stale` is what re-derives on a real change: a fingerprint, a TTL,
-        # or a budget change.
-        if (
-            not force_refresh
-            and self._repo_map_cache is not None
-            and self._repo_map_cache_key == tokens
-            and not repo.is_stale()
-        ):
+    def get_repo_map(self, model: str = "", force_refresh: bool = False) -> str:
+        if not getattr(self.config, "repo_map_enabled", True):
+            return ""
+        if force_refresh:
+            self._repo_map_cache = None
+        elif self._repo_map_cache is not None and not self._repo_map_is_stale():
             return self._repo_map_cache
-
-        self._repo_map_cache = repo.get_repo_map(
-            max_tokens=tokens,
-            chat_files=chat_files,
-            mentioned=self._mentioned_symbols(self._repo_map_history),
-            force_refresh=force_refresh,
-        )
-        self._repo_map_cache_key = tokens
-        repo.note_rendered()
-        return self._repo_map_cache
+        tokens = self._resolve_repo_map_tokens(model)
+        repo = self._repo_map()
+        if force_refresh:
+            repo.invalidate()
+        rendered = repo.get_repo_map(max_tokens=tokens)
+        self._repo_map_cache = rendered
+        self._repo_map_rendered_at = time.monotonic()
+        try:
+            self._repo_map_newest_mtime = max(
+                (p.stat().st_mtime for p in repo.iter_tracked_files()),
+                default=0.0,
+            )
+        except OSError:
+            self._repo_map_newest_mtime = 0.0
+        return rendered
 
     def build_messages(
         self,
@@ -377,20 +234,11 @@ class ContextManager:
         reserve = _adaptive_reserve(model, max_tokens)
         budget = max_tokens - reserve
         self._last_t0_len = 1 if use_system_prompt else 0
-        # A freshly composed list shares no prefix with whatever the provider
-        # last billed, so any prior anchor is stale by construction.
-        self._usage_anchor = None
         messages: list[dict] = []
         pbuf = _prompt_buffer(system_prompt)
         if repo_map is None:
-            # The map is the model's only orientation on a repository it has never
-            # seen, which is the first turn more than any other. It used to be
-            # withheld until history existed, on the reasoning that it cost
-            # tokens — but the turn that needs it most is the one with no
-            # history to spend them on.
-            if getattr(self.config, "repo_map_enabled", True):
-                self._repo_map_history = history
-                repo_map = self.get_repo_map(model, chat_files=mentioned_paths(history))
+            if getattr(self.config, "repo_map_enabled", True) and bool(history):
+                repo_map = self.get_repo_map(model)
             else:
                 repo_map = ""
 
@@ -398,7 +246,7 @@ class ContextManager:
             system_tokens = self.token_counter.count(system_prompt, model)
             messages.append({"role": "system", "content": system_prompt})
             used = system_tokens
-            if repo_map:
+            if repo_map and bool(history):
                 map_content = f"<repo_map>\n{repo_map}\n</repo_map>"
                 map_tokens = self.token_counter.count(map_content, model)
                 messages.append({"role": "system", "content": map_content})
@@ -476,7 +324,7 @@ class ContextManager:
         messages.extend(entry for entry, _tokens, _owns_tool_calls in retained)
         if not use_system_prompt:
             parts = [system_prompt]
-            if repo_map:
+            if repo_map and bool(history):
                 parts.append(f"<repo_map>\n{repo_map}\n</repo_map>")
             parts.append(new_prompt)
             new_entry = {"role": "user", "content": "\n\n".join(parts)}
@@ -498,37 +346,11 @@ class ContextManager:
         return self._last_t0_len
 
     def should_summarize(self, messages: list[dict], model: str) -> bool:
-        """Whether the composed context is at or past the compaction watermark.
-
-        Thin alias over :meth:`needs_compaction`, kept because callers and tests
-        read better with this name and because the one threshold this system has
-        should be reachable under one name.
-        """
-        return self.needs_compaction(messages, model)
-
-    def needs_compaction(self, messages: list[dict], model: str) -> bool:
-        """The single compaction predicate.
-
-        Fires on either of two conditions, and both are needed:
-
-        * the configured share of the window is used — the ordinary watermark;
-        * the remaining headroom has fallen below what the next step needs — the
-          backstop, which fires first on a small window where the share is
-          generous but the absolute room is not.
-
-        Having one predicate matters because compaction used to be triggered from
-        two places that had drifted: this one tested both conditions, while the
-        loop's per-iteration check tested only the share. On a small window that
-        difference is the difference between compacting in time and failing the
-        turn.
-        """
-        info = self.get_token_info(messages, model)
-        if info.total <= 0:
-            return False
-        reserve = _adaptive_reserve(model, info.total)
-        return info.used >= info.total * self.config.context_compaction_threshold or (
-            info.used >= info.total - reserve
-        )
+        used = self.usage_tokens(messages, model)
+        max_tokens = self._resolve_context_window(model)
+        watermark = max_tokens * self.config.context_compaction_threshold
+        reserve = _adaptive_reserve(model, max_tokens)
+        return used >= watermark or used >= max_tokens - reserve
 
     def is_context_exhausted(self, messages: list[dict], model: str) -> bool:
         total = self._resolve_context_window(model)
@@ -538,39 +360,29 @@ class ContextManager:
         return used >= total * HARD_STOP_USAGE_RATIO
 
     def get_token_info(self, messages: list[dict], model: str) -> TokenInfo:
-        usage = self.measure(messages, model)
+        used = self.usage_tokens_composed(messages, model)
         total = self._resolve_context_window(model)
-        remaining = max(0, total - usage.tokens)
-        percent = usage.tokens / total if total > 0 else 0.0
+        remaining = max(0, total - used)
+        percent = used / total if total > 0 else 0.0
         return TokenInfo(
-            used=usage.tokens,
+            used=used,
             remaining=remaining,
             total=total,
             percent=percent,
             window_estimated=self._window_estimated,
-            usage_source=usage.source,
         )
 
     def usage_tokens(self, messages: list[dict], model: str) -> int:
-        """Composed-context occupancy in tokens."""
-        return self.measure(messages, model).tokens
+        """Composed-context occupancy (alias of :meth:`usage_tokens_composed`)."""
+        return self.usage_tokens_composed(messages, model)
 
-    def measure(self, messages: list[dict], model: str) -> ContextUsage:
-        """Occupancy of one composed message list.
+    def usage_tokens_composed(self, messages: list[dict], model: str) -> int:
+        """Deterministic composed-context occupancy in tokens.
 
-        Deterministic given the same inputs: the provider anchor, when one
-        exists, describes a specific prefix of this exact list, and everything
-        else is counted locally. Cumulative per-turn provider usage is never
-        consulted — it bills every step of a turn against one number and
-        describes no single message list, so using it as occupancy would make
-        the threshold fire on tokens the window never held.
+        Counts the actual message list with the local token counter plus the
+        aux (tool-schema) budget. Never includes cumulative provider usage.
         """
-        return self.token_counter.measure_messages(
-            messages,
-            model,
-            anchor=self._usage_anchor,
-            aux_tokens=self._aux_tokens,
-        )
+        return self.token_counter.count_messages(messages, model) + self._aux_tokens
 
     def count_tokens(self, text: str, model: str) -> int:
         return self.token_counter.count(text, model)

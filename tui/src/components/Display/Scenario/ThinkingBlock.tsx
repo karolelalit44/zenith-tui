@@ -75,7 +75,8 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({ event, 
 
   // In Calm Mode or when explicitly toggled via ctrl+h / /think,
   // reasoning renders as a compact, single-line telemetry chip.
-  const isCollapsed = isCalm || context?.thinkingCollapsed === true;
+  const liveAutoCollapse = context?.isRunning === true && context?.isHistorical !== true;
+  const isCollapsed = isCalm || context?.thinkingCollapsed === true || liveAutoCollapse;
 
   if (!hasRealReasoning(event)) {
     return null;

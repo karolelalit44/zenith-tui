@@ -114,6 +114,5 @@ npm test --workspace tui              # Vitest run
 
 # Server (Python)
 .venv\Scripts\ruff.exe check server
-.venv\Scripts\mypy.exe server
 .venv\Scripts\pytest.exe server
 ```

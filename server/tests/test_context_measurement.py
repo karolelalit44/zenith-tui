@@ -1,48 +1,28 @@
-"""How context occupancy is measured.
+"""Composed-context occupancy measurement.
 
-Occupancy drives every context decision — when to prune, when to fold, when to
-refuse the turn — so the number has to describe what the window actually holds.
-Three ways it used to understate that, each asserted here:
-
-* tool-call arguments were never counted, which for a mutating tool is the whole
-  payload;
-* the tool-schema block belongs to no message at all and was not counted;
-* the provider's own figure, the most accurate one available, was never used.
-
-The anchor tests additionally pin the property that makes anchoring safe: a
-rebuilt list shares no prefix with the one the provider last billed, so an
-anchor from before a rebuild must not be reused across it.
+Occupancy is the number that decides whether the next step fits in the window,
+so every term it is missing is a term that lets a turn grow past the window
+instead of compacting in time. Each test here covers one term.
 """
 
-from __future__ import annotations
-
-import pytest
-
 from server.agents.context import ContextManager
-from server.agents.context_diagnostics import ContextDiagnostics
-from server.config.constants import DEFAULT_CONTEXT_WINDOW
-from server.config.constants.context import default_max_tokens_for_context
+from server.config.constants import DEFAULT_CONTEXT_WINDOW, MIN_OUTPUT_TOKENS_FLOOR
 from server.config.settings import AppSettings
-from server.storage.usage_store import REINVOCATION_ALERT_RATE, session_context_view
-
-MODEL = "gpt-4"
+from server.providers.token_counter import TokenCounter
 
 
-def _manager(**overrides) -> ContextManager:
-    return ContextManager(
-        AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False, **overrides)
-    )
-
-
-def _write_call(payload_chars: int = 4000) -> dict:
+def _write_call(payload_chars: int) -> dict:
     return {
         "role": "assistant",
-        "content": "writing",
+        "content": "",
         "tool_calls": [
             {
-                "id": "c1",
+                "id": "call-1",
                 "type": "function",
-                "function": {"name": "file_write", "arguments": {"content": "x" * payload_chars}},
+                "function": {
+                    "name": "file_write",
+                    "arguments": '{"path":"a.py","content":"' + "x" * payload_chars + '"}',
+                },
             }
         ],
     }
@@ -50,263 +30,171 @@ def _write_call(payload_chars: int = 4000) -> dict:
 
 class TestMessageTokenCounting:
     def test_tool_call_arguments_are_counted(self):
-        """A mutating tool's arguments are the payload, and they are billed."""
-        ctx = _manager()
-        plain = ctx.usage_tokens([{"role": "assistant", "content": "ok"}], MODEL)
-        with_call = ctx.usage_tokens([_write_call()], MODEL)
-        assert with_call > plain + 500
+        """For the mutating tools the arguments *are* the payload.
 
-    def test_tool_call_count_scales_with_payload(self):
-        ctx = _manager()
-        small = ctx.usage_tokens([_write_call(100)], MODEL)
-        large = ctx.usage_tokens([_write_call(8000)], MODEL)
-        assert large > small * 2
-
-    def test_harness_metadata_is_not_counted(self):
-        """Private loop keys never reach the provider, so they cost nothing."""
-        ctx = _manager()
-        base = {"role": "user", "content": "[Tool: grep | Status: SUCCESS]\n3 matches"}
-        annotated = dict(
-            base,
-            tool_name="grep",
-            digest="grep: 3 matches",
-            salvage_digest="grep: ok",
-            time="compacted",
-            is_digested=True,
-        )
-        assert ctx.usage_tokens([base], MODEL) == ctx.usage_tokens([annotated], MODEL)
+        A file write bills its whole contents as input tokens. Counting only
+        ``content`` reported every write the agent made as costing nothing.
+        """
+        counter = TokenCounter()
+        small = counter.count_messages([_write_call(200)], "gpt-4")
+        large = counter.count_messages([_write_call(8000)], "gpt-4")
+        assert large > small * 10, f"write payload barely counted: {small} -> {large}"
 
     def test_list_content_is_measured_as_text_not_scaffolding(self):
-        """Typed content parts are billed as prose, not as their JSON envelope."""
-        ctx = _manager()
-        plain = ctx.usage_tokens([{"role": "user", "content": "alpha beta gamma"}], MODEL)
-        parts = ctx.usage_tokens(
-            [{"role": "user", "content": [{"type": "text", "text": "alpha beta gamma"}]}], MODEL
+        """Typed content parts are billed as their text, and measured as text.
+
+        Passing the list straight to the encoder raises, and the heuristic
+        fallback then divides the *part count* by the chars-per-token ratio — so
+        a 4 000-character result reported as a handful of tokens.
+        """
+        counter = TokenCounter()
+        as_parts = counter.count_messages(
+            [{"role": "user", "content": [{"type": "text", "text": "x" * 4000}]}], "gpt-4"
         )
-        assert abs(plain - parts) <= 8
+        as_text = counter.count_messages([{"role": "user", "content": "x" * 4000}], "gpt-4")
+        assert as_parts >= as_text * 0.9, f"list content under-counted: {as_parts} vs {as_text}"
+
+    def test_harness_metadata_is_not_counted(self):
+        """Keys the loop attaches never reach the provider, so never count."""
+        counter = TokenCounter()
+        bare = [{"role": "user", "content": "hello"}]
+        annotated = [
+            {
+                "role": "user",
+                "content": "hello",
+                "digest": "glob: ok",
+                "tool_name": "glob",
+                "salvage_digest": "glob: ok",
+                "time": "compacted",
+                "is_digested": True,
+            }
+        ]
+        assert counter.count_messages(bare, "gpt-4") == counter.count_messages(annotated, "gpt-4")
 
     def test_non_dict_entries_are_skipped_not_fatal(self):
-        ctx = _manager()
-        assert ctx.usage_tokens([{"role": "user", "content": "x"}, "not-a-dict"], MODEL) > 0
+        counter = TokenCounter()
+        assert counter.count_messages(["stray", {"role": "user", "content": "hi"}], "gpt-4") > 0
 
 
 class TestAuxToolSchemaBudget:
-    def test_aux_is_included_without_an_anchor(self):
-        ctx = _manager()
-        msg = [{"role": "user", "content": "hi"}]
-        before = ctx.usage_tokens(msg, MODEL)
-        ctx.set_aux_tokens(4000)
-        assert ctx.usage_tokens(msg, MODEL) == before + 4000
+    def test_aux_is_included_without_any_other_term(self):
+        """The tool-schema block is on every request and in no message.
+
+        Counting messages alone is therefore a lower bound, and a lower bound is
+        exactly the kind of number that reads safe when it is not.
+        """
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        messages = [{"role": "user", "content": "hi"}]
+        before = ctx.usage_tokens(messages, "gpt-4")
+        ctx.set_aux_tokens(5_000)
+        assert ctx.usage_tokens(messages, "gpt-4") == before + 5_000
 
     def test_aux_is_never_negative(self):
-        ctx = _manager()
-        ctx.set_aux_tokens(-500)
-        assert ctx.aux_tokens == 0
-
-
-class TestProviderAnchoring:
-    def test_anchor_supplies_the_prefix_and_the_tail_is_estimated(self):
-        ctx = _manager()
-        ctx.record_usage_anchor(1, 50_000)
-        usage = ctx.measure(
-            [{"role": "user", "content": "a"}, {"role": "user", "content": "b"}], MODEL
-        )
-        assert usage.source == "provider"
-        assert usage.anchor_index == 1
-        # The provider's figure, plus only the one message added after it.
-        assert 50_000 < usage.tokens < 50_100
-
-    def test_schema_block_inside_the_anchor_is_not_charged_twice(self):
-        ctx = _manager()
-        ctx.set_aux_tokens(4000)
-        ctx.record_usage_anchor(1, 50_000)
-        usage = ctx.measure([{"role": "user", "content": "a"}], MODEL)
-        assert usage.tokens < 50_100
-
-    def test_schema_growth_after_the_anchor_is_charged(self):
-        ctx = _manager()
-        ctx.set_aux_tokens(4000)
-        ctx.record_usage_anchor(1, 50_000)
-        ctx.set_aux_tokens(6500)
-        usage = ctx.measure([{"role": "user", "content": "a"}], MODEL)
-        assert 50_000 + 2500 <= usage.tokens < 50_000 + 2600
-
-    def test_rebuild_invalidates_the_anchor(self):
-        """A rebuilt list shares no prefix with the last billed request."""
-        ctx = _manager()
-        prefix = [{"role": "user", "content": str(i)} for i in range(4)]
-        ctx.record_usage_anchor(4, 50_000)
-        assert ctx.measure(prefix, MODEL).source == "provider"
-        ctx.build_messages([], "system", "hello", MODEL)
-        assert ctx.measure(prefix, MODEL).source == "estimated"
-
-    def test_zero_usage_does_not_anchor(self):
-        ctx = _manager()
-        ctx.record_usage_anchor(4, 0)
-        assert ctx.measure([{"role": "user", "content": "a"}], MODEL).source == "estimated"
-
-    def test_anchor_beyond_the_list_is_ignored(self):
-        ctx = _manager()
-        ctx.record_usage_anchor(99, 50_000)
-        assert ctx.measure([{"role": "user", "content": "a"}], MODEL).source == "estimated"
-
-    def test_anchoring_never_makes_occupancy_exceed_a_local_estimate(self):
-        """An anchor must be a correction, not an inflation of the real figure."""
-        ctx = _manager()
-        messages = [{"role": "user", "content": "hello world"}]
-        local = ctx.measure(messages, MODEL).tokens
-        ctx.record_usage_anchor(len(messages), local)
-        assert ctx.measure(messages, MODEL).tokens == local
-
-    def test_anchor_prompt_delta_does_not_double_count_completion(self):
-        """Anchoring prompt_delta covers dispatch_messages, leaving the completion to the tail."""
-        ctx = _manager()
-        dispatch = [{"role": "user", "content": "hello"}]
-        prompt_tokens = ctx.measure(dispatch, MODEL).tokens
-        ctx.record_usage_anchor(len(dispatch), prompt_tokens)
-
-        # Assistant completion is appended to messages
-        messages = [*dispatch, {"role": "assistant", "content": "world"}]
-        usage = ctx.measure(messages, MODEL)
-        assert usage.source == "provider"
-        # Total tokens should only count completion once
-        completion_tokens = ctx.token_counter.count_message(messages[1], MODEL)
-        assert usage.tokens == prompt_tokens + completion_tokens
-
-
-class TestSchemaTokensModeFiltering:
-    def test_schema_tokens_filters_by_mode(self):
-        from server.toolkit import create_default_registry
-        from server.toolkit.resolver import SchemaResolver
-
-        reg = create_default_registry()
-        resolver = SchemaResolver(reg, seed=["file_read", "file_delete"])
-        all_tokens = resolver.schema_tokens(MODEL)
-        plan_tokens = resolver.schema_tokens(MODEL, mode="plan")
-        assert plan_tokens < all_tokens
-
-
-
+        config = AppSettings(max_context_tokens=DEFAULT_CONTEXT_WINDOW, repo_map_enabled=False)
+        ctx = ContextManager(config)
+        ctx.set_aux_tokens(-100)
+        assert ctx.usage_tokens([], "gpt-4") == TokenCounter().count_messages([], "gpt-4")
 
 
 class TestGenerationCeiling:
-    @pytest.mark.parametrize(
-        "window,ceiling",
-        [
-            (4000, 2000),
-            (8192, 4096),
-            (128_000, 32_768),
-            (10_000_000, 32_768),
-        ],
-    )
-    def test_ceiling_is_a_share_of_the_window(self, window, ceiling):
-        assert default_max_tokens_for_context(window) == ceiling
-
     def test_ceiling_never_exceeds_the_window(self):
-        """A ceiling larger than the window leaves no room for the prompt."""
-        for window in (512, 1024, 2000, 4000, 8192):
+        """A ceiling larger than the whole window leaves the prompt no room.
+
+        The provider then rejects or truncates the request instead of reserving
+        space for the prompt that has to accompany the reply.
+        """
+        from server.config.constants import default_max_tokens_for_context
+
+        for window in (4_000, 8_000, 32_000, 200_000, 1_000_000):
             assert default_max_tokens_for_context(window) <= window
 
+    def test_ceiling_has_a_floor_on_a_window_that_can_afford_one(self):
+        from server.config.constants import default_max_tokens_for_context
+
+        assert default_max_tokens_for_context(64_000) >= MIN_OUTPUT_TOKENS_FLOOR
+
     def test_unknown_window_falls_back_to_the_configured_default(self):
-        from server.config.constants import DEFAULT_LLM_MAX_TOKENS
+        from server.config.constants import DEFAULT_LLM_MAX_TOKENS, default_max_tokens_for_context
 
         assert default_max_tokens_for_context(0) == DEFAULT_LLM_MAX_TOKENS
 
 
-class TestDiagnostics:
-    def test_first_call_is_not_a_reinvocation(self):
-        d = ContextDiagnostics()
-        assert d.record_tool_call("grep", '{"q":"x"}') is False
-        assert d.reinvocation_rate == 0.0
+class TestSchemaTokensModeFiltering:
+    def test_schema_tokens_filters_by_mode(self):
+        """With a mode, only the schemas that request would carry are counted.
 
-    def test_repeated_signature_counts_once_per_repeat(self):
-        d = ContextDiagnostics()
-        for _ in range(3):
-            d.record_tool_call("grep", '{"q":"x"}')
-        assert d.tool_calls == 3
-        assert d.reinvocations == 2
-        # Rounded: the rate is reported to a UI, and a long float tail has no
-        # meaning at that resolution.
-        assert d.reinvocation_rate == 0.6667
-
-    def test_same_args_under_a_different_tool_are_distinct(self):
-        d = ContextDiagnostics()
-        d.record_tool_call("grep", '{"p":"x"}')
-        assert d.record_tool_call("glob", '{"p":"x"}') is False
-
-    def test_rate_is_zero_without_calls(self):
-        assert ContextDiagnostics().reinvocation_rate == 0.0
-
-    def test_cache_rate_is_a_ratio_of_billed_prompt_tokens(self):
-        d = ContextDiagnostics()
-        d.record_cache_usage({"prompt_tokens": 20_000, "cached_tokens": 15_000})
-        assert d.cache_hit_rate == pytest.approx(0.75)
-
-    def test_cache_rate_is_zero_without_a_prompt_measurement(self):
-        assert ContextDiagnostics().cache_hit_rate == 0.0
-        d = ContextDiagnostics()
-        d.record_cache_usage(None)
-        assert d.cache_hit_rate == 0.0
-
-    def test_savings_take_the_best_step_and_reject_negatives(self):
-        """Not a sum.
-
-        The bounding passes re-derive the same saving from the same source on
-        every step of a turn, so adding each step would report one saving
-        multiplied by the step count.
+        Counting the whole active set bills schemas the request never sent.
         """
-        d = ContextDiagnostics()
-        d.record_ladder_savings(100)
-        d.record_ladder_savings(250)
-        d.record_ladder_savings(-50)
-        d.record_dedup_savings(30)
-        d.record_dedup_savings(10)
-        payload = d.as_dict()
-        assert payload["ladder_saved_tokens"] == 250
-        assert payload["dedup_saved_tokens"] == 30
+        from server.config.constants import BUILD_MODE
+        from server.toolkit import create_default_registry
+        from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
+        registry = create_default_registry()
+        # Seed with the whole registry: a mode filter is only observable when the
+        # active set is genuinely larger than what one mode would send.
+        resolver = SchemaResolver(
+            registry, seed=build_mode_tool_seed(list(registry.list_tools()))
+        )
+        all_active = resolver.schema_tokens("gpt-4o")
+        by_mode = resolver.schema_tokens("gpt-4o", mode=BUILD_MODE)
+        assert all_active > 0
+        assert 0 < by_mode <= all_active
 
-class TestSessionDiagnostics:
-    def test_session_aggregates_turn_deltas(self):
-        rows = [
-            {
-                "prompt_tokens": 10_000,
-                "cache_read_tokens": 8_000,
-                "diagnostics": {"tool_calls": 10, "reinvocations": 1, "ladder_saved_tokens": 500},
-            },
-            {
-                "prompt_tokens": 30_000,
-                "cache_read_tokens": 3_000,
-                "diagnostics": {"tool_calls": 30, "reinvocations": 3, "ladder_saved_tokens": 100},
-            },
-        ]
-        view = session_context_view(rows)
-        assert view["tool_calls"] == 40
-        assert view["reinvocations"] == 4
-        assert view["reinvocation_rate"] == pytest.approx(0.1)
-        assert view["ladder_saved_tokens"] == 600
+    def test_schema_tokens_mode_is_a_strict_subset(self):
+        """``mode`` must actually drop schemas, or the parameter is decorative."""
+        from server.config.constants import BUILD_MODE, PLAN_MODE
+        from server.toolkit import create_default_registry
+        from server.toolkit.resolver import SchemaResolver, build_mode_tool_seed
 
-    def test_cache_rate_is_ratio_of_sums_not_mean_of_ratios(self):
-        """A 100-token turn must not weigh as much as a 100 000-token one."""
-        rows = [
-            {"prompt_tokens": 100, "cache_read_tokens": 0, "diagnostics": {}},
-            {"prompt_tokens": 99_900, "cache_read_tokens": 89_900, "diagnostics": {}},
-        ]
-        assert session_context_view(rows)["cache_hit_rate"] == pytest.approx(0.899)
+        registry = create_default_registry()
+        resolver = SchemaResolver(
+            registry, seed=build_mode_tool_seed(list(registry.list_tools()))
+        )
+        active_names = set(resolver._active)
+        build_names = {s["name"] for s in resolver.schemas(BUILD_MODE)}
+        plan_names = {s["name"] for s in resolver.schemas(PLAN_MODE)}
 
-    def test_rows_without_diagnostics_are_skipped(self):
-        assert session_context_view([{"prompt_tokens": 5}])["tool_calls"] == 0
+        # Every mode offers a subset of the active set...
+        assert build_names <= active_names
+        assert plan_names <= active_names
+        # ...and plan drops the build-only tools, so mode is a real filter.
+        assert plan_names < build_names
+        assert not (plan_names & {"bash", "file_delete", "job_kill"})
+        # Without the mode the whole active set is billed; with one it is not.
+        assert resolver.schema_tokens("gpt-4o", mode=PLAN_MODE) > 0
+        assert resolver.schema_tokens("gpt-4o", mode=PLAN_MODE) < resolver.schema_tokens("gpt-4o")
+        assert (
+            resolver.schema_tokens("gpt-4o", mode=PLAN_MODE)
+            < resolver.schema_tokens("gpt-4o", mode=BUILD_MODE)
+        )
 
-    def test_alert_flag_follows_the_rate(self):
-        def row(rate_hits: int, calls: int) -> dict:
-            return {"diagnostics": {"tool_calls": calls, "reinvocations": rate_hits}}
+    def test_schema_tokens_is_memoised_per_active_set(self, monkeypatch):
+        """A cache must avoid recomputation, not merely return the same number."""
+        import server.toolkit.resolver as resolver_mod
+        from server.toolkit import create_default_registry
+        from server.toolkit.resolver import SchemaResolver
 
-        assert session_context_view([row(1, 100)])["reinvocation_alert"] is False
-        assert session_context_view([row(20, 100)])["reinvocation_alert"] is True
+        calls: list[str] = []
+        real = resolver_mod.estimate_tool_schema_tokens
 
-    def test_alert_threshold_is_a_documented_constant(self):
-        """The alert boundary is one number, not a per-call-site guess."""
-        below = {"tool_calls": 1000, "reinvocations": round(1000 * REINVOCATION_ALERT_RATE)}
-        above = {"tool_calls": 1000, "reinvocations": round(1000 * REINVOCATION_ALERT_RATE) + 1}
-        assert session_context_view([{"diagnostics": below}])["reinvocation_alert"] is False
-        assert session_context_view([{"diagnostics": above}])["reinvocation_alert"] is True
+        def counting(schema, description, model):
+            calls.append(model)
+            return real(schema, description, model)
+
+        monkeypatch.setattr(resolver_mod, "estimate_tool_schema_tokens", counting)
+
+        registry = create_default_registry()
+        resolver = SchemaResolver(registry, seed=["file_read", "glob"])
+        first = resolver.schema_tokens("gpt-4o")
+        assert first > 0
+        warmed = len(calls)
+        assert warmed > 0
+
+        assert resolver.schema_tokens("gpt-4o") == first
+        assert len(calls) == warmed, "second call for an unchanged active set must hit the cache"
+
+        assert resolver.request_tool("file_delete") is True
+        resolver.schema_tokens("gpt-4o")
+        assert len(calls) > warmed, "a changed active set must invalidate the cache"
+        assert resolver._schema_token_cache is not None

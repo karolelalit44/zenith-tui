@@ -19,13 +19,23 @@ class MissingPathHint(TypedDict):
     Declared once because it crosses the server/TUI boundary: the TUI reads
     ``recoverable_miss`` to render a miss as a recoverable miss rather than a
     broken tool. Both producers (``GlobTool``, ``GrepTool``) import this rather
-    than spelling the keys out, so the contract has one owner.
+    than spelling the keys out, so the contract has one owner — and the key
+    names in ``server.config.constants.tools`` assert at import that the literal
+    fields below and the named constants the rest of the tree uses agree.
     """
 
     recoverable_miss: bool
     missing_path: str
     workspace_entries: list[str]
     hint: str
+
+
+assert set(MissingPathHint.__annotations__) == {
+    MISSING_PATH_ENTRIES_KEY,
+    MISSING_PATH_HINT_KEY,
+    MISSING_PATH_KEY,
+    MISSING_PATH_RECOVERABLE_KEY,
+}, "MissingPathHint fields and the MISSING_PATH_* constants have drifted"
 
 
 def workspace_path_hint(base: Path, requested: str | object) -> MissingPathHint:
@@ -50,9 +60,11 @@ def workspace_path_hint(base: Path, requested: str | object) -> MissingPathHint:
     hint = MISSING_PATH_HINT_LEAD
     if entries:
         hint += ": " + ", ".join(entries)
-    return {
-        MISSING_PATH_RECOVERABLE_KEY: True,
-        MISSING_PATH_KEY: requested_text,
-        MISSING_PATH_ENTRIES_KEY: entries,
-        MISSING_PATH_HINT_KEY: hint,
-    }
+    # TypedDict keys must be literals; the constants name the same strings and
+    # exist so grep finds every producer and consumer of this wire contract.
+    return MissingPathHint(
+        recoverable_miss=True,
+        missing_path=requested_text,
+        workspace_entries=entries,
+        hint=hint,
+    )

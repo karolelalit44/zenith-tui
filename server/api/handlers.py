@@ -707,7 +707,7 @@ class MethodHandlers:
     async def _tools_list(self, ws, rid, params) -> None:
         mode = params.get("mode", BUILD_MODE)
         mode_config = AGENT_MODES.get(mode)
-        seed = build_mode_tool_seed(mode_config.allowed_tools if mode_config else None)
+        seed = build_mode_tool_seed(mode_config.seed_tools if mode_config else None)
         resolver = SchemaResolver(self.tool_registry, seed=seed)
         await ws.send_text(
             make_response(rid, {"tools": resolver.schemas(mode)})

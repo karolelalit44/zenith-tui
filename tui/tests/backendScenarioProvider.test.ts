@@ -247,6 +247,11 @@ describe('Context compaction events map to typed events (no UNKNOWN_EVENT)', () 
     expect(evt.kind).toBe('message');
     expect(evt).toMatchObject({ text: 'done', partial: false, iteration: 3 });
   });
+
+  it('drops degenerate placeholder messages like [empty assistant turn]', () => {
+    const events = runOnce('message', { text: '[empty assistant turn]', partial: false });
+    expect(events.length).toBe(0);
+  });
 });
 
 describe('executeCompaction (manual /compact pipeline)', () => {

@@ -8,6 +8,7 @@ interface LiveElapsedProps {
   startedAt: number;
   color?: string;
   prefix?: string;
+  minMs?: number;
 }
 
 /**
@@ -15,15 +16,17 @@ interface LiveElapsedProps {
  * from `startedAt`. The shared tick only drives this tiny node, so the parent
  * card stays memoized while the pill ticks up.
  */
-export const LiveElapsed: React.FC<LiveElapsedProps> = React.memo(({ startedAt, color, prefix = '~ ' }) => {
-  useAnimationTick();
-  const elapsedMs = Math.max(0, Date.now() - startedAt);
-  return (
-    <Text color={color}>
-      {prefix}
-      {formatDuration(elapsedMs)}
-    </Text>
-  );
-});
+export const LiveElapsed: React.FC<LiveElapsedProps> = React.memo(
+  ({ startedAt, color, prefix = '~ ', minMs = 1000 }) => {
+    useAnimationTick();
+    const elapsedMs = Math.max(minMs, Date.now() - startedAt);
+    return (
+      <Text color={color}>
+        {prefix}
+        {formatDuration(elapsedMs)}
+      </Text>
+    );
+  },
+);
 
 LiveElapsed.displayName = 'LiveElapsed';

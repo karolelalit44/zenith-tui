@@ -54,12 +54,29 @@ def _make_model_info(m: dict[str, Any]) -> ProviderModelInfo:
     )
 
 
+def _is_provider_configured(p: dict[str, Any], cat: dict[str, Any], has_key: bool) -> bool:
+    """Whether the provider is USABLE, which is not the same as "has a key".
+
+    A local model or a self-hosted base_url is usable with no API key at all;
+    keying `connected` off `has_api_key` alone reported those as disconnected
+    and disagreed with what the loop could actually run.
+    """
+    if bool(cat.get("requires_api_key", True)):
+        return has_key
+    if not str(p.get("model") or "").strip():
+        return False
+    if bool(cat.get("custom_flow", False)):
+        return bool(str(p.get("base_url") or cat.get("base_url") or "").strip())
+    return True
+
+
 def build_provider_info(
     pid: str, p: dict[str, Any], catalog: dict, active_provider: str
 ) -> ProviderInfo:
     cat = catalog.get("providers", {}).get(pid) or {}
     has_key = bool(p.get("has_api_key"))
-    status = validation_state.get_status(pid, has_key)
+    configured = _is_provider_configured(p, cat, has_key)
+    status = validation_state.get_status(pid, configured)
     options: dict[str, Any] = {
         k: v
         for k, v in cat.items()
@@ -137,7 +154,10 @@ def get_provider_list(home: StorageHome | None = None) -> ProviderListResponse:
         p = providers_dict.get(pid, {})
         info = build_provider_info(pid, p, catalog, active or "")
         infos.append(info)
-        if info.has_api_key:
+        # `build_provider_info` already applied the usability predicate and folded
+        # it into `validation_status`; recomputing it here meant two owners of one
+        # rule evaluating it twice per provider.
+        if info.validation_status != validation_state.UNCONFIGURED:
             connected.append(pid)
     return ProviderListResponse(
         all=infos, active=active or "", connected=connected, max_context_tokens=max_context_tokens

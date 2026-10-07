@@ -420,7 +420,173 @@ describe('ProgressBar compact live row', () => {
   });
 });
 
+describe('live thinking collapse', () => {
+  it('collapses live thinking blocks to a compact preview in ScenarioRenderer', () => {
+    const events: ScenarioEvent[] = [
+      {
+        kind: 'thinking',
+        id: 't-live-compact',
+        thoughts: [
+          'First live reasoning preview before the web fetch',
+          'Second verbose internal detail that should not dominate the live transcript',
+        ],
+        duration: 9000,
+        partial: false,
+      },
+      {
+        kind: 'tool_step',
+        id: 'web-1',
+        tool: 'webfetch',
+        params: { url: 'https://vite.dev' },
+        success: true,
+        output: '',
+        error: '',
+        metadata: {},
+        pending: false,
+      },
+    ];
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={events} isRunning={true} isHistorical={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('First live reasoning preview');
+    expect(frame).not.toContain('Second verbose internal detail');
+  });
+});
+
+describe('ScenarioRenderer dynamic event window', () => {
+  const manyEvents = (n: number): ScenarioEvent[] =>
+    Array.from({ length: n }, (_, i) => ({
+      kind: 'tool_step',
+      id: `evt_${i}`,
+      tool: 'glob',
+      params: { pattern: `pattern-${i}` },
+      success: true,
+      output: '',
+      error: '',
+      metadata: {},
+      pending: false,
+    })) as ScenarioEvent[];
+
+  it('windows the transcript by a line-space scroll offset', () => {
+    const events = manyEvents(40);
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer
+          events={events}
+          isRunning={true}
+          isHistorical={false}
+          showStatusRow={false}
+          maxDynamicLines={12}
+          scrollOffset={0}
+        />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    // Scrolled to the very top: the earliest events are the visible ones.
+    expect(frame).toContain('pattern-0');
+    expect(frame).not.toContain('pattern-39');
+  });
+
+  it('shows the newest events when no offset is supplied', () => {
+    const events = manyEvents(40);
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer
+          events={events}
+          isRunning={true}
+          isHistorical={false}
+          showStatusRow={false}
+          maxDynamicLines={12}
+        />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('pattern-39');
+    expect(frame).not.toContain('pattern-0');
+  });
+
+  it('moves the window forward as the offset grows', () => {
+    const events = manyEvents(40);
+    const at = (offset: number) => {
+      const { lastFrame } = render(
+        <ThemeProvider>
+          <ScenarioRenderer
+            events={events}
+            isRunning={true}
+            isHistorical={false}
+            showStatusRow={false}
+            maxDynamicLines={12}
+            scrollOffset={offset}
+          />
+        </ThemeProvider>,
+      );
+      return lastFrame() || '';
+    };
+    const top = at(0);
+    const middle = at(30);
+    expect(top).toContain('pattern-0');
+    expect(middle).not.toContain('pattern-0');
+    expect(middle).toContain('pattern-20');
+  });
+
+  it('enforces a 6-row floor even when maxDynamicLines is smaller', () => {
+    const events = manyEvents(40);
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer
+          events={events}
+          isRunning={true}
+          isHistorical={false}
+          showStatusRow={false}
+          maxDynamicLines={2}
+        />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    // Floor of 6 events: the 7th-from-last must be visible, the 20th not.
+    expect(frame).toContain('pattern-34');
+    expect(frame).not.toContain('pattern-20');
+  });
+});
+
 describe('thinking positional fidelity', () => {
+  it('collapses live thinking blocks to a compact preview in ScenarioRenderer', () => {
+    const events: ScenarioEvent[] = [
+      {
+        kind: 'thinking',
+        id: 't-live-compact',
+        thoughts: [
+          'First live reasoning preview before the web fetch',
+          'Second verbose internal detail that should not dominate the live transcript',
+        ],
+        duration: 9000,
+        partial: false,
+      },
+      {
+        kind: 'tool_step',
+        id: 'web-1',
+        tool: 'webfetch',
+        params: { url: 'https://vite.dev' },
+        success: true,
+        output: '',
+        error: '',
+        metadata: {},
+        pending: false,
+      },
+    ];
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <ScenarioRenderer events={events} isRunning={true} isHistorical={false} />
+      </ThemeProvider>,
+    );
+    const frame = lastFrame() || '';
+    expect(frame).toContain('First live reasoning preview');
+    expect(frame).not.toContain('Second verbose internal detail');
+  });
+
   it('keeps one block PER ITERATION at its timeline position (no turn-level merge)', () => {
     const mkThinking = (id: string, text: string): ScenarioEvent => ({
       kind: 'thinking',

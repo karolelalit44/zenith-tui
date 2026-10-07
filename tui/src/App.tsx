@@ -48,6 +48,7 @@ import type { AppStartupState } from './types/startup';
 import { consolidateCompactionEvents } from './utils/compaction';
 import { convertHistoryToTurns } from './utils/historyToTurns';
 import { consolidateOrchestrationEvents } from './utils/orchestration';
+import { estimateEventStreamHeight } from './utils/scrollWindow';
 import { sanitizeSingleLine, truncateEnd } from './utils/text';
 import { consolidateTodoBoardEvents } from './utils/todoBoard';
 import { resolveWorkspaceRoot } from './utils/workspacePath';
@@ -291,12 +292,6 @@ export const App: React.FC = () => {
     return undefined;
   }, [footerContext, contextInfo, liveSuccessTokenInfo]);
 
-  const footerWindowEstimated = useMemo(() => {
-    if ((footerContext?.total ?? 0) > 0) return false;
-    if (liveSuccessTokenInfo?.windowEstimated === true) return true;
-    return contextInfo?.windowEstimated === true;
-  }, [footerContext, contextInfo, liveSuccessTokenInfo]);
-
   // Derive the active todo board from the live event stream, or fall back to
   // the latest turn's todo board if the live stream has not emitted one yet.
   // Scoped to the latest turn for the same reason as activeOrchestration below:
@@ -434,27 +429,16 @@ export const App: React.FC = () => {
 
   const liveContentHeight = useMemo(() => {
     if (!isRunning) return completedTurns.length * 15;
-    const msgLines = activeMessageText ? activeMessageText.split('\n').length : 0;
-    const nonMsgCount = events.filter((e) => e.kind !== 'message').length;
-    return Math.max(msgLines, 1) + nonMsgCount * 3;
+    return estimateEventStreamHeight({
+      messageLineCount: activeMessageText ? activeMessageText.split('\n').length : 0,
+      nonMessageEventCount: events.filter((e) => e.kind !== 'message').length,
+    });
   }, [isRunning, completedTurns.length, activeMessageText, events]);
 
-  const localScrollOffset = useMemo(() => {
-    if (!scrollState.isUserScrolled) return undefined;
-    const linesFromBottom = Math.max(
-      0,
-      scrollState.contentHeight - (scrollState.scrollOffset + scrollState.viewportHeight),
-    );
-    const msgLines = activeMessageText ? activeMessageText.split('\n').length : 0;
-    const maxMsgOffset = Math.max(0, msgLines - scrollState.viewportHeight);
-    return Math.max(0, maxMsgOffset - linesFromBottom);
-  }, [
-    scrollState.isUserScrolled,
-    scrollState.contentHeight,
-    scrollState.scrollOffset,
-    scrollState.viewportHeight,
-    activeMessageText,
-  ]);
+  // The scroll offset stays in LINE space all the way to the renderer, which
+  // converts it with the same helper. Passing a pre-converted event index is how
+  // the two sides previously ended up counting different arrays.
+  const localScrollOffset = scrollState.isUserScrolled ? scrollState.scrollOffset : undefined;
 
   useEffect(() => {
     if (!isRunning || scrollState.isUserScrolled) {
@@ -886,7 +870,7 @@ export const App: React.FC = () => {
                 <Text color={theme.colors.text.dim} dimColor>
                   ▸ PgDn / End to follow live output (
                   {Math.max(0, scrollState.contentHeight - (scrollState.scrollOffset + scrollState.viewportHeight))}{' '}
-                  lines below)
+                  lines below · ↑/↓ also scroll while running)
                 </Text>
               </Box>
             )}
@@ -975,9 +959,7 @@ export const App: React.FC = () => {
               scrollDown={scrollDown}
               mode={selectedMode}
               runTokens={liveRunTokens}
-              runEstimated={runEstimated}
               contextPercent={footerContextPercent}
-              windowEstimated={footerWindowEstimated}
               workspaceName={workspace}
               onCancel={handleCancel}
               onOpenHelp={handleOpenHelp}

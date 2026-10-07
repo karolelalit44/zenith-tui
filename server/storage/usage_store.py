@@ -4,19 +4,6 @@ Replaces the usage half of ``TokenUsageRepository`` (token_usage /
 pricing tables). Per-session rows live in ``sessions/<id>.usage.jsonl``.
 Pricing resolves from ``zenith_catalog.json`` directly, so the separate
 pricing table/seed step disappears (decision D15).
-
-Two things deliberately stay distinct on every row. ``context_occupancy`` is
-what the window actually held; ``total_tokens`` is what the provider billed
-across the turn. Averaging the latter into a context gauge over-reports, and
-conflating them loses the only record of how much the prompt cache saved.
-
-The ``diagnostics`` blob on the final row of each turn holds that turn's
-context-degradation deltas, produced by the agent layer
-(``server.agents.context_diagnostics``). It exists because these are now
-measured rather than assumed: the earlier "report zero waste" decision was
-correct while nothing measured waste, and wrong once the measurement existed.
-The session-wide fold lives here, beside the rows it reads, so that interpreting
-what the agent layer wrote never requires storage to import the agent layer.
 """
 
 from __future__ import annotations
@@ -31,46 +18,6 @@ from .paths import StorageHome
 from .session_file import iter_session_files, locate
 
 _ZERO_PRICE = {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_creation": 0.0}
-
-# A re-invocation rate above this means compression is buying re-work rather
-# than saving tokens. Not a hard failure: some repetition is legitimate (a probe
-# whose output was legitimately needed again), but a sustained rate above it is
-# the signal to widen the retained region.
-REINVOCATION_ALERT_RATE = 0.10
-
-
-def session_context_view(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Fold per-turn context diagnostics across a session.
-
-    Each row carries one turn's deltas, so the session figures are plain sums —
-    except the cache rate, which is a ratio of sums rather than a mean of
-    ratios: averaging rates would weight a 50-token turn equally with a
-    90 000-token one.
-    """
-    calls = reinvocations = saved_ladder = saved_dedup = folds = 0
-    cache_read = prompt = 0
-    for row in rows:
-        diag = row.get("diagnostics")
-        if not isinstance(diag, dict):
-            continue
-        calls += int(diag.get("tool_calls", 0) or 0)
-        reinvocations += int(diag.get("reinvocations", 0) or 0)
-        saved_ladder += int(diag.get("ladder_saved_tokens", 0) or 0)
-        saved_dedup += int(diag.get("dedup_saved_tokens", 0) or 0)
-        folds += int(diag.get("folds", 0) or 0)
-        cache_read += int(row.get("cache_read_tokens", 0) or 0)
-        prompt += int(row.get("prompt_tokens", 0) or 0)
-    rate = round(reinvocations / calls, 4) if calls else 0.0
-    return {
-        "tool_calls": calls,
-        "reinvocations": reinvocations,
-        "reinvocation_rate": rate,
-        "reinvocation_alert": bool(calls and rate > REINVOCATION_ALERT_RATE),
-        "ladder_saved_tokens": saved_ladder,
-        "dedup_saved_tokens": saved_dedup,
-        "folds": folds,
-        "cache_hit_rate": round(cache_read / prompt, 4) if prompt else 0.0,
-    }
 
 
 class FileTokenUsageRepository:
@@ -131,7 +78,6 @@ class FileTokenUsageRepository:
         step_index: int = -1,
         estimated: bool = False,
         context_occupancy: int = 0,
-        diagnostics: dict[str, Any] | None = None,
     ) -> str:
         occupancy = context_occupancy if context_occupancy > 0 else total_tokens
         percent = occupancy / context_window * 100 if context_window > 0 else 0.0
@@ -169,13 +115,6 @@ class FileTokenUsageRepository:
             "estimated": estimated,
             "context_occupancy": context_occupancy,
         }
-        # The per-turn counters are deltas, so they belong on exactly one row —
-        # the turn's final one. Repeating them on every step would double the
-        # session aggregate, which sums rows rather than averaging them. The
-        # caller owns that choice: it is the only party that knows which row
-        # closes the turn, so this gate is "were we handed any", not a guess.
-        if diagnostics:
-            line["diagnostics"] = dict(diagnostics)
         async with self.home.lock:
             append_jsonl_sync(
                 locate(self.home, session_id),  # type: ignore[arg-type]
@@ -307,5 +246,4 @@ class FileTokenUsageRepository:
             "average_context_utilization": round(final_context / total_consumed, 4)
             if total_consumed > 0
             else 0.0,
-            "context": session_context_view(rows),
         }

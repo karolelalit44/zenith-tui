@@ -42,15 +42,20 @@ DUP_RESULT_PREVIEW_CHARS = 1_200
 
 SMALL_CONTEXT_WINDOW = 32_000
 LARGE_CONTEXT_WINDOW = 200_000
-# Repository-map budget: an eighth of the window, floored so a small-window
-# model still gets orientation and capped so the map never becomes a second copy
-# of the tree it is describing.
-REPO_MAP_MIN_TOKENS = 1_024
-REPO_MAP_MAX_TOKENS = 4_096
-
-# A symbol name shorter than this is too generic to rank the map on.
-MIN_MENTIONED_SYMBOL_LEN = 8
 MAX_OUTPUT_TOKENS_CLAMP = 32_768
+
+# Repo-map share of the context window. The map is orientation, not payload: it
+# is the first thing to cut when the window is tight, and the last thing worth
+# spending a large window on. Named so the ratio is a decision on record rather
+# than an inline literal in the agent layer.
+REPO_MAP_WINDOW_RATIO = 0.05
+REPO_MAP_MIN_TOKENS = 100
+REPO_MAP_MAX_TOKENS = 1_024
+# The agent creates and edits files while it runs, so a map frozen at turn 1
+# describes a workspace that no longer exists. Rebuild when the catalog's mtime
+# or size moves past what was last rendered.
+REPO_MAP_STALE_AFTER_SECONDS = 30.0
+
 # Smallest generation ceiling worth deriving. Below this a window cannot hold a
 # prompt and a usable reply together, so the ceiling stops being a budget and
 # becomes the whole allocation.
@@ -79,9 +84,9 @@ def default_max_tokens_for_context(context_window: int) -> int:
     The generation ceiling is charged against the same window as the prompt, so
     it is derived from a share of the window rather than from a flat default. A
     flat default is not merely inelegant here, it is unsound: on a small-window
-    model it yields a ceiling larger than the entire window, which guarantees
-    the provider rejects or truncates the request instead of reserving room for
-    the prompt that has to accompany it. The window is therefore the outer bound,
+    model it yields a ceiling larger than the entire window, which guarantees the
+    provider rejects or truncates the request instead of reserving room for the
+    prompt that has to accompany it. The window is therefore the outer bound,
     whatever the floor would prefer.
 
     The lower bound is not cosmetic either. Output budgets are elastic and a cap

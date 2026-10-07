@@ -41,6 +41,12 @@ _catalog: dict | None = None
 # second full-context request instantly. Small, capped, jittered.
 _STREAM_RETRY_BASE_DELAY_S = 2.0
 _STREAM_RETRY_MAX_DELAY_S = 8.0
+# A stream that opens and then produces nothing the user or the loop can act on
+# blocks forever: no final answer, no tool turn, and no chance for the agent to
+# self-correct on the next iteration. The bound covers *every* no-output case,
+# not just reasoning ones: a provider emitting only empty deltas increments no
+# counter at all and would otherwise wait out the full stream timeout.
+_STREAM_ACTIONLESS_TIMEOUT_S = 45.0
 
 
 _QUOTA_EXHAUSTED_KEYWORDS = (
@@ -517,6 +523,52 @@ class _RequestThrottle:
         return 0.0
 
 
+_CONTROL_TOKEN_RE = re.compile(r"<\|(\w+)\|>")
+
+# ChatML control tokens a provider tokenizer will act on if it sees one inside
+# message content. Only these are defused.
+_CONTROL_TOKEN_NAMES = frozenset(
+    {
+        "im_start",
+        "im_end",
+        "endoftext",
+        "end",
+        "start",
+        "system",
+        "user",
+        "assistant",
+        "channel",
+        "message",
+        "constrain",
+        "tool",
+        "eot_id",
+        "eom_id",
+        "python_tag",
+    }
+)
+
+
+def _escape_control_tokens(text: str) -> str:
+    """Defuse provider control tokens in message content.
+
+    Only a recognised ``<|name|>`` control token is rewritten. A blanket
+    ``<|`` → ``< |`` substitution also rewrites ordinary source bytes — Rust's
+    ``|x|`` closures and pipe operators, F#/Elixir's ``<|`` — and tool results
+    carry file content verbatim, so the model would then be reasoning about text
+    that differs from disk and could write the divergence back.
+
+    Real control tokens are rare enough that a scan is cheaper than the
+    correctness bug a blanket substitution causes. Text with none is returned
+    unchanged.
+    """
+    if "<|" not in text:
+        return text
+    return _CONTROL_TOKEN_RE.sub(
+        lambda m: f"< |{m.group(1)} |>" if m.group(1) in _CONTROL_TOKEN_NAMES else m.group(0),
+        text,
+    )
+
+
 def _sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
     """Strip internal Zenith metadata (e.g. 'digest', 'is_digested', 'time') before passing to LiteLLM.
 
@@ -535,7 +587,11 @@ def _sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
         if not isinstance(m, dict):
             clean.append(m)
             continue
-        clean.append({k: v for k, v in m.items() if k in allowed_keys})
+        item = {k: v for k, v in m.items() if k in allowed_keys}
+        content = item.get("content")
+        if isinstance(content, str):
+            item["content"] = _escape_control_tokens(content)
+        clean.append(item)
     return clean
 
 
@@ -902,6 +958,7 @@ class LLMProvider(BaseProvider):
         stream_usage: dict | None = None
         streamed_finish: str | None = None
         attempt = 0
+        actionless_truncated = False
         while True:
             # Wall-clock ceiling for the whole call (including the one retry):
             # a slow-but-alive provider must fail over fast instead of hanging
@@ -1054,6 +1111,22 @@ class LLMProvider(BaseProvider):
                                     tc["function"]["name"] = tc_delta.function.name
                                 if tc_delta.function.arguments:
                                     tc["function"]["arguments"] += tc_delta.function.arguments
+                    if (
+                        first_chunk_time is not None
+                        and content_chars == 0
+                        and not accumulated_tool_calls
+                        and (time.monotonic() - first_chunk_time) >= _STREAM_ACTIONLESS_TIMEOUT_S
+                    ):
+                        actionless_truncated = True
+                        logger.warning(
+                            "API STREAM ACTIONLESS model=%s elapsed_since_first_chunk=%.1fs "
+                            "chunks=%d reasoning=%d; ending stream so the loop can continue",
+                            self._litellm_model,
+                            time.monotonic() - first_chunk_time,
+                            chunk_count,
+                            reasoning_chars,
+                        )
+                        break
                     remaining = ZENITH_STREAM_TIMEOUT - (time.monotonic() - t0)
                     if remaining <= 0:
                         raise ProviderError(
@@ -1129,6 +1202,12 @@ class LLMProvider(BaseProvider):
             self._last_finish_reason = _map_finish_reason(streamed_finish)
         elif accumulated_tool_calls:
             self._last_finish_reason = FinishReason.TOOL_CALLS
+        elif actionless_truncated:
+            # We cut this stream off, so a STOP here would report a clean finish
+            # for a turn that produced nothing. LENGTH is the loop's existing
+            # signal for "output ended early, continue emitting" and it emits a
+            # warning once the continuation cap is spent.
+            self._last_finish_reason = FinishReason.LENGTH
         else:
             self._last_finish_reason = FinishReason.STOP
         if stream_usage:
@@ -1148,7 +1227,7 @@ class LLMProvider(BaseProvider):
             content_chars,
             reasoning_chars,
             len(accumulated_tool_calls),
-            finish,
+            finish or ("actionless" if actionless_truncated else None),
             stream_usage,
         )
 

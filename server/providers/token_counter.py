@@ -2,44 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from server.config.constants import CHARS_PER_TOKEN, SUMMARY_FRAMING_TOKENS
 
 logger = logging.getLogger(__name__)
 _REPLY_PRIMING = 2
-
-
-@dataclass(frozen=True, slots=True)
-class UsageAnchor:
-    """Provider-reported occupancy of a prefix of the current message list.
-
-    ``tokens`` is the provider's own count for the request whose message list
-    ended at ``index``. Messages at or after ``index`` were not part of that
-    request, so they must be estimated rather than folded into the anchor.
-
-    ``aux_tokens`` records the tool-schema budget as it stood for that request,
-    because the provider's count already includes it. Only the *increase* since
-    the anchor is added on top; adding the current value again would bill the
-    same schemas to the window twice.
-
-    Cumulative per-turn usage is deliberately not an anchor: it bills every step
-    of a turn against one number and describes no single message list.
-    """
-
-    index: int
-    tokens: int
-    aux_tokens: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class ContextUsage:
-    """Occupancy of one composed message list, plus where the number came from."""
-
-    tokens: int
-    source: Literal["provider", "estimated"]
-    anchor_index: int | None = None
 
 
 def _encoding_name_for_model(model: str) -> str | None:
@@ -141,38 +109,6 @@ class TokenCounter:
             total += self.count_message(msg, model)
         return total + _REPLY_PRIMING
 
-    def measure_messages(
-        self,
-        messages: list[dict],
-        model: str = "cl100k_base",
-        *,
-        anchor: UsageAnchor | None = None,
-        aux_tokens: int = 0,
-    ) -> ContextUsage:
-        """Occupancy of ``messages``, anchored on the provider when one exists.
-
-        With an anchor, the provider's number is authoritative for the prefix it
-        described and only the tail after it is estimated. Without one, the
-        whole list is estimated. ``aux_tokens`` covers the request parts that are
-        not messages at all — the tool-schema block — and is added in both cases
-        so occupancy never reports a small number just because no step has
-        completed yet. Under an anchor only its increase over the anchored value
-        is added, since the anchored count already paid for what it contained.
-        """
-        aux = max(0, int(aux_tokens))
-        if anchor is not None and anchor.tokens > 0 and 0 <= anchor.index <= len(messages):
-            tail = sum(self.count_message(m, model) for m in messages[anchor.index :])
-            return ContextUsage(
-                tokens=anchor.tokens + tail + max(0, aux - anchor.aux_tokens),
-                source="provider",
-                anchor_index=anchor.index,
-            )
-        return ContextUsage(
-            tokens=self.count_messages(messages, model) + aux,
-            source="estimated",
-            anchor_index=None,
-        )
-
     @staticmethod
     def _count_heuristic(text: str) -> int:
         return max(1, len(text) // CHARS_PER_TOKEN)
@@ -185,7 +121,10 @@ def _content_text(content: Any) -> str:
     The list form must not be measured via ``str()``: its JSON scaffolding and
     part-type keys are not billed as the corresponding prose tokens would be,
     and it inflates the count on exactly the message shape that is already the
-    largest (a long tool result).
+    largest (a long tool result). Passing the list straight to the encoder is
+    worse still — it raises, and the heuristic fallback then divides the *part
+    count* by the chars-per-token ratio, reporting a 4 000-character result as
+    a handful of tokens.
     """
     if content is None:
         return ""

@@ -4,8 +4,13 @@ import { contentWidth as computeContentWidth } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import type { CrewmateAgent, CrewmateStatus, TimelineEntry } from '../../../types/scenario';
-import type { ConsolidatedOrchestration } from '../../../utils/orchestration';
+import { type ConsolidatedOrchestration, deriveOrchestrationFlags } from '../../../utils/orchestration';
 import { Spinner } from '../../ui/Spinner';
+
+/** The pinned card is a summary, not a roster: cap both lists it renders. */
+const MAX_VISIBLE_CREWMATES = 4;
+const MAX_VISIBLE_TIMELINE = 2;
+const UNKNOWN_TIME = '--:--';
 
 interface PinnedOrchestrationCardProps {
   event: ConsolidatedOrchestration;
@@ -35,6 +40,25 @@ function getStageLabel(stage: string): string {
   }
 }
 
+function formatTimelineTime(timestamp: string): string {
+  if (!timestamp) return UNKNOWN_TIME;
+  if (timestamp.includes('T')) return timestamp.split('T')[1]?.slice(0, 5) || UNKNOWN_TIME;
+  return timestamp.slice(0, 5) || UNKNOWN_TIME;
+}
+
+/**
+ * Strip the actor prefix that `consolidateOrchestrationEvents` bakes into each
+ * timeline message. Persisted sessions hold the old prefixed string shape, so
+ * this stays as a read-side fallback until every stored entry is structured.
+ */
+function cleanTimelineMessage(message: string): string {
+  return message
+    .replace(/^Captain Zenith\s*❯\s*/i, '')
+    .replace(/^[^\s]+\s*[❯✔✗]\s*/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = React.memo(
   ({ event, isRunning = false }) => {
     const { theme } = useTheme();
@@ -46,36 +70,46 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
     const crewmates = event.crewmates ?? [];
     const isMissionRunning = isRunning && event.stage !== 'complete';
     const stageLabel = getStageLabel(event.stage);
-    // Mixed outcome: some crew completed while others failed. Rendering that as
-    // a flat "✗ Failed" next to a "✔ DONE" row was the self-contradictory
-    // banner from the log; a partially-completed label is truthful.
-    const hasSuccessCrew = crewmates.some((cm) => cm.status === 'completed' || cm.status === 'reviewed');
+    const { activeCrewmateCount: activeCount } = deriveOrchestrationFlags(crewmates);
+    const failedCount = crewmates.filter((crewmate) => crewmate.status === 'failed').length;
+    const completedCount = crewmates.filter((crewmate) => crewmate.status === 'completed').length;
+    const hasSuccessCrew = completedCount > 0;
+    // `active_step` is usually free-text in-flight activity ("Reading tools.py"),
+    // which is the most useful thing on this line. It is sometimes a state token
+    // instead ("complete"/"thinking"/"delegating"), and those are already spoken
+    // for by the stage label in the header — promoting one made the objective
+    // line read "↳ delegating". Fall back to the captain's message in that case.
+    const stepIsStateToken =
+      Boolean(event.activeStep) && (event.activeStep === event.stage || event.activeStep === stageLabel);
+    const objective = (!stepIsStateToken && event.activeStep) || event.captainMessage || '';
+    const visibleCrewmates = crewmates.slice(0, MAX_VISIBLE_CREWMATES);
+    const hiddenCrewmates = Math.max(0, crewmates.length - visibleCrewmates.length);
+    const timeline = (event.timeline ?? []).slice(-MAX_VISIBLE_TIMELINE);
 
-    const renderCrewmateBadge = (status: CrewmateStatus) => {
+    const renderCrewStatus = (status: CrewmateStatus) => {
       switch (status) {
         case 'completed':
-        case 'reviewed':
           return (
             <Text color={colors.status.success} bold>
-              ✔ DONE
+              ✓ done
             </Text>
           );
         case 'working':
           return (
             <Text color={colors.status.info} bold>
-              {isMissionRunning ? <Spinner /> : '◐'} ACTIVE
+              {isMissionRunning ? <Spinner /> : '◐'} active
             </Text>
           );
         case 'failed':
           return (
             <Text color={colors.status.error} bold>
-              ✖ FAILED
+              ✗ failed
             </Text>
           );
         case 'retired':
-          return <Text color={colors.text.dim}>○ RETIRED</Text>;
+          return <Text color={colors.text.dim}>○ retired</Text>;
         default:
-          return <Text color={colors.status.info}>⚡ READY</Text>;
+          return <Text color={colors.status.info}>◇ ready</Text>;
       }
     };
 
@@ -89,16 +123,12 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
         paddingX={1}
         paddingY={0}
       >
-        {/* Header row: Traffic Lights + Title + Stage status + Crewmate count */}
-        <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center">
-          <Box flexDirection="row" alignItems="center" flexShrink={0}>
-            <Text color={colors.decorative.trafficLight.red}>● </Text>
-            <Text color={colors.decorative.trafficLight.yellow}>● </Text>
-            <Text color={colors.decorative.trafficLight.green}>● </Text>
+        <Box flexDirection="row" width="100%" alignItems="center" flexWrap="nowrap">
+          <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} overflow="hidden">
             <Text color={colors.text.bright} bold>
-              ⚡ Captain{' '}
+              Captain
             </Text>
-            <Text color={colors.text.dim}>({crewmates.length} crew) </Text>
+            <Text color={colors.text.dim}> · </Text>
             <Text
               color={
                 isMissionRunning
@@ -108,6 +138,7 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
                     : colors.status.success
               }
               bold
+              wrap="truncate-end"
             >
               {isMissionRunning ? (
                 <>
@@ -115,121 +146,118 @@ export const PinnedOrchestrationCard: React.FC<PinnedOrchestrationCardProps> = R
                 </>
               ) : event.hasFailedCrew ? (
                 hasSuccessCrew ? (
-                  '✗ Partially Completed'
+                  'Partial completion'
                 ) : (
-                  '✗ Failed'
+                  'Failed'
                 )
               ) : (
-                '✔ Complete'
+                'Complete'
               )}
             </Text>
           </Box>
-
-          {/* Right-aligned directive ticker */}
-          {event.activeStep ? (
-            <Box flexDirection="row" alignItems="center" flexShrink={1} marginLeft={1}>
-              <Text color={colors.status.accent} bold>
-                ↳{' '}
-              </Text>
-              <Text color={colors.text.bright} wrap="truncate-end">
-                {event.activeStep}
-              </Text>
-            </Box>
-          ) : event.captainMessage ? (
-            <Box flexDirection="row" alignItems="center" flexShrink={1} marginLeft={1}>
-              <Text color={colors.text.muted} wrap="truncate-end">
-                {event.captainMessage}
-              </Text>
-            </Box>
-          ) : null}
+          <Box flexShrink={0} marginLeft={1}>
+            <Text color={colors.text.dim}>
+              {completedCount}/{crewmates.length || 0} done
+            </Text>
+            {activeCount > 0 ? <Text color={colors.status.info}> · {activeCount} active</Text> : null}
+            {failedCount > 0 ? <Text color={colors.status.error}> · {failedCount} failed</Text> : null}
+          </Box>
         </Box>
 
-        {/* Crewmates detail rows */}
-        {crewmates.length > 0 && (
+        {(objective || event.activeStep) && (
+          <Box flexDirection="row" width="100%" paddingLeft={1} marginTop={0}>
+            <Text color={colors.status.accent}>↳ </Text>
+            <Box flexGrow={1} flexShrink={1} overflow="hidden">
+              <Text color={colors.text.muted} wrap="truncate-end">
+                {objective}
+              </Text>
+            </Box>
+          </Box>
+        )}
+
+        {visibleCrewmates.length > 0 && (
           <Box flexDirection="column" marginTop={0}>
-            {crewmates.map((cm: CrewmateAgent) => (
-              <Box key={cm.id} flexDirection="column" width="100%">
-                <Box flexDirection="row" width="100%" alignItems="center">
-                  <Box width={10} flexShrink={0}>
-                    {renderCrewmateBadge(cm.status)}
+            {visibleCrewmates.map((crewmate: CrewmateAgent) => (
+              <Box key={crewmate.id} flexDirection="column" width="100%" marginTop={0}>
+                <Box flexDirection="row" width="100%" alignItems="center" flexWrap="nowrap">
+                  <Box width={9} flexShrink={0}>
+                    {renderCrewStatus(crewmate.status)}
                   </Box>
                   <Box flexShrink={0} marginRight={1}>
-                    <Text color={colors.status.accent} bold>
-                      {cm.name}
+                    <Text color={colors.text.bright} bold>
+                      {crewmate.name}
                     </Text>
-                    <Text color={colors.text.dim}> [{cm.role}]</Text>
+                    <Text color={colors.text.dim}> · {crewmate.role}</Text>
                   </Box>
-                  <Box flexGrow={1} flexShrink={1}>
-                    <Text
-                      color={cm.status === 'completed' ? colors.text.muted : colors.text.bright}
-                      wrap="truncate-end"
-                    >
-                      {cm.task}
+                  <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                    <Text color={colors.text.muted} wrap="truncate-end">
+                      {crewmate.task}
                     </Text>
                   </Box>
                 </Box>
 
-                {/* In-flight activity subline */}
-                {cm.activity && cm.status === 'working' && (
-                  <Box flexDirection="row" paddingLeft={2}>
-                    <Text color={colors.status.accent}>↳ </Text>
-                    <Text color={colors.status.info}>
-                      <Spinner />{' '}
-                    </Text>
-                    <Text color={colors.text.bright} italic wrap="truncate-end">
-                      {cm.activity}
-                    </Text>
+                {crewmate.activity && crewmate.status === 'working' && (
+                  <Box flexDirection="row" paddingLeft={2} width="100%">
+                    <Text color={colors.status.info}>↳ </Text>
+                    <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                      <Text color={colors.text.bright} italic wrap="truncate-end">
+                        {crewmate.activity}
+                      </Text>
+                    </Box>
                   </Box>
                 )}
 
-                {/* Result summary */}
-                {cm.resultSummary && (
-                  <Box flexDirection="row" paddingLeft={2}>
-                    <Text color={colors.status.success}>✔ Result: </Text>
-                    <Text color={colors.text.muted} wrap="truncate-end">
-                      {cm.resultSummary}
-                    </Text>
+                {crewmate.resultSummary && (
+                  <Box flexDirection="row" paddingLeft={2} width="100%">
+                    <Text color={colors.status.success}>result </Text>
+                    <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                      <Text color={colors.text.muted} wrap="truncate-end">
+                        {crewmate.resultSummary}
+                      </Text>
+                    </Box>
                   </Box>
                 )}
 
-                {/* Error message */}
-                {cm.error && (
-                  <Box flexDirection="row" paddingLeft={2}>
-                    <Text color={colors.status.error}>✗ Error: </Text>
-                    <Text color={colors.status.error} wrap="truncate-end">
-                      {cm.error}
-                    </Text>
+                {crewmate.error && (
+                  <Box flexDirection="row" paddingLeft={2} width="100%">
+                    <Text color={colors.status.error}>error </Text>
+                    <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                      <Text color={colors.status.error} wrap="truncate-end">
+                        {crewmate.error}
+                      </Text>
+                    </Box>
                   </Box>
                 )}
               </Box>
             ))}
+            {hiddenCrewmates > 0 && (
+              <Text color={colors.text.dim}>
+                +{hiddenCrewmates} more delegated agent{hiddenCrewmates === 1 ? '' : 's'}
+              </Text>
+            )}
           </Box>
         )}
 
-        {/* Real-time Agent Communication Timeline (latest 3 events) */}
-        {event.timeline && event.timeline.length > 0 && (
+        {timeline.length > 0 && (
           <Box flexDirection="column" marginTop={0} paddingTop={0}>
-            <Box flexDirection="row">
-              <Text color={colors.text.dim}>── Communication Stream ──</Text>
-            </Box>
-            {event.timeline.slice(-3).map((tl: TimelineEntry, idx: number) => {
-              let msgColor = colors.text.dim;
-              if (tl.type === 'success') msgColor = colors.status.success;
-              else if (tl.type === 'warning') msgColor = colors.status.warning;
-              else if (tl.type === 'error') msgColor = colors.status.error;
-              else if (tl.type === 'info') msgColor = colors.text.bright;
-
-              const timeDisplay = tl.timestamp.includes('T')
-                ? tl.timestamp.split('T')[1]?.slice(0, 8)
-                : tl.timestamp.slice(0, 8);
+            <Text color={colors.text.dim}>Signals</Text>
+            {timeline.map((timelineEntry: TimelineEntry, index: number) => {
+              let messageColor = colors.text.dim;
+              if (timelineEntry.type === 'success') messageColor = colors.status.success;
+              else if (timelineEntry.type === 'warning') messageColor = colors.status.warning;
+              else if (timelineEntry.type === 'error') messageColor = colors.status.error;
+              else if (timelineEntry.type === 'info') messageColor = colors.text.bright;
 
               return (
-                <Box key={idx} flexDirection="row" paddingLeft={1}>
-                  <Text color={colors.text.dim}>{timeDisplay || '··:··:··'} </Text>
-                  <Text color={colors.text.dim}>│ </Text>
-                  <Text color={msgColor} wrap="truncate-end">
-                    {tl.message}
-                  </Text>
+                <Box key={`${timelineEntry.timestamp}_${index}`} flexDirection="row" paddingLeft={1} width="100%">
+                  <Box width={6} flexShrink={0}>
+                    <Text color={colors.text.dim}>{formatTimelineTime(timelineEntry.timestamp)}</Text>
+                  </Box>
+                  <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                    <Text color={messageColor} wrap="truncate-end">
+                      {cleanTimelineMessage(timelineEntry.message)}
+                    </Text>
+                  </Box>
                 </Box>
               );
             })}

@@ -73,3 +73,23 @@ export function sanitizeSingleLine(text: string): string {
     .replace(/\s+/g, ' ') // collapse whitespace and newlines
     .trim();
 }
+
+const DEGENERATE_TOKENS = new Set([
+  '[empty assistant turn]',
+  'empty assistant turn',
+  '[tool calls]',
+  '[thinking]',
+  '[no output]',
+]);
+
+/** Returns true if the message is empty or consists solely of a degenerate filler token. */
+export function isDegenerateMessage(text: string | null | undefined): boolean {
+  if (!text) return true;
+  const cleaned = text.trim();
+  if (!cleaned) return true;
+  const cleanedLower = cleaned.toLowerCase();
+  if (DEGENERATE_TOKENS.has(cleanedLower)) return true;
+  const cleanedBare = cleanedLower.replace(/^['"`]+|['"`]+$/g, '');
+  return DEGENERATE_TOKENS.has(cleanedBare);
+}
+

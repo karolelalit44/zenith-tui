@@ -2,7 +2,7 @@ import { Box, Text } from 'ink';
 import { render } from 'ink-testing-library';
 // biome-ignore lint/correctness/noUnusedImports: React is required for JSX transform
 import React, { useEffect } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type UseScrollStateReturn, useScrollState } from '../src/hooks/useScrollState';
 
 interface ProbeProps {
@@ -167,5 +167,52 @@ describe('useScrollState hook', () => {
     expect(captured!.scrollState.isUserScrolled).toBe(false);
     const maxOffset = Math.max(0, 30 - captured!.scrollState.viewportHeight);
     expect(captured!.scrollState.scrollOffset).toBe(maxOffset);
+  });
+
+  it('clamps a user scroll offset when the terminal grows taller', async () => {
+    // `process.stdout.rows` and the module-level resize listener set in
+    // useTerminalDimensions are shared by every test in the worker, so a stub
+    // left installed (or a resize emitted here) leaks into whichever file runs
+    // next. Restore in a finally and unmount before returning.
+    const originalRows = Object.getOwnPropertyDescriptor(process.stdout, 'rows');
+    const stub = (rows: number) =>
+      Object.defineProperty(process.stdout, 'rows', { configurable: true, get: () => rows });
+
+    let captured: UseScrollStateReturn | null = null;
+    const app = render(
+      <ScrollProbe
+        onReady={(c) => {
+          captured = c;
+        }}
+        viewportHeight={10}
+      />,
+    );
+    try {
+      stub(24);
+      await vi.waitFor(() => {
+        expect(captured!.scrollState.viewportHeight).toBe(15);
+      });
+
+      captured!.updateContentHeight(60);
+      captured!.scrollUp(10);
+      await vi.waitFor(() => {
+        expect(captured!.scrollState.isUserScrolled).toBe(true);
+      });
+
+      stub(80);
+      process.stdout.emit('resize');
+      // Poll rather than sleep a fixed interval: the resize arrives outside
+      // React, so how long the re-render takes depends on what else the worker
+      // is running. A fixed wait passed or failed depending on the load.
+      await vi.waitFor(() => {
+        expect(captured!.scrollState.viewportHeight).toBe(71);
+      });
+      expect(captured!.scrollState.scrollOffset).toBe(0);
+      expect(captured!.scrollState.isUserScrolled).toBe(false);
+    } finally {
+      app.unmount();
+      if (originalRows) Object.defineProperty(process.stdout, 'rows', originalRows);
+      else delete (process.stdout as { rows?: number }).rows;
+    }
   });
 });

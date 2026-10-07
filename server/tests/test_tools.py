@@ -1,4 +1,5 @@
 import asyncio
+import json
 import platform
 import sys
 import time
@@ -10,6 +11,11 @@ import pytest
 from server.config.constants import (
     BASH_TOOL_DESCRIPTION_UNIX,
     BASH_TOOL_DESCRIPTION_WINDOWS,
+    MISSING_PATH_ENTRIES_KEY,
+    MISSING_PATH_HINT_LEAD,
+    MISSING_PATH_HINT_MAX_ENTRIES,
+    MISSING_PATH_KEY,
+    MISSING_PATH_RECOVERABLE_KEY,
 )
 from server.toolkit import create_default_registry
 from server.toolkit.auto_lint import detect_linter, run_lint
@@ -58,6 +64,192 @@ class TestToolResult:
     def test_result_with_metadata(self):
         result = ToolResult(success=True, output="ok", metadata={"count": 5})
         assert result.metadata["count"] == 5
+
+
+class TestMissingPathHints:
+    @pytest.mark.asyncio
+    async def test_glob_missing_path_reports_recoverable_hint(self, temp_dir):
+        (temp_dir / "server").mkdir()
+        (temp_dir / "tui").mkdir()
+
+        result = await GlobTool().execute({"pattern": "**/*.py", "path": "ui"}, str(temp_dir))
+
+        assert not result.success
+        assert result.metadata[MISSING_PATH_RECOVERABLE_KEY] is True
+        assert result.metadata[MISSING_PATH_KEY] == "ui"
+        assert "server/" in result.metadata[MISSING_PATH_ENTRIES_KEY]
+        assert "tui/" in result.metadata[MISSING_PATH_ENTRIES_KEY]
+        assert MISSING_PATH_HINT_LEAD in result.error
+
+    @pytest.mark.asyncio
+    async def test_grep_missing_path_reports_recoverable_hint(self, temp_dir):
+        (temp_dir / "server").mkdir()
+        (temp_dir / "tui").mkdir()
+
+        result = await GrepTool().execute({"pattern": "tool_call", "path": "ui"}, str(temp_dir))
+
+        assert not result.success
+        assert result.metadata[MISSING_PATH_RECOVERABLE_KEY] is True
+        assert result.metadata[MISSING_PATH_KEY] == "ui"
+        assert "tui/" in result.metadata[MISSING_PATH_ENTRIES_KEY]
+
+    @pytest.mark.asyncio
+    async def test_missing_path_hint_is_bounded(self, temp_dir):
+        for i in range(MISSING_PATH_HINT_MAX_ENTRIES + 6):
+            (temp_dir / f"pkg{i:02d}").mkdir()
+
+        result = await GlobTool().execute({"pattern": "**/*.py", "path": "ui"}, str(temp_dir))
+
+        assert len(result.metadata[MISSING_PATH_ENTRIES_KEY]) == MISSING_PATH_HINT_MAX_ENTRIES
+
+
+class TestBashProjectRunnerHints:
+    """The venv path is derived per platform, not hardcoded to the POSIX layout."""
+
+    @staticmethod
+    def _make_venv(temp_dir, layout):
+        if layout == "posix":
+            bindir = temp_dir / ".venv" / "bin"
+            bindir.mkdir(parents=True)
+            interpreter = bindir / "python"
+        else:
+            bindir = temp_dir / ".venv" / "Scripts"
+            bindir.mkdir(parents=True)
+            interpreter = bindir / "python.exe"
+        interpreter.write_text("", encoding="utf-8")
+        return interpreter.relative_to(temp_dir).as_posix()
+
+    @pytest.mark.parametrize("layout", ["posix", "windows"])
+    def test_raw_pytest_is_redirected_to_workspace_venv(self, temp_dir, layout):
+        from server.toolkit.executor import apply_bash_prechecks
+
+        expected = self._make_venv(temp_dir, layout)
+
+        err = apply_bash_prechecks({"command": "pytest -q"}, str(temp_dir))
+
+        assert err == f"Use the workspace virtualenv for pytest: {expected} -m pytest -q"
+
+    @pytest.mark.parametrize("layout", ["posix", "windows"])
+    def test_system_python_pytest_is_redirected_to_workspace_venv(self, temp_dir, layout):
+        from server.toolkit.executor import apply_bash_prechecks
+
+        expected = self._make_venv(temp_dir, layout)
+
+        err = apply_bash_prechecks({"command": "python -m pytest server/tests -q"}, str(temp_dir))
+
+        assert err == f"Use the workspace virtualenv for pytest: {expected} -m pytest server/tests -q"
+
+    @pytest.mark.parametrize("layout", ["posix", "windows"])
+    def test_venv_interpreter_command_is_left_alone(self, temp_dir, layout):
+        """A command already using the workspace interpreter is not corrected."""
+        from server.toolkit.executor import apply_bash_prechecks
+
+        expected = self._make_venv(temp_dir, layout)
+
+        err = apply_bash_prechecks({"command": f"{expected} -m pytest -q"}, str(temp_dir))
+
+        assert err is None
+
+    def test_no_workspace_venv_means_no_redirect(self, temp_dir):
+        from server.toolkit.executor import apply_bash_prechecks
+
+        assert apply_bash_prechecks({"command": "pytest -q"}, str(temp_dir)) is None
+
+    @staticmethod
+    def _write_manifest(directory, scripts: dict):
+        (directory / "package.json").write_text(
+            json.dumps({"name": "fixture", "scripts": scripts}), encoding="utf-8"
+        )
+
+    def test_npm_dev_script_is_blocked_from_its_manifest(self, temp_dir):
+        """The script body is resolved from package.json, not a name list."""
+        from server.toolkit.executor import apply_bash_prechecks
+
+        pkg = temp_dir / "tui"
+        pkg.mkdir()
+        self._write_manifest(pkg, {"dev": "vite --host 0.0.0.0", "test": "vitest run"})
+
+        err = apply_bash_prechecks(
+            {"command": "npm --prefix tui run dev --silent"}, str(temp_dir)
+        )
+
+        assert err is not None
+        assert "long-lived process" in err
+        assert "vite" in err
+
+    def test_arbitrary_dev_script_names_are_also_blocked(self, temp_dir):
+        """A hardcoded name list would miss `start:api` and `dev:web`."""
+        from server.toolkit.executor import apply_bash_prechecks
+
+        pkg = temp_dir / "tui"
+        pkg.mkdir()
+        self._write_manifest(pkg, {"start:api": "uvicorn app:app", "dev:web": "vite"})
+
+        for command in ("npm --prefix tui run start:api", "npm --prefix tui run dev:web"):
+            assert apply_bash_prechecks({"command": command}, str(temp_dir)) is not None
+
+    def test_short_lived_scripts_are_allowed(self, temp_dir):
+        """Not every script in a manifest is a server."""
+        from server.toolkit.executor import apply_bash_prechecks
+
+        self._write_manifest(temp_dir, {"build": "tsc", "lint": "biome check src/"})
+
+        assert apply_bash_prechecks({"command": "npm run build"}, str(temp_dir)) is None
+        assert apply_bash_prechecks({"command": "npm run lint"}, str(temp_dir)) is None
+
+    def test_unknown_script_is_allowed(self, temp_dir):
+        """No manifest means no evidence, so nothing is blocked."""
+        from server.toolkit.executor import apply_bash_prechecks
+
+        assert apply_bash_prechecks({"command": "npm run dev"}, str(temp_dir)) is None
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "python -m server.main serve",
+            "python -m http.server 8000",
+            "python -m myapp run",
+            "py -m mypkg.asgi",
+            "uvicorn app:app --reload",
+        ],
+    )
+    def test_server_entrypoints_are_blocked_inside_agent_turns(self, temp_dir, command):
+        from server.toolkit.executor import apply_bash_prechecks
+
+        err = apply_bash_prechecks({"command": command}, str(temp_dir))
+
+        assert err is not None
+        assert "agent turn" in err
+
+    @pytest.mark.parametrize(
+        "command",
+        ["python -m pytest -q", "python -m json.tool data.json", "py -m build"],
+    )
+    def test_non_server_modules_are_allowed(self, temp_dir, command):
+        from server.toolkit.executor import apply_bash_prechecks
+
+        assert apply_bash_prechecks({"command": command}, str(temp_dir)) is None
+
+    def test_windows_pytest_launcher_is_redirected(self, temp_dir):
+        """`py -m pytest` is idiomatic on Windows; the guard must catch it."""
+        from server.toolkit.executor import apply_bash_prechecks
+
+        expected = self._make_venv(temp_dir, "windows")
+
+        err = apply_bash_prechecks({"command": "py -m pytest server/tests -q"}, str(temp_dir))
+
+        assert err == f"Use the workspace virtualenv for pytest: {expected} -m pytest server/tests -q"
+
+    def test_windows_venv_activation_is_left_alone(self, temp_dir):
+        """The accept path must accept the platform's own activate script."""
+        from server.toolkit.executor import apply_bash_prechecks
+
+        self._make_venv(temp_dir, "windows")
+        (temp_dir / ".venv" / "Scripts" / "activate").write_text("", encoding="utf-8")
+
+        err = apply_bash_prechecks({"command": ".venv/Scripts/activate; pytest -q"}, str(temp_dir))
+
+        assert err is None
 
 
 class TestAutoLint:

@@ -15,7 +15,7 @@ from server.agents.delegation.scout import (
     run_crewmate,
 )
 from server.agents.delegation.task_envelope import build_task_envelope
-from server.config.constants import CREWMATE_MODE, READ_ONLY_TOOLS
+from server.config.constants import CREWMATE_MODE, CREWMATE_TOOL_CALL_LIMIT, READ_ONLY_TOOLS
 from server.config.settings import AppSettings
 from server.domain.events import EventKind
 from server.providers.base import BaseProvider
@@ -82,6 +82,16 @@ class _ScriptedCrewmateProvider(BaseProvider):
 
     async def list_models(self):
         return ["crewmate-model"]
+
+
+class _LoopingCrewmateProvider(_ScriptedCrewmateProvider):
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        return (
+            '```tool\n'
+            f'{{"tool": "glob", "params": {{"pattern": "**/*{self.call_count}.py", "path": "."}}}}'
+            '\n```'
+        )
 
 
 @pytest.fixture
@@ -151,6 +161,38 @@ class TestEvidenceBackedFindings:
         assert result.status == "completed"
         assert result.unverified == [run.response_text.strip()]
         assert result.findings == []
+
+    def test_empty_assistant_turn_is_failed_missing_report(self):
+        task = _make_task()
+        run = CrewmateRun(response_text="[empty assistant turn]", tool_calls=3)
+        result = assemble_result(task, ApogeeCrewmate, run)
+
+        assert result.status == "failed"
+        assert "without a final evidence report" in result.summary
+        assert result.unverified == []
+        assert result.blocked
+        assert "[empty assistant turn]" not in result.summary
+
+    @pytest.mark.asyncio
+    async def test_looping_crewmate_is_reported_as_truncated_not_completed(self, test_config, workspace):
+        """Hitting the tool-call ceiling is a failure, not a completed mission.
+
+        The old path synthesised a full evidence report at the ceiling — status
+        "completed", a finding whose claim was the budget notice itself — so a
+        crewmate that never reached a conclusion reached the parent as a success.
+        """
+        provider = _LoopingCrewmateProvider()
+        run, _ = await _collect_crewmate(test_config, provider, _make_task(), create_default_registry())
+        result = assemble_result(_make_task(), ApogeeCrewmate, run)
+
+        assert run.tool_calls <= CREWMATE_TOOL_CALL_LIMIT
+        assert run.budget_exhausted is True
+        assert result.status == "failed"
+        assert str(CREWMATE_TOOL_CALL_LIMIT) in result.summary
+        assert result.blocked
+        assert result.findings == [], "a truncated mission must not carry synthesized findings"
+        assert result.unverified, "the real observations gathered so far are still handed over"
+        assert any("glob" in u for u in result.unverified)
 
 
 class TestReadOnlyToolSurface:

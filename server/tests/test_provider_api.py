@@ -162,6 +162,30 @@ def test_get_provider_list_after_auth_and_model(tmp_path):
     assert "llama-3.3-70b-versatile" in groq.models
 
 
+def test_keyless_local_llm_with_model_counts_as_connected(tmp_path):
+    home = _home(tmp_path)
+    save_provider_config(
+        home,
+        provider="local_llm",
+        api_key="",
+        model="gpt-oss-20b-Q8_0.gguf",
+        base_url="http://127.0.0.1:8080",
+        max_tokens=DEFAULT_LLM_MAX_TOKENS,
+        temperature=DEFAULT_LLM_TEMPERATURE,
+        set_active=True,
+    )
+
+    result = get_provider_list(home)
+    local = next(p for p in result.all if p.id == "local_llm")
+
+    assert result.active == "local_llm"
+    assert "local_llm" in result.connected
+    assert local.has_api_key is False
+    assert local.requires_api_key is False
+    assert local.model == "gpt-oss-20b-Q8_0.gguf"
+    assert local.validation_status == "configured"
+
+
 async def test_upsert_user_model_idempotent(tmp_path):
     from server.storage.provider_config import upsert_provider_models
 

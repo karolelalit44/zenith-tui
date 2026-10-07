@@ -55,12 +55,15 @@ export interface StepTokenUsage {
   provider: string;
 }
 
+/**
+ * Mirrors `UsageStore.get_efficiency` exactly. Fields the server stopped
+ * reporting are absent rather than declared-and-undefined, so a consumer cannot
+ * silently read `NaN` from a key the API never returns.
+ */
 export interface EfficiencyMetrics {
   total_tokens_consumed: number;
   total_cost_usd: number;
   final_context_used: number;
-  waste_ratio: number;
-  summarization_count: number;
   average_context_utilization: number;
 }
 

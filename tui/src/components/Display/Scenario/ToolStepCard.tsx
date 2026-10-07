@@ -8,6 +8,7 @@ import {
   getToolStepPrimaryParam,
   getToolStepStatusText,
   getToolVerbLabel,
+  isRecoverableMiss,
   LIST_DIR_TOOL_SET,
   SEARCH_TOOL_SET,
   SHELL_TOOL_SET,
@@ -24,7 +25,7 @@ import { LiveElapsed } from '../../ui/LiveElapsed';
 import { Spinner } from '../../ui/Spinner';
 import type { EventRenderContext } from './componentRegistry';
 import { DirectoryListingCard } from './DirectoryListingCard';
-import { formatErrorSummary } from './errorSummary';
+import { ERROR_TONE_MARKER, type ErrorTone, formatErrorSummary } from './errorSummary';
 import { buildUnifiedDiff, FileDiffBlock } from './FileDiffBlock';
 import { WebResearchCard } from './WebResearchCard';
 
@@ -300,6 +301,13 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
   const state = resolveExecutionState(event, isPending);
   const isSuccess = state === 'success';
+  // One tone drives glyph, colour, header text and detail marker. Deriving them
+  // separately is how a recoverable miss ended up wearing the hard-failure
+  // chrome with only its detail line corrected.
+  const recoverableMiss = isRecoverableMiss(event.metadata);
+  const tone: ErrorTone = recoverableMiss ? 'miss' : 'error';
+  const failureColor = recoverableMiss ? theme.colors.text.muted : theme.colors.status.error;
+  const failureGlyph = ERROR_TONE_MARKER[tone];
 
   // Universal duration: server stamps metadata.duration_ms on every tool
   // result; while running we count wall-clock from the row's own mount.
@@ -340,8 +348,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       );
     }
     return (
-      <Text color={isSuccess ? theme.colors.status.success : theme.colors.status.error} bold>
-        {isSuccess ? ' ' : '✗'}{' '}
+      <Text color={isSuccess ? theme.colors.status.success : failureColor} bold>
+        {isSuccess ? ' ' : failureGlyph}{' '}
       </Text>
     );
   })();
@@ -534,11 +542,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
 
           {(state === 'failed' || state === 'cancelled') && event.error ? (
             <Box paddingLeft={2}>
-              <Text
-                color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
-                wrap="truncate-end"
-              >
-                {formatErrorSummary(event.error)}
+              <Text color={state === 'cancelled' ? theme.colors.status.warning : failureColor} wrap="truncate-end">
+                {formatErrorSummary(event.error, 120, tone)}
               </Text>
             </Box>
           ) : null}
@@ -763,8 +768,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
                 {`✓ Deleted ${toWorkspaceRelative(primary?.value ?? (event.metadata?.path as string) ?? headerText.replace(/^Delete\s+/i, '').replace(/ removed$/i, ''), context?.workspaceName)}`}
               </Text>
             ) : (
-              <Text color={theme.colors.status.error} bold wrap="truncate-end">
-                {statusText || `${headerText} failed`}
+              <Text color={failureColor} bold wrap="truncate-end">
+                {statusText || `${headerText} ${recoverableMiss ? 'could not find path' : 'failed'}`}
               </Text>
             )
           ) : isFileRead ? (
@@ -844,17 +849,13 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
           ) : (
             <Text
               color={
-                state === 'cancelled'
-                  ? theme.colors.status.warning
-                  : isSuccess
-                    ? theme.colors.text.muted
-                    : theme.colors.status.error
+                state === 'cancelled' ? theme.colors.status.warning : isSuccess ? theme.colors.text.muted : failureColor
               }
               bold={!isSuccess}
               wrap="truncate-end"
             >
               {!isSuccess
-                ? statusText || `${headerText} failed`
+                ? statusText || `${headerText} ${recoverableMiss ? 'could not find path' : 'failed'}`
                 : hasTextHeader && event.tool !== 'get_tool_definition' && event.tool !== 'discover_capabilities'
                   ? headerText
                   : statusText}
@@ -866,11 +867,8 @@ export const ToolStepCard: React.FC<ToolStepCardProps> = React.memo(({ event, co
       {/* Failure / cancellation context line */}
       {!isPending && !isSuccess && event.error ? (
         <Box paddingLeft={2}>
-          <Text
-            color={state === 'cancelled' ? theme.colors.status.warning : theme.colors.status.error}
-            wrap="truncate-end"
-          >
-            {formatErrorSummary(event.error)}
+          <Text color={state === 'cancelled' ? theme.colors.status.warning : failureColor} wrap="truncate-end">
+            {formatErrorSummary(event.error, 120, tone)}
           </Text>
         </Box>
       ) : null}

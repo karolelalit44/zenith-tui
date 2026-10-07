@@ -17,6 +17,7 @@ from server.workspace.search import RipgrepBackend, _find_rg
 
 from ..base import BaseTool, ToolResult
 from .grep import _iter_source_files, _matches_glob, _safe_rel
+from .path_hints import workspace_path_hint
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,12 @@ class GlobTool(BaseTool):
         if search_path != base and base not in search_path.parents:
             return ToolResult(success=False, error=f"Search path outside workspace: {search_path}")
         if not search_path.exists():
-            return ToolResult(success=False, error=f"Search path not found: {search_path}")
+            hint = workspace_path_hint(base, requested)
+            return ToolResult(
+                success=False,
+                error=f"Search path not found: {search_path}. {hint['hint']}",
+                metadata=hint,
+            )
 
         try:
             backend = RipgrepBackend(ignore_files=[str(base / ".zenithignore")])

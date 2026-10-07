@@ -7,7 +7,14 @@
  * lines" hint — the full stderr still reaches the model via the tool
  * result, this is purely presentation.
  */
-export function formatErrorSummary(error: string, maxFirstLine = 120): string {
+export type ErrorTone = 'error' | 'miss';
+
+export const ERROR_TONE_MARKER: Record<ErrorTone, string> = {
+  error: '✗',
+  miss: '○',
+};
+
+export function formatErrorSummary(error: string, maxFirstLine = 120, tone: ErrorTone = 'error'): string {
   const lines = (error ?? '')
     .split('\n')
     .map((l) => l.trim())
@@ -16,5 +23,6 @@ export function formatErrorSummary(error: string, maxFirstLine = 120): string {
   let first = lines[0];
   if (first.length > maxFirstLine) first = `${first.slice(0, maxFirstLine - 1)}…`;
   const rest = lines.length - 1;
-  return rest > 0 ? `✗ ${first} (+${rest} more lines)` : `✗ ${first}`;
+  const marker = ERROR_TONE_MARKER[tone];
+  return rest > 0 ? `${marker} ${first} (+${rest} more lines)` : `${marker} ${first}`;
 }

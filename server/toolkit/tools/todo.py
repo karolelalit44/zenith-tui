@@ -67,11 +67,11 @@ def _map_status(status: str) -> str:
 class TodoTool(BaseTool):
     name = "todo"
     description = (
-        "Write or update a session-scoped task checklist. "
+        "Write or update a session-scoped live-UI task checklist. "
+        "It tracks progress only and does not edit workspace/source files. "
         "Call with ``action=write`` and a ``tasks`` array to replace the "
-        "entire board (each item needs at least a ``title``). "
-        "Call with ``action=list`` to read the current board. "
-        "Call with ``action=remove`` and a ``task_id`` to delete one item."
+        "board; tasks need ``title`` and may include ``status``. "
+        "Use ``list`` to read and ``remove`` with ``task_id`` to delete."
     )
     capability_id = "task_tracking"
     requires_mode = None
@@ -119,7 +119,11 @@ class TodoTool(BaseTool):
                         },
                         "required": ["title"],
                     },
-                    "description": "Full task list for write action",
+                    "description": (
+                        "Full task list for write action. Decompose multi-step work into concrete "
+                        "items that map to the user's requested areas or deliverables; avoid one "
+                        "generic task for complex validation/investigation work."
+                    ),
                 },
             },
             "required": ["action"],

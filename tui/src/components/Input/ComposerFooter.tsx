@@ -13,29 +13,14 @@ interface ComposerFooterProps {
   branch: string;
   /** Cumulative run/API usage (telemetry). */
   runTokens?: number;
-  /** True when the cumulative run usage is estimated, not provider-reported. */
-  runEstimated?: boolean;
   /** Composed-context occupancy percent (0–100). Omitted → no gauge renders. */
   contextPercent?: number;
-  /** True when the context-window denominator is a fallback estimate. */
-  windowEstimated?: boolean;
   /** Whether Calm Mode is active. **/
   calmMode?: boolean;
 }
 
 export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
-  ({
-    mode,
-    modelFallback,
-    providerName,
-    dir,
-    branch,
-    runTokens,
-    runEstimated,
-    contextPercent,
-    windowEstimated,
-    calmMode,
-  }) => {
+  ({ mode, modelFallback, providerName, dir, branch, runTokens, contextPercent, calmMode }) => {
     const { theme } = useTheme();
     const { columns } = useTerminalDimensions();
 
@@ -49,10 +34,12 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
       dir,
       branch,
       runTokens,
-      runEstimated,
       contextPercent,
-      windowEstimated,
+      calmMode,
     });
+
+    const showChip = layout.chip.length > 0;
+    const showRight = Boolean(layout.dirText || layout.branchText || layout.calmLabel || layout.tokenUsage);
 
     return (
       <Box flexDirection="row" width="100%" justifyContent="space-between" alignItems="center" flexWrap="nowrap">
@@ -61,9 +48,11 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
           <Text color={theme.colors.text.emerald} wrap="truncate-end">
             {layout.modeLabel}
           </Text>
-          <Text color={theme.colors.status.accent} wrap="truncate-end">
-            ◇ <Text color={theme.colors.text.muted}>{layout.chip}</Text>
-          </Text>
+          {showChip ? (
+            <Text color={theme.colors.status.accent} wrap="truncate-end">
+              ◇ <Text color={theme.colors.text.muted}>{layout.chip}</Text>
+            </Text>
+          ) : null}
           {layout.provider ? (
             <Text color={theme.colors.text.muted} wrap="truncate-end">
               {layout.provider}
@@ -72,31 +61,31 @@ export const ComposerFooter: React.FC<ComposerFooterProps> = React.memo(
         </Box>
 
         {/* Right Section: folder:branch */}
-        <Box flexDirection="row" flexShrink={0} alignItems="center" marginLeft={1}>
-          {layout.dirText ? (
-            <>
-              <Text color={theme.colors.text.bright} wrap="truncate-end">
-                {layout.dirText}
+        {showRight ? (
+          <Box flexDirection="row" flexShrink={0} alignItems="center" marginLeft={1}>
+            {layout.dirText ? (
+              <>
+                <Text color={theme.colors.text.bright} wrap="truncate-end">
+                  {layout.dirText}
+                </Text>
+                {layout.branchText ? <Text color={theme.colors.text.muted}>:</Text> : null}
+              </>
+            ) : null}
+            {layout.branchText ? (
+              <Text color={theme.colors.text.emerald} wrap="truncate-end">
+                {layout.branchText}{' '}
               </Text>
-              {layout.branchText ? <Text color={theme.colors.text.muted}>:</Text> : null}
-            </>
-          ) : null}
-          {layout.branchText ? (
-            <Text color={theme.colors.text.emerald} wrap="truncate-end">
-              {layout.branchText}{' '}
+            ) : null}
+            {layout.calmLabel && (
+              <Box marginRight={1}>
+                <Text color={theme.colors.status.accent}>{layout.calmLabel}</Text>
+              </Box>
+            )}
+            <Text color={theme.colors.text.muted} wrap="truncate-end">
+              {layout.tokenUsage}
             </Text>
-          ) : (
-            <Text> </Text>
-          )}
-          {calmMode && (
-            <Box marginRight={1}>
-              <Text color={theme.colors.status.accent}>⟪CALM⟫</Text>
-            </Box>
-          )}
-          <Text color={theme.colors.text.muted} wrap="truncate-end">
-            {layout.tokenUsage}
-          </Text>
-        </Box>
+          </Box>
+        ) : null}
       </Box>
     );
   },

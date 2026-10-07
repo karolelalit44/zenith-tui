@@ -377,3 +377,102 @@ async def test_stream_total_timeout_enforced_during_body(monkeypatch):
     assert excinfo.value.recoverable is True
     assert "".join(chunks) == "fast first", "first chunk must be yielded before timeout fires"
     assert elapsed < 3.0, f"must fail within total budget, took {elapsed:.1f}s"
+
+
+@pytest.mark.asyncio
+async def test_stream_actionless_reasoning_ends_cleanly(monkeypatch):
+    """A reasoning-only stream with no content or tool calls must yield control
+    back to the loop instead of hanging until the full stream timeout.
+
+    The finish reason must be LENGTH, not STOP: the loop reported a clean end
+    for a turn that produced nothing, so no continuation was ever attempted.
+    """
+    import time
+
+    provider = LLMProvider("openai", model="gpt-4o-mini", api_key="sk-test")
+
+    async def fake_acompletion(**kwargs):
+        async def gen():
+            yield _chunk(reasoning="thinking 1")
+            await asyncio.sleep(0.15)
+            yield _chunk(reasoning="thinking 2")
+            await asyncio.sleep(0.15)
+            yield _chunk(reasoning="thinking 3")
+
+        return gen()
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_provider_module, "_STREAM_ACTIONLESS_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(llm_provider_module, "ZENITH_STREAM_TIMEOUT", 180.0)
+    monkeypatch.setattr(llm_provider_module, "ZENITH_STREAM_TTFT_TIMEOUT", 2.0)
+
+    seen: list[tuple[str, str | None]] = []
+    t0 = time.monotonic()
+    async for text, reasoning in provider._stream_impl([{"role": "user", "content": "hi"}]):
+        seen.append((text, reasoning))
+    elapsed = time.monotonic() - t0
+
+    assert seen == [("", "thinking 1"), ("", "thinking 2"), ("", "thinking 3")]
+    assert provider._last_finish_reason is FinishReason.LENGTH
+    assert elapsed < 1.0, f"must stop at the actionless guard, took {elapsed:.1f}s"
+
+
+@pytest.mark.asyncio
+async def test_stream_actionless_guard_covers_empty_delta_streams(monkeypatch):
+    """Empty deltas increment no counters, so a reasoning-gated guard never fires.
+
+    The original guard required reasoning_chars > 0, so this stream waited out
+    the full 180s timeout instead of returning control at 0.2s.
+    """
+    import time
+
+    provider = LLMProvider("openai", model="gpt-4o-mini", api_key="sk-test")
+
+    async def fake_acompletion(**kwargs):
+        async def gen():
+            while True:
+                await asyncio.sleep(0.1)
+                yield _chunk(reasoning=None, content=None)
+
+        return gen()
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_provider_module, "_STREAM_ACTIONLESS_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(llm_provider_module, "ZENITH_STREAM_TIMEOUT", 180.0)
+    monkeypatch.setattr(llm_provider_module, "ZENITH_STREAM_TTFT_TIMEOUT", 2.0)
+
+    t0 = time.monotonic()
+    seen = [pair async for pair in provider._stream_impl([{"role": "user", "content": "hi"}])]
+    elapsed = time.monotonic() - t0
+
+    assert seen == []
+    assert provider._last_finish_reason is FinishReason.LENGTH
+    assert elapsed < 2.0, f"empty-delta stream must not wait out the full timeout, took {elapsed:.1f}s"
+
+
+@pytest.mark.asyncio
+async def test_stream_with_content_is_never_truncated_by_the_actionless_guard(monkeypatch):
+    """A slow but productive stream must run to completion.
+
+    Guarding on `reasoning_chars > 0` instead of "no output yet" would cut this
+    stream off mid-answer.
+    """
+    provider = LLMProvider("openai", model="gpt-4o-mini", api_key="sk-test")
+
+    async def fake_acompletion(**kwargs):
+        async def gen():
+            for i in range(6):
+                await asyncio.sleep(0.1)
+                yield _chunk(content=f"part {i}")
+
+        return gen()
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_provider_module, "_STREAM_ACTIONLESS_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(llm_provider_module, "ZENITH_STREAM_TIMEOUT", 180.0)
+    monkeypatch.setattr(llm_provider_module, "ZENITH_STREAM_TTFT_TIMEOUT", 2.0)
+
+    seen = [pair async for pair in provider._stream_impl([{"role": "user", "content": "hi"}])]
+
+    assert [text for text, _ in seen] == [f"part {i}" for i in range(6)]
+    assert provider._last_finish_reason is FinishReason.STOP

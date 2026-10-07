@@ -102,6 +102,38 @@ class TestConversationSummarizer:
         assert provider.last_model == "turn-model"
 
     @pytest.mark.asyncio
+    async def test_fold_preserves_the_turn_usage_ledger(self, temp_dir):
+        """Compaction runs inside a turn, so it must not zero the turn's spend.
+
+        ``complete()`` resets the provider's cumulative ledger because it is
+        normally a standalone call. Left alone, a mid-turn compaction silently
+        zeroes the running totals the turn manifest reports at the end.
+        """
+        from contextlib import contextmanager
+
+        class _LedgerProvider(_EchoProvider):
+            def __init__(self):
+                super().__init__()
+                self._cumulative_usage = {"prompt_tokens": 2000, "completion_tokens": 400}
+
+            async def complete(self, messages, tools=None, model=None) -> str:
+                self._cumulative_usage = {"prompt_tokens": 7, "completion_tokens": 3}
+                return await super().complete(messages, tools, model)
+
+            @contextmanager
+            def preserve_usage_ledger(self):
+                saved = dict(self._cumulative_usage)
+                try:
+                    yield
+                finally:
+                    self._cumulative_usage = saved
+
+        provider = _LedgerProvider()
+        s = ConversationSummarizer(self._config(temp_dir), provider)
+        await s.summarize(self._msgs(), "test-model")
+        assert provider._cumulative_usage == {"prompt_tokens": 2000, "completion_tokens": 400}
+
+    @pytest.mark.asyncio
     async def test_focus_instructions_in_fresh_prompt(self, temp_dir):
         provider = _EchoProvider()
         s = ConversationSummarizer(self._config(temp_dir), provider)

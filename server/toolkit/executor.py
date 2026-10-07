@@ -315,6 +315,8 @@ def _resolve_workdir(workspace_root: str, target: str) -> Path | None:
 
 def apply_bash_prechecks(tool_params: dict, workspace_root: str) -> str | None:
     from server.agents.validation import (
+        check_long_running_dev_server,
+        check_project_test_runner,
         check_python_syntax,
         detect_interactive_command,
         parse_cd_prefix,
@@ -339,6 +341,12 @@ def apply_bash_prechecks(tool_params: dict, workspace_root: str) -> str | None:
         tool_params[BASH_WORKDIR_PARAM] = str(resolved)
         logger.info("Resolved cd prefix: workdir=%s command=%s", resolved, remainder)
     err = check_python_syntax(tool_params.get("command", ""), workspace_root)
+    if err:
+        return err
+    err = check_project_test_runner(tool_params.get("command", ""), workspace_root)
+    if err:
+        return err
+    err = check_long_running_dev_server(tool_params.get("command", ""), workspace_root)
     if err:
         return err
     return detect_interactive_command(tool_params.get("command", ""))

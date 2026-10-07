@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
-import { TABLE_WIDTH_INSET } from '../../../constants/layout';
+import { contentWidth as computeContentWidth, TABLE_WIDTH_INSET } from '../../../constants/layout';
 import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { useTheme } from '../../../theme/ThemeContext';
 import { highlightCode } from '../../../utils/syntaxHighlight';
@@ -115,12 +115,16 @@ interface TableBlock {
 
 /** Remove markdown inline markers so table cells render as clean monospace text. */
 function stripInlineMarkdown(text: string): string {
-  return text
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  return (
+    text
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Autolink form: render the URL, not the angle brackets.
+      .replace(/<((?:https?|mailto):[^>\s]+)>/g, '$1')
+  );
 }
 
 function parseTable(lines: string[]): TableBlock | null {
@@ -143,6 +147,17 @@ function parseTable(lines: string[]): TableBlock | null {
   }
 
   return { headers, rows };
+}
+
+function isStatusLike(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return /^(?:✅|✓|done|completed|complete|success|ok)$/.test(normalized);
+}
+
+function statusGlyph(value: string): { glyph: string; colorKind: 'success' | 'muted' | 'warning' } {
+  if (isStatusLike(value)) return { glyph: '✓', colorKind: 'success' };
+  if (/blocked|failed|error/i.test(value)) return { glyph: '!', colorKind: 'warning' };
+  return { glyph: '·', colorKind: 'muted' };
 }
 
 /**
@@ -212,7 +227,7 @@ function wrapCellText(text: string, width: number): string[] {
  */
 function computeColWidths(headers: string[], rows: string[][], availCellWidth: number): number[] {
   const numCols = headers.length || 1;
-  const MIN_COL_WIDTH = 3;
+  const MIN_COL_WIDTH = Math.max(1, Math.min(3, Math.floor(Math.max(1, availCellWidth) / numCols)));
 
   const desiredWidths = headers.map((h, i) => {
     let max = Math.max(h.length, MIN_COL_WIDTH);
@@ -297,10 +312,91 @@ const MarkdownTableRenderer: React.FC<{ table: TableBlock }> = ({ table }) => {
   const numCols = Math.max(headers.length, ...rows.map((r) => r.length), 1);
   while (headers.length < numCols) headers.push('');
 
-  const maxTableWidth = Math.max(24, columns - TABLE_WIDTH_INSET);
+  const maxTableWidth = computeContentWidth(columns || process.stdout.columns || 80, TABLE_WIDTH_INSET);
   // Account for table borders: "│ " (2) + " │ " (3 * (numCols - 1)) + " │" (2) = 4 + 3*(numCols - 1)
   const overhead = 4 + 3 * (numCols - 1);
-  const availCellWidth = Math.max(numCols * 3, maxTableWidth - overhead);
+  const minBorderedWidth = overhead + numCols;
+
+  const compactPairTable =
+    numCols === 2 && /^(?:item|task)$/i.test(headers[0] || '') && /^(?:detail|status)$/i.test(headers[1] || '');
+
+  if (compactPairTable) {
+    const statusTable = /status/i.test(headers[1] || '');
+    return (
+      <Box flexDirection="column" marginTop={1} marginBottom={1} width="100%">
+        {rows.map((r, idx) => {
+          const left = stripInlineMarkdown(r[0] || '').trim();
+          const right = stripInlineMarkdown(r[1] || '').trim();
+          if (statusTable) {
+            const status = statusGlyph(right);
+            const color =
+              status.colorKind === 'success'
+                ? theme.colors.status.success
+                : status.colorKind === 'warning'
+                  ? theme.colors.status.warning
+                  : theme.colors.text.dim;
+            return (
+              <Box key={idx} flexDirection="row" width="100%" paddingLeft={1} marginBottom={0}>
+                <Box width={3} flexShrink={0}>
+                  <Text color={color} bold>
+                    {status.glyph}{' '}
+                  </Text>
+                </Box>
+                <Box flexShrink={1} flexGrow={1} overflow="hidden">
+                  <Text color={theme.colors.text.bright} wrap="wrap">
+                    {left}
+                  </Text>
+                </Box>
+                {/* The glyph is an affordance, not a substitute: the model's own
+                    status word is what distinguishes "in progress" from
+                    "deferred", and both otherwise collapsed to the same dot. */}
+                {right ? (
+                  <Text color={color} wrap="truncate-end">
+                    {' · '}
+                    {right}
+                  </Text>
+                ) : null}
+              </Box>
+            );
+          }
+          return (
+            <Box
+              key={idx}
+              flexDirection="column"
+              width="100%"
+              paddingLeft={1}
+              marginBottom={idx === rows.length - 1 ? 0 : 1}
+            >
+              <Text color={theme.colors.status.info} bold wrap="wrap">
+                {left}
+              </Text>
+              {right ? (
+                <Box paddingLeft={2} width="100%">
+                  <Box flexShrink={1} flexGrow={1} overflow="hidden">
+                    <FormattedInlineText text={right} />
+                  </Box>
+                </Box>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Box>
+    );
+  }
+
+  if (maxTableWidth < minBorderedWidth) {
+    return (
+      <Box flexDirection="column" marginTop={1} width="100%">
+        {[headers, ...rows].map((cells, idx) => (
+          <Text key={idx} color={idx === 0 ? theme.colors.text.bright : theme.colors.text.ethereal} wrap="wrap">
+            {cells.map((cell) => stripInlineMarkdown(cell)).join(' | ')}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
+
+  const availCellWidth = Math.max(numCols, maxTableWidth - overhead);
 
   const colWidths = computeColWidths(headers, rows, availCellWidth);
 
@@ -354,7 +450,7 @@ export const TerminalMarkdown: React.FC<TerminalMarkdownProps> = ({
   const { columns } = useTerminalDimensions();
   const termCols = columns || process.stdout.columns || 80;
   // Horizontal rules span the content column (App paddingX + widget inset).
-  const hrWidth = Math.max(20, termCols - TABLE_WIDTH_INSET);
+  const hrWidth = computeContentWidth(termCols, TABLE_WIDTH_INSET);
 
   if (!content) return null;
 

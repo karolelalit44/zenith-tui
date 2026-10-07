@@ -134,8 +134,8 @@ class ExploreTool(BaseTool):
     description = (
         "Delegate a focused read-only codebase investigation to an isolated "
         "crewmate (default: Apogee) that returns evidence-backed findings with "
-        "confidence levels. Use for multi-file 'how does X work' questions. Do NOT "
-        "use when the target file is known, one grep suffices, or the repo is tiny. "
+        "confidence levels. Use for broad multi-file event/UI/orchestration flows. "
+        "Do NOT use when the target file is known, one grep suffices, or the repo is tiny. "
         "Issue independent objectives as separate calls together; synthesize by theme."
     )
     capability_id = "crewmate"

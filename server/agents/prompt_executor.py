@@ -840,6 +840,11 @@ class PromptExecutor:
         try:
             history = await self._message_repo.get_by_session(session_id)
             logger.info("History loaded: %d messages for session %s", len(history), session_id)
+            prior_history = (
+                history[:-1]
+                if (history and history[-1].role == "user" and history[-1].content == content)
+                else history
+            )
             plan_context, plan_adopted, plan_model_override = await self._load_plan_context(
                 session_id, mode
             )
@@ -925,7 +930,7 @@ class PromptExecutor:
                 agent.process_prompt(
                     content,
                     session_id,
-                    history,
+                    prior_history,
                     mode,
                     plan_context=plan_context,
                     model_override=None,
@@ -1003,9 +1008,6 @@ class PromptExecutor:
                                         step_index=s,
                                         estimated=estimated,
                                         context_occupancy=used if s == _step_count else 0,
-                                        # Only the closing row carries the turn's
-                                        # deltas; the session view sums them.
-                                        diagnostics=ti.get("diagnostics") if s == _step_count else None,
                                     )
                             elif not token_usage_recorded:
                                 await token_repo.record(
@@ -1022,7 +1024,6 @@ class PromptExecutor:
                                     cache_creation_tokens=cache_creation_t,
                                     estimated=estimated,
                                     context_occupancy=used,
-                                    diagnostics=ti.get("diagnostics"),
                                 )
                             token_usage_recorded = True
                             logger.info(

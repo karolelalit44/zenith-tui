@@ -4,6 +4,7 @@ import { truncateEnd, truncateMiddle, truncateStart } from './text';
 import { getWorkspaceFolderName } from './workspacePath';
 
 const FOOTER_MIN_PROVIDER_LEN = 6;
+const FOOTER_MIN_CHIP_LEN = 4;
 
 export interface FooterLayoutInput {
   columns: number;
@@ -14,12 +15,10 @@ export interface FooterLayoutInput {
   branch: string;
   /** Cumulative run/API token usage (telemetry). */
   runTokens?: number;
-  /** True when the cumulative run usage is estimated, not provider-reported. */
-  runEstimated?: boolean;
   /** Composed-context occupancy percent (0–100). Omitted → no context segment renders. */
   contextPercent?: number;
-  /** True when the context-window denominator is a fallback estimate. */
-  windowEstimated?: boolean;
+  /** Whether Calm Mode is active. */
+  calmMode?: boolean;
 }
 
 export interface FooterLayoutOutput {
@@ -30,7 +29,7 @@ export interface FooterLayoutOutput {
   dirText: string;
   branch: string;
   branchText: string;
-  pathBranch: string;
+  calmLabel: string;
   tokenUsage: string;
 }
 
@@ -44,8 +43,9 @@ export function formatRunTokens(count: number): string {
 
 export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutput {
   const columns = input.columns || 80;
-  const contentWidth = Math.max(24, columns - FOOTER_EDGE_PAD);
-  const modeLabel = input.mode === 'plan' ? '[PLAN] ' : '[BUILD] ';
+  const contentWidth = Math.max(1, columns - FOOTER_EDGE_PAD);
+  const modeLabel =
+    contentWidth < 14 ? (input.mode === 'plan' ? 'P ' : 'B ') : input.mode === 'plan' ? '[PLAN] ' : '[BUILD] ';
 
   const gaugePercent =
     typeof input.contextPercent === 'number' ? Math.max(0, Math.min(100, input.contextPercent)) : null;
@@ -57,44 +57,62 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
   const hasRunUsage = typeof input.runTokens === 'number';
   const tokenStr = hasRunUsage ? formatRunTokens(runCount) : '';
   const ctxStr = gaugePercent !== null ? `${gaugePercent.toFixed(1)}%` : '';
-  const tokenUsage = [tokenStr, ctxStr].filter(Boolean).join(' · ');
+  let tokenUsage = [tokenStr, ctxStr].filter(Boolean).join(' · ');
+  let calmLabel = input.calmMode ? '⟪CALM⟫' : '';
 
   const cleanBranch = input.branch ? input.branch.replace(/^\(+|\)+$/g, '').trim() : '';
   const rawDir = getWorkspaceFolderName(input.dir);
 
-  const rightText = tokenUsage;
-  const tokenWidth = rightText.length + (rightText ? 1 : 0);
-  const colonWidth = rawDir && cleanBranch ? 1 : 0;
-  const fixedRight = tokenWidth + colonWidth + 1;
-  const fixedLeft = modeLabel.length + 3; // mode + "◇ "
+  const chipPrefixWidth = input.chip ? 2 : 0; // "◇ "
+  const fixedLeft = modeLabel.length + chipPrefixWidth;
+  let available = Math.max(0, contentWidth - fixedLeft);
 
-  let available = contentWidth - fixedLeft - fixedRight;
+  const minChipWidth = Math.min(input.chip.length, FOOTER_MIN_CHIP_LEN);
+  if (tokenUsage && available - (tokenUsage.length + 1) >= minChipWidth) {
+    available -= tokenUsage.length + 1;
+  } else {
+    tokenUsage = '';
+  }
+
+  if (calmLabel && available - (calmLabel.length + 1) >= minChipWidth) {
+    available -= calmLabel.length + 1;
+  } else {
+    calmLabel = '';
+  }
 
   // Model chip gets first claim on the remaining width and truncates from the
   // middle so the unique tail (e.g. "-550b-a55b") is never silently dropped.
-  const chipBudget = Math.max(6, Math.min(input.chip.length, Math.floor(available * 0.35)));
-  const chipText = truncateMiddle(input.chip, chipBudget);
+  // Clamped to `available` as well: `minChipWidth` is a legibility floor, not a
+  // licence to overrun the terminal — below ~14 columns the floor exceeds the
+  // whole budget and the footer would overflow its own width.
+  const chipBudget = Math.min(
+    input.chip.length,
+    Math.min(available, Math.max(minChipWidth, Math.floor(available * 0.35))),
+  );
+  const chipText = truncateMiddle(input.chip, Math.max(0, chipBudget));
   available -= chipText.length;
 
   let provider = '';
   if (available >= FOOTER_MIN_PROVIDER_LEN && input.providerName) {
-    const name = truncateEnd(input.providerName, available - 3);
+    const name = truncateEnd(input.providerName, Math.max(0, available - 3));
     provider = ` · ${name}`;
     available -= provider.length;
   }
 
-  const branchBudget = Math.max(1, Math.min(cleanBranch.length, Math.max(1, Math.floor(available * 0.45))));
-  const branchText = truncateEnd(cleanBranch, branchBudget);
-  available = Math.max(0, available - branchText.length);
-
-  const dirBudget = Math.max(1, available);
-  const dirText = truncateStart(rawDir, dirBudget);
-
-  let pathBranch = branchText;
-  if (dirText && branchText) {
-    pathBranch = `${dirText}:${branchText}`;
-  } else if (dirText) {
-    pathBranch = dirText;
+  let branchText = '';
+  let dirText = '';
+  if (available > 0) {
+    if (rawDir && cleanBranch && available >= 4) {
+      const pathBudget = available - 2; // colon plus trailing branch spacer
+      const branchBudget = Math.max(1, Math.min(cleanBranch.length, Math.floor(pathBudget * 0.45)));
+      branchText = truncateEnd(cleanBranch, branchBudget);
+      const dirBudget = Math.max(0, pathBudget - branchText.length);
+      dirText = truncateStart(rawDir, dirBudget);
+    } else if (cleanBranch && available >= 2) {
+      branchText = truncateEnd(cleanBranch, available - 1);
+    } else if (rawDir) {
+      dirText = truncateStart(rawDir, available);
+    }
   }
 
   return {
@@ -105,7 +123,7 @@ export function computeFooterLayout(input: FooterLayoutInput): FooterLayoutOutpu
     dirText,
     branch: cleanBranch,
     branchText,
-    pathBranch,
+    calmLabel,
     tokenUsage,
   };
 }

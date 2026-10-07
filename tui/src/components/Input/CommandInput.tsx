@@ -30,12 +30,8 @@ interface CommandInputProps {
   mode?: ScenarioMode;
   /** Cumulative run/API token usage (telemetry). */
   runTokens?: number;
-  /** True when cumulative run usage is estimated, not provider-reported. */
-  runEstimated?: boolean;
-  /** Composed-context occupancy percent (0–100). */
+  /** Composed-context occupancy percent (0-100). */
   contextPercent?: number;
-  /** True when the context window is a fallback estimate. */
-  windowEstimated?: boolean;
   workspaceName?: string;
   gitBranch?: string;
   onCancel?: () => void;
@@ -66,9 +62,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
     mode = 'build',
     calmMode,
     runTokens,
-    runEstimated,
     contextPercent,
-    windowEstimated,
     workspaceName = SESSION_STATUS_DEFAULTS.workspaceName,
     gitBranch,
     onCancel,
@@ -98,6 +92,12 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
           if (key.upArrow || key.downArrow || isEnter || key.tab || key.escape) return true;
           return false;
         }
+        // Arrows scroll the transcript only when the composer is empty. With a draft
+        // present they belong to the editor: MultiLineTextInput maps them to
+        // history recall and cursor line movement, and intercepting here would
+        // break both. PgUp/PgDn are deliberately absent - useTerminalKeyboard
+        // already owns them, and Ink dispatches every keypress to all active
+        // useInput hooks, so binding them here too would scroll twice per press.
         if (running && !value.trim()) {
           if (key.upArrow && scrollUp) {
             scrollUp(3);
@@ -283,9 +283,7 @@ export const CommandInput: React.FC<CommandInputProps> = React.memo(
             dir={workspaceName}
             branch={activeBranch}
             runTokens={runTokens}
-            runEstimated={runEstimated}
             contextPercent={contextPercent}
-            windowEstimated={windowEstimated}
             calmMode={calmMode}
           />
         </Box>

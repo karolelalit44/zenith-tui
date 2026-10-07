@@ -38,8 +38,9 @@ describe('ToolTraceBlock', () => {
     };
     const { lastFrame } = renderTrace(result);
     const frame = lastFrame();
-    expect(frame).toContain('');
     expect(frame).toContain('Read');
+    expect(frame).toContain('ok');
+    expect(frame).not.toContain('✗');
   });
 
   it('renders a failed tool_result with the error detail', () => {

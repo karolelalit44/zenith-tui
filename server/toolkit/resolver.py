@@ -13,9 +13,13 @@ from server.toolkit.schema_metrics import estimate_tool_schema_tokens
 DISCOVERY_TOOLS: tuple[str, ...] = (DISCOVER_CAPABILITIES_TOOL, GET_TOOL_DEFINITION_TOOL)
 
 
-def build_mode_tool_seed(allowed_tools: list[str] | None) -> list[str]:
-    """Combine the mode's core tool set with the always-on discovery meta-tools."""
-    seed = list(allowed_tools or [])
+def build_mode_tool_seed(seed_tools: list[str] | None = None) -> list[str]:
+    """Combine the initial seed tools with the always-on discovery meta-tools.
+
+    When seed_tools is None or empty, returns only DISCOVERY_TOOLS so the model
+    operates in on-demand capability loading mode.
+    """
+    seed = list(seed_tools or [])
     for name in DISCOVERY_TOOLS:
         if name not in seed:
             seed.append(name)
@@ -47,7 +51,7 @@ class SchemaResolver:
         # Token measurement walks every active schema through the tokenizer, and
         # the active set changes on every escalation mid-turn. Memoising on the
         # exact set means the common no-change case is a tuple compare.
-        self._schema_token_cache: tuple[tuple[str, ...], str, int] | None = None
+        self._schema_token_cache: tuple[tuple[tuple[str, ...], str, str], int] | None = None
         for name in seed or []:
             self.request_tool(name)
 
@@ -119,6 +123,10 @@ class SchemaResolver:
         Not part of any message, so it is invisible to message-level token
         counting while occupying the context window on every call. Callers that
         gate on occupancy must fold this in.
+
+        With ``mode`` the measurement follows what ``openai_tools(mode)`` would
+        actually send, which is a subset of the active set — counting the whole
+        set would bill schemas this request never carried.
         """
         if self.registry is None:
             return 0
@@ -139,4 +147,3 @@ class SchemaResolver:
             total += estimate_tool_schema_tokens(tool.get_schema(), tool.description, model)
         self._schema_token_cache = (cache_key, total)
         return total
-

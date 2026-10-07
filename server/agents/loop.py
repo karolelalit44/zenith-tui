@@ -35,13 +35,17 @@ _DEGENERATE_TOKENS = {
     "[thinking]",
     "[no output]",
     "...",  # sanitized placeholder for empty assistant turn
+    "[empty assistant turn]",
+    "empty assistant turn",
 }
 
 
 def _is_degenerate_message(text: str | None) -> bool:
     if not text or not str(text).strip():
         return True
-    return str(text).strip().lower() in _DEGENERATE_TOKENS
+    raw = str(text).strip().lower()
+    cleaned = raw.strip("'\"").rstrip(".")
+    return raw in _DEGENERATE_TOKENS or cleaned in _DEGENERATE_TOKENS
 
 
 def _strip_write_payload_from_assistant_messages(

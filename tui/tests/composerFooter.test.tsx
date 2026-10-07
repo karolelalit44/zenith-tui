@@ -2,7 +2,9 @@ import { render } from 'ink-testing-library';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerFooter } from '../src/components/Input/ComposerFooter';
+import { FOOTER_EDGE_PAD } from '../src/constants/layout';
 import { computeFooterLayout } from '../src/utils/footerLayout';
+import { renderAtWidth } from './helpers/terminalStubs';
 
 const nvidiaModel = 'nvidia/nemotron-3-ultra-550b-a55b';
 
@@ -160,7 +162,10 @@ describe('ComposerFooter', () => {
   });
 
   it('computeFooterLayout never exceeds the available width', () => {
-    for (const columns of [60, 80, 100, 120, 160]) {
+    // 10–14 columns is where the chip's legibility floor exceeds the whole
+    // budget: without a clamp to `available` the row renders wider than the
+    // terminal it is supposed to fit inside.
+    for (const columns of [8, 10, 12, 13, 14, 16, 20, 24, 32, 40, 60, 80, 100, 120, 160]) {
       const layout = computeFooterLayout({
         columns,
         mode: 'build',
@@ -170,14 +175,16 @@ describe('ComposerFooter', () => {
         branch: 'fix/ser-tu-communication-n-separations',
       });
 
-      const contentWidth = columns - 4;
+      const contentWidth = columns - FOOTER_EDGE_PAD;
       const renderedWidth =
         layout.modeLabel.length +
-        2 +
+        (layout.chip ? 2 : 0) +
         layout.chip.length +
         layout.provider.length +
         (layout.dirText ? layout.dirText.length : 0) +
+        (layout.dirText && layout.branchText ? 1 : 0) +
         (layout.branchText ? layout.branchText.length + 1 : 0) +
+        (layout.calmLabel ? layout.calmLabel.length + 1 : 0) +
         layout.tokenUsage.length;
 
       expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
@@ -185,7 +192,7 @@ describe('ComposerFooter', () => {
   });
 
   it('computeFooterLayout budgets the composed-context gauge width', () => {
-    for (const columns of [80, 100, 120, 160]) {
+    for (const columns of [32, 40, 80, 100, 120, 160]) {
       const layout = computeFooterLayout({
         columns,
         mode: 'build',
@@ -194,19 +201,20 @@ describe('ComposerFooter', () => {
         dir: '.../code/zenith-frontend-tui',
         branch: 'fix/ser-tu-communication-n-separations',
         runTokens: 12_400,
-        runEstimated: true,
         contextPercent: 100,
-        windowEstimated: true,
+        calmMode: true,
       });
 
-      const contentWidth = columns - 4;
+      const contentWidth = columns - FOOTER_EDGE_PAD;
       const renderedWidth =
         layout.modeLabel.length +
-        2 +
+        (layout.chip ? 2 : 0) +
         layout.chip.length +
         layout.provider.length +
         (layout.dirText ? layout.dirText.length : 0) +
+        (layout.dirText && layout.branchText ? 1 : 0) +
         (layout.branchText ? layout.branchText.length + 1 : 0) +
+        (layout.calmLabel ? layout.calmLabel.length + 1 : 0) +
         layout.tokenUsage.length;
 
       expect(renderedWidth).toBeLessThanOrEqual(contentWidth);
@@ -248,5 +256,69 @@ describe('ComposerFooter', () => {
     expect(frame).not.toContain('+168');
     expect(frame).not.toContain('(23 s)');
     restore();
+  });
+
+  it('keeps the rendered footer to one line on narrow terminals', () => {
+    const app = renderAtWidth(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        runTokens={12_400}
+        contextPercent={100}
+        calmMode={true}
+      />,
+      { columns: 32 },
+    );
+
+    const frame = app.lastFrame() || '';
+    expect(frame.split('\n').filter((line) => line.length > 0)).toHaveLength(1);
+  });
+
+  it('documents what a narrow footer drops', () => {
+    // At 32 columns the gauge cannot fit alongside the model chip, so
+    // computeFooterLayout drops it deliberately. Stating that here means a
+    // regression that keeps the gauge would fail rather than silently truncate.
+    const app = renderAtWidth(
+      <ComposerFooter
+        mode="build"
+        modelFallback="nvidia/nemotron-3-ultra-550b-a55b"
+        providerName="NVIDIA AI"
+        dir=".../code/zenith-frontend-tui"
+        branch="fix/ser-tu-communication-n-separations"
+        runTokens={12_400}
+        contextPercent={100}
+        calmMode={true}
+      />,
+      { columns: 32 },
+    );
+
+    const frame = app.lastFrame() || '';
+    expect(frame).toContain('⟪CALM⟫');
+    expect(frame).not.toContain('100.0%');
+  });
+
+  it('does not render past the terminal width at very narrow widths', () => {
+    for (const columns of [8, 10, 12]) {
+      const app = renderAtWidth(
+        <ComposerFooter
+          mode="build"
+          modelFallback={nvidiaModel}
+          providerName="NVIDIA AI"
+          dir=".../code/zenith-frontend-tui"
+          branch="fix/ser-tu-communication-n-separations"
+          runTokens={12_400}
+          contextPercent={100}
+          calmMode={true}
+        />,
+        { columns },
+      );
+      const lines = (app.lastFrame() || '').split('\n').filter((line) => line.trim().length > 0);
+      for (const line of lines) {
+        expect(line.length).toBeLessThanOrEqual(columns);
+      }
+    }
   });
 });

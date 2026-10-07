@@ -95,31 +95,35 @@ class TestEphemeralWindowAndPayloadStripping:
         assert "[content omitted; file written]" in assistant_content
 
     def test_sliding_window_compaction(self):
-        # Simulate active tool indices behavior
-        messages: list[dict] = []
-        active_indices: list[int] = []
+        """The window keeps the newest EPHEMERAL_TOOL_WINDOW_SIZE results intact.
 
-        for i in range(5):
-            msg = {
+        Exercises `prune_inflight_messages` itself. The previous version of this
+        test re-implemented the digest rule inline and then asserted against its
+        own reimplementation, so it passed regardless of production behaviour.
+        """
+        from server.agents.compaction import prune_inflight_messages
+
+        messages: list[dict] = [
+            {
                 "role": "user",
                 "content": f"FULL OUTPUT FOR TOOL {i} " + "X" * 1000,
                 "digest": f"[Tool: tool_{i} | Status: SUCCESS] Found {i} items",
+                "tool_name": f"tool_{i}",
             }
-            messages.append(msg)
-            active_indices.append(len(messages) - 1)
-            if len(active_indices) > EPHEMERAL_TOOL_WINDOW_SIZE:
-                for old_idx in active_indices[:-EPHEMERAL_TOOL_WINDOW_SIZE]:
-                    old_msg = messages[old_idx]
-                    if "digest" in old_msg and not old_msg.get("is_digested"):
-                        old_msg["content"] = old_msg["digest"]
-                        old_msg["is_digested"] = True
+            for i in range(EPHEMERAL_TOOL_WINDOW_SIZE + 2)
+        ]
 
-        # Oldest 3 messages must be digested
-        for i in range(3):
-            assert messages[i]["content"].startswith(f"[Tool: tool_{i} | Status: SUCCESS]")
-            assert "X" * 1000 not in messages[i]["content"]
-            assert messages[i]["is_digested"] is True
+        pruned, stats = prune_inflight_messages(
+            messages, keep_latest_tools=EPHEMERAL_TOOL_WINDOW_SIZE
+        )
 
-        # Latest 2 messages (indices 3 and 4) must retain full output
-        assert messages[3]["content"].startswith("FULL OUTPUT FOR TOOL 3")
-        assert messages[4]["content"].startswith("FULL OUTPUT FOR TOOL 4")
+        assert stats.trimmed is True
+        # Everything outside the window is collapsed onto its digest.
+        digested = EPHEMERAL_TOOL_WINDOW_SIZE
+        for i in range(digested):
+            assert pruned[i]["content"] == f"[Tool: tool_{i} | Status: SUCCESS] Found {i} items"
+            assert "X" * 1000 not in pruned[i]["content"]
+            assert pruned[i]["time"] == "compacted"
+        # The window itself retains full output.
+        for i in range(digested, len(messages)):
+            assert pruned[i]["content"].startswith(f"FULL OUTPUT FOR TOOL {i}")

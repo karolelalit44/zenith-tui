@@ -81,6 +81,25 @@ FILE_MUTATION_TOOLS = (
 
 AUTO_LINT_FIX_ENABLED = True
 
+# A tool that failed because the caller named a path that does not exist is not
+# a broken tool, and the UI renders it differently. These metadata keys are the
+# contract between the search tools and the TUI: the server writes them, the
+# TUI reads them. Both names and caps live here so there is one owner.
+MISSING_PATH_RECOVERABLE_KEY = "recoverable_miss"
+MISSING_PATH_KEY = "missing_path"
+MISSING_PATH_ENTRIES_KEY = "workspace_entries"
+MISSING_PATH_HINT_KEY = "hint"
+
+# How many top-level workspace entries a missing-path hint lists. Bounded because
+# the hint ends up in the model's context.
+MISSING_PATH_HINT_MAX_ENTRIES = 12
+MISSING_PATH_HINT_LEAD = "Use an existing workspace path"
+
+# How much of one tool observation a crewmate records when a delegated mission
+# is cut short. Separate from the hint bound above: that one caps entries the
+# hint enumerates, this one caps observation text the parent agent reads back.
+CREWMATE_OBSERVATION_CHARS = 400
+
 BASH_TOOL_DESCRIPTION_WINDOWS = (
     "Run a PowerShell command in the workspace for process execution (tests, lint, "
     "build). PowerShell only; never Unix commands like ls -la, mkdir -p. NEVER use "
@@ -208,6 +227,10 @@ EXPLORE_PARALLEL_DEFAULT = 2
 EXPLORE_TOKEN_BUDGET_ENV = "ZENITH_EXPLORE_TOKEN_BUDGET"
 DEFAULT_EXPLORE_TOKEN_BUDGET = 120_000
 EXPLORE_BUDGET_WINDOW_SECONDS = 600.0
+# Read-only tool calls one delegated crewmate may make before it is cut off.
+# A ceiling, not a target: a crewmate that reaches it without emitting a report
+# is reported as truncated, never as completed.
+CREWMATE_TOOL_CALL_LIMIT = 6
 # Governance modes (D3): off | tool | proactive.
 EXPLORE_DELEGATION_OFF = "off"
 EXPLORE_DELEGATION_TOOL = "tool"

@@ -61,6 +61,7 @@ CORE_PLAN_TOOLS = [
 class AgentModeConfig:
     name: str
     allowed_tools: list[str] | None = None
+    seed_tools: list[str] | None = None
     description: str = ""
     model_override: str | None = None
     tool_choice: str = "auto"
@@ -70,12 +71,12 @@ class AgentModeConfig:
 PLAN_MODE_CONFIG = AgentModeConfig(
     name=PLAN_MODE,
     allowed_tools=CORE_PLAN_TOOLS,
+    seed_tools=None,
     description="Read-only analysis and planning with core tools and dynamic escalation.",
 )
-# Always-offered schemas. Web research tools are core research first-class
-# tools in build mode too: the 10% temporal-instability policy mandates search
-# for non-local claims, so the model must always have them available rather
-# than having to name them in its own prompt to trigger on-demand escalation.
+# Core tools permitted in build mode. By default, schemas are loaded on demand
+# via get_tool_definition or escalated on invocation rather than being sent
+# upfront with every single message, keeping turns lean and token-efficient.
 CORE_BUILD_TOOLS = [
     "file_read",
     "file_stat",
@@ -94,6 +95,7 @@ CORE_BUILD_TOOLS = [
 BUILD_MODE_CONFIG = AgentModeConfig(
     name=BUILD_MODE,
     allowed_tools=CORE_BUILD_TOOLS,
+    seed_tools=None,
     description="Full execution with core tools and dynamic schema escalation.",
     tool_choice="auto",
     crewmate=True,
@@ -101,6 +103,7 @@ BUILD_MODE_CONFIG = AgentModeConfig(
 READ_ONLY_MODE_CONFIG = AgentModeConfig(
     name=READ_ONLY_MODE,
     allowed_tools=READ_ONLY_TOOLS,
+    seed_tools=None,
     description="Pure read-only investigation: no file-mutation tools attached.",
     tool_choice="none",
 )

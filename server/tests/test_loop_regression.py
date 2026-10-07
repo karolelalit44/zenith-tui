@@ -701,11 +701,10 @@ async def test_non_code_prompt_still_gets_tools_on_iteration_one(test_config):
     assert provider.first_turn_tools is not None, "model was not offered any tools"
     assert provider.first_turn_tools, "iteration-1 tool list must not be empty"
     offered = {t["function"]["name"] for t in provider.first_turn_tools}
-    assert "file_read" in offered
-    # Web research tools are core build-seed tools now (see CORE_BUILD_TOOLS):
-    # the model must be able to reach them on iteration 1 without a detour.
-    assert "websearch" in offered, "web research tools must ship in the build seed"
     assert "discover_capabilities" in offered, "discovery tools must remain offered"
+    assert "get_tool_definition" in offered, "get_tool_definition must remain offered"
+    assert "file_read" not in offered, "tools must load on demand, not with every message"
+    assert "websearch" not in offered, "tools must load on demand, not with every message"
 
 
 class _ManifestProvider(BaseProvider):
@@ -750,6 +749,47 @@ async def test_success_path_emits_turn_manifest(test_config):
     success_events = [e for e in events if e.kind == EventKind.SUCCESS]
     assert len(success_events) == 1
     assert "manifest" in success_events[0].data, "success event missing manifest payload"
+
+
+class _OnDemandLoadProvider(BaseProvider):
+    """Loads file_read on demand via get_tool_definition, then verifies it was escalated."""
+
+    def __init__(self):
+        super().__init__("ondemand", "ondemand-model")
+        self.call_count = 0
+        self.tools_per_turn: list[set[str]] = []
+
+    async def complete(self, messages, tools=None):
+        self.call_count += 1
+        offered_names = {t["function"]["name"] for t in (tools or [])}
+        self.tools_per_turn.append(offered_names)
+        if self.call_count == 1:
+            return '```tool\n{"tool": "get_tool_definition", "params": {"tool_name": "file_read"}}\n```'
+        return "Got file_read definition, ready."
+
+    stream = _stream_from_complete
+
+    async def validate(self) -> bool:
+        return True
+
+    async def list_models(self) -> list[str]:
+        return ["ondemand-model"]
+
+
+@pytest.mark.asyncio
+async def test_on_demand_tool_escalation_via_get_tool_definition(test_config):
+    provider = _OnDemandLoadProvider()
+    agent = AgentLoop(test_config, provider, tool_registry=create_default_registry())
+
+    async for _event in agent.process_prompt("Read a file", "s1", [], "build"):
+        pass
+
+    assert provider.call_count >= 2
+    # Turn 1 only offered discovery meta-tools (file_read not present)
+    assert "file_read" not in provider.tools_per_turn[0]
+    assert "get_tool_definition" in provider.tools_per_turn[0]
+    # Turn 2 offered file_read after on-demand load
+    assert "file_read" in provider.tools_per_turn[1]
 
 
 class _StalledProvider(BaseProvider):

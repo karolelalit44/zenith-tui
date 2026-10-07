@@ -37,6 +37,17 @@ def providers_requiring_key() -> set[str]:
     return {pid for pid, p in catalog["providers"].items() if p.get("requires_api_key", True)}
 
 
+def _is_keyless_provider_configured(name: str, cfg, catalog: dict) -> bool:
+    entry = catalog.get("providers", {}).get(name) or {}
+    if entry.get("requires_api_key", True):
+        return False
+    if not str(getattr(cfg, "model", "") or "").strip():
+        return False
+    if entry.get("custom_flow", False):
+        return bool(str(getattr(cfg, "base_url", "") or entry.get("base_url") or "").strip())
+    return True
+
+
 def parse_hooks_env(raw: str) -> dict | None:
     if not raw or not raw.strip():
         return None
@@ -189,20 +200,25 @@ def _validate_config(settings: AppSettings) -> None:
     _validated_once = True
     warnings: list[str] = []
     providers = settings.providers or {}
-    has_any_key = False
+    catalog = _load_catalog()
+    has_any_usable_provider = False
     requiring_key = providers_requiring_key()
     for name, cfg in providers.items():
         if name in requiring_key:
             key = getattr(cfg, "api_key", None) or ""
             if key.strip():
-                has_any_key = True
-                break
-            warnings.append(f"Provider '{name}' is configured but missing a valid API key.")
-    if not has_any_key and (not any(getattr(cfg, "api_key", None) for cfg in providers.values())):
+                has_any_usable_provider = True
+            else:
+                warnings.append(f"Provider '{name}' is configured but missing a valid API key.")
+        elif _is_keyless_provider_configured(name, cfg, catalog):
+            # No break: a keyless provider configured *after* a keyed one is
+            # still usable, and exiting the loop early here is what made the
+            # keyless branch unreachable in that ordering.
+            has_any_usable_provider = True
+    if not has_any_usable_provider and (not any(getattr(cfg, "api_key", None) for cfg in providers.values())):
         warnings.append(
             "No provider API keys found in user_profile.json. Configure at least one provider via setup wizard."
         )
-    catalog = _load_catalog()
     if settings.active_provider not in providers and settings.active_provider not in catalog.get(
         "providers", {}
     ):

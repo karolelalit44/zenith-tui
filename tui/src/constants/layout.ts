@@ -22,7 +22,9 @@ export const NESTED_PAD_X = 2;
 /** Uniform vertical gap (blank line) between conversation rows. */
 export const ROW_GAP = 1;
 
-/** Usable row width for a given terminal width, clamped to a minimum. */
+/** Usable row width for a given terminal width, never wider than the terminal. */
 export function contentWidth(columns: number, inset: number = CONTENT_WIDTH_INSET): number {
-  return Math.max(30, columns - inset);
+  const safeColumns = Math.max(1, Math.floor(columns || 0));
+  const safeInset = Math.max(0, Math.floor(inset || 0));
+  return Math.max(1, safeColumns - safeInset);
 }

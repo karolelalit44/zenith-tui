@@ -31,7 +31,16 @@ export function useScrollState(initialViewportHeight = 20): UseScrollStateReturn
 
   useEffect(() => {
     const height = rows ? Math.max(5, rows - 9) : initialViewportHeight;
-    setScrollState((prev) => ({ ...prev, viewportHeight: height }));
+    setScrollState((prev) => {
+      const maxOffset = Math.max(0, prev.contentHeight - height);
+      const nextOffset = prev.isUserScrolled ? Math.min(prev.scrollOffset, maxOffset) : maxOffset;
+      return {
+        ...prev,
+        viewportHeight: height,
+        scrollOffset: nextOffset,
+        isUserScrolled: prev.isUserScrolled && nextOffset < maxOffset,
+      };
+    });
   }, [rows, initialViewportHeight]);
 
   const scrollUp = useCallback((lines?: number) => {

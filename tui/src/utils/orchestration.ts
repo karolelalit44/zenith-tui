@@ -18,6 +18,46 @@ export interface ConsolidatedOrchestration extends CaptainOrchestrationEvent {
 }
 
 /**
+ * The status buckets the server actually emits.
+ *
+ * `CREWMATE_STATUS_BY_RESULT` (server/agents/delegation/orchestrator.py) plus the
+ * "assigned"/"working" literals are the whole vocabulary: completed, failed,
+ * retired, assigned, working. Narrowing the type here means a status the server
+ * cannot send becomes a compile error instead of a permanently false branch.
+ */
+export type EmittableCrewmateStatus = Extract<
+  CrewmateStatus,
+  'completed' | 'failed' | 'retired' | 'assigned' | 'working'
+>;
+
+const TERMINAL_STATUSES: ReadonlySet<EmittableCrewmateStatus> = new Set<EmittableCrewmateStatus>([
+  'completed',
+  'retired',
+]);
+const ACTIVE_STATUSES: ReadonlySet<EmittableCrewmateStatus> = new Set<EmittableCrewmateStatus>(['assigned', 'working']);
+const FAILED_STATUSES: ReadonlySet<EmittableCrewmateStatus> = new Set<EmittableCrewmateStatus>(['failed']);
+
+export interface OrchestrationFlags {
+  hasFailedCrew: boolean;
+  allComplete: boolean;
+  activeCrewmateCount: number;
+}
+
+/** The one place mission tallies are derived, so cards cannot disagree about them. */
+export function deriveOrchestrationFlags(crewmates: Crewmate[]): OrchestrationFlags {
+  const statusOf = (cm: Crewmate): EmittableCrewmateStatus | null => {
+    const s = cm.status;
+    return s === 'completed' || s === 'failed' || s === 'retired' || s === 'assigned' || s === 'working' ? s : null;
+  };
+  const seen = crewmates.map(statusOf).filter((s): s is EmittableCrewmateStatus => s !== null);
+  return {
+    hasFailedCrew: seen.some((s) => FAILED_STATUSES.has(s)),
+    allComplete: seen.length > 0 && seen.every((s) => TERMINAL_STATUSES.has(s)),
+    activeCrewmateCount: seen.filter((s) => ACTIVE_STATUSES.has(s)).length,
+  };
+}
+
+/**
  * Consolidate all captain orchestration and crewmate lifecycle events
  * into a single unified orchestration state.
  *
@@ -216,13 +256,7 @@ export function consolidateOrchestrationEvents(events: ScenarioEvent[]): Consoli
   const latestOrch = orchEvents.length > 0 ? orchEvents[orchEvents.length - 1] : null;
   const crewmatesList = Array.from(crewmatesMap.values());
 
-  const hasFailedCrew = crewmatesList.some((cm) => cm.status === 'failed' || cm.status === 'needs_review');
-  const allComplete =
-    crewmatesList.length > 0 && crewmatesList.every((cm) => cm.status === 'completed' || cm.status === 'retired');
-
-  const activeCrewmateCount = crewmatesList.filter(
-    (cm) => cm.status === 'working' || cm.status === 'assigned' || cm.status === 'spawned',
-  ).length;
+  const { hasFailedCrew, allComplete, activeCrewmateCount } = deriveOrchestrationFlags(crewmatesList);
 
   let derivedStage: CaptainOrchestrationEvent['stage'] = latestOrch?.stage || 'working';
   if (!latestOrch) {

@@ -1,8 +1,9 @@
 import { Box, Text, useInput } from 'ink';
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTerminalDimensions } from '../../../hooks/useTerminalDimensions';
 import { type FileNode, getDirectoryContents, searchFiles } from '../../../services/fileExplorer';
 import { useTheme } from '../../../theme/ThemeContext';
-import { FileList } from './FileList';
+import { FileList, getFileListLayout } from './FileList';
 
 interface FilePickerModalProps {
   onSelectFile: (relativePath: string, kind: 'file' | 'folder') => void;
@@ -20,6 +21,8 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({
   initialQuery = '',
 }) => {
   const { theme } = useTheme();
+  const { columns } = useTerminalDimensions();
+  const layout = getFileListLayout(columns || process.stdout.columns || 80);
   const PAGE_SIZE = 15;
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
@@ -167,26 +170,32 @@ export const FilePickerModal: React.FC<FilePickerModalProps> = ({
 
       <Box flexDirection="row" marginBottom={1}>
         <Box width={2} flexShrink={0} />
-        <Box width={30} flexShrink={0}>
+        <Box width={layout.name} flexShrink={1} flexGrow={1}>
           <Text color={theme.colors.text.muted} bold>
             NAME
           </Text>
         </Box>
-        <Box width={10} flexShrink={0}>
-          <Text color={theme.colors.text.muted} bold>
-            SIZE
-          </Text>
-        </Box>
-        <Box width={14} flexShrink={0}>
-          <Text color={theme.colors.text.muted} bold>
-            MODIFIED
-          </Text>
-        </Box>
-        <Box flexShrink={1}>
-          <Text color={theme.colors.text.muted} bold>
-            KIND
-          </Text>
-        </Box>
+        {layout.size > 0 ? (
+          <Box width={layout.size} flexShrink={0}>
+            <Text color={theme.colors.text.muted} bold>
+              SIZE
+            </Text>
+          </Box>
+        ) : null}
+        {layout.modified > 0 ? (
+          <Box width={layout.modified} flexShrink={0}>
+            <Text color={theme.colors.text.muted} bold>
+              MODIFIED
+            </Text>
+          </Box>
+        ) : null}
+        {layout.kind > 0 ? (
+          <Box width={layout.kind} flexShrink={0}>
+            <Text color={theme.colors.text.muted} bold>
+              KIND
+            </Text>
+          </Box>
+        ) : null}
       </Box>
 
       <FileList items={visibleItems} activeIndex={activeIndex - scrollOffset} currentPath={currentPath} />
